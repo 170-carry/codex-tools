@@ -37,11 +37,11 @@
   },
   "plugins": {
     "updater": {
-      "active": false,
+      "active": true,
       "dialog": false,
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk2OEFCOUI0Qjg0M0M3MTIKUldRU3gwTzR0TG1LbHMrUjRCazBmaDAwODhqN011QTQwMG9qWDhnTGRwSEc1WXRydXEvaTZ1eGgK",
       "endpoints": [
-        "https://github.com/Mrz-sakura/codex-tools/releases/latest/download/latest.json"
+        "https://github.com/170-carry/codex-tools/releases/latest/download/latest.json"
       ]
     }
   }
