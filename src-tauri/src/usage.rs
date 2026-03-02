@@ -6,7 +6,7 @@ use crate::models::UsageWindow;
 use crate::utils::now_unix_seconds;
 use crate::utils::truncate_for_error;
 
-const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api";
+const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com";
 const CODEX_USAGE_PATH: &str = "/api/codex/usage";
 const WHAM_USAGE_PATH: &str = "/wham/usage";
 
@@ -47,48 +47,92 @@ pub(crate) async fn fetch_usage_snapshot(
     access_token: &str,
     account_id: &str,
 ) -> Result<UsageSnapshot, String> {
-    let usage_url = resolve_usage_url();
+    let usage_urls = resolve_usage_urls();
 
     let client = reqwest::Client::builder()
         .user_agent("codex-tools/0.1")
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 
-    let response = client
-        .get(&usage_url)
-        .header("Authorization", format!("Bearer {access_token}"))
-        .header("ChatGPT-Account-Id", account_id)
-        .send()
-        .await
-        .map_err(|e| format!("请求用量接口失败: {e}"))?;
+    let mut errors: Vec<String> = Vec::new();
+    for usage_url in usage_urls {
+        let response = match client
+            .get(&usage_url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("ChatGPT-Account-Id", account_id)
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                errors.push(format!("{usage_url} -> {err}"));
+                continue;
+            }
+        };
 
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "用量接口返回错误 ({status}): {}",
-            truncate_for_error(&body, 240)
-        ));
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            errors.push(format!(
+                "{usage_url} -> {status}: {}",
+                truncate_for_error(&body, 140)
+            ));
+            continue;
+        }
+
+        let payload: UsageApiResponse = match response.json().await {
+            Ok(payload) => payload,
+            Err(err) => {
+                errors.push(format!("{usage_url} -> 解析返回失败: {err}"));
+                continue;
+            }
+        };
+        return Ok(map_usage_payload(payload));
     }
 
-    let payload: UsageApiResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("解析用量接口返回失败: {e}"))?;
-
-    Ok(map_usage_payload(payload))
+    if errors.is_empty() {
+        return Err("请求用量接口失败: 未命中任何候选地址".to_string());
+    }
+    let preview = errors
+        .iter()
+        .take(2)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if errors.len() > 2 {
+        Err(format!(
+            "请求用量接口失败: {preview} | 另有 {} 个候选地址失败",
+            errors.len() - 2
+        ))
+    } else {
+        Err(format!("请求用量接口失败: {preview}"))
+    }
 }
 
-fn resolve_usage_url() -> String {
+fn resolve_usage_urls() -> Vec<String> {
     let base_url =
         read_chatgpt_base_url_from_config().unwrap_or_else(|| DEFAULT_CHATGPT_BASE_URL.to_string());
     let normalized = base_url.trim_end_matches('/');
+    let mut candidates = Vec::new();
 
-    if normalized.contains("/backend-api") {
-        format!("{normalized}{WHAM_USAGE_PATH}")
+    if let Some(origin) = normalized.strip_suffix("/backend-api") {
+        candidates.push(format!("{origin}{CODEX_USAGE_PATH}"));
+        candidates.push(format!("{normalized}{WHAM_USAGE_PATH}"));
     } else {
-        format!("{normalized}{CODEX_USAGE_PATH}")
+        candidates.push(format!("{normalized}{CODEX_USAGE_PATH}"));
+        candidates.push(format!("{normalized}/backend-api{WHAM_USAGE_PATH}"));
     }
+
+    candidates.push(format!("https://chatgpt.com{CODEX_USAGE_PATH}"));
+    candidates.push("https://chatgpt.com/backend-api/wham/usage".to_string());
+
+    let mut deduped = Vec::new();
+    for url in candidates {
+        if !deduped.iter().any(|existing| existing == &url) {
+            deduped.push(url);
+        }
+    }
+    deduped
 }
 
 fn read_chatgpt_base_url_from_config() -> Option<String> {
