@@ -2,18 +2,29 @@ type AddAccountSectionProps = {
   startingAdd: boolean;
   addFlowActive: boolean;
   onStartAddAccount: () => void;
+  onSmartSwitch: () => void;
+  smartSwitching: boolean;
 };
 
 export function AddAccountSection({
   startingAdd,
   addFlowActive,
   onStartAddAccount,
+  onSmartSwitch,
+  smartSwitching,
 }: AddAccountSectionProps) {
   return (
     <section className="importBar">
       <div className="importInfo">
-        <h2>添加账号</h2>
-        <p>授权完成后自动导入并刷新。</p>
+        <button
+          className="smartSwitchButton importSmartSwitch"
+          onClick={onSmartSwitch}
+          disabled={smartSwitching}
+          title="智能切换"
+          aria-label="智能切换"
+        >
+          智能切换
+        </button>
       </div>
       <div className="importRow">
         <button

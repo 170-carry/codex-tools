@@ -42,6 +42,8 @@ function App() {
     onCancelAddFlow,
     onDelete,
     onSwitch,
+    onSmartSwitch,
+    smartSwitching,
   } = useCodexController();
 
   return (
@@ -74,6 +76,8 @@ function App() {
           startingAdd={startingAdd}
           addFlowActive={Boolean(addFlow)}
           onStartAddAccount={() => void onStartAddAccount()}
+          onSmartSwitch={() => void onSmartSwitch()}
+          smartSwitching={smartSwitching}
         />
         <AddAccountDialog
           open={startingAdd || Boolean(addFlow)}

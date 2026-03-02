@@ -13,6 +13,7 @@ import type {
   SwitchAccountResult,
   UpdateSettingsOptions,
 } from "../types/app";
+import { pickBestRemainingAccount, sortAccountsByRemaining } from "../utils/accountRanking";
 
 const REFRESH_MS = 30_000;
 const EDITOR_SCAN_MS = 60_000;
@@ -62,6 +63,7 @@ export function useCodexController() {
     () => accounts.filter((account) => account.isCurrent).length,
     [accounts],
   );
+  const sortedAccounts = useMemo(() => sortAccountsByRemaining(accounts), [accounts]);
 
   const loadAccounts = useCallback(async () => {
     const data = await invoke<AccountSummary[]>("list_accounts");
@@ -508,8 +510,29 @@ export function useCodexController() {
     ],
   );
 
+  const onSmartSwitch = useCallback(async () => {
+    if (switchingId) {
+      return;
+    }
+
+    const target = pickBestRemainingAccount(sortedAccounts);
+    if (!target) {
+      setNotice({ type: "info", message: "暂无可切换账号，请先添加账号。" });
+      return;
+    }
+    if (target.isCurrent) {
+      setNotice({
+        type: "info",
+        message: "当前账号已是最优余量账号（优先 1week，其次 5h）。",
+      });
+      return;
+    }
+
+    await onSwitch(target);
+  }, [onSwitch, sortedAccounts, switchingId]);
+
   return {
-    accounts,
+    accounts: sortedAccounts,
     loading,
     refreshing,
     startingAdd,
@@ -536,5 +559,7 @@ export function useCodexController() {
     onCancelAddFlow,
     onDelete,
     onSwitch,
+    onSmartSwitch,
+    smartSwitching: switchingId !== null,
   };
 }

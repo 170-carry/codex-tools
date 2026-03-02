@@ -58,7 +58,7 @@ export function AppTopBar({
 
   return (
     <header className="topbar">
-      <div>
+      <div className="topDragRegion" data-tauri-drag-region>
         <div className="brandLine">
           <img className="appLogo" src="/codex-tools.png" alt="Codex Tools logo" />
           <h1>Codex Tools</h1>

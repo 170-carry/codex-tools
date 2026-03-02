@@ -8,6 +8,8 @@
 仓库地址：<https://github.com/170-carry/codex-tools>
 
 ## 更新日志
+- v0.3.2
+  1. 增加用量排序
 - v0.3.1
   1. 优化UI表现
 - v0.3.0

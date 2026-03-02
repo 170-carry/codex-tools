@@ -198,6 +198,15 @@
   align-items: start;
 }
 
+.topDragRegion {
+  user-select: none;
+  cursor: grab;
+}
+
+.topDragRegion:active {
+  cursor: grabbing;
+}
+
 .kicker {
   margin: 0;
   text-transform: uppercase;
@@ -238,6 +247,23 @@
   gap: 8px;
   justify-content: flex-end;
   align-items: center;
+}
+
+.smartSwitchButton {
+  min-width: 132px;
+  border-radius: 14px;
+  padding: 12px 20px;
+  font: 700 0.95rem/1 "IBM Plex Sans", sans-serif;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--ink) 88%, #fff 12%);
+  border: 1px solid color-mix(in srgb, var(--brand-hot) 62%, var(--brand-cool) 38%);
+  background:
+    radial-gradient(130% 140% at 5% 0%, rgba(255, 179, 124, 0.48), transparent 42%),
+    radial-gradient(140% 140% at 100% 100%, rgba(107, 230, 218, 0.45), transparent 46%),
+    linear-gradient(125deg, rgba(255, 163, 90, 0.25), rgba(85, 224, 210, 0.2));
+  box-shadow:
+    0 8px 22px rgba(20, 56, 94, 0.18),
+    inset 0 1px rgba(255, 255, 255, 0.52);
 }
 
 .iconButton {
@@ -665,20 +691,11 @@ button.danger {
 
 .importInfo {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
 }
 
-.importInfo h2 {
-  margin: 0;
-  font: 700 1rem/1.2 "IBM Plex Sans", sans-serif;
-  letter-spacing: 0.02em;
-}
-
-.importInfo p {
-  margin: 0;
-  color: var(--subtle);
-  font: 500 0.82rem/1.35 "IBM Plex Sans", sans-serif;
+.importSmartSwitch {
+  min-width: 150px;
 }
 
 .importRow {
