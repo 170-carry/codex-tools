@@ -56,7 +56,18 @@
   --error-text: #b64a58;
   --glow-hot: rgba(255, 145, 56, 0.14);
   --glow-cool: rgba(47, 210, 200, 0.12);
+  --glow-neutral: rgba(255, 255, 255, 0.46);
   --body-bg: #eef4ff;
+  --shell-top: #f8f5f1;
+  --shell-mid: #edf2fa;
+  --shell-bottom: #e3eaf6;
+  --stage-glass: rgba(255, 255, 255, 0.16);
+  --stage-line: rgba(98, 120, 151, 0.12);
+  --section-surface: rgba(255, 255, 255, 0.42);
+  --section-line: rgba(99, 120, 150, 0.14);
+  --section-shadow:
+    0 14px 34px rgba(32, 50, 79, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.62);
   --account-card-bg-start: rgba(255, 255, 255, 0.97);
   --account-card-bg-end: rgba(255, 255, 255, 0.9);
   --account-card-shadow:
@@ -132,7 +143,18 @@
   --error-text: #ff98a2;
   --glow-hot: rgba(255, 145, 56, 0.24);
   --glow-cool: rgba(47, 210, 200, 0.18);
+  --glow-neutral: rgba(202, 219, 255, 0.08);
   --body-bg: #0a1220;
+  --shell-top: #08101a;
+  --shell-mid: #0d1728;
+  --shell-bottom: #13233a;
+  --stage-glass: rgba(255, 255, 255, 0.04);
+  --stage-line: rgba(206, 224, 255, 0.08);
+  --section-surface: rgba(15, 26, 44, 0.34);
+  --section-line: rgba(204, 223, 255, 0.1);
+  --section-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.24),
+    inset 0 1px rgba(255, 255, 255, 0.08);
   --account-card-bg-start: rgba(13, 24, 41, 0.9);
   --account-card-bg-end: rgba(8, 17, 32, 0.84);
   --account-card-shadow:
@@ -162,26 +184,51 @@
   padding: 16px 18px calc(env(safe-area-inset-bottom, 0px) + 18px);
   color: var(--ink);
   background:
-    radial-gradient(150% 120% at 8% 0%, var(--glow-hot) 0%, transparent 36%),
-    radial-gradient(120% 95% at 92% 8%, var(--glow-cool) 0%, transparent 34%),
-    linear-gradient(150deg, var(--bg-0) 0%, var(--bg-1) 40%, var(--bg-2) 100%);
+    radial-gradient(72% 60% at 6% 0%, var(--glow-hot) 0%, transparent 58%),
+    radial-gradient(64% 52% at 95% 6%, var(--glow-cool) 0%, transparent 54%),
+    radial-gradient(58% 48% at 50% 32%, var(--glow-neutral) 0%, transparent 68%),
+    linear-gradient(180deg, var(--shell-top) 0%, var(--shell-mid) 48%, var(--shell-bottom) 100%);
   position: relative;
   overflow: hidden;
   transition: background 220ms ease, color 220ms ease;
+}
+
+.shell::before,
+.shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.shell::before {
+  background:
+    radial-gradient(44% 38% at 18% 14%, rgba(255, 226, 194, 0.46), transparent 72%),
+    radial-gradient(36% 30% at 84% 12%, rgba(171, 225, 238, 0.36), transparent 72%),
+    radial-gradient(52% 44% at 56% 86%, rgba(255, 255, 255, 0.28), transparent 78%);
+  filter: blur(26px);
+  opacity: 0.9;
+}
+
+.shell::after {
+  content: none;
 }
 
 .ambient {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.08;
-  background-image: repeating-linear-gradient(
-    -38deg,
-    var(--ambient-line) 0,
-    var(--ambient-line) 1px,
-    transparent 1px,
-    transparent 11px
-  );
+  opacity: 0.07;
+  background-image:
+    repeating-linear-gradient(
+      -38deg,
+      var(--ambient-line) 0,
+      var(--ambient-line) 1px,
+      transparent 1px,
+      transparent 14px
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 35%);
+  mix-blend-mode: soft-light;
 }
 
 .panel {
@@ -203,23 +250,18 @@
   overflow: hidden;
 }
 
+.panel::before {
+  content: none;
+}
+
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   padding: 24px 6px 24px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, white 22%);
-  cursor: grab;
-}
-
-.topDragRegion {
-  user-select: none;
-  cursor: inherit;
-}
-
-.topbar:active {
-  cursor: grabbing;
+  cursor: default;
 }
 
 .kicker {
@@ -265,6 +307,8 @@
   transform: none;
   filter: none;
   background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .brandLine:hover::before {
@@ -275,10 +319,15 @@
 .brandLine:focus-visible {
   outline: none;
   box-shadow: none;
+  border-color: transparent;
+  background: transparent;
 }
 
 .brandLine h1 {
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
 }
 
 .appLogo {
@@ -288,6 +337,18 @@
   object-fit: cover;
   border: 0;
   box-shadow: none;
+}
+
+.topDragRegion {
+  min-width: 0;
+  min-height: 34px;
+  height: 100%;
+  user-select: none;
+  cursor: grab;
+}
+
+.topDragRegion:active {
+  cursor: grabbing;
 }
 
 .topActions {
@@ -1131,7 +1192,7 @@ button.danger {
 .proxyPage {
   width: min(1040px, 100%);
   margin: 0 auto;
-  padding: 6px 0 28px;
+  padding: 10px 0 32px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1141,7 +1202,7 @@ button.danger {
 .proxyShell {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 18px;
 }
 
 .proxyPageHeader {
@@ -1240,25 +1301,42 @@ button.danger {
 .proxySectionCard {
   display: grid;
   gap: 14px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white 16%);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--import-bg) 72%, white 28%);
-  box-shadow:
-    0 10px 22px rgba(28, 43, 68, 0.05),
-    inset 0 1px rgba(255, 255, 255, 0.58);
+  padding: 16px 18px 18px;
+  border: 1px solid var(--section-line);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--section-surface) 84%, white 16%), transparent 100%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 62%);
+  box-shadow: var(--section-shadow);
+  backdrop-filter: blur(14px) saturate(112%);
+}
+
+.proxySectionCard + .proxySectionCard {
+  padding-top: 16px;
+}
+
+.proxySectionCardPrimary .proxyHeaderStats {
+  justify-content: flex-start;
+}
+
+.proxySectionCardPrimary {
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(255, 176, 112, 0.12), transparent 48%),
+    radial-gradient(110% 120% at 100% 0%, rgba(142, 230, 220, 0.12), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--section-surface) 88%, white 12%), transparent 100%);
 }
 
 .proxySectionHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  padding: 0 2px 2px;
 }
 
 .proxySectionHeader h3 {
   margin: 0;
-  font: 650 0.96rem/1.2 var(--font-ui);
+  font: 650 0.92rem/1.2 var(--font-ui);
   letter-spacing: -0.01em;
 }
 
@@ -1337,10 +1415,12 @@ button.danger {
   display: grid;
   gap: 8px;
   padding: 13px 14px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white 14%);
+  border: 0;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--body-bg) 8%, white 92%);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.46);
+  background: color-mix(in srgb, var(--card) 80%, white 20%);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.48),
+    0 0 0 1px color-mix(in srgb, var(--line) 52%, white 48%);
 }
 
 .proxyDetailHeader {
@@ -1360,6 +1440,10 @@ button.danger {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+}
+
+.proxyEndpointCard {
+  grid-column: 1 / -1;
 }
 
 .proxyLabel {
@@ -1408,29 +1492,57 @@ button.danger {
   padding: 7px 10px;
 }
 
+.proxyEndpointList {
+  display: grid;
+  gap: 0;
+}
+
+.proxyEndpointRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 84%, white 16%);
+  border-radius: 0;
+  background: transparent;
+}
+
+.proxyEndpointRow:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.proxyEndpointMeta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.proxyEndpointMeta > span {
+  color: var(--subtle);
+  font: 600 0.68rem/1 var(--font-ui);
+}
+
+.proxyEndpointMeta code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .proxyErrorText {
   color: var(--error-text);
 }
 
-.remoteEmptyCard,
 .remoteServerCard {
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white 14%);
-  border-radius: 16px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--body-bg) 8%, white 92%);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.42);
-}
-
-.remoteEmptyCard strong {
-  display: block;
-  font: 650 0.92rem/1.2 var(--font-ui);
-  color: color-mix(in srgb, var(--ink) 92%, white 8%);
-}
-
-.remoteEmptyCard p {
-  margin: 6px 0 0;
-  color: var(--subtle);
-  font: 500 0.78rem/1.4 var(--font-ui);
+  border: 0;
+  border-radius: 18px;
+  padding: 14px 16px 16px;
+  background: color-mix(in srgb, var(--card) 72%, white 28%);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.46),
+    0 0 0 1px color-mix(in srgb, var(--line) 48%, white 52%);
 }
 
 .remoteServerList {
@@ -1443,11 +1555,27 @@ button.danger {
   gap: 12px;
 }
 
+.remoteServerList > .remoteServerCard:first-child {
+  padding-top: 14px;
+}
+
 .remoteServerCardHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 12px;
+}
+
+.remoteServerSummary {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.remoteServerSummaryMain {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
 }
 
 .remoteServerIdentity {
@@ -1475,9 +1603,9 @@ button.danger {
   gap: 8px;
   min-height: 32px;
   padding: 0 11px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white 12%);
+  border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--meta-bg) 56%, transparent);
+  background: color-mix(in srgb, var(--meta-bg) 62%, transparent);
   color: var(--subtle);
   font: 600 0.74rem/1 var(--font-ui);
 }
@@ -1486,13 +1614,70 @@ button.danger {
   color: color-mix(in srgb, var(--brand-cool) 72%, var(--ink) 28%);
 }
 
+.remoteServerSummaryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.remoteServerSummaryPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--meta-bg) 60%, transparent);
+  color: var(--subtle);
+  font: 600 0.68rem/1 var(--font-ui);
+}
+
+.remoteServerSummaryTrailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button.remoteServerDisclosure {
+  min-height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+}
+
+.remoteServerChevron {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 160ms ease;
+}
+
+.remoteServerChevron.isExpanded {
+  transform: rotate(180deg);
+}
+
+.remoteServerExpandedBody {
+  display: grid;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 68%, white 32%);
+}
+
 .remoteServerPanel {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white 14%);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--meta-bg) 42%, transparent);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .remoteServerGrid {
@@ -1616,7 +1801,7 @@ button.danger {
   gap: 10px;
   padding: 13px 14px;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--brand) 22%);
+  border: 0;
   background: color-mix(in srgb, var(--brand-soft) 18%, var(--card) 82%);
 }
 
@@ -1673,8 +1858,8 @@ button.danger {
   gap: 4px;
   padding: 10px 11px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white 12%);
-  background: color-mix(in srgb, var(--card) 92%, white 8%);
+  border: 0;
+  background: color-mix(in srgb, var(--meta-bg) 72%, transparent);
 }
 
 .remoteServerMeta span {
@@ -1740,10 +1925,13 @@ button.danger {
   display: grid;
   gap: 8px;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white 14%);
+  border: 0;
   border-radius: 14px;
   padding: 13px 14px;
-  background: color-mix(in srgb, var(--body-bg) 8%, white 92%);
+  background: color-mix(in srgb, var(--card) 80%, white 20%);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.48),
+    0 0 0 1px color-mix(in srgb, var(--line) 48%, white 52%);
 }
 
 .cloudflaredInstallCard {
@@ -2557,6 +2745,14 @@ button.bottomDockButton.isActive:focus-visible {
   .cloudflaredModeGrid,
   .cloudflaredFormGrid {
     grid-template-columns: 1fr;
+  }
+
+  .proxyEndpointRow {
+    grid-template-columns: 1fr;
+  }
+
+  .remoteServerSummaryTrailing {
+    justify-content: flex-start;
   }
 
   .remoteServerActions {

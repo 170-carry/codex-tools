@@ -136,6 +136,8 @@ export type MessageCatalog = {
     start: string;
     starting: string;
     baseUrlLabel: string;
+    localBaseUrlLabel: string;
+    lanBaseUrlLabel: string;
     copy: string;
     baseUrlPlaceholder: string;
     apiKeyLabel: string;
@@ -151,6 +153,8 @@ export type MessageCatalog = {
     remoteTitle: string;
     remoteDescription: string;
     remoteAddServer: string;
+    remoteExpand: string;
+    remoteCollapse: string;
     remoteEmptyTitle: string;
     remoteEmptyDescription: string;
     remoteNameLabel: string;

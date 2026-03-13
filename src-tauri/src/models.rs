@@ -2,6 +2,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
+fn default_api_proxy_port() -> u16 {
+    8787
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AccountsStore {
     #[serde(default = "default_store_version")]
@@ -146,6 +150,7 @@ pub(crate) struct ApiProxyStatus {
     pub(crate) port: Option<u16>,
     pub(crate) api_key: Option<String>,
     pub(crate) base_url: Option<String>,
+    pub(crate) lan_base_url: Option<String>,
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_account_label: Option<String>,
     pub(crate) last_error: Option<String>,
@@ -297,6 +302,8 @@ pub(crate) struct AppSettings {
     pub(crate) restart_editors_on_switch: bool,
     pub(crate) restart_editor_targets: Vec<EditorAppId>,
     pub(crate) auto_start_api_proxy: bool,
+    #[serde(default = "default_api_proxy_port")]
+    pub(crate) api_proxy_port: u16,
     pub(crate) remote_servers: Vec<RemoteServerConfig>,
     pub(crate) api_proxy_api_key: Option<String>,
     pub(crate) locale: AppLocale,
@@ -312,6 +319,7 @@ impl Default for AppSettings {
             restart_editors_on_switch: false,
             restart_editor_targets: Vec::new(),
             auto_start_api_proxy: false,
+            api_proxy_port: default_api_proxy_port(),
             remote_servers: Vec::new(),
             api_proxy_api_key: None,
             locale: AppLocale::default(),
@@ -329,6 +337,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) restart_editors_on_switch: Option<bool>,
     pub(crate) restart_editor_targets: Option<Vec<EditorAppId>>,
     pub(crate) auto_start_api_proxy: Option<bool>,
+    pub(crate) api_proxy_port: Option<u16>,
     pub(crate) remote_servers: Option<Vec<RemoteServerConfig>>,
     pub(crate) locale: Option<AppLocale>,
 }

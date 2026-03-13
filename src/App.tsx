@@ -172,6 +172,7 @@ function App() {
               cloudflaredStatus={cloudflaredStatus}
               accountCount={accounts.length}
               autoStartEnabled={settings.autoStartApiProxy}
+              savedPort={settings.apiProxyPort}
               remoteServers={settings.remoteServers}
               remoteStatuses={remoteProxyStatuses}
               remoteLogs={remoteProxyLogs}
@@ -189,13 +190,18 @@ function App() {
               installingCloudflared={installingCloudflared}
               startingCloudflared={startingCloudflared}
               stoppingCloudflared={stoppingCloudflared}
-              onStart={(port) => void onStartApiProxy(port)}
+              onStart={onStartApiProxy}
               onStop={() => void onStopApiProxy()}
               onRefreshApiKey={() => void onRefreshApiProxyKey()}
               onRefresh={() => void loadApiProxyStatus()}
               onToggleAutoStart={(enabled) =>
                 void updateSettings(
                   { autoStartApiProxy: enabled },
+                  { silent: true, keepInteractive: true },
+                )}
+              onPersistPort={(port) =>
+                updateSettings(
+                  { apiProxyPort: port },
                   { silent: true, keepInteractive: true },
                 )}
               onUpdateRemoteServers={(servers) => void onUpdateRemoteServers(servers)}

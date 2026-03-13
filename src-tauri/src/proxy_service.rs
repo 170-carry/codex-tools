@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::convert::Infallible;
 use std::fs;
 use std::io::Write;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ use axum::routing::get;
 use axum::routing::post;
 use axum::Json;
 use axum::Router;
+use if_addrs::IfAddr;
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
@@ -251,7 +253,10 @@ pub(crate) async fn start_api_proxy_with_runtime(
         return Err("暂无可用于代理的账号，请先添加并授权账号。".to_string());
     }
 
-    let preferred_port = preferred_port.unwrap_or(DEFAULT_PROXY_PORT);
+    let preferred_port = match preferred_port {
+        Some(port) => port,
+        None => read_persisted_api_proxy_port(storage).await?,
+    };
     let listener = TcpListener::bind((bind_host, preferred_port))
         .await
         .map_err(|error| {
@@ -1652,6 +1657,16 @@ async fn read_persisted_api_proxy_key(
     Ok(legacy_value)
 }
 
+async fn read_persisted_api_proxy_port(storage: &ProxyStorageContext) -> Result<u16, String> {
+    let _guard = storage.store_lock.lock().await;
+    let store = load_store_from_path(&account_store_path_from_data_dir(&storage.data_dir))?;
+    Ok(if store.settings.api_proxy_port == 0 {
+        DEFAULT_PROXY_PORT
+    } else {
+        store.settings.api_proxy_port
+    })
+}
+
 async fn ensure_persisted_api_proxy_key(storage: &ProxyStorageContext) -> Result<String, String> {
     if let Some(existing) = read_api_proxy_key_file(storage)? {
         return Ok(existing);
@@ -2512,6 +2527,7 @@ async fn status_from_handle_state(handle: ApiProxyHandleState) -> ApiProxyStatus
             port: None,
             api_key: Some(read_current_api_key(&handle.api_key)),
             base_url: None,
+            lan_base_url: None,
             active_account_id: snapshot.active_account_id,
             active_account_label: snapshot.active_account_label,
             last_error: snapshot.last_error,
@@ -2522,6 +2538,7 @@ async fn status_from_handle_state(handle: ApiProxyHandleState) -> ApiProxyStatus
             port: Some(handle.port),
             api_key: Some(read_current_api_key(&handle.api_key)),
             base_url: Some(proxy_base_url(handle.port)),
+            lan_base_url: proxy_lan_base_url(handle.port),
             active_account_id: snapshot.active_account_id,
             active_account_label: snapshot.active_account_label,
             last_error: snapshot.last_error,
@@ -2535,6 +2552,7 @@ fn stopped_status(api_key: Option<String>, last_error: Option<String>) -> ApiPro
         port: None,
         api_key,
         base_url: None,
+        lan_base_url: None,
         active_account_id: None,
         active_account_label: None,
         last_error,
@@ -2550,6 +2568,42 @@ fn resolve_codex_upstream_base_url() -> String {
 
 fn proxy_base_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/v1")
+}
+
+fn proxy_lan_base_url(port: u16) -> Option<String> {
+    detect_preferred_lan_ip().map(|ip| format!("http://{ip}:{port}/v1"))
+}
+
+fn detect_preferred_lan_ip() -> Option<Ipv4Addr> {
+    let interfaces = if_addrs::get_if_addrs().ok()?;
+    let mut fallback_private = None;
+
+    for interface in interfaces {
+        let ip = match interface.addr {
+            IfAddr::V4(addr) if !addr.ip.is_loopback() => addr.ip,
+            _ => continue,
+        };
+
+        if is_preferred_lan_ip(ip) {
+            return Some(ip);
+        }
+
+        if fallback_private.is_none() && is_private_ipv4(ip) {
+            fallback_private = Some(ip);
+        }
+    }
+
+    fallback_private
+}
+
+fn is_preferred_lan_ip(ip: Ipv4Addr) -> bool {
+    let [first, second, ..] = ip.octets();
+    first == 192 && second == 168
+}
+
+fn is_private_ipv4(ip: Ipv4Addr) -> bool {
+    let [first, second, ..] = ip.octets();
+    first == 10 || (first == 172 && (16..=31).contains(&second)) || is_preferred_lan_ip(ip)
 }
 
 fn resolve_proxy_request_body_limit_bytes() -> usize {

@@ -488,13 +488,13 @@ pub(crate) fn restore_main_window(app: &AppHandle) {
 
 async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
     let state = app.state::<AppState>();
-    let should_auto_start = {
+    let (should_auto_start, saved_port) = {
         let _guard = state.store_lock.lock().await;
         match store::load_store(&app) {
-            Ok(store) => store.settings.auto_start_api_proxy,
+            Ok(store) => (store.settings.auto_start_api_proxy, store.settings.api_proxy_port),
             Err(err) => {
                 log::warn!("读取自动启动 API 反代设置失败: {err}");
-                false
+                (false, 8787)
             }
         }
     };
@@ -503,7 +503,9 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
         return;
     }
 
-    if let Err(err) = proxy_service::start_api_proxy_internal(&app, state.inner(), None).await {
+    if let Err(err) =
+        proxy_service::start_api_proxy_internal(&app, state.inner(), Some(saved_port)).await
+    {
         log::warn!("应用启动时自动启动 API 反代失败: {err}");
     }
 }
@@ -538,7 +540,7 @@ pub fn run() {
             }
             // 启动阶段先同步当前本机登录账号，再初始化状态栏，保证首次展示即一致。
             store::sync_current_auth_account_on_startup(app.handle())?;
-            tray::setup_macos_status_bar(app.handle())?;
+            tray::setup_system_tray(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

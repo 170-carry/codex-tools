@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   restartEditorsOnSwitch: false,
   restartEditorTargets: [],
   autoStartApiProxy: false,
+  apiProxyPort: 8787,
   remoteServers: [],
   locale: DEFAULT_LOCALE,
 };
@@ -51,6 +52,7 @@ const DEFAULT_API_PROXY_STATUS: ApiProxyStatus = {
   port: null,
   apiKey: null,
   baseUrl: null,
+  lanBaseUrl: null,
   activeAccountId: null,
   activeAccountLabel: null,
   lastError: null,

@@ -14,17 +14,20 @@ use crate::store::load_store;
 
 const REFRESH_INTERVAL_SECONDS: u64 = 30;
 
+const TRAY_MENU_OPEN_ID: &str = "tray_open_window";
+const TRAY_MENU_QUIT_ID: &str = "tray_quit";
+
 #[cfg(target_os = "macos")]
 const TRAY_ID: &str = "codex_tools_status_bar";
 #[cfg(target_os = "macos")]
 const TRAY_MENU_REFRESH_ID: &str = "tray_refresh_usage";
 #[cfg(target_os = "macos")]
-const TRAY_MENU_OPEN_ID: &str = "tray_open_window";
-#[cfg(target_os = "macos")]
-const TRAY_MENU_QUIT_ID: &str = "tray_quit";
-#[cfg(target_os = "macos")]
 const STATUS_BAR_ICON: tauri::image::Image<'_> =
     tauri::include_image!("./icons/codex-tools-statusbar-terminal.png");
+#[cfg(target_os = "windows")]
+const TRAY_ID: &str = "codex_tools_tray";
+#[cfg(target_os = "windows")]
+const WINDOWS_TRAY_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/32x32.png");
 
 fn format_percent(value: Option<f64>) -> String {
     value
@@ -340,7 +343,7 @@ fn start_macos_tray_refresh_loop(app: AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
+fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
     use tauri::tray::TrayIconBuilder;
 
     let mode = read_tray_usage_mode(app);
@@ -369,34 +372,123 @@ pub(crate) fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn setup_macos_status_bar(_app: &AppHandle) -> Result<(), String> {
+fn setup_macos_status_bar(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn handle_status_bar_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+#[cfg(target_os = "windows")]
+fn build_windows_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, String> {
+    use tauri::menu::Menu;
+    use tauri::menu::MenuItem;
+    use tauri::menu::PredefinedMenuItem;
+
+    let locale = i18n::app_locale(app);
+    let menu = Menu::new(app).map_err(|e| format!("创建系统托盘菜单失败: {e}"))?;
+    let open = MenuItem::with_id(
+        app,
+        TRAY_MENU_OPEN_ID,
+        i18n::tray_open_app(locale),
+        true,
+        None::<&str>,
+    )
+    .map_err(|e| format!("创建系统托盘菜单项失败: {e}"))?;
+    let quit = MenuItem::with_id(
+        app,
+        TRAY_MENU_QUIT_ID,
+        i18n::tray_quit(locale),
+        true,
+        None::<&str>,
+    )
+    .map_err(|e| format!("创建系统托盘菜单项失败: {e}"))?;
+    let separator =
+        PredefinedMenuItem::separator(app).map_err(|e| format!("创建系统托盘分隔符失败: {e}"))?;
+
+    menu.append(&open)
+        .map_err(|e| format!("写入系统托盘菜单失败: {e}"))?;
+    menu.append(&separator)
+        .map_err(|e| format!("写入系统托盘菜单失败: {e}"))?;
+    menu.append(&quit)
+        .map_err(|e| format!("写入系统托盘菜单失败: {e}"))?;
+
+    Ok(menu)
+}
+
+#[cfg(target_os = "windows")]
+fn setup_windows_tray(app: &AppHandle) -> Result<(), String> {
+    use tauri::tray::MouseButton;
+    use tauri::tray::TrayIconBuilder;
+    use tauri::tray::TrayIconEvent;
+
+    let menu = build_windows_tray_menu(app)?;
+
+    TrayIconBuilder::with_id(TRAY_ID)
+        .menu(&menu)
+        .icon(WINDOWS_TRAY_ICON)
+        .tooltip("Codex Tools")
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                ..
+            }
+            | TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } => crate::restore_main_window(tray.app_handle()),
+            _ => {}
+        })
+        .build(app)
+        .map_err(|e| format!("创建 Windows 系统托盘失败: {e}"))?;
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
+fn setup_windows_tray(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+pub(crate) fn setup_system_tray(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let id = event.id().as_ref();
-        if id == TRAY_MENU_QUIT_ID {
-            app.exit(0);
-            return;
-        }
+        return setup_macos_status_bar(app);
+    }
 
-        if id == TRAY_MENU_OPEN_ID {
-            crate::restore_main_window(app);
-            return;
-        }
+    #[cfg(target_os = "windows")]
+    {
+        return setup_windows_tray(app);
+    }
 
-        if id == TRAY_MENU_REFRESH_ID {
-            let app_handle = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let state = app_handle.state::<AppState>();
-                if let Ok(summaries) =
-                    refresh_all_usage_internal(&app_handle, state.inner(), true).await
-                {
-                    let _ = update_macos_tray_snapshot(&app_handle, &summaries);
-                }
-            });
-        }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+pub(crate) fn handle_status_bar_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    let id = event.id().as_ref();
+    if id == TRAY_MENU_QUIT_ID {
+        app.exit(0);
+        return;
+    }
+
+    if id == TRAY_MENU_OPEN_ID {
+        crate::restore_main_window(app);
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    if id == TRAY_MENU_REFRESH_ID {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app_handle.state::<AppState>();
+            if let Ok(summaries) =
+                refresh_all_usage_internal(&app_handle, state.inner(), true).await
+            {
+                let _ = update_macos_tray_snapshot(&app_handle, &summaries);
+            }
+        });
     }
 }
