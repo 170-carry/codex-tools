@@ -10,8 +10,8 @@ use tauri::AppHandle;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 
-use crate::auth::extract_auth;
 use crate::auth::account_variant_key;
+use crate::auth::extract_auth;
 use crate::auth::read_current_codex_auth_optional;
 use crate::models::AccountsStore;
 use crate::models::StoredAccount;

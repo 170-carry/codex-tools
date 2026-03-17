@@ -5,6 +5,7 @@ type SwitchFieldProps = {
   checkedText: string;
   uncheckedText: string;
   disabled?: boolean;
+  rowClassName?: string;
 };
 
 export function SwitchField({
@@ -14,9 +15,10 @@ export function SwitchField({
   checkedText,
   uncheckedText,
   disabled = false,
+  rowClassName,
 }: SwitchFieldProps) {
   return (
-    <div className="settingRow">
+    <div className={["settingRow", rowClassName].filter(Boolean).join(" ")}>
       <div className="settingMeta">
         <strong>{label}</strong>
       </div>

@@ -82,6 +82,14 @@ async fn import_auth_json_accounts(
 }
 
 #[tauri::command]
+async fn export_accounts_zip(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    account_service::export_accounts_zip_internal(&app, state.inner()).await
+}
+
+#[tauri::command]
 async fn delete_account(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -136,6 +144,11 @@ fn detect_codex_app() -> Result<Option<String>, String> {
 #[tauri::command]
 fn list_installed_editor_apps() -> Result<Vec<InstalledEditorApp>, String> {
     Ok(editor_apps::list_installed_editor_apps())
+}
+
+#[tauri::command]
+fn is_opencode_desktop_app_installed() -> Result<bool, String> {
+    Ok(opencode::is_opencode_desktop_app_installed())
 }
 
 #[tauri::command]
@@ -241,6 +254,8 @@ async fn switch_account_and_launch(
         .ok_or_else(|| "找不到要切换的账号".to_string())?;
 
     let should_sync_opencode = store.settings.sync_opencode_openai_auth;
+    let should_restart_opencode_desktop =
+        should_sync_opencode && store.settings.restart_opencode_desktop_on_switch;
     let should_restart_editors =
         restart_editors_on_switch.unwrap_or(store.settings.restart_editors_on_switch);
     let effective_restart_targets =
@@ -250,10 +265,23 @@ async fn switch_account_and_launch(
 
     let mut opencode_synced = false;
     let mut opencode_sync_error = None;
+    let mut opencode_desktop_restarted = false;
+    let mut opencode_desktop_restart_error = None;
     if should_sync_opencode {
         match opencode::sync_openai_auth_from_codex_auth(&account.auth_json) {
             Ok(()) => {
                 opencode_synced = true;
+                if should_restart_opencode_desktop {
+                    match opencode::restart_opencode_desktop_app() {
+                        Ok(()) => {
+                            opencode_desktop_restarted = true;
+                        }
+                        Err(err) => {
+                            log::warn!("重启 opencode 桌面端失败: {err}");
+                            opencode_desktop_restart_error = Some(err);
+                        }
+                    }
+                }
             }
             Err(err) => {
                 log::warn!("同步 opencode OpenAI 认证失败: {err}");
@@ -277,6 +305,8 @@ async fn switch_account_and_launch(
             used_fallback_cli: false,
             opencode_synced,
             opencode_sync_error,
+            opencode_desktop_restarted,
+            opencode_desktop_restart_error,
             restarted_editor_apps,
             editor_restart_error,
         });
@@ -304,6 +334,8 @@ async fn switch_account_and_launch(
             used_fallback_cli: false,
             opencode_synced,
             opencode_sync_error,
+            opencode_desktop_restarted,
+            opencode_desktop_restart_error,
             restarted_editor_apps,
             editor_restart_error,
         });
@@ -323,6 +355,8 @@ async fn switch_account_and_launch(
         used_fallback_cli: true,
         opencode_synced,
         opencode_sync_error,
+        opencode_desktop_restarted,
+        opencode_desktop_restart_error,
         restarted_editor_apps,
         editor_restart_error,
     })
@@ -491,7 +525,10 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
     let (should_auto_start, saved_port) = {
         let _guard = state.store_lock.lock().await;
         match store::load_store(&app) {
-            Ok(store) => (store.settings.auto_start_api_proxy, store.settings.api_proxy_port),
+            Ok(store) => (
+                store.settings.auto_start_api_proxy,
+                store.settings.api_proxy_port,
+            ),
             Err(err) => {
                 log::warn!("读取自动启动 API 反代设置失败: {err}");
                 (false, 8787)
@@ -547,12 +584,14 @@ pub fn run() {
             list_accounts,
             import_current_auth_account,
             import_auth_json_accounts,
+            export_accounts_zip,
             delete_account,
             refresh_all_usage,
             get_app_settings,
             update_app_settings,
             detect_codex_app,
             list_installed_editor_apps,
+            is_opencode_desktop_app_installed,
             open_external_url,
             get_current_auth_status,
             launch_codex_login,

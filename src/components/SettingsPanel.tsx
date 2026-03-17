@@ -16,6 +16,7 @@ type SettingsPanelProps = {
   onCheckUpdate: () => void;
   settings: AppSettings;
   installedEditorApps: InstalledEditorApp[];
+  hasOpencodeDesktopApp: boolean;
   savingSettings: boolean;
   onUpdateSettings: (patch: Partial<AppSettings>, options?: UpdateSettingsOptions) => void;
 };
@@ -27,6 +28,7 @@ export function SettingsPanel({
   onCheckUpdate,
   settings,
   installedEditorApps,
+  hasOpencodeDesktopApp,
   savingSettings,
   onUpdateSettings,
 }: SettingsPanelProps) {
@@ -128,6 +130,20 @@ export function SettingsPanel({
             uncheckedText={copy.settings.syncOpencode.uncheckedText}
             disabled={savingSettings}
           />
+
+          {settings.syncOpencodeOpenaiAuth && hasOpencodeDesktopApp ? (
+            <SwitchField
+              checked={settings.restartOpencodeDesktopOnSwitch}
+              onChange={(checked) =>
+                onUpdateSettings({ restartOpencodeDesktopOnSwitch: checked })
+              }
+              label={copy.settings.restartOpencodeDesktop.label}
+              checkedText={copy.settings.restartOpencodeDesktop.checkedText}
+              uncheckedText={copy.settings.restartOpencodeDesktop.uncheckedText}
+              disabled={savingSettings}
+              rowClassName="settingRowCompact settingRowNested"
+            />
+          ) : null}
 
           <SwitchField
             checked={settings.restartEditorsOnSwitch}

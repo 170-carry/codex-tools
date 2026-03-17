@@ -39,6 +39,8 @@ export type SwitchAccountResult = {
   usedFallbackCli: boolean;
   opencodeSynced: boolean;
   opencodeSyncError: string | null;
+  opencodeDesktopRestarted: boolean;
+  opencodeDesktopRestartError: string | null;
   restartedEditorApps: EditorAppId[];
   editorRestartError: string | null;
 };
@@ -197,6 +199,7 @@ export type AppSettings = {
   trayUsageDisplayMode: TrayUsageDisplayMode;
   launchCodexAfterSwitch: boolean;
   syncOpencodeOpenaiAuth: boolean;
+  restartOpencodeDesktopOnSwitch: boolean;
   restartEditorsOnSwitch: boolean;
   restartEditorTargets: EditorAppId[];
   autoStartApiProxy: boolean;

@@ -1,6 +1,13 @@
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 
+use rfd::FileDialog;
 use tauri::AppHandle;
+use zip::write::FileOptions;
+use zip::CompressionMethod;
 
 use crate::auth::account_variant_key;
 use crate::auth::auth_variant_key;
@@ -23,11 +30,13 @@ use crate::store::load_store;
 use crate::store::save_store;
 use crate::usage::fetch_usage_snapshot;
 use crate::utils::now_unix_seconds;
+use crate::utils::set_private_permissions;
 use crate::utils::short_account;
 
 const DEACTIVATED_WORKSPACE_NOTICE: &str = "该账号已被踢出 team 组织，请重新授权后再刷新。";
 const DEACTIVATED_ACCOUNT_NOTICE: &str = "账号被封禁，请检查邮箱";
 const AUTH_EXPIRED_NOTICE: &str = "授权过期，请重新登录授权。";
+const EXPORT_ARCHIVE_ENTRY_NAME: &str = "accounts.json";
 
 struct PreparedImport {
     auth_json: serde_json::Value,
@@ -49,7 +58,12 @@ pub(crate) async fn list_accounts_internal(
     Ok(store
         .accounts
         .iter()
-        .map(|account| account.to_summary(current_account_id.as_deref(), current_variant_key.as_deref()))
+        .map(|account| {
+            account.to_summary(
+                current_account_id.as_deref(),
+                current_variant_key.as_deref(),
+            )
+        })
         .collect())
 }
 
@@ -135,6 +149,24 @@ pub(crate) async fn import_auth_json_accounts_internal(
     })
 }
 
+pub(crate) async fn export_accounts_zip_internal(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<Option<String>, String> {
+    let export_payload = {
+        let _guard = state.store_lock.lock().await;
+        let store = load_store(app)?;
+        serde_json::to_vec_pretty(&store).map_err(|error| format!("序列化账号列表失败: {error}"))?
+    };
+    let default_file_name = format!("codex-tools-accounts-{}.zip", now_unix_seconds());
+
+    tauri::async_runtime::spawn_blocking(move || {
+        export_accounts_zip_sync(&default_file_name, &export_payload)
+    })
+    .await
+    .map_err(|error| format!("导出账号列表失败: {error}"))?
+}
+
 pub(crate) async fn delete_account_internal(
     app: &AppHandle,
     state: &AppState,
@@ -174,7 +206,9 @@ pub(crate) async fn refresh_all_usage_internal(
         read_current_codex_auth_optional()
             .ok()
             .flatten()
-            .and_then(|auth_json| auth_variant_key(&auth_json).map(|variant_key| (variant_key, auth_json)));
+            .and_then(|auth_json| {
+                auth_variant_key(&auth_json).map(|variant_key| (variant_key, auth_json))
+            });
 
     let refresh_targets: Vec<RefreshTarget> = {
         let _guard = state.store_lock.lock().await;
@@ -357,7 +391,12 @@ pub(crate) async fn refresh_all_usage_internal(
     let summaries: Vec<AccountSummary> = store
         .accounts
         .iter()
-        .map(|account| account.to_summary(current_account_id.as_deref(), current_variant_key.as_deref()))
+        .map(|account| {
+            account.to_summary(
+                current_account_id.as_deref(),
+                current_variant_key.as_deref(),
+            )
+        })
         .collect();
 
     Ok(summaries)
@@ -446,6 +485,121 @@ async fn commit_prepared_import(
     Ok(summary)
 }
 
+fn export_accounts_zip_sync(
+    default_file_name: &str,
+    export_payload: &[u8],
+) -> Result<Option<String>, String> {
+    let Some(selected_path) = FileDialog::new()
+        .set_title("导出账号列表")
+        .add_filter("ZIP archive", &["zip"])
+        .set_file_name(default_file_name)
+        .save_file()
+    else {
+        return Ok(None);
+    };
+
+    let export_path = ensure_zip_extension(selected_path);
+    write_accounts_zip_archive(&export_path, export_payload)?;
+    Ok(Some(export_path.to_string_lossy().to_string()))
+}
+
+fn write_accounts_zip_archive(path: &Path, export_payload: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("无法解析导出目录 {}", path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("创建导出目录失败 {}: {error}", parent.display()))?;
+
+    let temp_path = parent.join(format!(
+        ".{}.tmp-{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("accounts.zip"),
+        uuid::Uuid::new_v4()
+    ));
+
+    let write_result = (|| -> Result<(), String> {
+        let archive_file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path)
+            .map_err(|error| format!("创建导出临时文件失败 {}: {error}", temp_path.display()))?;
+        let mut archive = zip::ZipWriter::new(archive_file);
+        let options = FileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .unix_permissions(0o600);
+        archive
+            .start_file(EXPORT_ARCHIVE_ENTRY_NAME, options)
+            .map_err(|error| format!("创建压缩包内容失败: {error}"))?;
+        archive
+            .write_all(export_payload)
+            .map_err(|error| format!("写入压缩包失败: {error}"))?;
+        let archive_file = archive
+            .finish()
+            .map_err(|error| format!("完成压缩包写入失败: {error}"))?;
+        archive_file
+            .sync_all()
+            .map_err(|error| format!("刷新导出文件失败 {}: {error}", temp_path.display()))?;
+        drop(archive_file);
+        set_private_permissions(&temp_path);
+
+        #[cfg(target_family = "unix")]
+        {
+            fs::rename(&temp_path, path).map_err(|error| {
+                format!(
+                    "写入导出文件失败 {} -> {}: {error}",
+                    temp_path.display(),
+                    path.display()
+                )
+            })?;
+
+            let parent_dir = fs::File::open(parent)
+                .map_err(|error| format!("打开导出目录失败 {}: {error}", parent.display()))?;
+            parent_dir
+                .sync_all()
+                .map_err(|error| format!("刷新导出目录失败 {}: {error}", parent.display()))?;
+        }
+
+        #[cfg(not(target_family = "unix"))]
+        {
+            if path.exists() {
+                fs::remove_file(path)
+                    .map_err(|error| format!("删除旧导出文件失败 {}: {error}", path.display()))?;
+            }
+            fs::rename(&temp_path, path).map_err(|error| {
+                format!(
+                    "写入导出文件失败 {} -> {}: {error}",
+                    temp_path.display(),
+                    path.display()
+                )
+            })?;
+        }
+
+        set_private_permissions(path);
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    write_result
+}
+
+fn ensure_zip_extension(path: PathBuf) -> PathBuf {
+    let has_zip_extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false);
+
+    if has_zip_extension {
+        path
+    } else {
+        path.with_extension("zip")
+    }
+}
+
 fn upsert_prepared_import(
     store: &mut AccountsStore,
     prepared: PreparedImport,
@@ -468,8 +622,7 @@ fn upsert_prepared_import(
         .as_ref()
         .and_then(|snapshot| snapshot.plan_type.clone())
         .or(plan_type);
-    let resolved_variant_key =
-        account_variant_key(&account_id, resolved_plan_type.as_deref());
+    let resolved_variant_key = account_variant_key(&account_id, resolved_plan_type.as_deref());
 
     if let Some(existing) = store
         .accounts

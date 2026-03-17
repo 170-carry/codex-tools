@@ -2,10 +2,15 @@ import { useI18n } from "../i18n/I18nProvider";
 
 type MetaStripProps = {
   accountCount: number;
-  currentCount: number;
+  exportingAccounts: boolean;
+  onExportAccounts: () => void;
 };
 
-export function MetaStrip({ accountCount, currentCount }: MetaStripProps) {
+export function MetaStrip({
+  accountCount,
+  exportingAccounts,
+  onExportAccounts,
+}: MetaStripProps) {
   const { copy } = useI18n();
 
   return (
@@ -14,10 +19,14 @@ export function MetaStrip({ accountCount, currentCount }: MetaStripProps) {
         <span>{copy.metaStrip.accountCount}</span>
         <strong>{accountCount}</strong>
       </article>
-      <article className="metaPill">
-        <span>{copy.metaStrip.currentActive}</span>
-        <strong>{currentCount}</strong>
-      </article>
+      <button
+        className="ghost metaExportButton"
+        onClick={onExportAccounts}
+        disabled={exportingAccounts}
+        aria-label={copy.addAccount.exportButton}
+      >
+        {copy.addAccount.exportButton}
+      </button>
     </section>
   );
 }

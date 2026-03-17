@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   trayUsageDisplayMode: "remaining",
   launchCodexAfterSwitch: true,
   syncOpencodeOpenaiAuth: false,
+  restartOpencodeDesktopOnSwitch: false,
   restartEditorsOnSwitch: false,
   restartEditorTargets: [],
   autoStartApiProxy: false,
@@ -143,6 +144,7 @@ export function useCodexController() {
   const [startingAdd, setStartingAdd] = useState(false);
   const [addFlow, setAddFlow] = useState<AddFlow | null>(null);
   const [importingUpload, setImportingUpload] = useState(false);
+  const [exportingAccounts, setExportingAccounts] = useState(false);
   const [apiProxyStatus, setApiProxyStatus] = useState<ApiProxyStatus>(DEFAULT_API_PROXY_STATUS);
   const [cloudflaredStatus, setCloudflaredStatus] = useState<CloudflaredStatus>(DEFAULT_CLOUDFLARED_STATUS);
   const [remoteProxyStatusesRaw, setRemoteProxyStatusesRaw] = useState<Record<string, RemoteProxyStatus>>({});
@@ -172,15 +174,12 @@ export function useCodexController() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [savingSettings, setSavingSettings] = useState(false);
   const [installedEditorApps, setInstalledEditorApps] = useState<InstalledEditorApp[]>([]);
+  const [hasOpencodeDesktopApp, setHasOpencodeDesktopApp] = useState(false);
   const installingUpdateRef = useRef(false);
   const addFlowCancelledRef = useRef(false);
   const deleteConfirmTimerRef = useRef<number | null>(null);
   const settingsUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  const currentCount = useMemo(
-    () => accounts.filter((account) => account.isCurrent).length,
-    [accounts],
-  );
   const sortedAccounts = useMemo(() => sortAccountsByRemaining(accounts), [accounts]);
 
   const localizeError = useCallback(
@@ -259,6 +258,15 @@ export function useCodexController() {
       setInstalledEditorApps(data);
     } catch {
       setInstalledEditorApps([]);
+    }
+  }, []);
+
+  const loadOpencodeDesktopAppInstalled = useCallback(async () => {
+    try {
+      const installed = await invoke<boolean>("is_opencode_desktop_app_installed");
+      setHasOpencodeDesktopApp(installed);
+    } catch {
+      setHasOpencodeDesktopApp(false);
     }
   }, []);
 
@@ -517,6 +525,7 @@ export function useCodexController() {
     const bootstrap = async () => {
       try {
         await loadInstalledEditorApps();
+        await loadOpencodeDesktopAppInstalled();
         await loadSettings();
         await loadAccounts();
         await loadApiProxyStatus();
@@ -538,6 +547,7 @@ export function useCodexController() {
 
     const editorTimer = setInterval(() => {
       void loadInstalledEditorApps();
+      void loadOpencodeDesktopAppInstalled();
     }, EDITOR_SCAN_MS);
 
     return () => {
@@ -551,6 +561,7 @@ export function useCodexController() {
     loadApiProxyStatus,
     loadCloudflaredStatus,
     loadInstalledEditorApps,
+    loadOpencodeDesktopAppInstalled,
     loadSettings,
     refreshUsage,
   ]);
@@ -841,6 +852,27 @@ export function useCodexController() {
     },
     [applyImportResult, copy.notices, localizeError, localizeImportResult],
   );
+
+  const onExportAccounts = useCallback(async () => {
+    if (exportingAccounts) {
+      return;
+    }
+
+    setExportingAccounts(true);
+    try {
+      const exportedPath = await invoke<string | null>("export_accounts_zip");
+      if (exportedPath) {
+        setNotice({ type: "ok", message: copy.notices.accountsExported });
+      }
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: copy.notices.accountsExportFailed(localizeError(String(error))),
+      });
+    } finally {
+      setExportingAccounts(false);
+    }
+  }, [copy.notices, exportingAccounts, localizeError]);
 
   const onStartApiProxy = useCallback(async (port?: number | null) => {
     if (startingApiProxy || apiProxyStatus.running) {
@@ -1285,6 +1317,23 @@ export function useCodexController() {
               message: copy.notices.opencodeSynced(baseNotice.message),
             };
           }
+
+          if (settings.restartOpencodeDesktopOnSwitch) {
+            if (result.opencodeDesktopRestartError) {
+              baseNotice = {
+                type: "error",
+                message: copy.notices.opencodeDesktopRestartFailed(
+                  baseNotice.message,
+                  localizeError(result.opencodeDesktopRestartError),
+                ),
+              };
+            } else if (result.opencodeDesktopRestarted) {
+              baseNotice = {
+                ...baseNotice,
+                message: copy.notices.opencodeDesktopRestarted(baseNotice.message),
+              };
+            }
+          }
         }
 
         if (settings.restartEditorsOnSwitch) {
@@ -1329,6 +1378,7 @@ export function useCodexController() {
       localizeError,
       settings.launchCodexAfterSwitch,
       settings.syncOpencodeOpenaiAuth,
+      settings.restartOpencodeDesktopOnSwitch,
       settings.restartEditorsOnSwitch,
       settings.restartEditorTargets,
     ],
@@ -1373,6 +1423,7 @@ export function useCodexController() {
     startingAdd,
     addFlow,
     importingUpload,
+    exportingAccounts,
     apiProxyStatus,
     cloudflaredStatus,
     remoteProxyStatuses,
@@ -1402,7 +1453,7 @@ export function useCodexController() {
     settings,
     savingSettings,
     installedEditorApps,
-    currentCount,
+    hasOpencodeDesktopApp,
     refreshUsage,
     checkForAppUpdate,
     installPendingUpdate,
@@ -1413,6 +1464,7 @@ export function useCodexController() {
     onStartAddAccount,
     onCloseAddDialog,
     onImportAuthFiles,
+    onExportAccounts,
     loadApiProxyStatus,
     onStartApiProxy,
     onStopApiProxy,

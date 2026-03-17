@@ -311,6 +311,36 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
+    source: "未检测到 opencode 桌面端应用",
+    target: phrases(
+      "未检测到 opencode 桌面端应用",
+      "The Opencode desktop app was not detected",
+      "Opencode デスクトップアプリが見つかりません",
+      "Opencode 데스크톱 앱을 찾을 수 없습니다",
+      "Приложение Opencode Desktop не обнаружено"
+    ),
+  },
+  {
+    source: "opencode 桌面端重启失败",
+    target: phrases(
+      "opencode 桌面端重启失败",
+      "Opencode desktop restart failed",
+      "Opencode デスクトップの再起動に失敗しました",
+      "Opencode 데스크톱 재시작에 실패했습니다",
+      "Не удалось перезапустить Opencode Desktop"
+    ),
+  },
+  {
+    source: "当前平台暂不支持重启 opencode 桌面端",
+    target: phrases(
+      "当前平台暂不支持重启 opencode 桌面端",
+      "Restarting Opencode desktop is not supported on this platform",
+      "このプラットフォームでは Opencode デスクトップの再起動はサポートされていません",
+      "현재 플랫폼에서는 Opencode 데스크톱 재시작을 지원하지 않습니다",
+      "На этой платформе перезапуск Opencode Desktop не поддерживается"
+    ),
+  },
+  {
     source: "Opencode OpenAI 认证已同步到",
     target: phrases(
       "Opencode OpenAI 认证已同步到",

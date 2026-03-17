@@ -20,6 +20,7 @@
   },
   "addAccount": {
     "smartSwitch": "Умное переключение",
+    "exportButton": "Экспорт",
     "startButton": "Добавить аккаунт",
     "startingButton": "Запуск...",
     "waitingButton": "Ожидание авторизации...",
@@ -258,6 +259,11 @@
       "checkedText": "Синхр.",
       "uncheckedText": "Без синхр."
     },
+    "restartOpencodeDesktop": {
+      "label": "Перезапускать Opencode Desktop",
+      "checkedText": "Перезапуск",
+      "uncheckedText": "Без перезапуска"
+    },
     "restartEditorsOnSwitch": {
       "label": "Перезапускать редакторы при переключении (совместимо с плагином Codex)",
       "description": "По умолчанию выключено. При включении выбранные редакторы принудительно перезапускаются.",
@@ -331,6 +337,8 @@
     "addAccountAutoImportFailed": "Ошибка автоимпорта: {{error}}",
     "addAccountTimeout": "Время ожидания авторизации истекло. Нажмите «Добавить аккаунт» снова.",
     "startLoginFlowFailed": "Не удалось запустить процесс входа: {{error}}",
+    "accountsExported": "Список аккаунтов экспортирован",
+    "accountsExportFailed": "Не удалось экспортировать список аккаунтов: {{error}}",
     "deleteConfirm": "Нажмите удалить еще раз, чтобы подтвердить удаление {{label}}.",
     "accountDeleted": "Аккаунт удален",
     "deleteFailed": "Ошибка удаления: {{error}}",
@@ -339,6 +347,8 @@
     "switchedAndLaunching": "Аккаунт переключен. Запускаем Codex.",
     "opencodeSyncFailed": "{{base}} Ошибка синхронизации Opencode: {{error}}",
     "opencodeSynced": "{{base}} Синхронизация Opencode OpenAI auth выполнена.",
+    "opencodeDesktopRestartFailed": "{{base}} Ошибка перезапуска Opencode Desktop: {{error}}",
+    "opencodeDesktopRestarted": "{{base}} Opencode Desktop перезапущен.",
     "editorRestartFailed": "{{base}} Ошибка перезапуска редактора: {{error}}",
     "editorsRestarted": "{{base}} Перезапущенные редакторы: {{labels}}",
     "noEditorRestarted": "{{base}} Не найден установленный редактор для перезапуска.",

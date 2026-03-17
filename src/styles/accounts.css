@@ -221,6 +221,33 @@
   background: var(--stamp-plan-bg);
 }
 
+.planBadgeButton {
+  min-height: 25px;
+  padding: 0 10px;
+  box-shadow: none;
+  flex: 0 0 auto;
+}
+
+.planBadgeButton:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.planBadgeButton.isSelected {
+  border-color: color-mix(in srgb, var(--stamp-plan-color) 42%, var(--stamp-plan-border) 58%);
+  background: color-mix(in srgb, var(--stamp-plan-bg) 72%, var(--surface-highlight) 28%);
+  color: color-mix(in srgb, var(--stamp-plan-color) 92%, var(--ink) 8%);
+}
+
+.planBadgeButton.isCurrent {
+  border-color: color-mix(in srgb, var(--stamp-current-border) 52%, var(--stamp-plan-border) 48%);
+}
+
+.planBadgeButton .cardStatusDot {
+  width: 6px;
+  height: 6px;
+}
+
 .currentBadge {
   color: var(--stamp-current-color);
   border-color: color-mix(in srgb, var(--stamp-current-border) 60%, var(--line) 40%);

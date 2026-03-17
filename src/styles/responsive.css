@@ -110,6 +110,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .metaExportButton {
+    width: 100%;
+  }
+
   .importBar {
     flex-direction: column;
     align-items: stretch;

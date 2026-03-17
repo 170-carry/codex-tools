@@ -20,6 +20,7 @@
   },
   "addAccount": {
     "smartSwitch": "Smart switch",
+    "exportButton": "Export",
     "startButton": "Add account",
     "startingButton": "Starting...",
     "waitingButton": "Waiting for auth...",
@@ -258,6 +259,11 @@
       "checkedText": "Sync",
       "uncheckedText": "No sync"
     },
+    "restartOpencodeDesktop": {
+      "label": "Restart Opencode desktop",
+      "checkedText": "Restart",
+      "uncheckedText": "No restart"
+    },
     "restartEditorsOnSwitch": {
       "label": "Restart editors on switch (Codex plugin compatible)",
       "description": "Disabled by default. When enabled, selected editors are force-restarted on account switch.",
@@ -331,6 +337,8 @@
     "addAccountAutoImportFailed": "Auto import failed: {{error}}",
     "addAccountTimeout": "Authorization timed out. Please click “Add account” again.",
     "startLoginFlowFailed": "Failed to start login flow: {{error}}",
+    "accountsExported": "Account list exported",
+    "accountsExportFailed": "Failed to export account list: {{error}}",
     "deleteConfirm": "Click delete again to confirm removing {{label}}.",
     "accountDeleted": "Account deleted",
     "deleteFailed": "Delete failed: {{error}}",
@@ -339,6 +347,8 @@
     "switchedAndLaunching": "Account switched. Launching Codex.",
     "opencodeSyncFailed": "{{base}} Opencode sync failed: {{error}}",
     "opencodeSynced": "{{base}} Opencode OpenAI auth synced.",
+    "opencodeDesktopRestartFailed": "{{base}} Failed to restart Opencode desktop: {{error}}",
+    "opencodeDesktopRestarted": "{{base}} Opencode desktop restarted.",
     "editorRestartFailed": "{{base}} Editor restart failed: {{error}}",
     "editorsRestarted": "{{base}} Editors restarted: {{labels}}",
     "noEditorRestarted": "{{base}} No installed editor found for restart.",

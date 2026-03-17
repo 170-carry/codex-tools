@@ -20,6 +20,7 @@
   },
   "addAccount": {
     "smartSwitch": "智能切换",
+    "exportButton": "导出",
     "startButton": "添加账号",
     "startingButton": "启动中...",
     "waitingButton": "等待授权中...",
@@ -253,10 +254,15 @@
       "uncheckedText": "仅切换"
     },
     "syncOpencode": {
-      "label": "同步 Opencode OpenAI",
+      "label": "同步 Opencode",
       "description": "切换账号时自动探测 opencode 认证文件，并同步 refresh/access。",
       "checkedText": "同步",
       "uncheckedText": "不同步"
+    },
+    "restartOpencodeDesktop": {
+      "label": "是否重启 Opencode 桌面端",
+      "checkedText": "重启",
+      "uncheckedText": "不重启"
     },
     "restartEditorsOnSwitch": {
       "label": "切换时重启编辑器（兼容 Codex 编辑器插件）",
@@ -265,7 +271,7 @@
       "uncheckedText": "不重启"
     },
     "restartEditorTargets": {
-      "label": "重启目标编辑器（单选）",
+      "label": "重启代码编辑器",
       "description": "后台自动检测已安装的 VSCode/VSCode Insiders/Cursor/Antigravity/Kiro/Trae/Qoder。"
     },
     "noSupportedEditors": "当前未检测到支持重启的编辑器。",
@@ -331,6 +337,8 @@
     "addAccountAutoImportFailed": "自动导入失败：{{error}}",
     "addAccountTimeout": "等待授权超时，请重新点击“添加账号”。",
     "startLoginFlowFailed": "无法启动登录流程：{{error}}",
+    "accountsExported": "账号列表已导出",
+    "accountsExportFailed": "导出账号列表失败：{{error}}",
     "deleteConfirm": "再次点击删除账号 {{label}} 以确认。",
     "accountDeleted": "账号已删除",
     "deleteFailed": "删除失败：{{error}}",
@@ -339,6 +347,8 @@
     "switchedAndLaunching": "账号已切换，正在启动 Codex。",
     "opencodeSyncFailed": "{{base}} Opencode 同步失败：{{error}}",
     "opencodeSynced": "{{base}} 已同步 Opencode OpenAI 认证。",
+    "opencodeDesktopRestartFailed": "{{base}} 重启 Opencode 桌面端失败：{{error}}",
+    "opencodeDesktopRestarted": "{{base}} 已重启 Opencode 桌面端。",
     "editorRestartFailed": "{{base}} 编辑器重启失败：{{error}}",
     "editorsRestarted": "{{base}} 已重启编辑器：{{labels}}",
     "noEditorRestarted": "{{base}} 未检测到可重启的已安装编辑器。",

@@ -64,6 +64,7 @@ export type MessageCatalog = {
   };
   addAccount: {
     smartSwitch: string;
+    exportButton: string;
     startButton: string;
     startingButton: string;
     waitingButton: string;
@@ -278,6 +279,11 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    restartOpencodeDesktop: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+    };
     restartEditorsOnSwitch: {
       label: string;
       description: string;
@@ -343,6 +349,8 @@ export type MessageCatalog = {
     addAccountAutoImportFailed: (error: string) => string;
     addAccountTimeout: string;
     startLoginFlowFailed: (error: string) => string;
+    accountsExported: string;
+    accountsExportFailed: (error: string) => string;
     deleteConfirm: (label: string) => string;
     accountDeleted: string;
     deleteFailed: (error: string) => string;
@@ -351,6 +359,8 @@ export type MessageCatalog = {
     switchedAndLaunching: string;
     opencodeSyncFailed: (base: string, error: string) => string;
     opencodeSynced: (base: string) => string;
+    opencodeDesktopRestartFailed: (base: string, error: string) => string;
+    opencodeDesktopRestarted: (base: string) => string;
     editorRestartFailed: (base: string, error: string) => string;
     editorsRestarted: (base: string, labels: string) => string;
     noEditorRestarted: (base: string) => string;
@@ -463,11 +473,17 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       addAccountAutoImportFailed: (error) =>
         fillTemplate(raw.notices.addAccountAutoImportFailed, { error }),
       startLoginFlowFailed: (error) => fillTemplate(raw.notices.startLoginFlowFailed, { error }),
+      accountsExportFailed: (error) =>
+        fillTemplate(raw.notices.accountsExportFailed, { error }),
       deleteConfirm: (label) => fillTemplate(raw.notices.deleteConfirm, { label }),
       deleteFailed: (error) => fillTemplate(raw.notices.deleteFailed, { error }),
       opencodeSyncFailed: (base, error) =>
         fillTemplate(raw.notices.opencodeSyncFailed, { base, error }),
       opencodeSynced: (base) => fillTemplate(raw.notices.opencodeSynced, { base }),
+      opencodeDesktopRestartFailed: (base, error) =>
+        fillTemplate(raw.notices.opencodeDesktopRestartFailed, { base, error }),
+      opencodeDesktopRestarted: (base) =>
+        fillTemplate(raw.notices.opencodeDesktopRestarted, { base }),
       editorRestartFailed: (base, error) =>
         fillTemplate(raw.notices.editorRestartFailed, { base, error }),
       editorsRestarted: (base, labels) =>

@@ -1387,11 +1387,7 @@ async fn persist_refreshed_candidate_auth(
     let store_path = account_store_path_from_data_dir(&storage.data_dir);
     let mut store = load_store_from_path(&store_path)?;
 
-    if let Some(account) = store
-        .accounts
-        .iter_mut()
-        .find(|account| account.id == id)
-    {
+    if let Some(account) = store.accounts.iter_mut().find(|account| account.id == id) {
         account.auth_json = refreshed_auth_json.clone();
         account.updated_at = now_unix_seconds();
     }
@@ -1399,8 +1395,7 @@ async fn persist_refreshed_candidate_auth(
     save_store_to_path(&store_path, &store)?;
 
     if storage.sync_active_auth_on_refresh
-        && current_auth_variant_key()
-            .as_deref()
+        && current_auth_variant_key().as_deref()
             == store
                 .accounts
                 .iter()

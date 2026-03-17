@@ -322,7 +322,10 @@ pub(crate) fn refresh_macos_tray_snapshot(app: &AppHandle) -> Result<(), String>
         .accounts
         .iter()
         .map(|account| {
-            account.to_summary(current_account_id.as_deref(), current_variant_key.as_deref())
+            account.to_summary(
+                current_account_id.as_deref(),
+                current_variant_key.as_deref(),
+            )
         })
         .collect();
     update_macos_tray_snapshot(app, &summaries)
@@ -359,7 +362,10 @@ fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
         .accounts
         .iter()
         .map(|account| {
-            account.to_summary(current_account_id.as_deref(), current_variant_key.as_deref())
+            account.to_summary(
+                current_account_id.as_deref(),
+                current_variant_key.as_deref(),
+            )
         })
         .collect();
     let menu = build_macos_tray_menu(app, &summaries, mode)?;

@@ -27,6 +27,7 @@ function App() {
     startingAdd,
     addFlow,
     importingUpload,
+    exportingAccounts,
     switchingId,
     pendingDeleteId,
     checkingUpdate,
@@ -37,8 +38,8 @@ function App() {
     notice,
     settings,
     installedEditorApps,
+    hasOpencodeDesktopApp,
     savingSettings,
-    currentCount,
     apiProxyStatus,
     cloudflaredStatus,
     remoteProxyStatuses,
@@ -67,6 +68,7 @@ function App() {
     onStartAddAccount,
     onCloseAddDialog,
     onImportAuthFiles,
+    onExportAccounts,
     loadApiProxyStatus,
     onStartApiProxy,
     onStopApiProxy,
@@ -148,7 +150,11 @@ function App() {
           {activeTab === "accounts" ? (
             <div className="accountsPage">
               <div className="accountsHero">
-                <MetaStrip accountCount={accounts.length} currentCount={currentCount} />
+                <MetaStrip
+                  accountCount={accounts.length}
+                  exportingAccounts={exportingAccounts}
+                  onExportAccounts={() => void onExportAccounts()}
+                />
                 <AddAccountSection
                   startingAdd={startingAdd}
                   addFlowActive={Boolean(addFlow)}
@@ -224,6 +230,7 @@ function App() {
               onCheckUpdate={() => void checkForAppUpdate(false)}
               settings={settings}
               installedEditorApps={installedEditorApps}
+              hasOpencodeDesktopApp={hasOpencodeDesktopApp}
               savingSettings={savingSettings}
               onUpdateSettings={(patch, options) => void updateSettings(patch, options)}
             />

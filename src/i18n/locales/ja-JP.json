@@ -20,6 +20,7 @@
   },
   "addAccount": {
     "smartSwitch": "スマート切替",
+    "exportButton": "エクスポート",
     "startButton": "アカウント追加",
     "startingButton": "起動中...",
     "waitingButton": "認証待機中...",
@@ -258,6 +259,11 @@
       "checkedText": "同期",
       "uncheckedText": "同期しない"
     },
+    "restartOpencodeDesktop": {
+      "label": "Opencode デスクトップを再起動",
+      "checkedText": "再起動",
+      "uncheckedText": "再起動しない"
+    },
     "restartEditorsOnSwitch": {
       "label": "切替時にエディタを再起動（Codex プラグイン互換）",
       "description": "既定で無効。有効時は選択したエディタを強制再起動します。",
@@ -331,6 +337,8 @@
     "addAccountAutoImportFailed": "自動取り込みに失敗しました: {{error}}",
     "addAccountTimeout": "認証待機がタイムアウトしました。「アカウント追加」を再度クリックしてください。",
     "startLoginFlowFailed": "ログインフローの開始に失敗しました: {{error}}",
+    "accountsExported": "アカウント一覧をエクスポートしました",
+    "accountsExportFailed": "アカウント一覧のエクスポートに失敗しました: {{error}}",
     "deleteConfirm": "{{label}} を削除するには、もう一度削除をクリックしてください。",
     "accountDeleted": "アカウントを削除しました",
     "deleteFailed": "削除に失敗しました: {{error}}",
@@ -339,6 +347,8 @@
     "switchedAndLaunching": "アカウントを切り替えました。Codex を起動中です。",
     "opencodeSyncFailed": "{{base}} Opencode の同期に失敗しました: {{error}}",
     "opencodeSynced": "{{base}} Opencode OpenAI 認証を同期しました。",
+    "opencodeDesktopRestartFailed": "{{base}} Opencode デスクトップの再起動に失敗しました: {{error}}",
+    "opencodeDesktopRestarted": "{{base}} Opencode デスクトップを再起動しました。",
     "editorRestartFailed": "{{base}} エディタの再起動に失敗しました: {{error}}",
     "editorsRestarted": "{{base}} 再起動したエディタ: {{labels}}",
     "noEditorRestarted": "{{base}} 再起動可能なインストール済みエディタが見つかりませんでした。",

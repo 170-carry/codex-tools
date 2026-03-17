@@ -5,6 +5,10 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -13,6 +17,24 @@ use crate::auth::CodexOAuthTokens;
 use crate::utils::set_private_permissions;
 
 const FALLBACK_EXPIRES_IN_MS: i64 = 55 * 60 * 1000;
+const OPENCODE_DESKTOP_RESTART_SETTLE_MS: u64 = 220;
+const OPENCODE_DESKTOP_RESTART_TIMEOUT_MS: u64 = 6_000;
+const OPENCODE_DESKTOP_RESTART_POLL_MS: u64 = 120;
+
+#[cfg(target_os = "macos")]
+const OPENCODE_DESKTOP_MAC_APP_NAMES: &[&str] = &["Opencode.app", "OpenCode.app", "opencode.app"];
+#[cfg(target_os = "macos")]
+const OPENCODE_DESKTOP_MAC_BUNDLE_ID: &str = "ai.opencode.desktop";
+#[cfg(target_os = "macos")]
+const OPENCODE_DESKTOP_MAC_PROCESS_NAMES: &[&str] =
+    &["opencode-cli", "Opencode", "OpenCode", "opencode"];
+#[cfg(target_os = "windows")]
+const OPENCODE_DESKTOP_WINDOWS_PROCESS_NAMES: &[&str] = &[
+    "opencode-cli.exe",
+    "Opencode.exe",
+    "OpenCode.exe",
+    "opencode.exe",
+];
 
 /// 同步 opencode 的 OpenAI 认证（openai.access/openai.refresh）。
 ///
@@ -53,6 +75,33 @@ pub(crate) fn sync_openai_auth_from_codex_auth(auth_json: &Value) -> Result<(), 
     if !errors.is_empty() {
         log::warn!("部分 opencode 认证文件同步失败: {}", errors.join(" | "));
     }
+    Ok(())
+}
+
+pub(crate) fn is_opencode_desktop_app_installed() -> bool {
+    detect_opencode_desktop_app_path().is_some()
+}
+
+pub(crate) fn restart_opencode_desktop_app() -> Result<(), String> {
+    let app_path = detect_opencode_desktop_app_path()
+        .ok_or_else(|| "未检测到 opencode 桌面端应用".to_string())?;
+
+    #[cfg(target_os = "macos")]
+    let previous_pids = list_running_opencode_desktop_pids();
+
+    request_opencode_desktop_quit();
+    thread::sleep(Duration::from_millis(OPENCODE_DESKTOP_RESTART_SETTLE_MS));
+    force_kill_opencode_desktop_processes();
+
+    #[cfg(target_os = "macos")]
+    wait_for_opencode_desktop_exit()?;
+
+    thread::sleep(Duration::from_millis(OPENCODE_DESKTOP_RESTART_SETTLE_MS));
+    reopen_opencode_desktop_app(&app_path)?;
+
+    #[cfg(target_os = "macos")]
+    wait_for_opencode_desktop_launch(&previous_pids)?;
+
     Ok(())
 }
 
@@ -128,6 +177,59 @@ fn detect_opencode_install_path() -> Option<PathBuf> {
     }
 
     candidates.into_iter().find(|path| is_executable_file(path))
+}
+
+fn detect_opencode_desktop_app_path() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut candidates = Vec::<PathBuf>::new();
+
+        for bundle_name in OPENCODE_DESKTOP_MAC_APP_NAMES {
+            candidates.push(PathBuf::from("/Applications").join(bundle_name));
+            if let Some(home) = dirs::home_dir() {
+                candidates.push(home.join("Applications").join(bundle_name));
+            }
+        }
+
+        return candidates.into_iter().find(|path| path.exists());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut candidates = Vec::<PathBuf>::new();
+
+        for base in [
+            env::var_os("LOCALAPPDATA").map(PathBuf::from),
+            env::var_os("APPDATA").map(PathBuf::from),
+            env::var_os("ProgramFiles").map(PathBuf::from),
+            env::var_os("ProgramFiles(x86)").map(PathBuf::from),
+            dirs::home_dir().map(|home| home.join("AppData").join("Local")),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            for relative in [
+                ["Programs", "Opencode", "Opencode.exe"],
+                ["Programs", "OpenCode", "OpenCode.exe"],
+                ["Programs", "opencode", "Opencode.exe"],
+                ["Programs", "opencode", "opencode.exe"],
+                ["Opencode", "Opencode.exe"],
+                ["OpenCode", "OpenCode.exe"],
+                ["opencode", "opencode.exe"],
+            ] {
+                let mut candidate = base.clone();
+                for segment in relative {
+                    candidate = candidate.join(segment);
+                }
+                push_unique_path(&mut candidates, candidate);
+            }
+        }
+
+        return candidates.into_iter().find(|path| path.is_file());
+    }
+
+    #[allow(unreachable_code)]
+    None
 }
 
 fn detect_opencode_auth_paths() -> Vec<PathBuf> {
@@ -218,6 +320,126 @@ fn build_opencode_auth_candidates() -> Vec<PathBuf> {
 fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
     if !paths.iter().any(|existing| existing == &candidate) {
         paths.push(candidate);
+    }
+}
+
+fn request_opencode_desktop_quit() {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            r#"tell application id "{}" to quit"#,
+            OPENCODE_DESKTOP_MAC_BUNDLE_ID
+        );
+        let _ = Command::new("osascript").args(["-e", &script]).status();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn list_running_opencode_desktop_pids() -> Vec<u32> {
+    let mut pids = Vec::<u32>::new();
+
+    for name in OPENCODE_DESKTOP_MAC_PROCESS_NAMES {
+        let Ok(output) = Command::new("pgrep").args(["-x", name]).output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let Ok(pid) = line.trim().parse::<u32>() else {
+                continue;
+            };
+            if !pids.contains(&pid) {
+                pids.push(pid);
+            }
+        }
+    }
+
+    pids
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_opencode_desktop_exit() -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_millis(OPENCODE_DESKTOP_RESTART_TIMEOUT_MS);
+
+    loop {
+        if list_running_opencode_desktop_pids().is_empty() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("等待 Opencode 桌面端退出超时".to_string());
+        }
+        thread::sleep(Duration::from_millis(OPENCODE_DESKTOP_RESTART_POLL_MS));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_opencode_desktop_launch(previous_pids: &[u32]) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_millis(OPENCODE_DESKTOP_RESTART_TIMEOUT_MS);
+
+    loop {
+        let current_pids = list_running_opencode_desktop_pids();
+        let launched = if previous_pids.is_empty() {
+            !current_pids.is_empty()
+        } else {
+            current_pids.iter().any(|pid| !previous_pids.contains(pid))
+        };
+
+        if launched {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("等待 Opencode 桌面端重新启动超时".to_string());
+        }
+        thread::sleep(Duration::from_millis(OPENCODE_DESKTOP_RESTART_POLL_MS));
+    }
+}
+
+fn force_kill_opencode_desktop_processes() {
+    #[cfg(target_os = "macos")]
+    {
+        for name in OPENCODE_DESKTOP_MAC_PROCESS_NAMES {
+            let _ = Command::new("pkill").args(["-9", "-x", name]).status();
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for name in OPENCODE_DESKTOP_WINDOWS_PROCESS_NAMES {
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", name, "/T"])
+                .status();
+        }
+    }
+}
+
+fn reopen_opencode_desktop_app(app_path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .arg("-na")
+            .arg(app_path)
+            .status()
+            .map_err(|error| format!("重启 opencode 桌面端失败: {error}"))?;
+        if !status.success() {
+            return Err("opencode 桌面端重启失败".to_string());
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new(app_path)
+            .spawn()
+            .map_err(|error| format!("重启 opencode 桌面端失败: {error}"))?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    {
+        let _ = app_path;
+        Err("当前平台暂不支持重启 opencode 桌面端".to_string())
     }
 }
 

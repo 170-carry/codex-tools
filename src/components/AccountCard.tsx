@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
 import type { AccountSummary } from "../types/app";
 import {
@@ -8,9 +9,9 @@ import {
 } from "../utils/usage";
 
 type AccountCardProps = {
-  account: AccountSummary;
-  isSwitching: boolean;
-  isDeletePending: boolean;
+  accounts: AccountSummary[];
+  switchingId: string | null;
+  pendingDeleteId: string | null;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
 };
@@ -108,51 +109,101 @@ function formatResetValue(epochSec: number | null | undefined, locale?: string) 
   });
 }
 
+function pickDefaultAccount(accounts: AccountSummary[]): AccountSummary | null {
+  const current = accounts.find((account) => account.isCurrent);
+  if (current) {
+    return current;
+  }
+  return accounts[0] ?? null;
+}
+
 export function AccountCard({
-  account,
-  isSwitching,
-  isDeletePending,
+  accounts,
+  switchingId,
+  pendingDeleteId,
   onSwitch,
   onDelete,
 }: AccountCardProps) {
   const { copy, locale } = useI18n();
-  const usage = account.usage;
+  const [preferredSelectedId, setPreferredSelectedId] = useState<string | null>(
+    () => pickDefaultAccount(accounts)?.id ?? null,
+  );
+
+  const selectedAccount = useMemo(
+    () =>
+      (switchingId && accounts.find((account) => account.id === switchingId)) ||
+      (pendingDeleteId && accounts.find((account) => account.id === pendingDeleteId)) ||
+      accounts.find((account) => account.isCurrent) ||
+      (preferredSelectedId && accounts.find((account) => account.id === preferredSelectedId)) ||
+      pickDefaultAccount(accounts),
+    [accounts, pendingDeleteId, preferredSelectedId, switchingId],
+  );
+
+  if (!selectedAccount) {
+    return null;
+  }
+
+  const usage = selectedAccount.usage;
   const fiveHour = usage?.fiveHour ?? null;
   const oneWeek = usage?.oneWeek ?? null;
-  const normalizedPlan = account.planType || usage?.planType;
-  const planLabel = formatPlan(normalizedPlan, copy.accountCard.planLabels);
+  const normalizedPlan = selectedAccount.planType || usage?.planType;
   const tone = planTone(normalizedPlan);
+  const isSwitching = switchingId === selectedAccount.id;
+  const isDeletePending = pendingDeleteId === selectedAccount.id;
   const launchLabel = isSwitching ? copy.accountCard.launching : copy.accountCard.launch;
   const fiveHourReset = formatResetValue(fiveHour?.resetAt, locale);
   const oneWeekReset = formatResetValue(oneWeek?.resetAt, locale);
 
   const handleLaunch = () => {
     if (isSwitching) return;
-    onSwitch(account);
+    onSwitch(selectedAccount);
+  };
+
+  const handleSelectAccount = (account: AccountSummary) => {
+    setPreferredSelectedId(account.id);
   };
 
   return (
     <article
-      className={`accountCard tone-${tone} ${account.isCurrent ? "isCurrent" : ""} ${
+      className={`accountCard tone-${tone} ${selectedAccount.isCurrent ? "isCurrent" : ""} ${
         isSwitching ? "isSwitching" : ""
       }`}
     >
       <header className="cardHeader">
         <div className="cardIdentity">
           <div className="cardBadges">
-            <span className="cardBadge planBadge">{planLabel}</span>
-            {account.isCurrent && (
-              <span className="cardBadge currentBadge">
-                <span className="cardStatusDot" aria-hidden="true" />
-                {copy.accountCard.currentStamp}
-              </span>
-            )}
+            {accounts.map((account) => {
+              const variantPlan = formatPlan(
+                account.planType || account.usage?.planType,
+                copy.accountCard.planLabels,
+              );
+              const isSelected = account.id === selectedAccount.id;
+              return (
+                <button
+                  key={account.id}
+                  type="button"
+                  className={`cardBadge planBadge planBadgeButton ${
+                    isSelected ? "isSelected" : ""
+                  } ${account.isCurrent ? "isCurrent" : ""}`}
+                  onClick={() => handleSelectAccount(account)}
+                  aria-pressed={isSelected}
+                  title={
+                    account.isCurrent
+                      ? `${variantPlan} · ${copy.accountCard.currentStamp}`
+                      : variantPlan
+                  }
+                >
+                  {account.isCurrent && <span className="cardStatusDot" aria-hidden="true" />}
+                  {variantPlan}
+                </button>
+              );
+            })}
           </div>
-          <h3 className={account.isCurrent ? "nameCurrent" : ""}>{account.label}</h3>
+          <h3 className={selectedAccount.isCurrent ? "nameCurrent" : ""}>{selectedAccount.label}</h3>
         </div>
         <button
           className={`cardDeleteIcon ${isDeletePending ? "isPending" : ""}`}
-          onClick={() => onDelete(account)}
+          onClick={() => onDelete(selectedAccount)}
           aria-label={isDeletePending ? copy.accountCard.deleteConfirm : copy.accountCard.delete}
           title={isDeletePending ? copy.accountCard.deleteConfirm : copy.accountCard.delete}
         >
@@ -196,7 +247,7 @@ export function AccountCard({
       </div>
 
       <footer className="cardFooter">
-        {account.usageError && <p className="errorText">{account.usageError}</p>}
+        {selectedAccount.usageError && <p className="errorText">{selectedAccount.usageError}</p>}
         <button
           className={`ghost cardLaunchButton ${isSwitching ? "isBusy" : ""}`}
           onClick={handleLaunch}
