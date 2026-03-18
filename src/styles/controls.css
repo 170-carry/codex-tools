@@ -264,6 +264,62 @@
   letter-spacing: -0.01em;
 }
 
+.settingMetaInline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.settingInlineValue {
+  color: var(--subtle);
+  font: 600 0.76rem/1.35 var(--font-mono);
+}
+
+.settingLink {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.settingLink:hover,
+.settingLink:focus-visible {
+  color: color-mix(in srgb, var(--ink) 76%, var(--brand-cool) 24%);
+}
+
+.settingLink:focus-visible {
+  outline: none;
+}
+
+.settingLinkIcon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.settingActionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settingLinkLabel {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 600 0.78rem/1.25 var(--font-mono);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
 .modeGroup {
   display: inline-flex;
   gap: 2px;

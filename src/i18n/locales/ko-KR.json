@@ -289,6 +289,15 @@
       "switchAriaLabel": "테마 전환",
       "dark": "다크",
       "light": "라이트"
+    },
+    "projectInfo": {
+      "versionLabel": "현재 버전",
+      "repositoryLabel": "GitHub 저장소",
+      "releasesLabel": "릴리스 및 변경 로그",
+      "openRepository": "저장소 열기",
+      "openIssues": "이슈 제보",
+      "openReleases": "릴리스",
+      "openChangelog": "변경 로그"
     }
   },
   "editorPicker": {
@@ -332,6 +341,7 @@
     "updateInstallFailed": "업데이트 설치 실패: {{error}}",
     "foundNewVersion": "새 버전 {{version}} 발견 (현재 {{currentVersion}}). 자동 다운로드를 시작했습니다.",
     "updateCheckFailed": "업데이트 확인 실패: {{error}}",
+    "openExternalFailed": "외부 링크 열기 실패: {{error}}",
     "openManualDownloadFailed": "다운로드 페이지 열기 실패: {{error}}",
     "addAccountSuccess": "인증 성공. 계정이 자동으로 추가되고 갱신되었습니다.",
     "addAccountAutoImportFailed": "자동 가져오기 실패: {{error}}",

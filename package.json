@@ -1,8 +1,16 @@
 {
   "name": "codex-tools",
   "private": true,
-  "version": "1.1.3",
+  "version": "1.2.0",
   "license": "MIT",
+  "homepage": "https://github.com/170-carry/codex-tools",
+  "bugs": {
+    "url": "https://github.com/170-carry/codex-tools/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/170-carry/codex-tools.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

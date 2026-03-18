@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import { PROJECT_LATEST_RELEASE_URL } from "../constants/externalLinks";
 import { useI18n } from "../i18n/I18nProvider";
 import { localizeBackendError } from "../i18n/backendErrors";
 import { DEFAULT_LOCALE } from "../i18n/catalog";
@@ -34,7 +35,6 @@ const ADD_FLOW_TIMEOUT_MS = 10 * 60_000;
 const ADD_FLOW_POLL_MS = 2_500;
 const API_PROXY_POLL_MS = 4_000;
 const CLOUDFLARED_POLL_MS = 3_000;
-const MANUAL_DOWNLOAD_URL = "https://github.com/170-carry/codex-tools/releases/latest";
 const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   trayUsageDisplayMode: "remaining",
@@ -506,11 +506,22 @@ export function useCodexController() {
 
   const openManualDownloadPage = useCallback(async () => {
     try {
-      await invoke("open_external_url", { url: MANUAL_DOWNLOAD_URL });
+      await invoke("open_external_url", { url: PROJECT_LATEST_RELEASE_URL });
     } catch (error) {
       setNotice({
         type: "error",
         message: copy.notices.openManualDownloadFailed(localizeError(String(error))),
+      });
+    }
+  }, [copy.notices, localizeError]);
+
+  const openExternalUrl = useCallback(async (url: string) => {
+    try {
+      await invoke("open_external_url", { url });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: copy.notices.openExternalFailed(localizeError(String(error))),
       });
     }
   }, [copy.notices, localizeError]);
@@ -1450,6 +1461,7 @@ export function useCodexController() {
     pendingUpdate,
     updateDialogOpen,
     notice,
+    openExternalUrl,
     settings,
     savingSettings,
     installedEditorApps,

@@ -310,6 +310,15 @@ export type MessageCatalog = {
       dark: string;
       light: string;
     };
+    projectInfo: {
+      versionLabel: string;
+      repositoryLabel: string;
+      releasesLabel: string;
+      openRepository: string;
+      openIssues: string;
+      openReleases: string;
+      openChangelog: string;
+    };
   };
   editorPicker: {
     ariaLabel: string;
@@ -344,6 +353,7 @@ export type MessageCatalog = {
     updateInstallFailed: (error: string) => string;
     foundNewVersion: (version: string, currentVersion: string) => string;
     updateCheckFailed: (error: string) => string;
+    openExternalFailed: (error: string) => string;
     openManualDownloadFailed: (error: string) => string;
     addAccountSuccess: string;
     addAccountAutoImportFailed: (error: string) => string;
@@ -468,6 +478,7 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       foundNewVersion: (version, currentVersion) =>
         fillTemplate(raw.notices.foundNewVersion, { version, currentVersion }),
       updateCheckFailed: (error) => fillTemplate(raw.notices.updateCheckFailed, { error }),
+      openExternalFailed: (error) => fillTemplate(raw.notices.openExternalFailed, { error }),
       openManualDownloadFailed: (error) =>
         fillTemplate(raw.notices.openManualDownloadFailed, { error }),
       addAccountAutoImportFailed: (error) =>

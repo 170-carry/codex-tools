@@ -289,6 +289,15 @@
       "switchAriaLabel": "切换主题",
       "dark": "深色",
       "light": "浅色"
+    },
+    "projectInfo": {
+      "versionLabel": "版本",
+      "repositoryLabel": "GitHub 仓库",
+      "releasesLabel": "版本发布与日志",
+      "openRepository": "打开仓库",
+      "openIssues": "反馈问题",
+      "openReleases": "版本发布",
+      "openChangelog": "更新日志"
     }
   },
   "editorPicker": {
@@ -332,6 +341,7 @@
     "updateInstallFailed": "安装更新失败：{{error}}",
     "foundNewVersion": "发现新版本 {{version}}（当前 {{currentVersion}}），已开始自动下载。",
     "updateCheckFailed": "检查更新失败：{{error}}",
+    "openExternalFailed": "打开外部链接失败：{{error}}",
     "openManualDownloadFailed": "打开下载页面失败：{{error}}",
     "addAccountSuccess": "授权成功，账号已自动添加并刷新。",
     "addAccountAutoImportFailed": "自动导入失败：{{error}}",

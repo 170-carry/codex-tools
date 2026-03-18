@@ -289,6 +289,15 @@
       "switchAriaLabel": "Переключить тему",
       "dark": "Темная",
       "light": "Светлая"
+    },
+    "projectInfo": {
+      "versionLabel": "Текущая версия",
+      "repositoryLabel": "GitHub-репозиторий",
+      "releasesLabel": "Релизы и журнал изменений",
+      "openRepository": "Открыть репозиторий",
+      "openIssues": "Сообщить об issue",
+      "openReleases": "Релизы",
+      "openChangelog": "Журнал изменений"
     }
   },
   "editorPicker": {
@@ -332,6 +341,7 @@
     "updateInstallFailed": "Не удалось установить обновление: {{error}}",
     "foundNewVersion": "Найдена новая версия {{version}} (текущая {{currentVersion}}). Автозагрузка началась.",
     "updateCheckFailed": "Не удалось проверить обновления: {{error}}",
+    "openExternalFailed": "Не удалось открыть внешнюю ссылку: {{error}}",
     "openManualDownloadFailed": "Не удалось открыть страницу загрузки: {{error}}",
     "addAccountSuccess": "Авторизация успешна. Аккаунт автоматически добавлен и обновлен.",
     "addAccountAutoImportFailed": "Ошибка автоимпорта: {{error}}",

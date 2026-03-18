@@ -101,6 +101,15 @@
     text-align: left;
   }
 
+  .settingActionGroup {
+    justify-content: flex-start;
+  }
+
+  .settingLinkLabel {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .accountsHero {
     grid-template-columns: 1fr;
   }

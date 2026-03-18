@@ -36,6 +36,7 @@ function App() {
     pendingUpdate,
     updateDialogOpen,
     notice,
+    openExternalUrl,
     settings,
     installedEditorApps,
     hasOpencodeDesktopApp,
@@ -228,6 +229,7 @@ function App() {
               onToggleTheme={toggleTheme}
               checkingUpdate={checkingUpdate}
               onCheckUpdate={() => void checkForAppUpdate(false)}
+              onOpenExternalUrl={(url) => void openExternalUrl(url)}
               settings={settings}
               installedEditorApps={installedEditorApps}
               hasOpencodeDesktopApp={hasOpencodeDesktopApp}

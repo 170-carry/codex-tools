@@ -1,3 +1,12 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import {
+  PROJECT_CHANGELOG_URL,
+  PROJECT_ISSUES_URL,
+  PROJECT_RELEASES_URL,
+  PROJECT_REPOSITORY_DISPLAY,
+  PROJECT_REPOSITORY_URL,
+} from "../constants/externalLinks";
 import { useI18n } from "../i18n/I18nProvider";
 import { EditorMultiSelect } from "./EditorMultiSelect";
 import { ThemeSwitch } from "./ThemeSwitch";
@@ -9,11 +18,23 @@ import type {
   UpdateSettingsOptions,
 } from "../types/app";
 
+function GitHubIcon() {
+  return (
+    <svg className="settingLinkIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M12 1.5a10.5 10.5 0 0 0-3.32 20.46c.52.1.7-.22.7-.5v-1.86c-2.86.62-3.46-1.2-3.46-1.2-.48-1.18-1.16-1.5-1.16-1.5-.96-.66.08-.64.08-.64 1.04.08 1.6 1.08 1.6 1.08.94 1.58 2.44 1.12 3.04.86.1-.68.36-1.12.66-1.38-2.28-.26-4.68-1.12-4.68-5a3.9 3.9 0 0 1 1.04-2.72c-.1-.26-.46-1.32.1-2.74 0 0 .86-.28 2.82 1.04a9.8 9.8 0 0 1 5.14 0c1.96-1.32 2.82-1.04 2.82-1.04.56 1.42.2 2.48.1 2.74a3.9 3.9 0 0 1 1.04 2.72c0 3.88-2.4 4.74-4.7 4.98.38.32.7.94.7 1.92v2.84c0 .28.18.62.72.5A10.5 10.5 0 0 0 12 1.5Z"
+      />
+    </svg>
+  );
+}
+
 type SettingsPanelProps = {
   themeMode: ThemeMode;
   onToggleTheme: () => void;
   checkingUpdate: boolean;
   onCheckUpdate: () => void;
+  onOpenExternalUrl: (url: string) => void;
   settings: AppSettings;
   installedEditorApps: InstalledEditorApp[];
   hasOpencodeDesktopApp: boolean;
@@ -26,6 +47,7 @@ export function SettingsPanel({
   onToggleTheme,
   checkingUpdate,
   onCheckUpdate,
+  onOpenExternalUrl,
   settings,
   installedEditorApps,
   hasOpencodeDesktopApp,
@@ -33,11 +55,29 @@ export function SettingsPanel({
   onUpdateSettings,
 }: SettingsPanelProps) {
   const { copy, locale, localeOptions, setLocale } = useI18n();
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
     id: item.code,
     label: item.nativeLabel,
   }));
+  const versionValue = appVersion ? `v${appVersion}` : "...";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getVersion()
+      .then((version) => {
+        if (!cancelled) {
+          setAppVersion(version);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <section className="settingsPage" aria-label={copy.settings.title}>
@@ -186,14 +226,51 @@ export function SettingsPanel({
           ) : null}
         </div>
 
-        <div className="settingsGroup settingsGroupAction">
+        <div className="settingsGroup">
+          <div className="settingRow">
+            <div className="settingMeta settingMetaInline">
+              <strong>{copy.settings.projectInfo.versionLabel}</strong>
+              <span className="settingInlineValue">{versionValue}</span>
+            </div>
+            <div className="settingActionGroup">
+              <button className="primary" onClick={onCheckUpdate} disabled={checkingUpdate}>
+                {checkingUpdate ? copy.topBar.checkingUpdate : copy.topBar.checkUpdate}
+              </button>
+            </div>
+          </div>
+
+          <div className="settingRow">
+            <a
+              className="settingLink"
+              href={PROJECT_REPOSITORY_URL}
+              title={PROJECT_REPOSITORY_DISPLAY}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenExternalUrl(PROJECT_REPOSITORY_URL);
+              }}
+            >
+              <GitHubIcon />
+              <span className="settingLinkLabel">{PROJECT_REPOSITORY_DISPLAY}</span>
+            </a>
+            <div className="settingActionGroup">
+              <button className="ghost" onClick={() => onOpenExternalUrl(PROJECT_ISSUES_URL)}>
+                {copy.settings.projectInfo.openIssues}
+              </button>
+            </div>
+          </div>
+
           <div className="settingRow">
             <div className="settingMeta">
-              <strong>{copy.topBar.checkUpdate}</strong>
+              <strong>{copy.settings.projectInfo.releasesLabel}</strong>
             </div>
-            <button className="primary" onClick={onCheckUpdate} disabled={checkingUpdate}>
-              {checkingUpdate ? copy.topBar.checkingUpdate : copy.topBar.checkUpdate}
-            </button>
+            <div className="settingActionGroup">
+              <button className="ghost" onClick={() => onOpenExternalUrl(PROJECT_RELEASES_URL)}>
+                {copy.settings.projectInfo.openReleases}
+              </button>
+              <button className="ghost" onClick={() => onOpenExternalUrl(PROJECT_CHANGELOG_URL)}>
+                {copy.settings.projectInfo.openChangelog}
+              </button>
+            </div>
           </div>
         </div>
       </div>

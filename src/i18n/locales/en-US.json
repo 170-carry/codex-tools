@@ -289,6 +289,15 @@
       "switchAriaLabel": "Toggle theme",
       "dark": "Dark",
       "light": "Light"
+    },
+    "projectInfo": {
+      "versionLabel": "Current version",
+      "repositoryLabel": "GitHub repository",
+      "releasesLabel": "Releases & changelog",
+      "openRepository": "Open repository",
+      "openIssues": "Issues",
+      "openReleases": "Releases",
+      "openChangelog": "Changelog"
     }
   },
   "editorPicker": {
@@ -332,6 +341,7 @@
     "updateInstallFailed": "Failed to install update: {{error}}",
     "foundNewVersion": "New version {{version}} found (current {{currentVersion}}). Auto download started.",
     "updateCheckFailed": "Failed to check updates: {{error}}",
+    "openExternalFailed": "Failed to open external link: {{error}}",
     "openManualDownloadFailed": "Failed to open download page: {{error}}",
     "addAccountSuccess": "Authorization successful. Account was added and refreshed automatically.",
     "addAccountAutoImportFailed": "Auto import failed: {{error}}",

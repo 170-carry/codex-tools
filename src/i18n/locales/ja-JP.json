@@ -289,6 +289,15 @@
       "switchAriaLabel": "テーマ切替",
       "dark": "ダーク",
       "light": "ライト"
+    },
+    "projectInfo": {
+      "versionLabel": "現在のバージョン",
+      "repositoryLabel": "GitHub リポジトリ",
+      "releasesLabel": "リリースと変更履歴",
+      "openRepository": "リポジトリを開く",
+      "openIssues": "Issue を開く",
+      "openReleases": "リリース",
+      "openChangelog": "変更履歴"
     }
   },
   "editorPicker": {
@@ -332,6 +341,7 @@
     "updateInstallFailed": "アップデートのインストールに失敗しました: {{error}}",
     "foundNewVersion": "新しいバージョン {{version}} を検出しました（現在 {{currentVersion}}）。自動ダウンロードを開始しました。",
     "updateCheckFailed": "アップデート確認に失敗しました: {{error}}",
+    "openExternalFailed": "外部リンクを開けませんでした: {{error}}",
     "openManualDownloadFailed": "ダウンロードページを開けませんでした: {{error}}",
     "addAccountSuccess": "認証に成功しました。アカウントは自動追加・更新されました。",
     "addAccountAutoImportFailed": "自動取り込みに失敗しました: {{error}}",
