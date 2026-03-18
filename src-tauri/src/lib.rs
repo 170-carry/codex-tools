@@ -104,18 +104,18 @@ async fn delete_account(
 async fn update_account_label(
     app: AppHandle,
     state: State<'_, AppState>,
-    account_id: String,
+    account_key: String,
     label: String,
 ) -> Result<String, String> {
     let resolved_label =
-        account_service::update_account_label_internal(&app, state.inner(), &account_id, label)
+        account_service::update_account_label_internal(&app, state.inner(), &account_key, label)
             .await?;
 
     {
         let api_proxy = state.api_proxy.lock().await;
         if let Some(handle) = api_proxy.as_ref() {
             let mut snapshot = handle.shared.lock().await;
-            if snapshot.active_account_id.as_deref() == Some(account_id.as_str()) {
+            if snapshot.active_account_key.as_deref() == Some(account_key.as_str()) {
                 snapshot.active_account_label = Some(resolved_label.clone());
             }
         }

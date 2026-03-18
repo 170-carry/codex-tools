@@ -468,12 +468,7 @@ fn build_linux_binary_for_server(
     app: &AppHandle,
     server: &RemoteServerConfig,
 ) -> Result<PathBuf, String> {
-    let cargo_toolchain = LocalRustToolchain::resolve();
-    ensure_program_available(
-        &cargo_toolchain.cargo_bin,
-        "cargo",
-        "未检测到 cargo 命令，请先安装 Rust 工具链。",
-    )?;
+    let cargo_toolchain = ensure_local_rust_toolchain_available(app, server)?;
     emit_remote_deploy_progress(
         app,
         server,
@@ -621,6 +616,31 @@ fn build_linux_binary_for_server(
             format!(" 详情: {}", attempts.join(" | "))
         }
     ))
+}
+
+fn ensure_local_rust_toolchain_available(
+    app: &AppHandle,
+    server: &RemoteServerConfig,
+) -> Result<LocalRustToolchain, String> {
+    let mut cargo_toolchain = LocalRustToolchain::resolve();
+    if ensure_program_available(
+        &cargo_toolchain.cargo_bin,
+        "cargo",
+        "未检测到 cargo 命令，请先安装 Rust 工具链。",
+    )
+    .is_ok()
+    {
+        return Ok(cargo_toolchain);
+    }
+
+    install_rust_toolchain_sync(app, server)?;
+    cargo_toolchain = LocalRustToolchain::resolve();
+    ensure_program_available(
+        &cargo_toolchain.cargo_bin,
+        "cargo",
+        "自动安装 Rust 工具链后仍未检测到 cargo 命令。",
+    )?;
+    Ok(cargo_toolchain)
 }
 
 fn proxyd_build_target_dir() -> Result<PathBuf, String> {
@@ -816,6 +836,116 @@ fn install_sshpass_sync() -> Result<(), String> {
 
     if !command_sshpass_available() {
         return Err("自动安装 sshpass 后仍未检测到可执行文件。".to_string());
+    }
+
+    Ok(())
+}
+
+fn install_rust_toolchain_sync(app: &AppHandle, server: &RemoteServerConfig) -> Result<(), String> {
+    if command_exists("cargo") {
+        return Ok(());
+    }
+
+    if command_exists("rustup") {
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "preparingBuilder",
+            10,
+            Some("rustup default stable".to_string()),
+        );
+        run_install_command(
+            "rustup",
+            &["default", "stable"],
+            "通过 rustup 初始化 Rust 工具链失败",
+        )?;
+        if command_exists("cargo") {
+            return Ok(());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "preparingBuilder",
+            10,
+            Some("brew install rust".to_string()),
+        );
+        ensure_command_available(
+            "brew",
+            "未检测到 Homebrew，请先安装 brew 后再自动安装 Rust 工具链。",
+        )?;
+        run_install_command(
+            "brew",
+            &["install", "rust"],
+            "通过 Homebrew 安装 Rust 工具链失败",
+        )?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return Err("当前平台暂未内置一键安装 Rust 工具链，请先手动安装。".to_string());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if command_exists("apt-get") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                10,
+                Some("sudo apt-get update && sudo apt-get install -y cargo rustc".to_string()),
+            );
+            run_shell_install_command(
+                "sudo apt-get update && sudo apt-get install -y cargo rustc",
+                "通过 apt-get 安装 Rust 工具链失败",
+            )?;
+        } else if command_exists("dnf") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                10,
+                Some("sudo dnf install -y cargo rust rustup".to_string()),
+            );
+            run_shell_install_command(
+                "sudo dnf install -y cargo rust rustup",
+                "通过 dnf 安装 Rust 工具链失败",
+            )?;
+        } else if command_exists("yum") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                10,
+                Some("sudo yum install -y cargo rust rustup".to_string()),
+            );
+            run_shell_install_command(
+                "sudo yum install -y cargo rust rustup",
+                "通过 yum 安装 Rust 工具链失败",
+            )?;
+        } else if command_exists("pacman") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                10,
+                Some("sudo pacman -Sy --noconfirm rustup cargo".to_string()),
+            );
+            run_shell_install_command(
+                "sudo pacman -Sy --noconfirm rustup cargo",
+                "通过 pacman 安装 Rust 工具链失败",
+            )?;
+        } else {
+            return Err("当前平台暂未内置一键安装 Rust 工具链，请先手动安装。".to_string());
+        }
+    }
+
+    if !command_exists("cargo") {
+        return Err("自动安装 Rust 工具链后仍未检测到 cargo 命令。".to_string());
     }
 
     Ok(())

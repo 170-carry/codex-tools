@@ -5,7 +5,7 @@ use tauri::Manager;
 #[cfg(target_os = "macos")]
 use crate::account_service::refresh_all_usage_internal;
 #[cfg(target_os = "macos")]
-use crate::auth::current_auth_account_id;
+use crate::auth::current_auth_account_key;
 #[cfg(target_os = "macos")]
 use crate::auth::current_auth_variant_key;
 use crate::i18n;
@@ -321,14 +321,14 @@ pub(crate) fn update_macos_tray_snapshot(
 #[cfg(target_os = "macos")]
 pub(crate) fn refresh_macos_tray_snapshot(app: &AppHandle) -> Result<(), String> {
     let store = load_store(app)?;
-    let current_account_id = current_auth_account_id();
+    let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let summaries: Vec<AccountSummary> = store
         .accounts
         .iter()
         .map(|account| {
             account.to_summary(
-                current_account_id.as_deref(),
+                current_account_key.as_deref(),
                 current_variant_key.as_deref(),
             )
         })
@@ -361,14 +361,14 @@ fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
     let mode = read_tray_usage_mode(app);
     let locale = i18n::app_locale(app);
     let store = load_store(app)?;
-    let current_account_id = current_auth_account_id();
+    let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let summaries: Vec<AccountSummary> = store
         .accounts
         .iter()
         .map(|account| {
             account.to_summary(
-                current_account_id.as_deref(),
+                current_account_key.as_deref(),
                 current_variant_key.as_deref(),
             )
         })

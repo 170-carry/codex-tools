@@ -12,6 +12,7 @@ use crate::models::CloudflaredTunnelMode;
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct ApiProxyRuntimeSnapshot {
+    pub(crate) active_account_key: Option<String>,
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_account_label: Option<String>,
     pub(crate) last_error: Option<String>,

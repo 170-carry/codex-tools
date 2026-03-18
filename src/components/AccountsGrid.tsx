@@ -63,11 +63,11 @@ export function AccountsGrid({
     const groups = new Map<string, AccountSummary[]>();
 
     for (const account of accounts) {
-      const existing = groups.get(account.accountId);
+      const existing = groups.get(account.accountKey);
       if (existing) {
         existing.push(account);
       } else {
-        groups.set(account.accountId, [account]);
+        groups.set(account.accountKey, [account]);
       }
     }
 

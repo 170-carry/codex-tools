@@ -164,7 +164,7 @@ export function AccountCard({
   const normalizedPlan = selectedAccount.planType || usage?.planType;
   const tone = planTone(normalizedPlan);
   const isSwitching = switchingId === selectedAccount.id;
-  const isRenaming = renamingAccountId === selectedAccount.accountId;
+  const isRenaming = renamingAccountId === selectedAccount.accountKey;
   const isDeletePending = pendingDeleteId === selectedAccount.id;
   const launchLabel = isSwitching ? copy.accountCard.launching : copy.accountCard.launch;
   const fiveHourReset = formatResetValue(fiveHour?.resetAt, locale);

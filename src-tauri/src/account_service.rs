@@ -9,15 +9,18 @@ use tauri::AppHandle;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
 
+use crate::auth::account_group_key;
 use crate::auth::account_variant_key;
 use crate::auth::auth_variant_key;
-use crate::auth::current_auth_account_id;
+use crate::auth::current_auth_account_key;
 use crate::auth::current_auth_variant_key;
 use crate::auth::extract_auth;
 use crate::auth::normalize_imported_auth_json;
+use crate::auth::normalize_plan_type_key;
 use crate::auth::read_current_codex_auth;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::refresh_chatgpt_auth_tokens;
+use crate::models::dedupe_account_variants;
 use crate::models::AccountSummary;
 use crate::models::AccountsStore;
 use crate::models::AuthJsonImportInput;
@@ -39,6 +42,7 @@ const AUTH_EXPIRED_NOTICE: &str = "授权过期，请重新登录授权。";
 const EXPORT_ARCHIVE_ENTRY_NAME: &str = "accounts.json";
 
 struct PreparedImport {
+    principal_id: String,
     auth_json: serde_json::Value,
     account_id: String,
     email: Option<String>,
@@ -53,14 +57,14 @@ pub(crate) async fn list_accounts_internal(
 ) -> Result<Vec<AccountSummary>, String> {
     let _guard = state.store_lock.lock().await;
     let store = load_store(app)?;
-    let current_account_id = current_auth_account_id();
+    let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     Ok(store
         .accounts
         .iter()
         .map(|account| {
             account.to_summary(
-                current_account_id.as_deref(),
+                current_account_key.as_deref(),
                 current_variant_key.as_deref(),
             )
         })
@@ -115,7 +119,7 @@ pub(crate) async fn import_auth_json_accounts_internal(
         });
     }
 
-    let current_account_id = current_auth_account_id();
+    let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let (imported_count, updated_count) = {
         let mut _guard = state.store_lock.lock().await;
@@ -127,7 +131,7 @@ pub(crate) async fn import_auth_json_accounts_internal(
             let (_, updated_existing) = upsert_prepared_import(
                 &mut store,
                 prepared,
-                current_account_id.as_deref(),
+                current_account_key.as_deref(),
                 current_variant_key.as_deref(),
             );
             if updated_existing {
@@ -188,7 +192,7 @@ pub(crate) async fn delete_account_internal(
 pub(crate) async fn update_account_label_internal(
     app: &AppHandle,
     state: &AppState,
-    account_id: &str,
+    account_key: &str,
     label: String,
 ) -> Result<String, String> {
     let resolved_label =
@@ -202,7 +206,7 @@ pub(crate) async fn update_account_label_internal(
     for account in store
         .accounts
         .iter_mut()
-        .filter(|account| account.account_id == account_id)
+        .filter(|account| account.account_key() == account_key)
     {
         account.label = resolved_label.clone();
         account.updated_at = now;
@@ -413,19 +417,20 @@ pub(crate) async fn refresh_all_usage_internal(
             }
         }
 
+        dedupe_account_variants(&mut latest_store.accounts);
         save_store(app, &latest_store)?;
         latest_store
     };
 
     // 与当前 auth 文件重新对齐，确保 current 标签准确。
-    let current_account_id = current_auth_account_id();
+    let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let summaries: Vec<AccountSummary> = store
         .accounts
         .iter()
         .map(|account| {
             account.to_summary(
-                current_account_id.as_deref(),
+                current_account_key.as_deref(),
                 current_variant_key.as_deref(),
             )
         })
@@ -485,6 +490,7 @@ async fn prepare_auth_json_import(
         .ok();
 
     Ok(PreparedImport {
+        principal_id: extracted.principal_id,
         auth_json,
         account_id: extracted.account_id,
         email: extracted.email,
@@ -499,7 +505,7 @@ async fn commit_prepared_import(
     state: &AppState,
     prepared: PreparedImport,
 ) -> Result<AccountSummary, String> {
-    let current_account_id = current_auth_account_id();
+    let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let summary = {
         let mut _guard = state.store_lock.lock().await;
@@ -507,7 +513,7 @@ async fn commit_prepared_import(
         let (summary, _) = upsert_prepared_import(
             &mut store,
             prepared,
-            current_account_id.as_deref(),
+            current_account_key.as_deref(),
             current_variant_key.as_deref(),
         );
         save_store(app, &store)?;
@@ -635,10 +641,11 @@ fn ensure_zip_extension(path: PathBuf) -> PathBuf {
 fn upsert_prepared_import(
     store: &mut AccountsStore,
     prepared: PreparedImport,
-    current_account_id: Option<&str>,
+    current_account_key: Option<&str>,
     current_variant_key: Option<&str>,
 ) -> (AccountSummary, bool) {
     let PreparedImport {
+        principal_id,
         auth_json,
         account_id,
         email,
@@ -654,28 +661,55 @@ fn upsert_prepared_import(
         .as_ref()
         .and_then(|snapshot| snapshot.plan_type.clone())
         .or(plan_type);
-    let resolved_variant_key = account_variant_key(&account_id, resolved_plan_type.as_deref());
+    let resolved_account_key = account_group_key(&principal_id, &account_id);
+    let resolved_plan_key = normalize_plan_type_key(resolved_plan_type.as_deref());
+    let resolved_variant_key =
+        account_variant_key(&principal_id, &account_id, resolved_plan_type.as_deref());
 
     if let Some(existing) = store
         .accounts
         .iter_mut()
         .find(|account| account.variant_key() == resolved_variant_key)
     {
-        existing.label = resolved_label;
-        existing.email = email;
-        existing.plan_type = resolved_plan_type.clone().or(existing.plan_type.clone());
-        existing.auth_json = auth_json;
-        existing.updated_at = now;
-        existing.usage = usage;
-        existing.usage_error = None;
+        apply_prepared_import_to_account(
+            existing,
+            principal_id.clone(),
+            resolved_label,
+            email,
+            resolved_plan_type.clone(),
+            auth_json,
+            usage,
+            now,
+        );
         (
-            existing.to_summary(current_account_id, current_variant_key),
+            existing.to_summary(current_account_key, current_variant_key),
             true,
         )
-    } else {
+    } else if resolved_plan_key != "unknown" {
+        if let Some(existing) = store.accounts.iter_mut().find(|account| {
+            account.account_key() == resolved_account_key
+                && normalize_plan_type_key(account.resolved_plan_type().as_deref()) == "unknown"
+        }) {
+            apply_prepared_import_to_account(
+                existing,
+                principal_id.clone(),
+                resolved_label,
+                email,
+                resolved_plan_type.clone(),
+                auth_json,
+                usage,
+                now,
+            );
+            return (
+                existing.to_summary(current_account_key, current_variant_key),
+                true,
+            );
+        }
+
         let stored = StoredAccount {
             id: uuid::Uuid::new_v4().to_string(),
             label: resolved_label,
+            principal_id: Some(principal_id.clone()),
             email,
             account_id,
             plan_type: resolved_plan_type,
@@ -685,10 +719,47 @@ fn upsert_prepared_import(
             usage,
             usage_error: None,
         };
-        let summary = stored.to_summary(current_account_id, current_variant_key);
+        let summary = stored.to_summary(current_account_key, current_variant_key);
+        store.accounts.push(stored);
+        (summary, false)
+    } else {
+        let stored = StoredAccount {
+            id: uuid::Uuid::new_v4().to_string(),
+            label: resolved_label,
+            principal_id: Some(principal_id),
+            email,
+            account_id,
+            plan_type: resolved_plan_type,
+            auth_json,
+            added_at: now,
+            updated_at: now,
+            usage,
+            usage_error: None,
+        };
+        let summary = stored.to_summary(current_account_key, current_variant_key);
         store.accounts.push(stored);
         (summary, false)
     }
+}
+
+fn apply_prepared_import_to_account(
+    existing: &mut StoredAccount,
+    principal_id: String,
+    label: String,
+    email: Option<String>,
+    plan_type: Option<String>,
+    auth_json: serde_json::Value,
+    usage: Option<UsageSnapshot>,
+    now: i64,
+) {
+    existing.label = label;
+    existing.principal_id = Some(principal_id);
+    existing.email = email;
+    existing.plan_type = plan_type.or(existing.plan_type.clone());
+    existing.auth_json = auth_json;
+    existing.updated_at = now;
+    existing.usage = usage;
+    existing.usage_error = None;
 }
 
 fn parse_auth_json_content(raw: &str) -> Result<serde_json::Value, String> {
@@ -726,5 +797,128 @@ fn normalize_import_source(source: &str) -> String {
         "未命名 JSON".to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::upsert_prepared_import;
+    use super::PreparedImport;
+    use crate::models::AccountsStore;
+    use crate::models::StoredAccount;
+    use crate::models::UsageSnapshot;
+    use crate::models::UsageWindow;
+    use serde_json::json;
+
+    fn usage_snapshot(plan_type: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            fetched_at: 10,
+            plan_type: Some(plan_type.to_string()),
+            five_hour: Some(UsageWindow {
+                used_percent: 10.0,
+                window_seconds: 18_000,
+                reset_at: Some(20),
+            }),
+            one_week: Some(UsageWindow {
+                used_percent: 20.0,
+                window_seconds: 604_800,
+                reset_at: Some(30),
+            }),
+            credits: None,
+        }
+    }
+
+    fn prepared_import(
+        principal_id: &str,
+        account_id: &str,
+        email: &str,
+        label: &str,
+        plan_type: &str,
+    ) -> PreparedImport {
+        PreparedImport {
+            principal_id: principal_id.to_string(),
+            auth_json: json!({ "kind": label }),
+            account_id: account_id.to_string(),
+            email: Some(email.to_string()),
+            plan_type: Some(plan_type.to_string()),
+            usage: Some(usage_snapshot(plan_type)),
+            label: Some(label.to_string()),
+        }
+    }
+
+    #[test]
+    fn upsert_prepared_import_reuses_unknown_variant_placeholder() {
+        let mut store = AccountsStore::default();
+        store.accounts.push(StoredAccount {
+            id: "existing".to_string(),
+            label: "placeholder".to_string(),
+            principal_id: Some("fresh@example.com".to_string()),
+            email: Some("fresh@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: None,
+            auth_json: json!({ "kind": "old" }),
+            added_at: 1,
+            updated_at: 1,
+            usage: None,
+            usage_error: None,
+        });
+
+        let prepared = prepared_import(
+            "fresh@example.com",
+            "account-1",
+            "fresh@example.com",
+            "fresh",
+            "team",
+        );
+
+        let (summary, updated_existing) = upsert_prepared_import(&mut store, prepared, None, None);
+
+        assert!(updated_existing);
+        assert_eq!(store.accounts.len(), 1);
+        assert_eq!(summary.id, "existing");
+        assert_eq!(store.accounts[0].label, "fresh");
+        assert_eq!(store.accounts[0].plan_type.as_deref(), Some("team"));
+        assert_eq!(
+            store.accounts[0]
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.plan_type.as_deref()),
+            Some("team")
+        );
+    }
+
+    #[test]
+    fn upsert_prepared_import_keeps_same_workspace_different_users_separate() {
+        let mut store = AccountsStore::default();
+
+        let first = prepared_import(
+            "first@example.com",
+            "workspace-1",
+            "first@example.com",
+            "first",
+            "team",
+        );
+        let second = prepared_import(
+            "second@example.com",
+            "workspace-1",
+            "second@example.com",
+            "second",
+            "team",
+        );
+
+        let (_, updated_first) = upsert_prepared_import(&mut store, first, None, None);
+        let (_, updated_second) = upsert_prepared_import(&mut store, second, None, None);
+
+        assert!(!updated_first);
+        assert!(!updated_second);
+        assert_eq!(store.accounts.len(), 2);
+        assert_ne!(
+            store.accounts[0].account_key(),
+            store.accounts[1].account_key()
+        );
+        assert_ne!(
+            store.accounts[0].variant_key(),
+            store.accounts[1].variant_key()
+        );
     }
 }

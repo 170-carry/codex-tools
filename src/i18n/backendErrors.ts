@@ -1499,6 +1499,96 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
+    source: "未检测到 Homebrew，请先安装 brew 后再自动安装 Rust 工具链。",
+    target: phrases(
+      "未检测到 Homebrew，请先安装 brew 后再自动安装 Rust 工具链。",
+      "Homebrew was not found. Install brew first before automatically installing the Rust toolchain.",
+      "Homebrew が見つかりません。Rust ツールチェーンを自動インストールする前に brew をインストールしてください。",
+      "Homebrew 를 찾지 못했습니다. Rust 도구 모음을 자동 설치하기 전에 먼저 brew 를 설치하세요.",
+      "Homebrew не найден. Сначала установите brew, а затем попробуйте автоматически установить toolchain Rust."
+    ),
+  },
+  {
+    source: "通过 rustup 初始化 Rust 工具链失败",
+    target: phrases(
+      "通过 rustup 初始化 Rust 工具链失败",
+      "Failed to initialize the Rust toolchain via rustup",
+      "rustup による Rust ツールチェーンの初期化に失敗しました",
+      "rustup 으로 Rust 도구 모음을 초기화하지 못했습니다",
+      "Не удалось инициализировать toolchain Rust через rustup"
+    ),
+  },
+  {
+    source: "通过 Homebrew 安装 Rust 工具链失败",
+    target: phrases(
+      "通过 Homebrew 安装 Rust 工具链失败",
+      "Failed to install the Rust toolchain via Homebrew",
+      "Homebrew による Rust ツールチェーンのインストールに失敗しました",
+      "Homebrew 로 Rust 도구 모음을 설치하지 못했습니다",
+      "Не удалось установить toolchain Rust через Homebrew"
+    ),
+  },
+  {
+    source: "通过 apt-get 安装 Rust 工具链失败",
+    target: phrases(
+      "通过 apt-get 安装 Rust 工具链失败",
+      "Failed to install the Rust toolchain via apt-get",
+      "apt-get による Rust ツールチェーンのインストールに失敗しました",
+      "apt-get 으로 Rust 도구 모음을 설치하지 못했습니다",
+      "Не удалось установить toolchain Rust через apt-get"
+    ),
+  },
+  {
+    source: "通过 dnf 安装 Rust 工具链失败",
+    target: phrases(
+      "通过 dnf 安装 Rust 工具链失败",
+      "Failed to install the Rust toolchain via dnf",
+      "dnf による Rust ツールチェーンのインストールに失敗しました",
+      "dnf 로 Rust 도구 모음을 설치하지 못했습니다",
+      "Не удалось установить toolchain Rust через dnf"
+    ),
+  },
+  {
+    source: "通过 yum 安装 Rust 工具链失败",
+    target: phrases(
+      "通过 yum 安装 Rust 工具链失败",
+      "Failed to install the Rust toolchain via yum",
+      "yum による Rust ツールチェーンのインストールに失敗しました",
+      "yum 으로 Rust 도구 모음을 설치하지 못했습니다",
+      "Не удалось установить toolchain Rust через yum"
+    ),
+  },
+  {
+    source: "通过 pacman 安装 Rust 工具链失败",
+    target: phrases(
+      "通过 pacman 安装 Rust 工具链失败",
+      "Failed to install the Rust toolchain via pacman",
+      "pacman による Rust ツールチェーンのインストールに失敗しました",
+      "pacman 으로 Rust 도구 모음을 설치하지 못했습니다",
+      "Не удалось установить toolchain Rust через pacman"
+    ),
+  },
+  {
+    source: "当前平台暂未内置一键安装 Rust 工具链，请先手动安装。",
+    target: phrases(
+      "当前平台暂未内置一键安装 Rust 工具链，请先手动安装。",
+      "One-click installation for the Rust toolchain is not built in on this platform yet. Please install it manually first.",
+      "このプラットフォームでは Rust ツールチェーンのワンクリックインストールはまだ組み込まれていません。先に手動でインストールしてください。",
+      "현재 플랫폼에는 Rust 도구 모음 원클릭 설치가 아직 내장되어 있지 않습니다. 먼저 수동으로 설치하세요.",
+      "На этой платформе пока нет встроенной установки toolchain Rust в один клик. Сначала установите его вручную."
+    ),
+  },
+  {
+    source: "自动安装 Rust 工具链后仍未检测到 cargo 命令。",
+    target: phrases(
+      "自动安装 Rust 工具链后仍未检测到 cargo 命令。",
+      "The cargo command is still unavailable after automatically installing the Rust toolchain.",
+      "Rust ツールチェーンを自動インストールした後も cargo コマンドが見つかりません。",
+      "Rust 도구 모음을 자동 설치한 뒤에도 cargo 명령을 찾지 못했습니다.",
+      "Команда cargo по-прежнему недоступна после автоматической установки toolchain Rust."
+    ),
+  },
+  {
     source: "写入远程 systemd 服务文件失败",
     target: phrases(
       "写入远程 systemd 服务文件失败",

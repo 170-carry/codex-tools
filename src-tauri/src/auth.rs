@@ -77,12 +77,14 @@ pub(crate) fn read_current_auth_status() -> Result<CurrentAuthStatus, String> {
         .map(ToString::to_string);
 
     let extracted = extract_auth(&value).ok();
+    let principal_id = extracted.as_ref().map(|auth| auth.principal_id.clone());
     let account_id = extracted.as_ref().map(|auth| auth.account_id.clone());
     let email = extracted.as_ref().and_then(|auth| auth.email.clone());
     let plan_type = extracted.as_ref().and_then(|auth| auth.plan_type.clone());
 
     let fingerprint = Some(format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
+        principal_id.unwrap_or_default(),
         account_id.clone().unwrap_or_default(),
         last_refresh.clone().unwrap_or_default(),
         modified_at.unwrap_or_default(),
@@ -221,6 +223,7 @@ pub(crate) fn extract_auth(auth_json: &Value) -> Result<ExtractedAuth, String> {
         .map(ToString::to_string);
     let mut email = None;
     let mut plan_type = None;
+    let mut principal_id = None;
 
     if let Ok(claims) = decode_jwt_payload(id_token) {
         email = claims
@@ -228,7 +231,9 @@ pub(crate) fn extract_auth(auth_json: &Value) -> Result<ExtractedAuth, String> {
             .and_then(Value::as_str)
             .map(ToString::to_string);
 
-        let auth_claim = claims.get("https://api.openai.com/auth");
+        let auth_claim = claims
+            .get("https://api.openai.com/auth")
+            .and_then(Value::as_object);
         if account_id.is_none() {
             account_id = auth_claim
                 .and_then(|value| value.get("chatgpt_account_id"))
@@ -239,12 +244,33 @@ pub(crate) fn extract_auth(auth_json: &Value) -> Result<ExtractedAuth, String> {
             .and_then(|value| value.get("chatgpt_plan_type"))
             .and_then(Value::as_str)
             .map(ToString::to_string);
+        principal_id = email
+            .as_deref()
+            .and_then(normalize_principal_key)
+            .or_else(|| {
+                auth_claim
+                    .and_then(|value| {
+                        value
+                            .get("chatgpt_user_id")
+                            .or_else(|| value.get("user_id"))
+                    })
+                    .and_then(Value::as_str)
+                    .and_then(normalize_principal_key)
+            })
+            .or_else(|| {
+                claims
+                    .get("sub")
+                    .and_then(Value::as_str)
+                    .and_then(normalize_principal_key)
+            });
     }
 
     let account_id =
         account_id.ok_or_else(|| "无法从 auth.json 识别 chatgpt_account_id".to_string())?;
+    let principal_id = principal_id.unwrap_or_else(|| account_id.clone());
 
     Ok(ExtractedAuth {
+        principal_id,
         account_id,
         access_token,
         email,
@@ -252,11 +278,11 @@ pub(crate) fn extract_auth(auth_json: &Value) -> Result<ExtractedAuth, String> {
     })
 }
 
-pub(crate) fn current_auth_account_id() -> Option<String> {
+pub(crate) fn current_auth_account_key() -> Option<String> {
     read_current_codex_auth()
         .ok()
         .and_then(|auth_json| extract_auth(&auth_json).ok())
-        .map(|auth| auth.account_id)
+        .map(|auth| account_group_key(&auth.principal_id, &auth.account_id))
 }
 
 pub(crate) fn normalize_plan_type_key(plan_type: Option<&str>) -> String {
@@ -266,10 +292,18 @@ pub(crate) fn normalize_plan_type_key(plan_type: Option<&str>) -> String {
     value.to_ascii_lowercase()
 }
 
-pub(crate) fn account_variant_key(account_id: &str, plan_type: Option<&str>) -> String {
+pub(crate) fn account_group_key(principal_id: &str, account_id: &str) -> String {
+    format!("{}|{}", principal_id.trim(), account_id.trim())
+}
+
+pub(crate) fn account_variant_key(
+    principal_id: &str,
+    account_id: &str,
+    plan_type: Option<&str>,
+) -> String {
     format!(
         "{}|{}",
-        account_id.trim(),
+        account_group_key(principal_id, account_id),
         normalize_plan_type_key(plan_type)
     )
 }
@@ -277,6 +311,7 @@ pub(crate) fn account_variant_key(account_id: &str, plan_type: Option<&str>) -> 
 pub(crate) fn auth_variant_key(auth_json: &Value) -> Option<String> {
     let extracted = extract_auth(auth_json).ok()?;
     Some(account_variant_key(
+        &extracted.principal_id,
         &extracted.account_id,
         extracted.plan_type.as_deref(),
     ))
@@ -286,6 +321,18 @@ pub(crate) fn current_auth_variant_key() -> Option<String> {
     read_current_codex_auth()
         .ok()
         .and_then(|auth_json| auth_variant_key(&auth_json))
+}
+
+fn normalize_principal_key(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.contains('@') {
+        Some(trimmed.to_ascii_lowercase())
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 /// 为第三方客户端同步登录态时，提取可复用的 OpenAI OAuth token。

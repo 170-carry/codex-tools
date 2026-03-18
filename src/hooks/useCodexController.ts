@@ -54,6 +54,7 @@ const DEFAULT_API_PROXY_STATUS: ApiProxyStatus = {
   apiKey: null,
   baseUrl: null,
   lanBaseUrl: null,
+  activeAccountKey: null,
   activeAccountId: null,
   activeAccountLabel: null,
   lastError: null,
@@ -1266,19 +1267,19 @@ export function useCodexController() {
       if (normalizedLabel === account.label.trim()) {
         return true;
       }
-      if (renamingAccountId === account.accountId) {
+      if (renamingAccountId === account.accountKey) {
         return false;
       }
 
-      setRenamingAccountId(account.accountId);
+      setRenamingAccountId(account.accountKey);
       try {
         const resolvedLabel = await invoke<string>("update_account_label", {
-          accountId: account.accountId,
+          accountKey: account.accountKey,
           label: normalizedLabel,
         });
         setAccounts((prev) =>
           prev.map((item) =>
-            item.accountId === account.accountId
+            item.accountKey === account.accountKey
               ? {
                   ...item,
                   label: resolvedLabel,
@@ -1287,7 +1288,7 @@ export function useCodexController() {
           ),
         );
         setApiProxyStatus((prev) =>
-          prev.activeAccountId === account.accountId
+          prev.activeAccountKey === account.accountKey
             ? {
                 ...prev,
                 activeAccountLabel: resolvedLabel,
@@ -1307,7 +1308,7 @@ export function useCodexController() {
         return false;
       } finally {
         setRenamingAccountId((current) =>
-          current === account.accountId ? null : current,
+          current === account.accountKey ? null : current,
         );
       }
     },

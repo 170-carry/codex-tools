@@ -94,6 +94,7 @@ pub(crate) struct ProxyStorageContext {
 struct ProxyCandidate {
     id: String,
     label: String,
+    account_key: String,
     account_id: String,
     access_token: String,
     auth_json: Value,
@@ -1288,10 +1289,12 @@ async fn load_proxy_candidates(
 
 fn account_to_proxy_candidate(account: StoredAccount) -> Option<ProxyCandidate> {
     let extracted = extract_auth(&account.auth_json).ok()?;
+    let account_key = account.account_key();
     let variant_key = account.variant_key();
     Some(ProxyCandidate {
         id: account.id,
         label: account.label,
+        account_key,
         account_id: extracted.account_id,
         access_token: extracted.access_token,
         auth_json: account.auth_json,
@@ -1372,6 +1375,7 @@ async fn refresh_proxy_candidate_auth(
     Ok(ProxyCandidate {
         id: candidate.id.clone(),
         label: candidate.label.clone(),
+        account_key: candidate.account_key.clone(),
         account_id: extracted.account_id,
         access_token: extracted.access_token,
         auth_json: refreshed_auth_json,
@@ -2513,6 +2517,7 @@ fn json_error_response(status: StatusCode, message: &str) -> Response<Body> {
 
 async fn update_proxy_target(context: &ProxyContext, candidate: &ProxyCandidate) {
     let mut snapshot = context.shared.lock().await;
+    snapshot.active_account_key = Some(candidate.account_key.clone());
     snapshot.active_account_id = Some(candidate.account_id.clone());
     snapshot.active_account_label = Some(candidate.label.clone());
 }
@@ -2540,6 +2545,7 @@ async fn status_from_handle_state(handle: ApiProxyHandleState) -> ApiProxyStatus
             api_key: Some(read_current_api_key(&handle.api_key)),
             base_url: None,
             lan_base_url: None,
+            active_account_key: snapshot.active_account_key,
             active_account_id: snapshot.active_account_id,
             active_account_label: snapshot.active_account_label,
             last_error: snapshot.last_error,
@@ -2551,6 +2557,7 @@ async fn status_from_handle_state(handle: ApiProxyHandleState) -> ApiProxyStatus
             api_key: Some(read_current_api_key(&handle.api_key)),
             base_url: Some(proxy_base_url(handle.port)),
             lan_base_url: proxy_lan_base_url(handle.port),
+            active_account_key: snapshot.active_account_key,
             active_account_id: snapshot.active_account_id,
             active_account_label: snapshot.active_account_label,
             last_error: snapshot.last_error,
@@ -2565,6 +2572,7 @@ fn stopped_status(api_key: Option<String>, last_error: Option<String>) -> ApiPro
         api_key,
         base_url: None,
         lan_base_url: None,
+        active_account_key: None,
         active_account_id: None,
         active_account_label: None,
         last_error,
