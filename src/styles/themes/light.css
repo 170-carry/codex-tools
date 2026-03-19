@@ -103,7 +103,6 @@
     rgba(132, 235, 220, 0.56) 55%,
     rgba(255, 151, 76, 0) 85%
   );
-  --hint: #236fb1;
   --update-border: rgba(93, 141, 196, 0.42);
   --update-bg: linear-gradient(120deg, rgba(224, 237, 255, 0.82), rgba(242, 248, 255, 0.92));
   --update-strong: #244566;

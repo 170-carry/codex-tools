@@ -292,7 +292,7 @@
       "hidden": "Hidden"
     },
     "theme": {
-      "label": "Theme",
+      "label": "Dark mode",
       "description": "Use the switch to toggle light and dark theme.",
       "switchAriaLabel": "Toggle theme",
       "dark": "Dark",

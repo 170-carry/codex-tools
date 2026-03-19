@@ -292,7 +292,7 @@
       "hidden": "非表示"
     },
     "theme": {
-      "label": "テーマ",
+      "label": "ダークモード",
       "description": "スイッチでライト/ダークテーマを切り替えます。",
       "switchAriaLabel": "テーマ切替",
       "dark": "ダーク",

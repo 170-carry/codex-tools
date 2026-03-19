@@ -88,14 +88,6 @@
   cursor: default;
 }
 
-.kicker {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font: 700 0.68rem/1.2 "IBM Plex Sans", sans-serif;
-  color: var(--brand-cool);
-}
-
 .topbar h1 {
   margin: 0;
   font: 650 1.02rem/1.2 var(--font-ui);
@@ -203,13 +195,13 @@
 }
 
 .editorPicker.languagePicker {
-  width: 132px;
-  min-width: 132px;
+  width: 112px;
+  min-width: 112px;
 }
 
 .editorPicker.languagePicker .editorPickerTrigger {
-  min-height: 44px;
-  padding-right: 34px;
+  min-height: 38px;
+  padding: 4px 28px 4px 8px;
 }
 
 .iconGlyph {

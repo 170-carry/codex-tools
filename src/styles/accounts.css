@@ -4,11 +4,10 @@
   grid-template-columns: repeat(auto-fill, 356px);
   grid-auto-rows: 312px;
   gap: 18px;
-  justify-content: start;
+  justify-content: center;
   align-content: start;
   min-height: 0;
   overflow: auto;
-  padding: 2px 8px 2px 2px;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -49,7 +48,6 @@
 
 .accountCard {
   --tone-a: rgba(129, 158, 201, 0.62);
-  --tone-b: rgba(181, 202, 235, 0.58);
   border: 1px solid color-mix(in srgb, var(--line) 92%, var(--surface-tint) 8%);
   border-radius: 18px;
   width: 356px;
@@ -101,7 +99,6 @@
 
 .accountCard.tone-team {
   --tone-a: rgba(49, 206, 192, 0.84);
-  --tone-b: rgba(138, 240, 235, 0.78);
   --stamp-plan-color: #0f6f68;
   --stamp-plan-border: rgba(56, 190, 178, 0.3);
   --stamp-plan-bg: rgba(118, 231, 221, 0.14);
@@ -109,7 +106,6 @@
 
 .accountCard.tone-pro {
   --tone-a: rgba(255, 134, 66, 0.88);
-  --tone-b: rgba(255, 198, 144, 0.78);
   --stamp-plan-color: #7d3f13;
   --stamp-plan-border: rgba(226, 131, 60, 0.28);
   --stamp-plan-bg: rgba(255, 164, 95, 0.12);
@@ -117,7 +113,6 @@
 
 .accountCard.tone-plus {
   --tone-a: rgba(160, 128, 255, 0.86);
-  --tone-b: rgba(216, 170, 255, 0.78);
   --stamp-plan-color: #5f4294;
   --stamp-plan-border: rgba(158, 122, 242, 0.28);
   --stamp-plan-bg: rgba(191, 151, 255, 0.12);
@@ -125,17 +120,14 @@
 
 .accountCard.tone-enterprise {
   --tone-a: rgba(255, 210, 116, 0.86);
-  --tone-b: rgba(255, 238, 176, 0.76);
 }
 
 .accountCard.tone-business {
   --tone-a: rgba(118, 184, 255, 0.84);
-  --tone-b: rgba(168, 217, 255, 0.76);
 }
 
 .accountCard.tone-free {
   --tone-a: rgba(166, 172, 192, 0.78);
-  --tone-b: rgba(209, 214, 227, 0.72);
   --stamp-plan-color: #4f5f7c;
   --stamp-plan-border: rgba(135, 147, 174, 0.28);
   --stamp-plan-bg: rgba(187, 197, 219, 0.12);
@@ -143,7 +135,6 @@
 
 .accountCard.tone-unknown {
   --tone-a: rgba(178, 183, 202, 0.72);
-  --tone-b: rgba(214, 218, 230, 0.66);
   --stamp-plan-color: #5b6582;
   --stamp-plan-border: rgba(154, 165, 191, 0.24);
   --stamp-plan-bg: rgba(196, 205, 223, 0.12);
@@ -151,7 +142,6 @@
 
 :root[data-theme="dark"] .accountCard.tone-team {
   --tone-a: rgba(73, 224, 209, 0.9);
-  --tone-b: rgba(35, 163, 150, 0.72);
   --stamp-plan-color: #c5fff8;
   --stamp-plan-border: rgba(89, 226, 212, 0.66);
   --stamp-plan-bg: rgba(55, 193, 178, 0.24);
@@ -159,7 +149,6 @@
 
 :root[data-theme="dark"] .accountCard.tone-pro {
   --tone-a: rgba(255, 152, 89, 0.92);
-  --tone-b: rgba(214, 107, 40, 0.74);
   --stamp-plan-color: #ffe0c7;
   --stamp-plan-border: rgba(255, 170, 115, 0.68);
   --stamp-plan-bg: rgba(219, 118, 54, 0.26);
@@ -167,7 +156,6 @@
 
 :root[data-theme="dark"] .accountCard.tone-plus {
   --tone-a: rgba(184, 145, 255, 0.92);
-  --tone-b: rgba(124, 94, 214, 0.76);
   --stamp-plan-color: #f0e0ff;
   --stamp-plan-border: rgba(181, 146, 255, 0.7);
   --stamp-plan-bg: rgba(130, 95, 219, 0.26);
@@ -175,7 +163,6 @@
 
 :root[data-theme="dark"] .accountCard.tone-free {
   --tone-a: rgba(176, 188, 214, 0.84);
-  --tone-b: rgba(126, 139, 170, 0.72);
   --stamp-plan-color: #e4ebff;
   --stamp-plan-border: rgba(168, 182, 220, 0.64);
   --stamp-plan-bg: rgba(120, 133, 168, 0.26);
@@ -183,17 +170,14 @@
 
 :root[data-theme="dark"] .accountCard.tone-enterprise {
   --tone-a: rgba(255, 214, 121, 0.92);
-  --tone-b: rgba(186, 148, 56, 0.74);
 }
 
 :root[data-theme="dark"] .accountCard.tone-business {
   --tone-a: rgba(132, 191, 255, 0.92);
-  --tone-b: rgba(69, 128, 216, 0.74);
 }
 
 :root[data-theme="dark"] .accountCard.tone-unknown {
   --tone-a: rgba(186, 196, 223, 0.88);
-  --tone-b: rgba(112, 126, 163, 0.74);
   --stamp-plan-color: #eef2ff;
   --stamp-plan-border: rgba(172, 184, 220, 0.66);
   --stamp-plan-bg: rgba(112, 126, 163, 0.28);
@@ -390,6 +374,11 @@
   border-radius: 15px;
   padding: 14px 12px;
   background: color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%);
+}
+
+.usageGrid.isFreePlan {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
 }
 
 .usageDial {

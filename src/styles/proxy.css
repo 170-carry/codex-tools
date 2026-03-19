@@ -14,40 +14,6 @@
   gap: 18px;
 }
 
-.proxyPageHeader {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 14px;
-  padding: 2px 4px 6px;
-}
-
-.proxyPageTitle {
-  min-width: 0;
-}
-
-.proxyKicker {
-  margin: 0 0 5px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font: 700 0.66rem/1 var(--font-ui);
-  color: var(--brand-cool);
-}
-
-.proxyPageTitle h2 {
-  margin: 0;
-  font: 650 1.08rem/1.2 var(--font-ui);
-  letter-spacing: -0.02em;
-}
-
-.proxyPageDescription,
-.proxySectionDescription {
-  margin: 4px 0 0;
-  max-width: 600px;
-  color: var(--subtle);
-  font: 500 0.78rem/1.4 var(--font-ui);
-}
-
 .proxyHeaderStats {
   display: flex;
   align-items: center;

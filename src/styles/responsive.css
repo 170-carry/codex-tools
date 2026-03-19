@@ -56,10 +56,6 @@
     gap: 10px;
   }
 
-  .settingsGroupAction {
-    width: 100%;
-  }
-
   .addAccountTabs {
     grid-template-columns: 1fr;
   }
@@ -133,7 +129,6 @@
     width: 100%;
   }
 
-  .proxyPageHeader,
   .proxySectionHeader,
   .cloudflaredToolbar,
   .cloudflaredInstallCard,

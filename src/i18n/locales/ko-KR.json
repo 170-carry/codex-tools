@@ -292,7 +292,7 @@
       "hidden": "숨김"
     },
     "theme": {
-      "label": "테마",
+      "label": "다크 모드",
       "description": "스위치로 라이트/다크 테마를 전환합니다.",
       "switchAriaLabel": "테마 전환",
       "dark": "다크",

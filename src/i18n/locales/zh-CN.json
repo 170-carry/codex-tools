@@ -292,7 +292,7 @@
       "hidden": "不展示"
     },
     "theme": {
-      "label": "主题",
+      "label": "深色模式",
       "description": "使用开关切换浅色和深色主题。",
       "switchAriaLabel": "切换主题",
       "dark": "深色",
