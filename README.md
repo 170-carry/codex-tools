@@ -32,7 +32,7 @@
 
 > https://zhuanlan.zhihu.com/p/135948430
 
-> 省流:
+省流:
 
 > sudo spctl  --master-disable
 
