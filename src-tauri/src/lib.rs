@@ -505,28 +505,37 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
 
     #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut command = Command::new("open");
-        command.arg(&url);
-        command
-    };
+    {
+        Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开外部链接失败: {e}"))?;
+        return Ok(());
+    }
 
     #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "start", "", &url]);
-        command
-    };
+    {
+        // Avoid `cmd /C start` here. OAuth URLs contain `&`, and cmd treats them
+        // as command separators unless they are shell-escaped very carefully.
+        if Command::new("explorer.exe").arg(&url).spawn().is_ok() {
+            return Ok(());
+        }
+
+        Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", &url])
+            .spawn()
+            .map_err(|e| format!("打开外部链接失败: {e}"))?;
+        return Ok(());
+    }
 
     #[cfg(all(unix, not(target_os = "macos")))]
-    let mut cmd = {
-        let mut command = Command::new("xdg-open");
-        command.arg(&url);
-        command
-    };
-
-    cmd.spawn().map_err(|e| format!("打开外部链接失败: {e}"))?;
-    Ok(())
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开外部链接失败: {e}"))?;
+        Ok(())
+    }
 }
 
 #[tauri::command]

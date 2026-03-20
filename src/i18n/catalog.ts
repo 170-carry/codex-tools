@@ -164,6 +164,7 @@ export type MessageCatalog = {
     remoteKicker: string;
     remoteTitle: string;
     remoteDescription: string;
+    remoteHistoryTitle: string;
     remoteAddServer: string;
     remoteExpand: string;
     remoteCollapse: string;
@@ -187,6 +188,7 @@ export type MessageCatalog = {
     remotePrivateKeyPlaceholder: string;
     remotePasswordLabel: string;
     remotePasswordPlaceholder: string;
+    remoteConfigTitle: string;
     remoteSave: string;
     remoteRemove: string;
     remoteDeploy: string;
@@ -213,6 +215,16 @@ export type MessageCatalog = {
     remoteReadingLogs: string;
     remoteLastErrorLabel: string;
     remoteStatusUnknown: string;
+    remoteLastCheckedLabel: string;
+    remoteNeverChecked: string;
+    remoteGuideSetupTitle: string;
+    remoteGuideSetupDescription: string;
+    remoteGuideDeployTitle: string;
+    remoteGuideDeployDescription: string;
+    remoteGuideStartTitle: string;
+    remoteGuideStartDescription: string;
+    remoteGuideReadyTitle: string;
+    remoteGuideReadyDescription: string;
     remoteDeployProgressTitle: (label: string) => string;
     remoteDeployStageValidating: string;
     remoteDeployStageDetectingPlatform: string;

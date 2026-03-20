@@ -17,6 +17,8 @@ const DEFAULT_REMOTE_SSH_PORT = "22";
 const DEFAULT_REMOTE_LISTEN_PORT = "8787";
 const REMOTE_DRAFTS_CACHE_KEY = "codex-tools:proxy-remote-drafts";
 const REMOTE_EXPANDED_CACHE_KEY = "codex-tools:proxy-remote-expanded-id";
+const REMOTE_SELECTED_CACHE_KEY = "codex-tools:proxy-remote-selected-id";
+const REMOTE_HISTORY_CACHE_KEY = "codex-tools:proxy-remote-history";
 
 type RemoteServerDraft = {
   id: string;
@@ -145,26 +147,31 @@ function buildRemoteBaseUrl(draft: RemoteServerDraft) {
   return `http://${host}:${port}/v1`;
 }
 
-function readSessionValue(key: string) {
+function readStorageValue(key: string, scope: "session" | "local" = "session") {
   if (typeof window === "undefined") {
     return null;
   }
   try {
-    return window.sessionStorage.getItem(key);
+    return (scope === "local" ? window.localStorage : window.sessionStorage).getItem(key);
   } catch {
     return null;
   }
 }
 
-function writeSessionValue(key: string, value: string | null) {
+function writeStorageValue(
+  key: string,
+  value: string | null,
+  scope: "session" | "local" = "session",
+) {
   if (typeof window === "undefined") {
     return;
   }
   try {
+    const storage = scope === "local" ? window.localStorage : window.sessionStorage;
     if (value === null) {
-      window.sessionStorage.removeItem(key);
+      storage.removeItem(key);
     } else {
-      window.sessionStorage.setItem(key, value);
+      storage.setItem(key, value);
     }
   } catch {
     // Ignore storage failures in constrained environments.
@@ -172,7 +179,7 @@ function writeSessionValue(key: string, value: string | null) {
 }
 
 function readCachedRemoteDrafts(remoteServers: RemoteServerConfig[]) {
-  const cached = readSessionValue(REMOTE_DRAFTS_CACHE_KEY);
+  const cached = readStorageValue(REMOTE_DRAFTS_CACHE_KEY);
   if (!cached) {
     return remoteServers.map(configToDraft);
   }
@@ -219,13 +226,86 @@ function readCachedRemoteDrafts(remoteServers: RemoteServerConfig[]) {
   }
 }
 
-function readCachedExpandedRemoteId(remoteServers: RemoteServerConfig[]) {
+function readCachedEditingRemoteId(remoteServers: RemoteServerConfig[]) {
   const drafts = readCachedRemoteDrafts(remoteServers);
-  const cached = readSessionValue(REMOTE_EXPANDED_CACHE_KEY);
+  const cached = readStorageValue(REMOTE_EXPANDED_CACHE_KEY);
+  if (cached && drafts.some((draft) => draft.id === cached)) {
+    return cached;
+  }
+  return null;
+}
+
+function readCachedSelectedRemoteId(remoteServers: RemoteServerConfig[]) {
+  const drafts = readCachedRemoteDrafts(remoteServers);
+  const cached = readStorageValue(REMOTE_SELECTED_CACHE_KEY, "local");
   if (cached && drafts.some((draft) => draft.id === cached)) {
     return cached;
   }
   return drafts[0]?.id ?? null;
+}
+
+function readCachedRemoteHistory(remoteServers: RemoteServerConfig[]) {
+  const activeIds = new Set(remoteServers.map((server) => server.id));
+  const cached = readStorageValue(REMOTE_HISTORY_CACHE_KEY, "local");
+  if (!cached) {
+    return {} as Record<string, number>;
+  }
+
+  try {
+    const parsed = JSON.parse(cached);
+    if (!parsed || typeof parsed !== "object") {
+      return {} as Record<string, number>;
+    }
+
+    const next: Record<string, number> = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (activeIds.has(id) && typeof value === "number" && Number.isFinite(value) && value > 0) {
+        next[id] = value;
+      }
+    }
+    return next;
+  } catch {
+    return {} as Record<string, number>;
+  }
+}
+
+function isRemoteDraftConfigured(draft: RemoteServerDraft) {
+  const sshPort = Number.parseInt(draft.sshPort, 10);
+  const listenPort = Number.parseInt(draft.listenPort, 10);
+
+  if (
+    !draft.label.trim() ||
+    !draft.host.trim() ||
+    !draft.sshUser.trim() ||
+    !draft.remoteDir.trim() ||
+    !Number.isInteger(sshPort) ||
+    sshPort <= 0 ||
+    !Number.isInteger(listenPort) ||
+    listenPort <= 0
+  ) {
+    return false;
+  }
+
+  if (draft.authMode === "keyContent") {
+    return draft.privateKey.trim() !== "";
+  }
+  if (draft.authMode === "password") {
+    return draft.password.trim() !== "";
+  }
+  return draft.identityFile.trim() !== "";
+}
+
+function formatRemoteHistoryTime(locale: string, timestamp: number) {
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(timestamp);
+  } catch {
+    return new Date(timestamp).toLocaleString();
+  }
 }
 
 const REMOTE_AUTH_OPTIONS: MultiSelectOption<RemoteAuthMode>[] = [
@@ -276,7 +356,7 @@ export function ApiProxyPanel({
   onStartCloudflared,
   onStopCloudflared,
 }: ApiProxyPanelProps) {
-  const { copy } = useI18n();
+  const { copy, locale } = useI18n();
   const proxyCopy = copy.apiProxy;
   const remoteAuthOptions = REMOTE_AUTH_OPTIONS.map((option) => ({
     ...option,
@@ -300,8 +380,15 @@ export function ApiProxyPanel({
   const [remoteDrafts, setRemoteDrafts] = useState<RemoteServerDraft[]>(() =>
     readCachedRemoteDrafts(remoteServers),
   );
-  const [expandedRemoteId, setExpandedRemoteId] = useState<string | null>(() =>
-    readCachedExpandedRemoteId(remoteServers),
+  const [selectedRemoteId, setSelectedRemoteId] = useState<string | null>(() =>
+    readCachedSelectedRemoteId(remoteServers),
+  );
+  const [editingRemoteId, setEditingRemoteId] = useState<string | null>(() =>
+    readCachedEditingRemoteId(remoteServers),
+  );
+  const [diagnosticsRemoteId, setDiagnosticsRemoteId] = useState<string | null>(null);
+  const [remoteHistory, setRemoteHistory] = useState<Record<string, number>>(() =>
+    readCachedRemoteHistory(remoteServers),
   );
   const [namedInput, setNamedInput] = useState({
     apiToken: "",
@@ -317,16 +404,28 @@ export function ApiProxyPanel({
       : remoteDrafts;
 
   useEffect(() => {
-    writeSessionValue(REMOTE_DRAFTS_CACHE_KEY, JSON.stringify(effectiveRemoteDrafts));
+    writeStorageValue(REMOTE_DRAFTS_CACHE_KEY, JSON.stringify(effectiveRemoteDrafts));
   }, [effectiveRemoteDrafts]);
 
   useEffect(() => {
-    const resolvedExpandedRemoteId =
-      expandedRemoteId && effectiveRemoteDrafts.some((draft) => draft.id === expandedRemoteId)
-        ? expandedRemoteId
+    const resolvedEditingRemoteId =
+      editingRemoteId && effectiveRemoteDrafts.some((draft) => draft.id === editingRemoteId)
+        ? editingRemoteId
+        : null;
+    writeStorageValue(REMOTE_EXPANDED_CACHE_KEY, resolvedEditingRemoteId);
+  }, [effectiveRemoteDrafts, editingRemoteId]);
+
+  useEffect(() => {
+    const resolvedSelectedRemoteId =
+      selectedRemoteId && effectiveRemoteDrafts.some((draft) => draft.id === selectedRemoteId)
+        ? selectedRemoteId
         : effectiveRemoteDrafts[0]?.id ?? null;
-    writeSessionValue(REMOTE_EXPANDED_CACHE_KEY, resolvedExpandedRemoteId);
-  }, [effectiveRemoteDrafts, expandedRemoteId]);
+    writeStorageValue(REMOTE_SELECTED_CACHE_KEY, resolvedSelectedRemoteId, "local");
+  }, [effectiveRemoteDrafts, selectedRemoteId]);
+
+  useEffect(() => {
+    writeStorageValue(REMOTE_HISTORY_CACHE_KEY, JSON.stringify(remoteHistory), "local");
+  }, [remoteHistory]);
 
   const portInput = portDraft ?? String(status.port ?? savedPort ?? DEFAULT_PROXY_PORT);
   const rawPort = portInput.trim();
@@ -336,10 +435,83 @@ export function ApiProxyPanel({
       ? Number(rawPort)
       : null;
   const hasRemoteServers = effectiveRemoteDrafts.length > 0;
-  const resolvedExpandedRemoteId =
-    expandedRemoteId && effectiveRemoteDrafts.some((draft) => draft.id === expandedRemoteId)
-      ? expandedRemoteId
+  const resolvedSelectedRemoteId =
+    selectedRemoteId && effectiveRemoteDrafts.some((draft) => draft.id === selectedRemoteId)
+      ? selectedRemoteId
       : effectiveRemoteDrafts[0]?.id ?? null;
+  const selectedRemoteDraft =
+    resolvedSelectedRemoteId === null
+      ? null
+      : effectiveRemoteDrafts.find((draft) => draft.id === resolvedSelectedRemoteId) ?? null;
+  const selectedRemoteConfig = selectedRemoteDraft ? draftToConfig(selectedRemoteDraft) : null;
+  const selectedRemoteStatus = selectedRemoteDraft ? remoteStatuses[selectedRemoteDraft.id] : null;
+  const selectedRemoteLog = selectedRemoteDraft ? remoteLogs[selectedRemoteDraft.id] : undefined;
+  const selectedRemoteConfigured = selectedRemoteDraft
+    ? isRemoteDraftConfigured(selectedRemoteDraft)
+    : false;
+  const selectedRemoteIdentity = selectedRemoteDraft
+    ? selectedRemoteDraft.label.trim() || selectedRemoteDraft.host.trim() || proxyCopy.remoteTitle
+    : proxyCopy.remoteTitle;
+  const selectedRefreshing =
+    selectedRemoteDraft !== null && refreshingRemoteId === selectedRemoteDraft.id;
+  const selectedDeploying =
+    selectedRemoteDraft !== null && deployingRemoteId === selectedRemoteDraft.id;
+  const selectedStarting =
+    selectedRemoteDraft !== null && startingRemoteId === selectedRemoteDraft.id;
+  const selectedStopping =
+    selectedRemoteDraft !== null && stoppingRemoteId === selectedRemoteDraft.id;
+  const selectedReadingLogs =
+    selectedRemoteDraft !== null && readingRemoteLogsId === selectedRemoteDraft.id;
+  const selectedInstallingDependency =
+    selectedRemoteDraft !== null &&
+    installingDependencyName === "sshpass" &&
+    installingDependencyTargetId === selectedRemoteDraft.id;
+  const selectedRemoteBusy =
+    selectedRefreshing ||
+    selectedDeploying ||
+    selectedStarting ||
+    selectedStopping ||
+    selectedInstallingDependency;
+  const selectedRemoteLastChecked =
+    selectedRemoteDraft !== null ? remoteHistory[selectedRemoteDraft.id] ?? 0 : 0;
+  const selectedRemoteCheckedLabel =
+    selectedRemoteLastChecked > 0
+      ? formatRemoteHistoryTime(locale, selectedRemoteLastChecked)
+      : proxyCopy.remoteNeverChecked;
+  const editingSelectedRemote =
+    selectedRemoteDraft !== null && editingRemoteId === selectedRemoteDraft.id;
+  const diagnosticsOpen =
+    selectedRemoteDraft !== null && diagnosticsRemoteId === selectedRemoteDraft.id;
+  const selectedRemoteRunningText = selectedRemoteStatus
+    ? selectedRemoteStatus.running
+      ? proxyCopy.statusRunning
+      : proxyCopy.statusStopped
+    : proxyCopy.remoteStatusUnknown;
+  const selectedRemoteInstalledText = selectedRemoteStatus
+    ? selectedRemoteStatus.installed
+      ? proxyCopy.remoteInstalledYes
+      : proxyCopy.remoteInstalledNo
+    : proxyCopy.remoteStatusUnknown;
+  const selectedRemoteSystemdText = selectedRemoteStatus
+    ? selectedRemoteStatus.serviceInstalled
+      ? proxyCopy.remoteInstalledYes
+      : proxyCopy.remoteInstalledNo
+    : proxyCopy.remoteStatusUnknown;
+  const selectedRemoteEnabledText = selectedRemoteStatus
+    ? selectedRemoteStatus.enabled
+      ? proxyCopy.remoteInstalledYes
+      : proxyCopy.remoteInstalledNo
+    : proxyCopy.remoteStatusUnknown;
+  const remoteOrder = Object.fromEntries(
+    effectiveRemoteDrafts.map((draft, index) => [draft.id, index]),
+  );
+  const orderedRemoteDrafts = [...effectiveRemoteDrafts].sort((left, right) => {
+    const historyDelta = (remoteHistory[right.id] ?? 0) - (remoteHistory[left.id] ?? 0);
+    if (historyDelta !== 0) {
+      return historyDelta;
+    }
+    return (remoteOrder[left.id] ?? 0) - (remoteOrder[right.id] ?? 0);
+  });
 
   const namedReady =
     namedInput.apiToken.trim() !== "" &&
@@ -423,14 +595,84 @@ export function ApiProxyPanel({
       ...(current.length === 0 && remoteServers.length > 0 ? remoteServers.map(configToDraft) : current),
       nextDraft,
     ]);
-    setExpandedRemoteId(nextDraft.id);
+    setSelectedRemoteId(nextDraft.id);
+    setEditingRemoteId(nextDraft.id);
+    setDiagnosticsRemoteId(null);
   };
 
   const removeRemoteDraft = (id: string) => {
     const next = effectiveRemoteDrafts.filter((draft) => draft.id !== id);
     setRemoteDrafts(next);
     persistRemoteDrafts(next);
+    setSelectedRemoteId((current) => (current === id ? next[0]?.id ?? null : current));
+    setEditingRemoteId((current) => (current === id ? null : current));
+    setDiagnosticsRemoteId((current) => (current === id ? null : current));
+    setRemoteHistory((current) => {
+      if (!(id in current)) {
+        return current;
+      }
+      const nextHistory = { ...current };
+      delete nextHistory[id];
+      return nextHistory;
+    });
   };
+
+  const selectRemoteDraft = (id: string) => {
+    setSelectedRemoteId(id);
+    setDiagnosticsRemoteId(null);
+    setRemoteHistory((current) => ({ ...current, [id]: Date.now() }));
+
+    const targetDraft = effectiveRemoteDrafts.find((draft) => draft.id === id);
+    if (!targetDraft) {
+      return;
+    }
+
+    if (!isRemoteDraftConfigured(targetDraft)) {
+      setEditingRemoteId(id);
+      return;
+    }
+
+    onRefreshRemoteStatus(draftToConfig(targetDraft));
+  };
+
+  const toggleSelectedDiagnostics = () => {
+    if (!selectedRemoteDraft) {
+      return;
+    }
+
+    const nextOpenId = diagnosticsOpen ? null : selectedRemoteDraft.id;
+    setDiagnosticsRemoteId(nextOpenId);
+
+    if (
+      nextOpenId &&
+      selectedRemoteConfigured &&
+      selectedRemoteConfig &&
+      !remoteLogs[selectedRemoteDraft.id] &&
+      !selectedReadingLogs
+    ) {
+      onReadRemoteLogs(selectedRemoteConfig);
+    }
+  };
+
+  let remoteGuideTitle = proxyCopy.remoteStatusUnknown;
+  let remoteGuideDescription = proxyCopy.remoteDescription;
+
+  if (selectedRemoteDraft && !selectedRemoteConfigured) {
+    remoteGuideTitle = proxyCopy.remoteGuideSetupTitle;
+    remoteGuideDescription = proxyCopy.remoteGuideSetupDescription;
+  } else if (selectedRefreshing) {
+    remoteGuideTitle = proxyCopy.remoteRefreshing;
+    remoteGuideDescription = proxyCopy.remoteDescription;
+  } else if (selectedRemoteStatus?.running) {
+    remoteGuideTitle = proxyCopy.remoteGuideReadyTitle;
+    remoteGuideDescription = proxyCopy.remoteGuideReadyDescription;
+  } else if (selectedRemoteStatus?.installed) {
+    remoteGuideTitle = proxyCopy.remoteGuideStartTitle;
+    remoteGuideDescription = proxyCopy.remoteGuideStartDescription;
+  } else if (selectedRemoteDraft && selectedRemoteConfigured) {
+    remoteGuideTitle = proxyCopy.remoteGuideDeployTitle;
+    remoteGuideDescription = proxyCopy.remoteGuideDeployDescription;
+  }
 
   return (
     <section className="proxyPage">
@@ -595,424 +837,584 @@ export function ApiProxyPanel({
 
         <section className="proxySectionCard">
           <div className="proxySectionHeader">
-            <h3>{proxyCopy.remoteTitle}</h3>
+            <div className="remoteSectionHeading">
+              <h3>{proxyCopy.remoteTitle}</h3>
+              <p>{proxyCopy.remoteDescription}</p>
+            </div>
             <button className="primary" onClick={addRemoteDraft}>
               {proxyCopy.remoteAddServer}
             </button>
           </div>
 
           {hasRemoteServers ? (
-            <div className="remoteServerList">
-              {effectiveRemoteDrafts.map((draft) => {
-                const remoteStatus = remoteStatuses[draft.id];
-                const remoteConfig = draftToConfig(draft);
-                const remoteLog = remoteLogs[draft.id];
-                const refreshingRemote = refreshingRemoteId === draft.id;
-                const deployingRemote = deployingRemoteId === draft.id;
-                const startingRemote = startingRemoteId === draft.id;
-                const stoppingRemote = stoppingRemoteId === draft.id;
-                const readingRemoteLogs = readingRemoteLogsId === draft.id;
-                const installingRemoteDependency =
-                  installingDependencyName === "sshpass" &&
-                  installingDependencyTargetId === draft.id;
-                const remoteBusy =
-                  refreshingRemote ||
-                  deployingRemote ||
-                  startingRemote ||
-                  stoppingRemote ||
-                  installingRemoteDependency;
-                const remoteStateText = remoteStatus
-                  ? remoteStatus.running
-                    ? proxyCopy.statusRunning
-                    : proxyCopy.statusStopped
-                  : proxyCopy.remoteStatusUnknown;
-                const remoteIdentity = draft.label.trim() || draft.host.trim() || proxyCopy.remoteTitle;
-                const isExpanded = resolvedExpandedRemoteId === draft.id;
-                const remoteInstalledText = remoteStatus
-                  ? remoteStatus.installed
-                    ? proxyCopy.remoteInstalledYes
-                    : proxyCopy.remoteInstalledNo
-                  : proxyCopy.remoteStatusUnknown;
-                const remoteSystemdText = remoteStatus
-                  ? remoteStatus.serviceInstalled
-                    ? proxyCopy.remoteInstalledYes
-                    : proxyCopy.remoteInstalledNo
-                  : proxyCopy.remoteStatusUnknown;
-                const remoteEnabledText = remoteStatus
-                  ? remoteStatus.enabled
-                    ? proxyCopy.remoteInstalledYes
-                    : proxyCopy.remoteInstalledNo
-                  : proxyCopy.remoteStatusUnknown;
+            <div className="remoteWorkspace">
+              <aside className="remoteHistoryPanel">
+                <div className="remoteHistoryHeader">
+                  <span className="proxyLabel">{proxyCopy.remoteHistoryTitle}</span>
+                  <strong>{orderedRemoteDrafts.length}</strong>
+                </div>
+                <div className="remoteHistoryList">
+                  {orderedRemoteDrafts.map((draft) => {
+                    const remoteStatus = remoteStatuses[draft.id];
+                    const remoteIdentity =
+                      draft.label.trim() || draft.host.trim() || proxyCopy.remoteTitle;
+                    const recentCheckedAt = remoteHistory[draft.id] ?? 0;
+                    const historyStateText =
+                      refreshingRemoteId === draft.id
+                        ? proxyCopy.remoteRefreshing
+                        : remoteStatus?.running
+                          ? proxyCopy.statusRunning
+                          : remoteStatus?.installed
+                            ? proxyCopy.statusStopped
+                            : isRemoteDraftConfigured(draft)
+                              ? proxyCopy.remoteInstalledNo
+                              : proxyCopy.remoteStatusUnknown;
 
-                return (
-                  <article
-                    className={`remoteServerCard${isExpanded ? " isExpanded" : ""}`}
-                    key={draft.id}
-                  >
-                    <div className="remoteServerCardHeader">
-                      <div className="remoteServerSummary">
-                        <div className="remoteServerSummaryMain">
-                          <div className="remoteServerIdentity">
+                    return (
+                      <button
+                        key={draft.id}
+                        type="button"
+                        className={`remoteHistoryItem${
+                          resolvedSelectedRemoteId === draft.id ? " isSelected" : ""
+                        }`}
+                        onClick={() => selectRemoteDraft(draft.id)}
+                      >
+                        <div className="remoteHistoryItemTop">
+                          <div className="remoteHistoryIdentity">
                             <strong>{remoteIdentity}</strong>
-                            <span>{remoteStatus?.baseUrl ?? buildRemoteBaseUrl(draft)}</span>
+                            <span>{draft.host.trim() || "--"}</span>
                           </div>
-                          <div className="remoteServerSummaryMeta">
-                            <span className="remoteServerSummaryPill">
-                              {proxyCopy.remoteHostLabel} {draft.host.trim() || "--"}
-                            </span>
-                            <span className="remoteServerSummaryPill">
-                              SSH {(draft.sshUser.trim() || "root")}:{draft.sshPort.trim() || "--"}
-                            </span>
-                            <span className="remoteServerSummaryPill">
-                              {proxyCopy.remoteListenPortLabel} {draft.listenPort.trim() || "--"}
-                            </span>
-                            <span className="remoteServerSummaryPill">
-                              {proxyCopy.remoteInstalledLabel} {remoteInstalledText}
-                            </span>
+                          <span
+                            className={`remoteServerState${
+                              remoteStatus?.running ? " isRunning" : ""
+                            }`}
+                          >
+                            <span
+                              className={`proxyStatusDot${
+                                remoteStatus?.running ? " isRunning" : ""
+                              }`}
+                              aria-hidden="true"
+                            />
+                            {historyStateText}
+                          </span>
+                        </div>
+
+                        <div className="remoteHistoryItemMeta">
+                          <span>
+                            SSH {(draft.sshUser.trim() || "root")}:{draft.sshPort.trim() || "--"}
+                          </span>
+                          <span>
+                            {proxyCopy.remoteLastCheckedLabel}{" "}
+                            {recentCheckedAt > 0
+                              ? formatRemoteHistoryTime(locale, recentCheckedAt)
+                              : proxyCopy.remoteNeverChecked}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </aside>
+
+              {selectedRemoteDraft ? (
+                <div className="remoteWorkbench">
+                  <article className="remoteWorkbenchCard">
+                    <div className="remoteWorkbenchHeader">
+                      <div className="remoteServerSummary">
+                        <div className="remoteServerIdentity">
+                          <strong>{selectedRemoteIdentity}</strong>
+                          <span>
+                            {selectedRemoteStatus?.baseUrl ?? buildRemoteBaseUrl(selectedRemoteDraft)}
+                          </span>
+                        </div>
+                        <div className="remoteServerSummaryMeta">
+                          <span className="remoteServerSummaryPill">
+                            {proxyCopy.remoteHostLabel} {selectedRemoteDraft.host.trim() || "--"}
+                          </span>
+                          <span className="remoteServerSummaryPill">
+                            SSH {(selectedRemoteDraft.sshUser.trim() || "root")}:
+                            {selectedRemoteDraft.sshPort.trim() || "--"}
+                          </span>
+                          <span className="remoteServerSummaryPill">
+                            {proxyCopy.remoteListenPortLabel}{" "}
+                            {selectedRemoteDraft.listenPort.trim() || "--"}
+                          </span>
+                          <span className="remoteServerSummaryPill">
+                            {proxyCopy.remoteLastCheckedLabel} {selectedRemoteCheckedLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="remoteWorkbenchActions">
+                        <button
+                          className="ghost"
+                          onClick={() => {
+                            if (!selectedRemoteDraft) {
+                              return;
+                            }
+                            if (!selectedRemoteConfigured) {
+                              setEditingRemoteId(selectedRemoteDraft.id);
+                              return;
+                            }
+                            if (selectedRemoteConfig) {
+                              setRemoteHistory((current) => ({
+                                ...current,
+                                [selectedRemoteDraft.id]: Date.now(),
+                              }));
+                              onRefreshRemoteStatus(selectedRemoteConfig);
+                            }
+                          }}
+                          disabled={selectedRemoteBusy}
+                        >
+                          {selectedRefreshing ? proxyCopy.remoteRefreshing : proxyCopy.remoteRefresh}
+                        </button>
+                        <button
+                          className="ghost"
+                          onClick={() =>
+                            setEditingRemoteId((current) =>
+                              current === selectedRemoteDraft.id ? null : selectedRemoteDraft.id,
+                            )
+                          }
+                        >
+                          {editingSelectedRemote ? proxyCopy.remoteCollapse : proxyCopy.remoteExpand}
+                        </button>
+                        {selectedRemoteStatus?.installed ? (
+                          selectedRemoteStatus.running ? (
+                            <button
+                              className="danger"
+                              onClick={() => {
+                                if (selectedRemoteConfig) {
+                                  onStopRemote(selectedRemoteConfig);
+                                }
+                              }}
+                              disabled={!selectedRemoteConfigured || selectedRemoteBusy}
+                            >
+                              {selectedStopping ? proxyCopy.remoteStopping : proxyCopy.remoteStop}
+                            </button>
+                          ) : (
+                            <button
+                              className="primary"
+                              onClick={() => {
+                                if (selectedRemoteConfig) {
+                                  onStartRemote(selectedRemoteConfig);
+                                }
+                              }}
+                              disabled={!selectedRemoteConfigured || selectedRemoteBusy}
+                            >
+                              {selectedStarting ? proxyCopy.remoteStarting : proxyCopy.remoteStart}
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            className="primary"
+                            onClick={() => {
+                              if (selectedRemoteConfig) {
+                                onDeployRemote(selectedRemoteConfig);
+                              }
+                            }}
+                            disabled={!selectedRemoteConfigured || selectedRemoteBusy}
+                          >
+                            {selectedDeploying ? proxyCopy.remoteDeploying : proxyCopy.remoteDeploy}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="remoteServerStatus">
+                      <div className="remoteServerMeta">
+                        <span>{proxyCopy.remoteInstalledLabel}</span>
+                        <strong>{selectedRemoteInstalledText}</strong>
+                      </div>
+                      <div className="remoteServerMeta">
+                        <span>{proxyCopy.remoteSystemdLabel}</span>
+                        <strong>{selectedRemoteSystemdText}</strong>
+                      </div>
+                      <div className="remoteServerMeta">
+                        <span>{proxyCopy.remoteEnabledLabel}</span>
+                        <strong>{selectedRemoteEnabledText}</strong>
+                      </div>
+                      <div className="remoteServerMeta">
+                        <span>{proxyCopy.remoteRunningLabel}</span>
+                        <strong>{selectedRemoteRunningText}</strong>
+                      </div>
+                      <div className="remoteServerMeta">
+                        <span>{proxyCopy.remotePidLabel}</span>
+                        <strong>{selectedRemoteStatus?.pid ?? "--"}</strong>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article className="proxyDetailCard remoteGuideCard">
+                    <span className="proxyLabel">{proxyCopy.remoteKicker}</span>
+                    <strong>{remoteGuideTitle}</strong>
+                    <p>{remoteGuideDescription}</p>
+                    <div className="remoteGuideActions">
+                      {selectedRemoteConfigured ? (
+                        selectedRemoteStatus?.running ? (
+                          <>
+                            <button
+                              className="ghost"
+                              onClick={() => copyText(selectedRemoteStatus.baseUrl)}
+                              disabled={!selectedRemoteStatus.baseUrl}
+                            >
+                              {proxyCopy.remoteBaseUrlLabel}
+                            </button>
+                            <button
+                              className="ghost"
+                              onClick={() => copyText(selectedRemoteStatus.apiKey ?? null)}
+                              disabled={!selectedRemoteStatus.apiKey}
+                            >
+                              {proxyCopy.remoteApiKeyLabel}
+                            </button>
+                            <button
+                              className="ghost"
+                              onClick={toggleSelectedDiagnostics}
+                              disabled={selectedReadingLogs}
+                            >
+                              {diagnosticsOpen
+                                ? proxyCopy.remoteCollapse
+                                : selectedReadingLogs
+                                  ? proxyCopy.remoteReadingLogs
+                                  : proxyCopy.remoteReadLogs}
+                            </button>
+                          </>
+                        ) : null
+                      ) : (
+                        <button
+                          className="ghost"
+                          onClick={() => setEditingRemoteId(selectedRemoteDraft.id)}
+                        >
+                          {proxyCopy.remoteExpand}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="proxyDetailGrid remoteProxyDetailGrid">
+                      <article className="proxyDetailCard">
+                        <div className="proxyDetailHeader">
+                          <span className="proxyLabel">{proxyCopy.remoteBaseUrlLabel}</span>
+                          <button
+                            className="ghost proxyCopyButton"
+                            onClick={() =>
+                              copyText(
+                                selectedRemoteStatus?.baseUrl ??
+                                  buildRemoteBaseUrl(selectedRemoteDraft),
+                              )
+                            }
+                          >
+                            {proxyCopy.copy}
+                          </button>
+                        </div>
+                        <code>
+                          {selectedRemoteStatus?.baseUrl ?? buildRemoteBaseUrl(selectedRemoteDraft)}
+                        </code>
+                      </article>
+
+                      <article className="proxyDetailCard">
+                        <div className="proxyDetailHeader">
+                          <span className="proxyLabel">{proxyCopy.remoteApiKeyLabel}</span>
+                          <button
+                            className="ghost proxyCopyButton"
+                            onClick={() => copyText(selectedRemoteStatus?.apiKey ?? null)}
+                            disabled={!selectedRemoteStatus?.apiKey}
+                          >
+                            {proxyCopy.copy}
+                          </button>
+                        </div>
+                        <code>{selectedRemoteStatus?.apiKey ?? proxyCopy.apiKeyPlaceholder}</code>
+                      </article>
+
+                      <article className="proxyDetailCard">
+                        <span className="proxyLabel">{proxyCopy.remoteServiceLabel}</span>
+                        <code>{selectedRemoteStatus?.serviceName ?? proxyCopy.remoteStatusUnknown}</code>
+                      </article>
+                    </div>
+                  </article>
+
+                  {editingSelectedRemote ? (
+                    <div className="remoteWorkbenchSection">
+                      <div className="remoteWorkbenchSectionHeader">
+                        <div>
+                          <span className="proxyLabel">{proxyCopy.remoteConfigTitle}</span>
+                          <strong>{selectedRemoteIdentity}</strong>
+                        </div>
+                        <div className="remoteWorkbenchSectionActions">
+                          <button
+                            className="ghost"
+                            onClick={() => {
+                              persistRemoteDrafts(effectiveRemoteDrafts);
+                              setEditingRemoteId(null);
+                            }}
+                            disabled={selectedRemoteBusy}
+                          >
+                            {proxyCopy.remoteSave}
+                          </button>
+                          <button
+                            className="ghost"
+                            onClick={() => removeRemoteDraft(selectedRemoteDraft.id)}
+                            disabled={selectedRemoteBusy}
+                          >
+                            {proxyCopy.remoteRemove}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="remoteServerPanel">
+                        <div className="remoteServerGrid">
+                          <label className="remoteServerField">
+                            <span>{proxyCopy.remoteNameLabel}</span>
+                            <input
+                              value={selectedRemoteDraft.label}
+                              onChange={(event) =>
+                                updateRemoteDraft(
+                                  selectedRemoteDraft.id,
+                                  "label",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder="tokyo-01"
+                            />
+                          </label>
+                          <label className="remoteServerField">
+                            <span>{proxyCopy.remoteHostLabel}</span>
+                            <input
+                              value={selectedRemoteDraft.host}
+                              onChange={(event) =>
+                                updateRemoteDraft(selectedRemoteDraft.id, "host", event.target.value)
+                              }
+                              placeholder="1.2.3.4"
+                            />
+                          </label>
+                          <label className="remoteServerField">
+                            <span>{proxyCopy.remoteSshPortLabel}</span>
+                            <input
+                              inputMode="numeric"
+                              value={selectedRemoteDraft.sshPort}
+                              onChange={(event) =>
+                                updateRemoteDraft(
+                                  selectedRemoteDraft.id,
+                                  "sshPort",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={DEFAULT_REMOTE_SSH_PORT}
+                            />
+                          </label>
+                          <label className="remoteServerField">
+                            <span>{proxyCopy.remoteUserLabel}</span>
+                            <input
+                              value={selectedRemoteDraft.sshUser}
+                              onChange={(event) =>
+                                updateRemoteDraft(
+                                  selectedRemoteDraft.id,
+                                  "sshUser",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder="root"
+                            />
+                          </label>
+                          <label className="remoteServerField">
+                            <span>{proxyCopy.remoteDirLabel}</span>
+                            <input
+                              value={selectedRemoteDraft.remoteDir}
+                              onChange={(event) =>
+                                updateRemoteDraft(
+                                  selectedRemoteDraft.id,
+                                  "remoteDir",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder="/opt/codex-tools"
+                            />
+                          </label>
+                          <label className="remoteServerField">
+                            <span>{proxyCopy.remoteListenPortLabel}</span>
+                            <input
+                              inputMode="numeric"
+                              value={selectedRemoteDraft.listenPort}
+                              onChange={(event) =>
+                                updateRemoteDraft(
+                                  selectedRemoteDraft.id,
+                                  "listenPort",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder={DEFAULT_REMOTE_LISTEN_PORT}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="remoteServerPanel">
+                        <div className="remoteAuthRow">
+                          <label className="remoteServerField remoteAuthSelectField">
+                            <span>{proxyCopy.remoteAuthLabel}</span>
+                            <EditorMultiSelect
+                              className="remoteAuthPicker"
+                              ariaLabel={proxyCopy.remoteAuthLabel}
+                              options={remoteAuthOptions}
+                              value={selectedRemoteDraft.authMode}
+                              onChange={(next) =>
+                                updateRemoteDraft(selectedRemoteDraft.id, "authMode", next)
+                              }
+                            />
+                          </label>
+
+                          <div className="remoteAuthInputArea">
+                            {selectedRemoteDraft.authMode === "keyContent" ? (
+                              <label className="remoteServerField">
+                                <span>{proxyCopy.remotePrivateKeyLabel}</span>
+                                <textarea
+                                  className="remoteServerTextarea"
+                                  value={selectedRemoteDraft.privateKey}
+                                  onChange={(event) =>
+                                    updateRemoteDraft(
+                                      selectedRemoteDraft.id,
+                                      "privateKey",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder={proxyCopy.remotePrivateKeyPlaceholder}
+                                />
+                              </label>
+                            ) : null}
+
+                            {selectedRemoteDraft.authMode === "password" ? (
+                              <label className="remoteServerField">
+                                <span>{proxyCopy.remotePasswordLabel}</span>
+                                <input
+                                  type="password"
+                                  value={selectedRemoteDraft.password}
+                                  onChange={(event) =>
+                                    updateRemoteDraft(
+                                      selectedRemoteDraft.id,
+                                      "password",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder={proxyCopy.remotePasswordPlaceholder}
+                                />
+                              </label>
+                            ) : null}
+
+                            {selectedRemoteDraft.authMode === "keyFile" ||
+                            selectedRemoteDraft.authMode === "keyPath" ? (
+                              <div className="remoteIdentityRow">
+                                <label className="remoteServerField">
+                                  <span>{proxyCopy.remoteIdentityFileLabel}</span>
+                                  <input
+                                    value={selectedRemoteDraft.identityFile}
+                                    onChange={(event) =>
+                                      updateRemoteDraft(
+                                        selectedRemoteDraft.id,
+                                        "identityFile",
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder={proxyCopy.remoteIdentityFilePlaceholder}
+                                  />
+                                </label>
+                                {selectedRemoteDraft.authMode === "keyFile" ? (
+                                  <button
+                                    className="ghost"
+                                    type="button"
+                                    onClick={() => {
+                                      void onPickLocalIdentityFile().then((value) => {
+                                        if (value) {
+                                          updateRemoteDraft(
+                                            selectedRemoteDraft.id,
+                                            "identityFile",
+                                            value,
+                                          );
+                                        }
+                                      });
+                                    }}
+                                  >
+                                    {proxyCopy.remotePickIdentityFile}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </div>
-                      <div className="remoteServerSummaryTrailing">
-                        <span className={`remoteServerState${remoteStatus?.running ? " isRunning" : ""}`}>
-                          <span
-                            className={`proxyStatusDot${remoteStatus?.running ? " isRunning" : ""}`}
-                            aria-hidden="true"
-                          />
-                          {remoteStateText}
-                        </span>
-                        <button
-                          type="button"
-                          className="ghost remoteServerDisclosure"
-                          onClick={() =>
-                            setExpandedRemoteId((current) =>
-                              current === draft.id ? null : draft.id,
-                            )
-                          }
-                          aria-expanded={isExpanded}
+
+                      {selectedInstallingDependency ? (
+                        <div
+                          className="remoteDependencyInstall"
+                          role="status"
+                          aria-live="polite"
+                          aria-busy="true"
                         >
-                          <span>{isExpanded ? proxyCopy.remoteCollapse : proxyCopy.remoteExpand}</span>
-                          <svg
-                            className={`remoteServerChevron${isExpanded ? " isExpanded" : ""}`}
-                            viewBox="0 0 16 16"
-                            aria-hidden="true"
-                          >
-                            <path d="m4 6 4 4 4-4" />
-                          </svg>
+                          <div className="remoteDependencyInstallHeader">
+                            <strong>{copy.notices.installingDependency("sshpass")}</strong>
+                          </div>
+                          <div className="remoteDependencyInstallTrack" aria-hidden="true">
+                            <span className="remoteDependencyInstallFill" />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="remoteWorkbenchSection">
+                    <div className="remoteWorkbenchSectionHeader">
+                      <div>
+                        <span className="proxyLabel">{proxyCopy.remoteLogsLabel}</span>
+                        <strong>{selectedRemoteIdentity}</strong>
+                      </div>
+                      <div className="remoteWorkbenchSectionActions">
+                        <button
+                          className="ghost"
+                          onClick={toggleSelectedDiagnostics}
+                          disabled={selectedReadingLogs}
+                        >
+                          {diagnosticsOpen
+                            ? proxyCopy.remoteCollapse
+                            : selectedReadingLogs
+                              ? proxyCopy.remoteReadingLogs
+                              : proxyCopy.remoteReadLogs}
                         </button>
                       </div>
                     </div>
 
-                    {isExpanded ? (
-                      <div className="remoteServerExpandedBody">
-                        <div className="remoteServerPanel">
-                          <div className="remoteServerGrid">
-                            <label className="remoteServerField">
-                              <span>{proxyCopy.remoteNameLabel}</span>
-                              <input
-                                value={draft.label}
-                                onChange={(event) =>
-                                  updateRemoteDraft(draft.id, "label", event.target.value)
-                                }
-                                placeholder="tokyo-01"
-                              />
-                            </label>
-                            <label className="remoteServerField">
-                              <span>{proxyCopy.remoteHostLabel}</span>
-                              <input
-                                value={draft.host}
-                                onChange={(event) =>
-                                  updateRemoteDraft(draft.id, "host", event.target.value)
-                                }
-                                placeholder="1.2.3.4"
-                              />
-                            </label>
-                            <label className="remoteServerField">
-                              <span>{proxyCopy.remoteSshPortLabel}</span>
-                              <input
-                                inputMode="numeric"
-                                value={draft.sshPort}
-                                onChange={(event) =>
-                                  updateRemoteDraft(draft.id, "sshPort", event.target.value)
-                                }
-                                placeholder={DEFAULT_REMOTE_SSH_PORT}
-                              />
-                            </label>
-                            <label className="remoteServerField">
-                              <span>{proxyCopy.remoteUserLabel}</span>
-                              <input
-                                value={draft.sshUser}
-                                onChange={(event) =>
-                                  updateRemoteDraft(draft.id, "sshUser", event.target.value)
-                                }
-                                placeholder="root"
-                              />
-                            </label>
-                            <label className="remoteServerField">
-                              <span>{proxyCopy.remoteDirLabel}</span>
-                              <input
-                                value={draft.remoteDir}
-                                onChange={(event) =>
-                                  updateRemoteDraft(draft.id, "remoteDir", event.target.value)
-                                }
-                                placeholder="/opt/codex-tools"
-                              />
-                            </label>
-                            <label className="remoteServerField">
-                              <span>{proxyCopy.remoteListenPortLabel}</span>
-                              <input
-                                inputMode="numeric"
-                                value={draft.listenPort}
-                                onChange={(event) =>
-                                  updateRemoteDraft(draft.id, "listenPort", event.target.value)
-                                }
-                                placeholder={DEFAULT_REMOTE_LISTEN_PORT}
-                              />
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="remoteServerPanel">
-                          <div className="remoteAuthRow">
-                            <label className="remoteServerField remoteAuthSelectField">
-                              <span>{proxyCopy.remoteAuthLabel}</span>
-                              <EditorMultiSelect
-                                className="remoteAuthPicker"
-                                ariaLabel={proxyCopy.remoteAuthLabel}
-                                options={remoteAuthOptions}
-                                value={draft.authMode}
-                                onChange={(next) => updateRemoteDraft(draft.id, "authMode", next)}
-                              />
-                            </label>
-
-                            <div className="remoteAuthInputArea">
-                              {draft.authMode === "keyContent" ? (
-                                <label className="remoteServerField">
-                                  <span>{proxyCopy.remotePrivateKeyLabel}</span>
-                                  <textarea
-                                    className="remoteServerTextarea"
-                                    value={draft.privateKey}
-                                    onChange={(event) =>
-                                      updateRemoteDraft(draft.id, "privateKey", event.target.value)
-                                    }
-                                    placeholder={proxyCopy.remotePrivateKeyPlaceholder}
-                                  />
-                                </label>
-                              ) : null}
-
-                              {draft.authMode === "password" ? (
-                                <label className="remoteServerField">
-                                  <span>{proxyCopy.remotePasswordLabel}</span>
-                                  <input
-                                    type="password"
-                                    value={draft.password}
-                                    onChange={(event) =>
-                                      updateRemoteDraft(draft.id, "password", event.target.value)
-                                    }
-                                    placeholder={proxyCopy.remotePasswordPlaceholder}
-                                  />
-                                </label>
-                              ) : null}
-
-                              {draft.authMode === "keyFile" || draft.authMode === "keyPath" ? (
-                                <div className="remoteIdentityRow">
-                                  <label className="remoteServerField">
-                                    <span>{proxyCopy.remoteIdentityFileLabel}</span>
-                                    <input
-                                      value={draft.identityFile}
-                                      onChange={(event) =>
-                                        updateRemoteDraft(
-                                          draft.id,
-                                          "identityFile",
-                                          event.target.value,
-                                        )
-                                      }
-                                      placeholder={proxyCopy.remoteIdentityFilePlaceholder}
-                                    />
-                                  </label>
-                                  {draft.authMode === "keyFile" ? (
-                                    <button
-                                      className="ghost"
-                                      type="button"
-                                      onClick={() => {
-                                        void onPickLocalIdentityFile().then((value) => {
-                                          if (value) {
-                                            updateRemoteDraft(draft.id, "identityFile", value);
-                                          }
-                                        });
-                                      }}
-                                    >
-                                      {proxyCopy.remotePickIdentityFile}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-
-                        {installingRemoteDependency ? (
-                          <div
-                            className="remoteDependencyInstall"
-                            role="status"
-                            aria-live="polite"
-                            aria-busy="true"
-                          >
-                            <div className="remoteDependencyInstallHeader">
-                              <strong>{copy.notices.installingDependency("sshpass")}</strong>
-                            </div>
-                            <div className="remoteDependencyInstallTrack" aria-hidden="true">
-                              <span className="remoteDependencyInstallFill" />
-                            </div>
-                          </div>
-                        ) : null}
-
-                        <div className="remoteServerFooter">
-                          <div className="remoteServerActions">
+                    {diagnosticsOpen ? (
+                      <div className="remoteDiagnosticsGrid">
+                        <article className="proxyDetailCard remoteLogCard">
+                          <div className="proxyDetailHeader">
+                            <span className="proxyLabel">{proxyCopy.remoteLogsLabel}</span>
                             <button
-                              className="ghost"
-                              onClick={() => persistRemoteDrafts(effectiveRemoteDrafts)}
-                              disabled={remoteBusy}
+                              className="ghost proxyCopyButton"
+                              onClick={() => copyText(selectedRemoteLog ?? null)}
+                              disabled={!selectedRemoteLog}
                             >
-                              {proxyCopy.remoteSave}
-                            </button>
-                            <button
-                              className="ghost"
-                              onClick={() => removeRemoteDraft(draft.id)}
-                              disabled={remoteBusy}
-                            >
-                              {proxyCopy.remoteRemove}
-                            </button>
-                            <button
-                              className="primary"
-                              onClick={() => onDeployRemote(remoteConfig)}
-                              disabled={remoteBusy}
-                            >
-                              {deployingRemote ? proxyCopy.remoteDeploying : proxyCopy.remoteDeploy}
-                            </button>
-                            <button
-                              className="ghost"
-                              onClick={() => onRefreshRemoteStatus(remoteConfig)}
-                              disabled={remoteBusy}
-                            >
-                              {refreshingRemote ? proxyCopy.remoteRefreshing : proxyCopy.remoteRefresh}
-                            </button>
-                            {remoteStatus?.running ? (
-                              <button
-                                className="danger"
-                                onClick={() => onStopRemote(remoteConfig)}
-                                disabled={remoteBusy}
-                              >
-                                {stoppingRemote ? proxyCopy.remoteStopping : proxyCopy.remoteStop}
-                              </button>
-                            ) : (
-                              <button
-                                className="primary"
-                                onClick={() => onStartRemote(remoteConfig)}
-                                disabled={remoteBusy}
-                              >
-                                {startingRemote ? proxyCopy.remoteStarting : proxyCopy.remoteStart}
-                              </button>
-                            )}
-                            <button
-                              className="ghost"
-                              onClick={() => onReadRemoteLogs(remoteConfig)}
-                              disabled={readingRemoteLogs}
-                            >
-                              {readingRemoteLogs
-                                ? proxyCopy.remoteReadingLogs
-                                : proxyCopy.remoteReadLogs}
+                              {proxyCopy.copy}
                             </button>
                           </div>
+                          <code className="remoteLogCode">
+                            {selectedRemoteLog ?? proxyCopy.remoteLogsEmpty}
+                          </code>
+                        </article>
 
-                          <div className="remoteServerStatus">
-                            <div className="remoteServerMeta">
-                              <span>{proxyCopy.remoteInstalledLabel}</span>
-                              <strong>{remoteInstalledText}</strong>
-                            </div>
-                            <div className="remoteServerMeta">
-                              <span>{proxyCopy.remoteSystemdLabel}</span>
-                              <strong>{remoteSystemdText}</strong>
-                            </div>
-                            <div className="remoteServerMeta">
-                              <span>{proxyCopy.remoteEnabledLabel}</span>
-                              <strong>{remoteEnabledText}</strong>
-                            </div>
-                            <div className="remoteServerMeta">
-                              <span>{proxyCopy.remoteRunningLabel}</span>
-                              <strong>{remoteStateText}</strong>
-                            </div>
-                            <div className="remoteServerMeta">
-                              <span>{proxyCopy.remotePidLabel}</span>
-                              <strong>{remoteStatus?.pid ?? "--"}</strong>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="proxyDetailGrid remoteProxyDetailGrid">
-                          <article className="proxyDetailCard">
-                            <div className="proxyDetailHeader">
-                              <span className="proxyLabel">{proxyCopy.remoteBaseUrlLabel}</span>
-                              <button
-                                className="ghost proxyCopyButton"
-                                onClick={() =>
-                                  copyText(remoteStatus?.baseUrl ?? buildRemoteBaseUrl(draft))
-                                }
-                              >
-                                {proxyCopy.copy}
-                              </button>
-                            </div>
-                            <code>{remoteStatus?.baseUrl ?? buildRemoteBaseUrl(draft)}</code>
-                          </article>
-
-                          <article className="proxyDetailCard">
-                            <div className="proxyDetailHeader">
-                              <span className="proxyLabel">{proxyCopy.remoteApiKeyLabel}</span>
-                              <button
-                                className="ghost proxyCopyButton"
-                                onClick={() => copyText(remoteStatus?.apiKey ?? null)}
-                                disabled={!remoteStatus?.apiKey}
-                              >
-                                {proxyCopy.copy}
-                              </button>
-                            </div>
-                            <code>{remoteStatus?.apiKey ?? proxyCopy.apiKeyPlaceholder}</code>
-                          </article>
-
-                          <article className="proxyDetailCard">
-                            <span className="proxyLabel">{proxyCopy.remoteServiceLabel}</span>
-                            <code>{remoteStatus?.serviceName ?? proxyCopy.remoteStatusUnknown}</code>
-                          </article>
-                        </div>
-
-                        <div className="remoteDiagnosticsGrid">
-                          <article className="proxyDetailCard remoteLogCard">
-                            <div className="proxyDetailHeader">
-                              <span className="proxyLabel">{proxyCopy.remoteLogsLabel}</span>
-                              <button
-                                className="ghost proxyCopyButton"
-                                onClick={() => copyText(remoteLog ?? null)}
-                                disabled={!remoteLog}
-                              >
-                                {proxyCopy.copy}
-                              </button>
-                            </div>
-                            <code className="remoteLogCode">
-                              {remoteLog ?? proxyCopy.remoteLogsEmpty}
-                            </code>
-                          </article>
-
-                          <article className="proxyDetailCard remoteErrorCard">
-                            <span className="proxyLabel">{proxyCopy.remoteLastErrorLabel}</span>
-                            <p className="proxyErrorText">{remoteStatus?.lastError ?? proxyCopy.none}</p>
-                          </article>
-                        </div>
+                        <article className="proxyDetailCard remoteErrorCard">
+                          <span className="proxyLabel">{proxyCopy.remoteLastErrorLabel}</span>
+                          <p className="proxyErrorText">
+                            {selectedRemoteStatus?.lastError ?? proxyCopy.none}
+                          </p>
+                        </article>
                       </div>
                     ) : null}
-                  </article>
-                );
-              })}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          ) : (
+            <article className="cloudflaredCallout">
+              <strong>{proxyCopy.remoteEmptyTitle}</strong>
+              <p>{proxyCopy.remoteEmptyDescription}</p>
+            </article>
+          )}
         </section>
 
         <section className="proxySectionCard">
