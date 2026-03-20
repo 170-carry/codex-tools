@@ -5,18 +5,40 @@ use serde_json::Map;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
+use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
+use sha2::Digest;
+use sha2::Sha256;
 
-use crate::models::CurrentAuthStatus;
 use crate::models::ExtractedAuth;
+use crate::models::PreparedOauthLogin;
 use crate::utils::set_private_permissions;
 use crate::utils::truncate_for_error;
+
+const DEFAULT_OAUTH_ISSUER: &str = "https://auth.openai.com";
+const DEFAULT_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const DEFAULT_OAUTH_SCOPE: &str = "openid profile email offline_access";
+const DEFAULT_OAUTH_ORIGINATOR: &str = "codex_vscode";
+const DEFAULT_OAUTH_REDIRECT_PORT: u16 = 1455;
+const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 300;
 
 pub(crate) struct CodexOAuthTokens {
     pub(crate) access_token: String,
     pub(crate) refresh_token: String,
     pub(crate) account_id: Option<String>,
     pub(crate) expires_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PendingOauthLogin {
+    pub(crate) redirect_uri: String,
+    pub(crate) state: String,
+    pub(crate) code_verifier: String,
+    pub(crate) expires_at: i64,
+}
+
+pub(crate) fn oauth_redirect_port() -> u16 {
+    DEFAULT_OAUTH_REDIRECT_PORT
 }
 
 pub(crate) fn read_current_codex_auth() -> Result<Value, String> {
@@ -39,70 +61,6 @@ pub(crate) fn read_current_codex_auth_optional() -> Result<Option<Value>, String
     Ok(Some(value))
 }
 
-pub(crate) fn read_current_auth_status() -> Result<CurrentAuthStatus, String> {
-    let path = codex_auth_path()?;
-    if !path.exists() {
-        return Ok(CurrentAuthStatus {
-            available: false,
-            account_id: None,
-            email: None,
-            plan_type: None,
-            auth_mode: None,
-            last_refresh: None,
-            file_modified_at: None,
-            fingerprint: None,
-        });
-    }
-
-    let metadata = fs::metadata(&path)
-        .map_err(|e| format!("读取 auth.json 文件信息失败 {}: {e}", path.display()))?;
-    let modified_at = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs() as i64);
-
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("读取 auth.json 失败 {}: {e}", path.display()))?;
-    let value: Value =
-        serde_json::from_str(&raw).map_err(|e| format!("auth.json 不是合法 JSON: {e}"))?;
-
-    let auth_mode = value
-        .get("auth_mode")
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
-    let last_refresh = value
-        .get("last_refresh")
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
-
-    let extracted = extract_auth(&value).ok();
-    let principal_id = extracted.as_ref().map(|auth| auth.principal_id.clone());
-    let account_id = extracted.as_ref().map(|auth| auth.account_id.clone());
-    let email = extracted.as_ref().and_then(|auth| auth.email.clone());
-    let plan_type = extracted.as_ref().and_then(|auth| auth.plan_type.clone());
-
-    let fingerprint = Some(format!(
-        "{}|{}|{}|{}|{}",
-        principal_id.unwrap_or_default(),
-        account_id.clone().unwrap_or_default(),
-        last_refresh.clone().unwrap_or_default(),
-        modified_at.unwrap_or_default(),
-        auth_mode.clone().unwrap_or_default()
-    ));
-
-    Ok(CurrentAuthStatus {
-        available: true,
-        account_id,
-        email,
-        plan_type,
-        auth_mode,
-        last_refresh,
-        file_modified_at: modified_at,
-        fingerprint,
-    })
-}
-
 pub(crate) fn write_active_codex_auth(auth_json: &Value) -> Result<(), String> {
     let path = codex_auth_path()?;
     let parent = path
@@ -119,12 +77,85 @@ pub(crate) fn write_active_codex_auth(auth_json: &Value) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn remove_active_codex_auth() -> Result<(), String> {
-    let path = codex_auth_path()?;
-    if !path.exists() {
-        return Ok(());
+pub(crate) fn prepare_oauth_login() -> Result<(PendingOauthLogin, PreparedOauthLogin), String> {
+    let state = uuid::Uuid::new_v4().simple().to_string();
+    let code_verifier = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
+    let redirect_uri = format!("http://localhost:{DEFAULT_OAUTH_REDIRECT_PORT}/auth/callback");
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("读取系统时间失败: {error}"))?
+        .as_secs() as i64
+        + DEFAULT_OAUTH_TIMEOUT_SECS;
+
+    let mut auth_url = reqwest::Url::parse(&format!("{DEFAULT_OAUTH_ISSUER}/oauth/authorize"))
+        .map_err(|error| format!("生成授权链接失败: {error}"))?;
+    auth_url
+        .query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", DEFAULT_OAUTH_CLIENT_ID)
+        .append_pair("redirect_uri", &redirect_uri)
+        .append_pair("scope", DEFAULT_OAUTH_SCOPE)
+        .append_pair("state", &state)
+        .append_pair("code_challenge", &code_challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("id_token_add_organizations", "true")
+        .append_pair("codex_cli_simplified_flow", "true")
+        .append_pair("originator", DEFAULT_OAUTH_ORIGINATOR);
+
+    let auth_url = auth_url.to_string();
+    let pending = PendingOauthLogin {
+        redirect_uri: redirect_uri.clone(),
+        state,
+        code_verifier,
+        expires_at,
+    };
+    let prepared = PreparedOauthLogin {
+        auth_url,
+        redirect_uri,
+    };
+    Ok((pending, prepared))
+}
+
+pub(crate) async fn complete_oauth_callback_login(
+    pending: &PendingOauthLogin,
+    callback_url: &str,
+) -> Result<Value, String> {
+    let callback_url = callback_url.trim();
+    if callback_url.is_empty() {
+        return Err("请粘贴回调链接".to_string());
     }
-    fs::remove_file(&path).map_err(|e| format!("删除 auth.json 失败 {}: {e}", path.display()))
+
+    let parsed_url = parse_oauth_callback_url(callback_url)?;
+    let params: std::collections::HashMap<String, String> = parsed_url
+        .query_pairs()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+    if let Some(error) = params.get("error") {
+        let description = params
+            .get("error_description")
+            .map(String::as_str)
+            .unwrap_or(error.as_str());
+        return Err(format!("授权失败: {description}"));
+    }
+
+    let Some(state) = params.get("state") else {
+        return Err("回调链接缺少 state 参数".to_string());
+    };
+    if state != &pending.state {
+        return Err("回调链接 state 不匹配，请重新生成授权链接".to_string());
+    }
+
+    let Some(code) = params.get("code") else {
+        return Err("回调链接缺少 code 参数".to_string());
+    };
+
+    exchange_authorization_code(code, pending).await
 }
 
 pub(crate) fn normalize_imported_auth_json(auth_json: Value) -> Value {
@@ -448,6 +479,80 @@ pub(crate) async fn refresh_chatgpt_auth_tokens(auth_json: &Value) -> Result<Val
     Ok(updated)
 }
 
+fn parse_oauth_callback_url(callback_url: &str) -> Result<reqwest::Url, String> {
+    reqwest::Url::parse(callback_url)
+        .or_else(|_| reqwest::Url::parse(&format!("http://localhost{callback_url}")))
+        .map_err(|error| format!("回调链接格式无效: {error}"))
+}
+
+async fn exchange_authorization_code(
+    code: &str,
+    pending: &PendingOauthLogin,
+) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("codex-tools/0.1")
+        .build()
+        .map_err(|error| format!("创建 HTTP 客户端失败: {error}"))?;
+
+    let token_url = format!("{DEFAULT_OAUTH_ISSUER}/oauth/token");
+    let response = client
+        .post(&token_url)
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", pending.redirect_uri.as_str()),
+            ("client_id", DEFAULT_OAUTH_CLIENT_ID),
+            ("code_verifier", pending.code_verifier.as_str()),
+        ])
+        .send()
+        .await
+        .map_err(|error| format!("换取登录令牌失败 {token_url}: {error}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "换取登录令牌失败 {token_url} -> {status}: {}",
+            truncate_for_error(&body, 200)
+        ));
+    }
+
+    let token_response: OAuthTokenResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("解析 OAuth 登录响应失败: {error}"))?;
+
+    build_auth_json_from_oauth_tokens(token_response)
+}
+
+fn build_auth_json_from_oauth_tokens(token_response: OAuthTokenResponse) -> Result<Value, String> {
+    let id_token_claims = decode_jwt_payload(&token_response.id_token)?;
+    let account_id = id_token_claims
+        .get("https://api.openai.com/auth")
+        .and_then(Value::as_object)
+        .and_then(|auth| auth.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "无法从 OAuth 登录结果识别 chatgpt_account_id".to_string())?;
+
+    let last_refresh = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("读取系统时间失败: {error}"))?
+        .as_secs()
+        .to_string();
+
+    Ok(serde_json::json!({
+        "OPENAI_API_KEY": Value::Null,
+        "auth_mode": "chatgpt",
+        "last_refresh": last_refresh,
+        "tokens": {
+            "access_token": token_response.access_token,
+            "refresh_token": token_response.refresh_token,
+            "id_token": token_response.id_token,
+            "account_id": account_id
+        }
+    }))
+}
+
 fn codex_auth_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "无法读取 HOME 目录".to_string())?;
     Ok(home.join(".codex").join("auth.json"))
@@ -494,6 +599,13 @@ struct RefreshedTokenPayload {
     access_token: String,
     id_token: String,
     refresh_token: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct OAuthTokenResponse {
+    access_token: String,
+    refresh_token: String,
+    id_token: String,
 }
 
 fn extract_client_id_from_claims(claims: &Value) -> Option<String> {

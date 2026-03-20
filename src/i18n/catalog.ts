@@ -67,27 +67,34 @@ export type MessageCatalog = {
     smartSwitch: string;
     exportButton: string;
     startButton: string;
-    startingButton: string;
-    waitingButton: string;
     dialogAriaLabel: string;
     dialogTitle: string;
     dialogSubtitle: string;
-    launchingTitle: string;
-    watchingTitle: string;
-    launchingDetail: string;
-    watchingDetail: string;
-    cancelListening: string;
-    closeDialog: string;
     tabsAriaLabel: string;
     oauthTab: string;
+    oauthDescription: string;
+    oauthLinkLabel: string;
+    oauthOpenBrowser: string;
+    oauthListening: string;
+    oauthCallbackLabel: string;
+    oauthCallbackPlaceholder: string;
+    oauthParseCallback: string;
+    oauthPreparing: string;
+    oauthCallbackSubmitting: string;
+    currentTab: string;
+    currentDescription: string;
+    currentStart: string;
+    currentImporting: string;
     uploadTab: string;
-    oauthStart: string;
+    uploadDescription: string;
     uploadChooseFiles: string;
     uploadChooseFolder: string;
     uploadNoJsonFiles: string;
     uploadFileSummary: (firstPath: string, count: number) => string;
     uploadSelectedCount: (count: number) => string;
     uploadNoFiles: string;
+    uploadQueueTitle: string;
+    uploadQueueEmpty: string;
     uploadImporting: string;
     uploadStartImport: string;
   };
@@ -349,7 +356,6 @@ export type MessageCatalog = {
     updateSettingsFailed: (error: string) => string;
     usageRefreshed: string;
     refreshFailed: (error: string) => string;
-    restoreAuthFailed: (error: string) => string;
     preparingUpdateDownload: string;
     alreadyLatest: string;
     updateDownloadStarted: string;
@@ -362,10 +368,10 @@ export type MessageCatalog = {
     updateCheckFailed: (error: string) => string;
     openExternalFailed: (error: string) => string;
     openManualDownloadFailed: (error: string) => string;
-    addAccountSuccess: string;
-    addAccountAutoImportFailed: (error: string) => string;
-    addAccountTimeout: string;
-    startLoginFlowFailed: (error: string) => string;
+    oauthLinkPrepareFailed: (error: string) => string;
+    oauthImportPrefix: string;
+    currentAccountImportSuccess: string;
+    currentAccountImportFailed: (error: string) => string;
     accountAliasUpdated: (label: string) => string;
     accountAliasUpdateFailed: (error: string) => string;
     accountsExported: string;
@@ -480,7 +486,6 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       ...raw.notices,
       updateSettingsFailed: (error) => fillTemplate(raw.notices.updateSettingsFailed, { error }),
       refreshFailed: (error) => fillTemplate(raw.notices.refreshFailed, { error }),
-      restoreAuthFailed: (error) => fillTemplate(raw.notices.restoreAuthFailed, { error }),
       updateDownloadingPercent: (percent) =>
         fillTemplate(raw.notices.updateDownloadingPercent, { percent }),
       updateInstallFailed: (error) => fillTemplate(raw.notices.updateInstallFailed, { error }),
@@ -490,9 +495,10 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       openExternalFailed: (error) => fillTemplate(raw.notices.openExternalFailed, { error }),
       openManualDownloadFailed: (error) =>
         fillTemplate(raw.notices.openManualDownloadFailed, { error }),
-      addAccountAutoImportFailed: (error) =>
-        fillTemplate(raw.notices.addAccountAutoImportFailed, { error }),
-      startLoginFlowFailed: (error) => fillTemplate(raw.notices.startLoginFlowFailed, { error }),
+      oauthLinkPrepareFailed: (error) =>
+        fillTemplate(raw.notices.oauthLinkPrepareFailed, { error }),
+      currentAccountImportFailed: (error) =>
+        fillTemplate(raw.notices.currentAccountImportFailed, { error }),
       accountAliasUpdated: (label) => fillTemplate(raw.notices.accountAliasUpdated, { label }),
       accountAliasUpdateFailed: (error) =>
         fillTemplate(raw.notices.accountAliasUpdateFailed, { error }),

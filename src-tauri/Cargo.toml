@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.4.1"
+version = "1.5.0"
 description = "Codex Tools"
 authors = ["you"]
 license = "MIT"
@@ -33,6 +33,7 @@ reqwest = { version = "0.12", features = ["json", "gzip", "stream"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 base64 = "0.22"
+sha2 = "0.10"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"

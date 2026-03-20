@@ -46,15 +46,14 @@ export type SwitchAccountResult = {
   editorRestartError: string | null;
 };
 
-export type CurrentAuthStatus = {
-  available: boolean;
-  accountId: string | null;
-  email: string | null;
-  planType: string | null;
-  authMode: string | null;
-  lastRefresh: string | null;
-  fileModifiedAt: number | null;
-  fingerprint: string | null;
+export type PreparedOauthLogin = {
+  authUrl: string;
+  redirectUri: string;
+};
+
+export type OauthCallbackFinishedEvent = {
+  result: ImportAccountsResult | null;
+  error: string | null;
 };
 
 export type AuthJsonImportInput = {
@@ -172,10 +171,6 @@ export type PendingUpdateInfo = {
   version: string;
   body?: string;
   date?: string;
-};
-
-export type AddFlow = {
-  baselineFingerprint: string | null;
 };
 
 export type ThemeMode = "light" | "dark";

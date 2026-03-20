@@ -17,12 +17,17 @@ mod usage;
 mod utils;
 
 use std::process::Command;
-use std::process::Stdio;
+use std::io::Read;
+use std::io::Write;
+use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use rfd::FileDialog;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 use tauri::WindowEvent;
@@ -33,16 +38,332 @@ use models::AppSettings;
 use models::AppSettingsPatch;
 use models::AuthJsonImportInput;
 use models::CloudflaredStatus;
-use models::CurrentAuthStatus;
 use models::DeployRemoteProxyInput;
 use models::EditorAppId;
 use models::ImportAccountsResult;
 use models::InstalledEditorApp;
+use models::OauthCallbackFinishedEvent;
+use models::PreparedOauthLogin;
 use models::RemoteProxyStatus;
 use models::RemoteServerConfig;
 use models::StartCloudflaredTunnelInput;
 use models::SwitchAccountResult;
 use state::AppState;
+use state::OauthCallbackListenerHandle;
+
+const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
+
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn write_oauth_html_response(
+    stream: &mut std::net::TcpStream,
+    status_line: &str,
+    title: &str,
+    detail: &str,
+) {
+    let body = format!(
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><style>body{{margin:0;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f7fb;color:#152033}}main{{max-width:560px;margin:0 auto;padding:24px;border-radius:20px;background:#fff;box-shadow:0 14px 34px rgba(21,32,51,.08)}}h1{{margin:0 0 10px;font-size:24px;line-height:1.2}}p{{margin:0;color:#52627b;line-height:1.6;word-break:break-word}}</style></head><body><main><h1>{}</h1><p>{}</p></main></body></html>",
+        escape_html(title),
+        escape_html(title),
+        escape_html(detail)
+    );
+    let response = format!(
+        "HTTP/1.1 {status_line}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.as_bytes().len(),
+        body
+    );
+    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.flush();
+}
+
+fn read_oauth_request_path(stream: &mut std::net::TcpStream) -> Result<String, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(4)))
+        .map_err(|error| format!("设置 OAuth 回调读取超时失败: {error}"))?;
+    let mut buffer = [0_u8; 8192];
+    let bytes_read = stream
+        .read(&mut buffer)
+        .map_err(|error| format!("读取 OAuth 回调请求失败: {error}"))?;
+    if bytes_read == 0 {
+        return Err("OAuth 回调连接已关闭".to_string());
+    }
+
+    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let request_line = request
+        .lines()
+        .next()
+        .ok_or_else(|| "OAuth 回调请求为空".to_string())?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    if method != "GET" {
+        return Err(format!("不支持的 OAuth 回调请求方法: {method}"));
+    }
+
+    parts
+        .next()
+        .map(ToString::to_string)
+        .ok_or_else(|| "OAuth 回调请求缺少路径".to_string())
+}
+
+async fn stop_oauth_callback_listener(state: &AppState) {
+    let handle = {
+        let mut guard = state.oauth_listener.lock().await;
+        guard.take()
+    };
+
+    let Some(mut handle) = handle else {
+        return;
+    };
+
+    if let Some(shutdown_tx) = handle.shutdown_tx.take() {
+        let _ = shutdown_tx.send(());
+    }
+
+    if let Some(task) = handle.task.take() {
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = task.join();
+        })
+        .await;
+    }
+}
+
+async fn clear_pending_oauth_if_matches(state: &AppState, expected_state: &str) {
+    let mut guard = state.pending_oauth_login.lock().await;
+    if guard
+        .as_ref()
+        .is_some_and(|pending| pending.state.as_str() == expected_state)
+    {
+        *guard = None;
+    }
+}
+
+async fn import_oauth_auth_json(
+    app: &AppHandle,
+    state: &AppState,
+    auth_json: serde_json::Value,
+    source: &str,
+) -> Result<ImportAccountsResult, String> {
+    let serialized = serde_json::to_string(&auth_json)
+        .map_err(|error| format!("序列化 OAuth 登录结果失败: {error}"))?;
+    let result = account_service::import_auth_json_accounts_internal(
+        app,
+        state,
+        vec![AuthJsonImportInput {
+            source: source.to_string(),
+            content: serialized,
+            label: None,
+        }],
+    )
+    .await?;
+
+    if result.imported_count > 0 || result.updated_count > 0 {
+        let _ = tray::refresh_macos_tray_snapshot(app);
+    }
+
+    Ok(result)
+}
+
+async fn complete_oauth_login_internal(
+    app: &AppHandle,
+    state: &AppState,
+    callback_url: &str,
+) -> Result<ImportAccountsResult, String> {
+    let pending = {
+        let guard = state.pending_oauth_login.lock().await;
+        guard
+            .clone()
+            .ok_or_else(|| "请先打开授权页面".to_string())?
+    };
+
+    let auth_json = auth::complete_oauth_callback_login(&pending, callback_url).await?;
+    import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+}
+
+async fn emit_oauth_callback_finished(app: &AppHandle, payload: OauthCallbackFinishedEvent) {
+    let _ = app.emit(OAUTH_CALLBACK_FINISHED_EVENT, payload);
+}
+
+fn run_oauth_callback_listener(
+    app: AppHandle,
+    listener: TcpListener,
+    pending: auth::PendingOauthLogin,
+    shutdown_rx: std::sync::mpsc::Receiver<()>,
+) {
+    loop {
+        if shutdown_rx.try_recv().is_ok() {
+            break;
+        }
+
+        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs() as i64,
+            Err(_) => 0,
+        };
+        if now >= pending.expires_at {
+            tauri::async_runtime::block_on(async {
+                let state = app.state::<AppState>();
+                clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
+                emit_oauth_callback_finished(
+                    &app,
+                    OauthCallbackFinishedEvent {
+                        result: None,
+                        error: Some("OAuth 授权已超时，请重新打开授权页面。".to_string()),
+                    },
+                )
+                .await;
+            });
+            break;
+        }
+
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let path = match read_oauth_request_path(&mut stream) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                        break;
+                    }
+                };
+
+                if path == "/cancel" {
+                    write_oauth_html_response(
+                        &mut stream,
+                        "200 OK",
+                        "授权已取消",
+                        "当前授权监听已取消，可以关闭这个页面。",
+                    );
+                    break;
+                }
+
+                if !path.starts_with("/auth/callback") {
+                    write_oauth_html_response(
+                        &mut stream,
+                        "404 Not Found",
+                        "未识别的回调地址",
+                        "当前地址不是 Codex Tools 的 OAuth 回调地址，可以关闭这个页面。",
+                    );
+                    continue;
+                }
+
+                let callback_url = format!("http://localhost:{}{}", auth::oauth_redirect_port(), path);
+                let callback_result = tauri::async_runtime::block_on(async {
+                    let state = app.state::<AppState>();
+                    let pending_matches = {
+                        let guard = state.pending_oauth_login.lock().await;
+                        guard
+                            .as_ref()
+                            .is_some_and(|current| current.state.as_str() == pending.state.as_str())
+                    };
+                    if !pending_matches {
+                        return Err("当前授权会话已失效，请回到应用重新打开授权页面。".to_string());
+                    }
+
+                    let result = complete_oauth_login_internal(&app, state.inner(), &callback_url).await;
+                    clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
+                    result
+                });
+
+                match callback_result {
+                    Ok(result) => {
+                        write_oauth_html_response(
+                            &mut stream,
+                            "200 OK",
+                            "授权完成",
+                            "账号已经写入 Codex Tools，可以回到应用继续操作。",
+                        );
+                        tauri::async_runtime::block_on(async {
+                            emit_oauth_callback_finished(
+                                &app,
+                                OauthCallbackFinishedEvent {
+                                    result: Some(result),
+                                    error: None,
+                                },
+                            )
+                            .await;
+                        });
+                    }
+                    Err(error) => {
+                        write_oauth_html_response(
+                            &mut stream,
+                            "400 Bad Request",
+                            "授权失败",
+                            &error,
+                        );
+                        if !error.contains("会话已失效") {
+                            tauri::async_runtime::block_on(async {
+                                emit_oauth_callback_finished(
+                                    &app,
+                                    OauthCallbackFinishedEvent {
+                                        result: None,
+                                        error: Some(error),
+                                    },
+                                )
+                                .await;
+                            });
+                        }
+                    }
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(120));
+            }
+            Err(error) => {
+                tauri::async_runtime::block_on(async {
+                    emit_oauth_callback_finished(
+                        &app,
+                        OauthCallbackFinishedEvent {
+                            result: None,
+                            error: Some(format!("OAuth 回调监听失败: {error}")),
+                        },
+                    )
+                    .await;
+                });
+                break;
+            }
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let state = app.state::<AppState>();
+        let mut guard = state.oauth_listener.lock().await;
+        *guard = None;
+    });
+}
+
+async fn start_oauth_callback_listener(
+    app: &AppHandle,
+    state: &AppState,
+    pending: &auth::PendingOauthLogin,
+) -> Result<(), String> {
+    stop_oauth_callback_listener(state).await;
+
+    let listener = TcpListener::bind(("127.0.0.1", auth::oauth_redirect_port()))
+        .map_err(|error| format!("无法启动 OAuth 回调监听 127.0.0.1:{}: {error}", auth::oauth_redirect_port()))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("无法设置 OAuth 回调监听模式: {error}"))?;
+
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
+    let app_handle = app.clone();
+    let pending_login = pending.clone();
+    let task = thread::spawn(move || {
+        run_oauth_callback_listener(app_handle, listener, pending_login, shutdown_rx);
+    });
+
+    let mut guard = state.oauth_listener.lock().await;
+    *guard = Some(OauthCallbackListenerHandle {
+        shutdown_tx: Some(shutdown_tx),
+        task: Some(task),
+    });
+    Ok(())
+}
 
 // ===== Tauri Commands (thin wrappers) =====
 // 命令函数仅负责参数编排与跨模块调用，
@@ -209,11 +530,6 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_current_auth_status() -> Result<CurrentAuthStatus, String> {
-    auth::read_current_auth_status()
-}
-
-#[tauri::command]
 async fn pick_codex_launch_path(
     kind: String,
     current_path: Option<String>,
@@ -247,52 +563,50 @@ async fn pick_codex_launch_path(
 }
 
 #[tauri::command]
-async fn launch_codex_login(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // 添加账号流程前先备份当前 auth.json，确保授权结束后可回滚。
-    let current_auth = auth::read_current_codex_auth_optional()?;
+async fn prepare_oauth_login(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PreparedOauthLogin, String> {
+    stop_oauth_callback_listener(state.inner()).await;
+    let (pending, prepared) = auth::prepare_oauth_login()?;
     {
-        let mut backup = state.add_flow_auth_backup.lock().await;
-        *backup = Some(current_auth);
+        let mut guard = state.pending_oauth_login.lock().await;
+        *guard = Some(pending.clone());
     }
-
-    let configured_codex_launch_path = {
-        let _guard = state.store_lock.lock().await;
-        store::load_store(&app)?.settings.codex_launch_path
-    };
-
-    let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
-    cmd.arg("login")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("无法启动 codex login: {e}"))?;
-    Ok(())
+    if let Err(error) = start_oauth_callback_listener(&app, state.inner(), &pending).await {
+        let mut guard = state.pending_oauth_login.lock().await;
+        *guard = None;
+        return Err(error);
+    }
+    Ok(prepared)
 }
 
 #[tauri::command]
-async fn restore_auth_after_add_flow(
+async fn complete_oauth_callback_login(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<bool, String> {
-    let backup = {
-        let mut guard = state.add_flow_auth_backup.lock().await;
-        guard.take()
+    callback_url: String,
+) -> Result<ImportAccountsResult, String> {
+    let pending = {
+        let guard = state.pending_oauth_login.lock().await;
+        guard
+            .clone()
+            .ok_or_else(|| "请先打开授权页面".to_string())?
     };
+    let result = complete_oauth_login_internal(&app, state.inner(), &callback_url).await?;
+    clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
+    stop_oauth_callback_listener(state.inner()).await;
+    Ok(result)
+}
 
-    match backup {
-        None => Ok(false),
-        Some(Some(auth_json)) => {
-            auth::write_active_codex_auth(&auth_json)?;
-            let _ = tray::refresh_macos_tray_snapshot(&app);
-            Ok(true)
-        }
-        Some(None) => {
-            auth::remove_active_codex_auth()?;
-            let _ = tray::refresh_macos_tray_snapshot(&app);
-            Ok(true)
-        }
+#[tauri::command]
+async fn cancel_oauth_login(state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut guard = state.pending_oauth_login.lock().await;
+        *guard = None;
     }
+    stop_oauth_callback_listener(state.inner()).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -661,10 +975,10 @@ pub fn run() {
             list_installed_editor_apps,
             is_opencode_desktop_app_installed,
             open_external_url,
-            get_current_auth_status,
             pick_codex_launch_path,
-            launch_codex_login,
-            restore_auth_after_add_flow,
+            prepare_oauth_login,
+            complete_oauth_callback_login,
+            cancel_oauth_login,
             switch_account_and_launch,
             get_api_proxy_status,
             start_api_proxy,

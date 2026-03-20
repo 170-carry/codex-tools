@@ -111,15 +111,9 @@ pub(crate) struct SwitchAccountResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CurrentAuthStatus {
-    pub(crate) available: bool,
-    pub(crate) account_id: Option<String>,
-    pub(crate) email: Option<String>,
-    pub(crate) plan_type: Option<String>,
-    pub(crate) auth_mode: Option<String>,
-    pub(crate) last_refresh: Option<String>,
-    pub(crate) file_modified_at: Option<i64>,
-    pub(crate) fingerprint: Option<String>,
+pub(crate) struct PreparedOauthLogin {
+    pub(crate) auth_url: String,
+    pub(crate) redirect_uri: String,
 }
 
 #[derive(Debug, Clone)]
@@ -153,6 +147,13 @@ pub(crate) struct ImportAccountsResult {
     pub(crate) imported_count: usize,
     pub(crate) updated_count: usize,
     pub(crate) failures: Vec<ImportAccountFailure>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OauthCallbackFinishedEvent {
+    pub(crate) result: Option<ImportAccountsResult>,
+    pub(crate) error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

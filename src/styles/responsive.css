@@ -56,17 +56,35 @@
     gap: 10px;
   }
 
+  .addAccountWorkspace {
+    gap: 12px;
+  }
+
   .addAccountTabs {
     grid-template-columns: 1fr;
   }
 
-  .addAccountTab {
-    padding: 12px 14px;
+  .addAccountPanel {
+    padding: 16px;
+    border-radius: 20px;
   }
 
-  .addUploadPickerRow {
+  .addAccountTab {
+    min-height: 0;
+  }
+
+  .addAccountPrimaryAction {
     width: 100%;
+    min-width: 0;
+  }
+
+  .addOauthActionRow {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .addUploadPickerGrid {
+    grid-template-columns: 1fr;
   }
 
   .settingRow {

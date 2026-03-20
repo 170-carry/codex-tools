@@ -48,88 +48,351 @@
 }
 
 .addAuthDialog {
-  width: min(760px, 100%);
+  width: min(920px, 100%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--import-bg) 86%, var(--surface-tint) 14%),
+      color-mix(in srgb, var(--import-bg) 92%, transparent)
+    );
+}
+
+.addAccountDialogSubtitle {
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font: 500 0.82rem/1.5 var(--font-ui);
+}
+
+.addAccountLead {
+  margin-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background:
+    radial-gradient(100% 120% at 0% 0%, rgba(255, 174, 110, 0.08), transparent 52%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--meta-bg) 72%, var(--surface-tint) 28%),
+      color-mix(in srgb, var(--meta-bg) 48%, transparent)
+    );
+  display: grid;
+  gap: 6px;
+}
+
+.addAccountEyebrow {
+  margin: 0;
+  color: color-mix(in srgb, var(--subtle) 76%, var(--brand-cool) 24%);
+  font: 700 0.7rem/1 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.addAccountLeadText {
+  margin: 0;
+  color: var(--ink);
+  font: 600 0.95rem/1.45 var(--font-ui);
+  letter-spacing: -0.01em;
+}
+
+.addAccountWorkspace {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
 }
 
 .addAccountTabs {
-  margin-top: 16px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
 .addAccountTab {
-  border-radius: 16px;
-  padding: 14px 16px;
-  text-align: left;
+  min-height: 92px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 18px;
+  padding: 12px 14px;
   display: grid;
-  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  text-align: left;
   background: var(--tab-surface);
-}
-
-.addAccountTab strong {
-  font: 700 0.9rem/1.15 "IBM Plex Sans", sans-serif;
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
 }
 
 .addAccountTab.isActive {
   border-color: color-mix(in srgb, var(--brand-hot) 56%, var(--brand-cool) 44%);
   background: var(--tab-active-surface);
-  box-shadow: inset 0 1px var(--surface-highlight-soft);
+  box-shadow:
+    0 10px 22px rgba(22, 36, 56, 0.08),
+    inset 0 1px var(--surface-highlight-soft);
+}
+
+.addAccountTabIcon,
+.addAccountPanelIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface-hover-bg) 68%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, var(--brand-cool) 18%);
+}
+
+.addAccountTab.isActive .addAccountTabIcon,
+.addAccountPanelIcon {
+  background: linear-gradient(135deg, rgba(255, 165, 98, 0.22), rgba(95, 229, 218, 0.22));
+  color: var(--ink);
+}
+
+.addAccountTabContent {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.addAccountTabContent strong {
+  font: 650 0.92rem/1.2 var(--font-ui);
+  letter-spacing: -0.01em;
+}
+
+.addAccountTabContent span {
+  color: var(--subtle);
+  font: 500 0.77rem/1.45 var(--font-ui);
 }
 
 .addAccountPanel {
-  margin-top: 16px;
-  display: grid;
-  gap: 14px;
-}
-
-.addOauthCard,
-.addUploadCard {
-  border: 1px dashed var(--line);
-  border-radius: 20px;
-  padding: 20px 18px;
-  min-height: 280px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 22px;
+  padding: 18px;
   background: var(--feature-card-surface);
+  box-shadow:
+    0 14px 28px rgba(18, 34, 58, 0.08),
+    inset 0 1px var(--surface-highlight-soft);
   display: grid;
-  justify-items: center;
-  align-content: center;
+  gap: 18px;
+}
+
+.addAccountPanelHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 14px;
-  text-align: center;
+  align-items: start;
 }
 
-.addOauthCard strong,
-.addUploadSummary strong {
-  font: 700 1rem/1.2 "IBM Plex Sans", sans-serif;
+.addAccountPanelCopy {
+  min-width: 0;
 }
 
-.addOauthCard p,
-.addUploadSummary p {
+.addAccountPanelCopy h3 {
+  margin: 0;
+  font: 700 1.2rem/1.12 var(--font-ui);
+  letter-spacing: -0.03em;
+}
+
+.addAccountPanelCopy p {
+  margin: 5px 0 0;
+  color: var(--subtle);
+  font: 500 0.88rem/1.58 var(--font-ui);
+}
+
+.addAccountPanelBody,
+.addOauthSection,
+.addCurrentSection,
+.addUploadSection {
+  display: grid;
+  gap: 16px;
+}
+
+.addOauthActionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.addOauthListening {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-cool) 16%, transparent);
+  color: color-mix(in srgb, var(--ink) 74%, var(--brand-cool) 26%);
+  font: 700 0.78rem/1 var(--font-ui);
+}
+
+.addOauthField {
+  display: grid;
+  gap: 8px;
+}
+
+.addOauthFieldLabel {
+  color: var(--subtle);
+  font: 700 0.75rem/1.15 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.addOauthInput,
+.addOauthTextarea {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--meta-bg) 54%, var(--surface-tint) 46%);
+  color: var(--ink);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+  font: 500 0.8rem/1.45 var(--font-mono);
+}
+
+.addOauthInput {
+  min-height: 44px;
+  padding: 11px 13px;
+}
+
+.addOauthTextarea {
+  resize: vertical;
+  min-height: 112px;
+  padding: 12px 13px;
+}
+
+.addOauthReadonlyInput {
+  color: color-mix(in srgb, var(--ink) 88%, var(--subtle) 12%);
+}
+
+.addOauthInput:focus,
+.addOauthTextarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent),
+    inset 0 1px var(--surface-highlight-soft);
+}
+
+.addOauthStatus {
+  border: 1px dashed color-mix(in srgb, var(--line) 72%, var(--surface-tint) 28%);
+  border-radius: 16px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--meta-bg) 40%, transparent);
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  text-align: left;
+}
+
+.addOauthStatus strong,
+.addUploadQueueHeader strong {
+  font: 700 1rem/1.2 var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.addOauthStatus p,
+.addUploadQueueHeader p,
+.addUploadEmptyState,
+.addCurrentSummary p {
   margin: 0;
   color: var(--subtle);
-  font: 400 0.84rem/1.45 "IBM Plex Sans", sans-serif;
+  font: 500 0.84rem/1.58 var(--font-ui);
 }
 
-.addOauthPrimary,
-.addUploadPrimary {
+.addAccountPrimaryAction {
   min-width: 220px;
-  justify-self: center;
+  justify-self: start;
+}
+
+.addCurrentSummary {
+  max-width: 560px;
+  display: grid;
+  gap: 10px;
+}
+
+.addInlineBadge {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--brand-cool) 18%, transparent);
+  color: color-mix(in srgb, var(--ink) 78%, var(--brand-cool) 22%);
+  font: 700 0.72rem/1 var(--font-mono);
+  letter-spacing: 0.08em;
 }
 
 .addOauthSpinner {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 
-.addUploadPickerRow {
-  display: flex;
-  flex-wrap: wrap;
+.addUploadPickerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  justify-content: center;
 }
 
-.addUploadSummary {
+.addUploadQueue {
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+  border-radius: 20px;
+  padding: 16px;
+  min-height: 190px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--meta-bg) 54%, var(--surface-tint) 46%),
+      color-mix(in srgb, var(--meta-bg) 32%, transparent)
+    );
+  display: grid;
+  gap: 14px;
+}
+
+.addUploadQueueHeader {
   display: grid;
   gap: 6px;
+}
+
+.addUploadFileList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.addUploadFileItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-hover-bg) 56%, transparent);
+}
+
+.addUploadFileIndex {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--brand-hot) 18%, transparent);
+  font: 700 0.72rem/1 var(--font-mono);
+}
+
+.addUploadFilePath {
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  font: 500 0.76rem/1.45 var(--font-mono);
+}
+
+.addUploadEmptyState {
+  min-height: 104px;
+  border-radius: 16px;
+  padding: 14px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  background: color-mix(in srgb, var(--surface-hover-bg) 42%, transparent);
 }
 
 .addAuthSpinner {

@@ -12,14 +12,14 @@ import type {
   AccountSummary,
   ApiProxyStatus,
   AppSettings,
-  AddFlow,
   AuthJsonImportInput,
   CloudflaredStatus,
-  CurrentAuthStatus,
   ImportAccountsResult,
   InstalledEditorApp,
   Notice,
+  OauthCallbackFinishedEvent,
   PendingUpdateInfo,
+  PreparedOauthLogin,
   RemoteDeployProgress,
   RemoteProxyStatus,
   RemoteServerConfig,
@@ -31,8 +31,6 @@ import { pickBestRemainingAccount, sortAccountsByRemaining } from "../utils/acco
 
 const REFRESH_MS = 30_000;
 const EDITOR_SCAN_MS = 60_000;
-const ADD_FLOW_TIMEOUT_MS = 10 * 60_000;
-const ADD_FLOW_POLL_MS = 2_500;
 const API_PROXY_POLL_MS = 4_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const DEFAULT_SETTINGS: AppSettings = {
@@ -143,9 +141,8 @@ export function useCodexController() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [startingAdd, setStartingAdd] = useState(false);
-  const [addFlow, setAddFlow] = useState<AddFlow | null>(null);
-  const [importingUpload, setImportingUpload] = useState(false);
+  const [importingAccounts, setImportingAccounts] = useState(false);
+  const [oauthWaitingForCallback, setOauthWaitingForCallback] = useState(false);
   const [exportingAccounts, setExportingAccounts] = useState(false);
   const [apiProxyStatus, setApiProxyStatus] = useState<ApiProxyStatus>(DEFAULT_API_PROXY_STATUS);
   const [cloudflaredStatus, setCloudflaredStatus] = useState<CloudflaredStatus>(DEFAULT_CLOUDFLARED_STATUS);
@@ -179,7 +176,6 @@ export function useCodexController() {
   const [installedEditorApps, setInstalledEditorApps] = useState<InstalledEditorApp[]>([]);
   const [hasOpencodeDesktopApp, setHasOpencodeDesktopApp] = useState(false);
   const installingUpdateRef = useRef(false);
-  const addFlowCancelledRef = useRef(false);
   const deleteConfirmTimerRef = useRef<number | null>(null);
   const settingsUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -352,17 +348,6 @@ export function useCodexController() {
       }
     }
   }, [copy.notices, localizeAccounts, localizeError]);
-
-  const restoreAuthAfterAddFlow = useCallback(async () => {
-    try {
-      await invoke<boolean>("restore_auth_after_add_flow");
-    } catch (error) {
-      setNotice({
-        type: "error",
-        message: copy.notices.restoreAuthFailed(localizeError(String(error))),
-      });
-    }
-  }, [copy.notices, localizeError]);
 
   const applyImportResult = useCallback(
     async (result: ImportAccountsResult, prefix: string) => {
@@ -709,135 +694,123 @@ export function useCodexController() {
   }, []);
 
   useEffect(() => {
-    if (!addFlow) {
-      return;
-    }
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
 
-    let cancelled = false;
-    let inFlight = false;
-
-    const poll = async () => {
-      if (cancelled || inFlight) {
+    void listen<OauthCallbackFinishedEvent>("oauth-callback-finished", (event) => {
+      if (disposed) {
         return;
       }
-      inFlight = true;
 
-      try {
-        const current = await invoke<CurrentAuthStatus>("get_current_auth_status");
-        if (!current.available || !current.fingerprint) {
+      setOauthWaitingForCallback(false);
+      if (event.payload.result) {
+        void applyImportResult(
+          localizeImportResult(event.payload.result),
+          copy.notices.oauthImportPrefix,
+        );
+        return;
+      }
+
+      if (event.payload.error) {
+        setNotice({
+          type: "error",
+          message: copy.notices.importFailedPlain(
+            copy.notices.oauthImportPrefix,
+            localizeError(event.payload.error),
+          ),
+        });
+      }
+    })
+      .then((fn) => {
+        if (disposed) {
+          void fn();
           return;
         }
-
-        if (current.fingerprint === addFlow.baselineFingerprint) {
-          return;
-        }
-
-        await invoke<AccountSummary>("import_current_auth_account", { label: null });
-        await restoreAuthAfterAddFlow();
-        await refreshUsage(true);
-        await loadAccounts();
-
-        if (!cancelled) {
-          setAddFlow(null);
-          setAddDialogOpen(false);
-          setNotice({ type: "ok", message: copy.notices.addAccountSuccess });
-        }
-      } catch (error) {
-        await restoreAuthAfterAddFlow();
-        if (!cancelled) {
-          setAddFlow(null);
-          setNotice({
-            type: "error",
-            message: copy.notices.addAccountAutoImportFailed(localizeError(String(error))),
-          });
-        }
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    void poll();
-
-    const timer = setInterval(() => {
-      void poll();
-    }, ADD_FLOW_POLL_MS);
-
-    const timeoutTimer = setTimeout(() => {
-      if (!cancelled) {
-        setAddFlow(null);
-        void restoreAuthAfterAddFlow();
-        setNotice({ type: "error", message: copy.notices.addAccountTimeout });
-      }
-    }, ADD_FLOW_TIMEOUT_MS);
+        unlisten = fn;
+      })
+      .catch(() => {});
 
     return () => {
-      cancelled = true;
-      clearInterval(timer);
-      clearTimeout(timeoutTimer);
+      disposed = true;
+      if (unlisten) {
+        void unlisten();
+      }
     };
-  }, [
-    addFlow,
-    copy.notices,
-    loadAccounts,
-    localizeError,
-    refreshUsage,
-    restoreAuthAfterAddFlow,
-  ]);
-
-  const onStartAddAccount = useCallback(async () => {
-    if (addFlow || startingAdd || importingUpload) {
-      return;
-    }
-
-    addFlowCancelledRef.current = false;
-    setAddDialogOpen(true);
-    setStartingAdd(true);
-    try {
-      const baseline = await invoke<CurrentAuthStatus>("get_current_auth_status");
-      if (addFlowCancelledRef.current) {
-        return;
-      }
-      await invoke<void>("launch_codex_login");
-      if (addFlowCancelledRef.current) {
-        await restoreAuthAfterAddFlow();
-        return;
-      }
-      setAddFlow({
-        baselineFingerprint: baseline.fingerprint,
-      });
-    } catch (error) {
-      setNotice({
-        type: "error",
-        message: copy.notices.startLoginFlowFailed(localizeError(String(error))),
-      });
-    } finally {
-      setStartingAdd(false);
-    }
-  }, [
-    addFlow,
-    copy.notices,
-    importingUpload,
-    localizeError,
-    restoreAuthAfterAddFlow,
-    startingAdd,
-  ]);
+  }, [applyImportResult, copy.notices, localizeError, localizeImportResult]);
 
   const onOpenAddDialog = useCallback(() => {
+    setOauthWaitingForCallback(false);
     setAddDialogOpen(true);
   }, []);
 
+  const onPrepareOauthLogin = useCallback(async () => {
+    setOauthWaitingForCallback(false);
+    try {
+      return await invoke<PreparedOauthLogin>("prepare_oauth_login");
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: copy.notices.oauthLinkPrepareFailed(localizeError(String(error))),
+      });
+      throw error;
+    }
+  }, [copy.notices, localizeError]);
+
+  const onOpenOauthAuthorizationPage = useCallback(
+    async (url: string) => {
+      setOauthWaitingForCallback(true);
+      try {
+        await invoke<void>("open_external_url", { url });
+      } catch (error) {
+        setOauthWaitingForCallback(false);
+        setNotice({
+          type: "error",
+          message: copy.notices.openExternalFailed(localizeError(String(error))),
+        });
+      }
+    },
+    [copy.notices, localizeError],
+  );
+
+  const onCancelOauthLogin = useCallback(async () => {
+    setOauthWaitingForCallback(false);
+    try {
+      await invoke<void>("cancel_oauth_login");
+    } catch {
+      // Ignore cancel failures so closing the dialog stays responsive.
+    }
+  }, []);
+
   const onCloseAddDialog = useCallback(() => {
-    if (importingUpload) {
+    if (importingAccounts) {
       return;
     }
 
-    addFlowCancelledRef.current = true;
-    if (addFlow) {
-      setAddFlow(null);
-      void restoreAuthAfterAddFlow();
-    }
+    void onCancelOauthLogin();
     setAddDialogOpen(false);
-  }, [addFlow, importingUpload, restoreAuthAfterAddFlow]);
+  }, [importingAccounts, onCancelOauthLogin]);
+
+  const onImportCurrentAuth = useCallback(async () => {
+    if (importingAccounts) {
+      return;
+    }
+
+    setImportingAccounts(true);
+    try {
+      await invoke<AccountSummary>("import_current_auth_account", { label: null });
+      await refreshUsage(true);
+      await loadAccounts();
+      setAddDialogOpen(false);
+      setNotice({ type: "ok", message: copy.notices.currentAccountImportSuccess });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: copy.notices.currentAccountImportFailed(localizeError(String(error))),
+      });
+    } finally {
+      setImportingAccounts(false);
+    }
+  }, [copy.notices, importingAccounts, loadAccounts, localizeError, refreshUsage]);
 
   const onImportAuthFiles = useCallback(
     async (items: AuthJsonImportInput[]) => {
@@ -846,7 +819,7 @@ export function useCodexController() {
         return;
       }
 
-      setImportingUpload(true);
+      setImportingAccounts(true);
       try {
         const result = await invoke<ImportAccountsResult>("import_auth_json_accounts", {
           items,
@@ -861,10 +834,41 @@ export function useCodexController() {
           ),
         });
       } finally {
-        setImportingUpload(false);
+        setImportingAccounts(false);
       }
     },
     [applyImportResult, copy.notices, localizeError, localizeImportResult],
+  );
+
+  const onCompleteOauthCallbackLogin = useCallback(
+    async (callbackUrl: string) => {
+      setOauthWaitingForCallback(false);
+      setImportingAccounts(true);
+      try {
+        const result = await invoke<ImportAccountsResult>("complete_oauth_callback_login", {
+          callbackUrl,
+        });
+        await applyImportResult(localizeImportResult(result), copy.notices.oauthImportPrefix);
+      } catch (error) {
+        setNotice({
+          type: "error",
+          message: copy.notices.importFailedPlain(
+            copy.notices.oauthImportPrefix,
+            localizeError(String(error)),
+          ),
+        });
+        throw error;
+      } finally {
+        setImportingAccounts(false);
+      }
+    },
+    [
+      applyImportResult,
+      copy.notices,
+      localizeError,
+      localizeImportResult,
+      setOauthWaitingForCallback,
+    ],
   );
 
   const onExportAccounts = useCallback(async () => {
@@ -1491,9 +1495,8 @@ export function useCodexController() {
     loading,
     refreshing,
     addDialogOpen,
-    startingAdd,
-    addFlow,
-    importingUpload,
+    importingAccounts,
+    oauthWaitingForCallback,
     exportingAccounts,
     apiProxyStatus,
     cloudflaredStatus,
@@ -1534,8 +1537,12 @@ export function useCodexController() {
     closeUpdateDialog,
     updateSettings,
     onOpenAddDialog,
-    onStartAddAccount,
+    onPrepareOauthLogin,
+    onOpenOauthAuthorizationPage,
     onCloseAddDialog,
+    onCancelOauthLogin,
+    onCompleteOauthCallbackLogin,
+    onImportCurrentAuth,
     onImportAuthFiles,
     onExportAccounts,
     loadApiProxyStatus,

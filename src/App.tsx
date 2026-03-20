@@ -24,9 +24,8 @@ function App() {
         loading,
         refreshing,
         addDialogOpen,
-        startingAdd,
-        addFlow,
-        importingUpload,
+        importingAccounts,
+        oauthWaitingForCallback,
         exportingAccounts,
         switchingId,
         renamingAccountId,
@@ -67,8 +66,12 @@ function App() {
         closeUpdateDialog,
         updateSettings,
         onOpenAddDialog,
-        onStartAddAccount,
+        onPrepareOauthLogin,
+        onOpenOauthAuthorizationPage,
         onCloseAddDialog,
+        onCancelOauthLogin,
+        onCompleteOauthCallbackLogin,
+        onImportCurrentAuth,
         onImportAuthFiles,
         onExportAccounts,
         loadApiProxyStatus,
@@ -129,10 +132,13 @@ function App() {
 
                 <AddAccountDialog
                     open={addDialogOpen}
-                    startingAdd={startingAdd}
-                    addFlowActive={Boolean(addFlow)}
-                    importingUpload={importingUpload}
-                    onStartOauth={onStartAddAccount}
+                    importingAccounts={importingAccounts}
+                    oauthWaitingForCallback={oauthWaitingForCallback}
+                    onPrepareOauth={onPrepareOauthLogin}
+                    onOpenOauthPage={onOpenOauthAuthorizationPage}
+                    onCompleteOauth={onCompleteOauthCallbackLogin}
+                    onCancelOauth={onCancelOauthLogin}
+                    onImportCurrentAuth={onImportCurrentAuth}
                     onImportFiles={onImportAuthFiles}
                     onClose={onCloseAddDialog}
                 />
@@ -159,8 +165,6 @@ function App() {
                                     onExportAccounts={() => void onExportAccounts()}
                                 />
                                 <AddAccountSection
-                                    startingAdd={startingAdd}
-                                    addFlowActive={Boolean(addFlow)}
                                     onOpenAddDialog={onOpenAddDialog}
                                     onSmartSwitch={() => void onSmartSwitch()}
                                     smartSwitching={smartSwitching}
