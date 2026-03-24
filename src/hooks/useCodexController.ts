@@ -31,6 +31,7 @@ import { pickBestRemainingAccount, sortAccountsByRemaining } from "../utils/acco
 
 const REFRESH_MS = 30_000;
 const EDITOR_SCAN_MS = 60_000;
+const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const DEFAULT_SETTINGS: AppSettings = {
@@ -549,10 +550,15 @@ export function useCodexController() {
       void loadOpencodeDesktopAppInstalled();
     }, EDITOR_SCAN_MS);
 
+    const updateTimer = setInterval(() => {
+      void checkForAppUpdate(true);
+    }, UPDATE_CHECK_MS);
+
     return () => {
       cancelled = true;
       clearInterval(usageTimer);
       clearInterval(editorTimer);
+      clearInterval(updateTimer);
     };
   }, [
     checkForAppUpdate,
