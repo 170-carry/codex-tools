@@ -1494,18 +1494,18 @@ impl PreparedAuth {
                     sanitize_service_fragment(&server.id),
                     now_unix_seconds()
                 ));
-                fs::write(&temp_path, private_key).map_err(|error| {
-                    format!("写入临时 SSH 私钥文件失败 {}: {error}", temp_path.display())
-                })?;
-                #[cfg(unix)]
+                // 使用 private_create_new_options 确保文件从创建时就是 0o600 权限，
+                // 消除 fs::write + set_permissions 两步之间的 TOCTOU 窗口
                 {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mut perms = fs::metadata(&temp_path)
-                        .map_err(|error| format!("读取临时 SSH 私钥文件权限失败: {error}"))?
-                        .permissions();
-                    perms.set_mode(0o600);
-                    fs::set_permissions(&temp_path, perms)
-                        .map_err(|error| format!("设置临时 SSH 私钥文件权限失败: {error}"))?;
+                    use std::io::Write as _;
+                    let mut f = crate::utils::private_create_new_options()
+                        .open(&temp_path)
+                        .map_err(|error| {
+                            format!("写入临时 SSH 私钥文件失败 {}: {error}", temp_path.display())
+                        })?;
+                    f.write_all(private_key.as_bytes()).map_err(|error| {
+                        format!("写入临时 SSH 私钥文件失败 {}: {error}", temp_path.display())
+                    })?;
                 }
                 Ok(Self {
                     temp_identity_file: Some(temp_path),

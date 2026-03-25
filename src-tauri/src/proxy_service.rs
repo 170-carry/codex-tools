@@ -53,6 +53,7 @@ use crate::store::load_store_from_path;
 use crate::store::save_store_to_path;
 use crate::usage::resolve_chatgpt_base_origin;
 use crate::utils::now_unix_seconds;
+use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
 use crate::utils::truncate_for_error;
 
@@ -1634,7 +1635,7 @@ fn is_authorized(headers: &HeaderMap, api_key: &str) -> bool {
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
     {
-        if value == api_key {
+        if constant_time_eq::constant_time_eq(value.as_bytes(), api_key.as_bytes()) {
             return true;
         }
     }
@@ -1644,7 +1645,9 @@ fn is_authorized(headers: &HeaderMap, api_key: &str) -> bool {
         .and_then(|value| value.to_str().ok())
     {
         if let Some(token) = value.strip_prefix("Bearer ") {
-            return token == api_key;
+            if constant_time_eq::constant_time_eq(token.as_bytes(), api_key.as_bytes()) {
+                return true;
+            }
         }
     }
 
@@ -1776,9 +1779,7 @@ fn write_private_file_atomically(path: &Path, contents: &[u8]) -> Result<(), Str
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut temp_file = private_create_new_options()
             .open(&temp_path)
             .map_err(|error| {
                 format!("创建 API Key 临时文件失败 {}: {error}", temp_path.display())
