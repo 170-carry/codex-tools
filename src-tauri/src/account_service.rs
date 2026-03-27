@@ -20,6 +20,7 @@ use crate::auth::normalize_plan_type_key;
 use crate::auth::read_current_codex_auth;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::refresh_chatgpt_auth_tokens;
+use crate::auth::write_active_codex_auth;
 use crate::models::dedupe_account_variants;
 use crate::models::AccountSummary;
 use crate::models::AccountsStore;
@@ -382,9 +383,10 @@ pub(crate) async fn refresh_all_usage_internal(
         }
     }
 
-    let store = {
+    let (store, refreshed_active_auth_json) = {
         let _guard = state.store_lock.lock().await;
         let mut latest_store = load_store(app)?;
+        let mut refreshed_active_auth_json: Option<serde_json::Value> = None;
 
         for account in &mut latest_store.accounts {
             let Some(outcome) = outcomes.get(&account.id) else {
@@ -393,6 +395,9 @@ pub(crate) async fn refresh_all_usage_internal(
 
             account.updated_at = outcome.updated_at;
             account.auth_json = outcome.auth_json.clone();
+            if outcome.auth_is_current && outcome.auth_refreshed {
+                refreshed_active_auth_json = Some(outcome.auth_json.clone());
+            }
             account.email = outcome.auth_email.clone().or(account.email.clone());
             let trusted_auth_plan_type = if outcome.auth_is_current || outcome.auth_refreshed {
                 outcome.auth_plan_type.clone()
@@ -419,8 +424,11 @@ pub(crate) async fn refresh_all_usage_internal(
 
         dedupe_account_variants(&mut latest_store.accounts);
         save_store(app, &latest_store)?;
-        latest_store
+        (latest_store, refreshed_active_auth_json)
     };
+    if let Some(refreshed_auth_json) = refreshed_active_auth_json.as_ref() {
+        write_active_codex_auth(refreshed_auth_json)?;
+    }
 
     // 与当前 auth 文件重新对齐，确保 current 标签准确。
     let current_account_key = current_auth_account_key();
