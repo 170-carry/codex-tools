@@ -71,13 +71,14 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
-    source: "当前未检测到 ChatGPT 登录令牌，请先执行 codex login。",
+    source:
+      "当前 auth.json 未包含 ChatGPT 登录令牌。若该文件来自新版 Codex（尤其是 macOS），令牌可能保存在系统钥匙串/安全存储中，因此不能仅靠这个 auth.json 跨机导入。请在目标设备执行 codex login，或提供包含 access_token / id_token / refresh_token 的完整 auth.json。",
     target: phrases(
-      "当前未检测到 ChatGPT 登录令牌，请先执行 codex login。",
-      "No ChatGPT sign-in token was detected. Run codex login first.",
-      "ChatGPT のログイントークンが見つかりません。先に codex login を実行してください。",
-      "ChatGPT 로그인 토큰이 감지되지 않았습니다. 먼저 codex login을 실행하세요.",
-      "Токен входа ChatGPT не обнаружен. Сначала выполните codex login."
+      "当前 auth.json 未包含 ChatGPT 登录令牌。若该文件来自新版 Codex（尤其是 macOS），令牌可能保存在系统钥匙串/安全存储中，因此不能仅靠这个 auth.json 跨机导入。请在目标设备执行 codex login，或提供包含 access_token / id_token / refresh_token 的完整 auth.json。",
+      "This auth.json does not contain ChatGPT sign-in tokens. If it came from a newer Codex install, especially on macOS, the tokens may live in the system keychain or secure storage, so this auth.json alone cannot be imported across devices. Run codex login on the target device, or provide a complete auth.json that includes access_token, id_token, and refresh_token.",
+      "この auth.json には ChatGPT のログイントークンが含まれていません。新しい Codex 環境、特に macOS 由来のファイルでは、トークンがシステムのキーチェーンや安全なストレージに保存されている可能性があり、この auth.json だけでは別の端末へ移行できません。移行先の端末で codex login を実行するか、access_token / id_token / refresh_token を含む完全な auth.json を用意してください。",
+      "이 auth.json에는 ChatGPT 로그인 토큰이 들어 있지 않습니다. 특히 macOS 의 최신 Codex 환경에서 가져온 파일이라면 토큰이 시스템 키체인이나 보안 저장소에 들어 있을 수 있어 이 auth.json 만으로는 다른 기기로 가져올 수 없습니다. 대상 기기에서 codex login 을 실행하거나 access_token / id_token / refresh_token 이 포함된 전체 auth.json 을 사용하세요.",
+      "Этот auth.json не содержит токены входа ChatGPT. Если файл получен из новой установки Codex, особенно на macOS, токены могут храниться в системной связке ключей или защищенном хранилище, поэтому одного этого auth.json недостаточно для переноса на другое устройство. Выполните codex login на целевом устройстве или используйте полный auth.json с access_token, id_token и refresh_token."
     ),
   },
   {

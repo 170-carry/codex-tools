@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.5.3"
+version = "1.5.4"
 description = "Codex Tools"
 authors = ["you"]
 license = "MIT"

@@ -25,6 +25,9 @@ const DEFAULT_OAUTH_SCOPE: &str = "openid profile email offline_access";
 const DEFAULT_OAUTH_ORIGINATOR: &str = "codex_vscode";
 const DEFAULT_OAUTH_REDIRECT_PORT: u16 = 1455;
 const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 300;
+const NON_CHATGPT_AUTH_MODE_ERROR: &str =
+    "当前账号不是 ChatGPT 登录模式，无法读取 Codex 5h/1week 用量。请先执行 codex login。";
+const MISSING_CHATGPT_TOKEN_ERROR: &str = "当前 auth.json 未包含 ChatGPT 登录令牌。若该文件来自新版 Codex（尤其是 macOS），令牌可能保存在系统钥匙串/安全存储中，因此不能仅靠这个 auth.json 跨机导入。请在目标设备执行 codex login，或提供包含 access_token / id_token / refresh_token 的完整 auth.json。";
 
 pub(crate) struct CodexOAuthTokens {
     pub(crate) access_token: String,
@@ -43,6 +46,10 @@ pub(crate) struct PendingOauthLogin {
 
 pub(crate) fn oauth_redirect_port() -> u16 {
     DEFAULT_OAUTH_REDIRECT_PORT
+}
+
+fn oauth_redirect_uri(port: u16) -> String {
+    format!("http://localhost:{port}/auth/callback")
 }
 
 pub(crate) fn read_current_codex_auth() -> Result<Value, String> {
@@ -79,7 +86,9 @@ pub(crate) fn write_active_codex_auth(auth_json: &Value) -> Result<(), String> {
     write_auth_file_atomically(&path, serialized.as_bytes())
 }
 
-pub(crate) fn prepare_oauth_login() -> Result<(PendingOauthLogin, PreparedOauthLogin), String> {
+pub(crate) fn prepare_oauth_login(
+    redirect_port: u16,
+) -> Result<(PendingOauthLogin, PreparedOauthLogin), String> {
     let state = uuid::Uuid::new_v4().simple().to_string();
     let code_verifier = format!(
         "{}{}",
@@ -87,7 +96,7 @@ pub(crate) fn prepare_oauth_login() -> Result<(PendingOauthLogin, PreparedOauthL
         uuid::Uuid::new_v4().simple()
     );
     let code_challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
-    let redirect_uri = format!("http://localhost:{DEFAULT_OAUTH_REDIRECT_PORT}/auth/callback");
+    let redirect_uri = oauth_redirect_uri(redirect_port);
     let expires_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("读取系统时间失败: {error}"))?
@@ -230,12 +239,9 @@ pub(crate) fn extract_auth(auth_json: &Value) -> Result<ExtractedAuth, String> {
         Some(value) => value,
         None => {
             if !mode.is_empty() && mode != "chatgpt" && mode != "chatgpt_auth_tokens" {
-                return Err(
-                    "当前账号不是 ChatGPT 登录模式，无法读取 Codex 5h/1week 用量。请先执行 codex login。"
-                        .to_string(),
-                );
+                return Err(NON_CHATGPT_AUTH_MODE_ERROR.to_string());
             }
-            return Err("当前未检测到 ChatGPT 登录令牌，请先执行 codex login。".to_string());
+            return Err(MISSING_CHATGPT_TOKEN_ERROR.to_string());
         }
     };
 
@@ -768,7 +774,12 @@ fn extract_client_id_from_claims(claims: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::extract_auth;
     use super::normalize_auth_json_for_codex;
+    use super::oauth_redirect_port;
+    use super::prepare_oauth_login;
+    use super::MISSING_CHATGPT_TOKEN_ERROR;
+    use super::NON_CHATGPT_AUTH_MODE_ERROR;
     use serde_json::json;
 
     #[test]
@@ -823,5 +834,41 @@ mod tests {
             normalized.get("last_refresh"),
             Some(&json!("2026-03-16T03:20:39.082325Z"))
         );
+    }
+
+    #[test]
+    fn extract_auth_reports_portable_hint_when_chatgpt_tokens_are_missing() {
+        let error = extract_auth(&json!({
+            "auth_mode": "chatgpt",
+            "last_refresh": "2026-03-16T03:20:39.082325Z"
+        }))
+        .expect_err("chatgpt auth without tokens should fail");
+
+        assert_eq!(error, MISSING_CHATGPT_TOKEN_ERROR);
+    }
+
+    #[test]
+    fn extract_auth_keeps_non_chatgpt_mode_error_when_tokens_are_missing() {
+        let error = extract_auth(&json!({
+            "auth_mode": "apikey"
+        }))
+        .expect_err("non-chatgpt auth without tokens should fail");
+
+        assert_eq!(error, NON_CHATGPT_AUTH_MODE_ERROR);
+    }
+
+    #[test]
+    fn prepare_oauth_login_uses_requested_redirect_port() {
+        let custom_port = oauth_redirect_port() + 17;
+        let (pending, prepared) =
+            prepare_oauth_login(custom_port).expect("oauth login prep should succeed");
+
+        assert!(pending
+            .redirect_uri
+            .contains(&format!("localhost:{custom_port}/auth/callback")));
+        assert_eq!(pending.redirect_uri, prepared.redirect_uri);
+        assert!(prepared
+            .auth_url
+            .contains(&format!("redirect_uri=http%3A%2F%2Flocalhost%3A{custom_port}%2Fauth%2Fcallback")));
     }
 }

@@ -19,6 +19,7 @@ mod utils;
 use std::process::Command;
 use std::io::Read;
 use std::io::Write;
+use std::io::ErrorKind;
 use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
@@ -110,6 +111,46 @@ fn read_oauth_request_path(stream: &mut std::net::TcpStream) -> Result<String, S
         .next()
         .map(ToString::to_string)
         .ok_or_else(|| "OAuth 回调请求缺少路径".to_string())
+}
+
+fn build_oauth_callback_url(
+    redirect_uri: &str,
+    path: &str,
+) -> Result<String, String> {
+    let mut callback_url =
+        reqwest::Url::parse(redirect_uri).map_err(|error| format!("OAuth redirect_uri 无效: {error}"))?;
+    let request_url = reqwest::Url::parse(&format!("http://localhost{path}"))
+        .map_err(|error| format!("OAuth 回调路径无效: {error}"))?;
+    callback_url.set_path(request_url.path());
+    callback_url.set_query(request_url.query());
+    callback_url.set_fragment(request_url.fragment());
+    Ok(callback_url.to_string())
+}
+
+fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(TcpListener, u16), String> {
+    match TcpListener::bind(("127.0.0.1", preferred_port)) {
+        Ok(listener) => Ok((listener, preferred_port)),
+        Err(error) if error.kind() == ErrorKind::AddrInUse => {
+            let fallback = TcpListener::bind(("127.0.0.1", 0)).map_err(|fallback_error| {
+                format!(
+                    "无法启动 OAuth 回调监听 127.0.0.1:{preferred_port}: {error}；自动回退到空闲端口也失败: {fallback_error}"
+                )
+            })?;
+            let port = fallback
+                .local_addr()
+                .map_err(|addr_error| format!("无法读取 OAuth 回调监听端口: {addr_error}"))?
+                .port();
+            log::warn!(
+                "OAuth 回调默认端口 {} 已占用，已自动回退到本地空闲端口 {}",
+                preferred_port,
+                port
+            );
+            Ok((fallback, port))
+        }
+        Err(error) => Err(format!(
+            "无法启动 OAuth 回调监听 127.0.0.1:{preferred_port}: {error}"
+        )),
+    }
 }
 
 async fn stop_oauth_callback_listener(state: &AppState) {
@@ -251,7 +292,18 @@ fn run_oauth_callback_listener(
                     continue;
                 }
 
-                let callback_url = format!("http://localhost:{}{}", auth::oauth_redirect_port(), path);
+                let callback_url = match build_oauth_callback_url(&pending.redirect_uri, &path) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        write_oauth_html_response(
+                            &mut stream,
+                            "400 Bad Request",
+                            "授权失败",
+                            &error,
+                        );
+                        break;
+                    }
+                };
                 let callback_result = tauri::async_runtime::block_on(async {
                     let state = app.state::<AppState>();
                     let pending_matches = {
@@ -340,12 +392,9 @@ fn run_oauth_callback_listener(
 async fn start_oauth_callback_listener(
     app: &AppHandle,
     state: &AppState,
+    listener: TcpListener,
     pending: &auth::PendingOauthLogin,
 ) -> Result<(), String> {
-    stop_oauth_callback_listener(state).await;
-
-    let listener = TcpListener::bind(("127.0.0.1", auth::oauth_redirect_port()))
-        .map_err(|error| format!("无法启动 OAuth 回调监听 127.0.0.1:{}: {error}", auth::oauth_redirect_port()))?;
     listener
         .set_nonblocking(true)
         .map_err(|error| format!("无法设置 OAuth 回调监听模式: {error}"))?;
@@ -583,13 +632,15 @@ async fn prepare_oauth_login(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<PreparedOauthLogin, String> {
+    let _oauth_guard = state.oauth_flow_lock.lock().await;
     stop_oauth_callback_listener(state.inner()).await;
-    let (pending, prepared) = auth::prepare_oauth_login()?;
+    let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
+    let (pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = Some(pending.clone());
     }
-    if let Err(error) = start_oauth_callback_listener(&app, state.inner(), &pending).await {
+    if let Err(error) = start_oauth_callback_listener(&app, state.inner(), listener, &pending).await {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = None;
         return Err(error);
@@ -603,6 +654,7 @@ async fn complete_oauth_callback_login(
     state: State<'_, AppState>,
     callback_url: String,
 ) -> Result<ImportAccountsResult, String> {
+    let _oauth_guard = state.oauth_flow_lock.lock().await;
     let pending = {
         let guard = state.pending_oauth_login.lock().await;
         guard
@@ -617,12 +669,48 @@ async fn complete_oauth_callback_login(
 
 #[tauri::command]
 async fn cancel_oauth_login(state: State<'_, AppState>) -> Result<(), String> {
+    let _oauth_guard = state.oauth_flow_lock.lock().await;
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = None;
     }
     stop_oauth_callback_listener(state.inner()).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bind_oauth_callback_listener;
+    use super::build_oauth_callback_url;
+    use std::net::TcpListener;
+
+    #[test]
+    fn build_oauth_callback_url_uses_redirect_origin_and_runtime_query() {
+        let callback_url = build_oauth_callback_url(
+            "http://localhost:17888/auth/callback",
+            "/auth/callback?code=abc&state=xyz",
+        )
+        .expect("callback url should be built");
+
+        assert_eq!(
+            callback_url,
+            "http://localhost:17888/auth/callback?code=abc&state=xyz"
+        );
+    }
+
+    #[test]
+    fn bind_oauth_callback_listener_falls_back_when_preferred_port_is_busy() {
+        let occupied = TcpListener::bind(("127.0.0.1", 0)).expect("should bind a local test port");
+        let preferred_port = occupied
+            .local_addr()
+            .expect("should read local addr")
+            .port();
+
+        let (_listener, resolved_port) =
+            bind_oauth_callback_listener(preferred_port).expect("bind should fall back");
+
+        assert_ne!(resolved_port, preferred_port);
+    }
 }
 
 #[tauri::command]
