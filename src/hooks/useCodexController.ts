@@ -32,6 +32,7 @@ import { pickBestRemainingAccount, sortAccountsByRemaining } from "../utils/acco
 const REFRESH_MS = 30_000;
 const EDITOR_SCAN_MS = 60_000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
+const AUTO_UPDATE_ENABLED = false;
 const API_PROXY_POLL_MS = 4_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const DEFAULT_SETTINGS: AppSettings = {
@@ -395,6 +396,13 @@ export function useCodexController() {
 
   const installPendingUpdate = useCallback(
     async (knownUpdate?: NonNullable<Awaited<ReturnType<typeof check>>>) => {
+      if (!AUTO_UPDATE_ENABLED) {
+        setPendingUpdate(null);
+        setUpdateDialogOpen(false);
+        setUpdateProgress(null);
+        return;
+      }
+
       if (installingUpdateRef.current) {
         return;
       }
@@ -450,6 +458,15 @@ export function useCodexController() {
 
   const checkForAppUpdate = useCallback(
     async (quiet = false) => {
+      if (!AUTO_UPDATE_ENABLED) {
+        setPendingUpdate(null);
+        setUpdateDialogOpen(false);
+        if (!quiet) {
+          setNotice({ type: "info", message: "Auto update is disabled." });
+        }
+        return;
+      }
+
       if (!quiet) {
         setCheckingUpdate(true);
       }
@@ -531,7 +548,9 @@ export function useCodexController() {
         await loadApiProxyStatus();
         await loadCloudflaredStatus();
         await refreshUsage(true);
-        await checkForAppUpdate(true);
+        if (AUTO_UPDATE_ENABLED) {
+          await checkForAppUpdate(true);
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -550,15 +569,19 @@ export function useCodexController() {
       void loadOpencodeDesktopAppInstalled();
     }, EDITOR_SCAN_MS);
 
-    const updateTimer = setInterval(() => {
-      void checkForAppUpdate(true);
-    }, UPDATE_CHECK_MS);
+    const updateTimer = AUTO_UPDATE_ENABLED
+      ? setInterval(() => {
+          void checkForAppUpdate(true);
+        }, UPDATE_CHECK_MS)
+      : null;
 
     return () => {
       cancelled = true;
       clearInterval(usageTimer);
       clearInterval(editorTimer);
-      clearInterval(updateTimer);
+      if (updateTimer !== null) {
+        clearInterval(updateTimer);
+      }
     };
   }, [
     checkForAppUpdate,
