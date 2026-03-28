@@ -323,6 +323,9 @@ pub(crate) struct AppSettings {
     pub(crate) remote_servers: Vec<RemoteServerConfig>,
     pub(crate) api_proxy_api_key: Option<String>,
     pub(crate) locale: AppLocale,
+    /// Unix seconds; updated whenever the daemon successfully refreshes a token.
+    #[serde(default)]
+    pub(crate) last_token_refresh_at: Option<i64>,
 }
 
 impl Default for AppSettings {
@@ -341,6 +344,7 @@ impl Default for AppSettings {
             remote_servers: Vec::new(),
             api_proxy_api_key: None,
             locale: AppLocale::default(),
+            last_token_refresh_at: None,
         }
     }
 }

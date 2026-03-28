@@ -558,6 +558,20 @@ fn build_auth_json_from_oauth_tokens(token_response: OAuthTokenResponse) -> Resu
     }))
 }
 
+/// Decode the JWT payload of an access_token stored in `auth_json` and return its `exp` field
+/// (Unix seconds). Returns `None` if the token is missing, malformed, or has no `exp`.
+pub(crate) fn parse_access_token_exp(auth_json: &Value) -> Option<i64> {
+    let token = auth_token_object(auth_json)
+        .and_then(|obj| obj.get("access_token"))
+        .and_then(Value::as_str)?;
+
+    // JWT: <header>.<payload>.<signature> — payload is base64url-encoded, no padding.
+    let payload_b64 = token.splitn(3, '.').nth(1)?;
+    let payload_bytes = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
+    let payload: Value = serde_json::from_slice(&payload_bytes).ok()?;
+    payload.get("exp")?.as_i64()
+}
+
 fn codex_auth_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "无法读取 HOME 目录".to_string())?;
     Ok(home.join(".codex").join("auth.json"))

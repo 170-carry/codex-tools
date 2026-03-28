@@ -3,7 +3,6 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-
 use rfd::FileDialog;
 use tauri::AppHandle;
 use zip::write::FileOptions;
@@ -16,6 +15,7 @@ use crate::auth::current_auth_account_key;
 use crate::auth::current_auth_variant_key;
 use crate::auth::extract_auth;
 use crate::auth::normalize_imported_auth_json;
+use crate::auth::parse_access_token_exp;
 use crate::auth::normalize_plan_type_key;
 use crate::auth::read_current_codex_auth;
 use crate::auth::read_current_codex_auth_optional;
@@ -235,6 +235,7 @@ pub(crate) async fn refresh_all_usage_internal(
     #[derive(Debug)]
     struct RefreshTarget {
         record_id: String,
+        label: String,
         auth_json: serde_json::Value,
         auth_is_current: bool,
     }
@@ -268,6 +269,7 @@ pub(crate) async fn refresh_all_usage_internal(
 
                 RefreshTarget {
                     record_id: account.id,
+                    label: account.label.clone(),
                     auth_json,
                     auth_is_current,
                 }
@@ -277,8 +279,11 @@ pub(crate) async fn refresh_all_usage_internal(
 
     #[derive(Debug)]
     struct RefreshOutcome {
+        label: String,
         usage: Option<crate::models::UsageSnapshot>,
         usage_error: Option<String>,
+        /// Raw `refresh_chatgpt_auth_tokens` error when that step failed.
+        token_refresh_error: Option<String>,
         updated_at: i64,
         auth_plan_type: Option<String>,
         auth_email: Option<String>,
@@ -340,8 +345,10 @@ pub(crate) async fn refresh_all_usage_internal(
             let updated_at = now_unix_seconds();
             let outcome = match fetch_result {
                 Ok(snapshot) => RefreshOutcome {
+                    label: target.label.clone(),
                     usage: Some(snapshot),
                     usage_error: None,
+                    token_refresh_error: refresh_error.clone(),
                     updated_at,
                     auth_plan_type,
                     auth_email,
@@ -350,15 +357,17 @@ pub(crate) async fn refresh_all_usage_internal(
                     auth_refreshed,
                 },
                 Err(err) => {
-                    let combined_error = if let Some(refresh_err) = refresh_error {
+                    let combined_error = if let Some(refresh_err) = refresh_error.as_ref() {
                         format!("{err} | 令牌刷新失败: {refresh_err}")
                     } else {
                         err
                     };
                     let display_error = normalize_usage_error_message(&combined_error);
                     RefreshOutcome {
+                        label: target.label.clone(),
                         usage: None,
                         usage_error: Some(display_error),
+                        token_refresh_error: refresh_error.clone(),
                         updated_at,
                         auth_plan_type,
                         auth_email,
@@ -380,6 +389,12 @@ pub(crate) async fn refresh_all_usage_internal(
             Err(err) => {
                 log::warn!("并行刷新账号用量任务异常: {err}");
             }
+        }
+    }
+
+    for outcome in outcomes.values() {
+        if let Some(err) = outcome.token_refresh_error.as_ref() {
+            log::warn!("用量刷新时 token 刷新失败 [{}]: {err}", outcome.label);
         }
     }
 
@@ -446,6 +461,124 @@ pub(crate) async fn refresh_all_usage_internal(
 
     Ok(summaries)
 }
+
+/// Token 过期阈值：提前 10 分钟刷新。
+const TOKEN_EXPIRY_THRESHOLD_SECS: i64 = 10 * 60;
+
+/// 返回所有 access_token 将在 `threshold_secs` 秒内过期的账号，按过期时间升序排列（最紧迫的在前）。
+fn expiring_accounts_sorted(
+    store: &crate::models::AccountsStore,
+    threshold_secs: i64,
+) -> Vec<(String, String, serde_json::Value)> {
+    let now = now_unix_seconds();
+    let deadline = now + threshold_secs;
+    let mut targets: Vec<_> = store
+        .accounts
+        .iter()
+        .filter_map(|account| {
+            let exp = parse_access_token_exp(&account.auth_json).unwrap_or(0);
+            if exp < deadline {
+                Some((
+                    account.id.clone(),
+                    account.label.clone(),
+                    account.auth_json.clone(),
+                    exp,
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+    targets.sort_by_key(|(_, _, _, exp)| *exp);
+    targets
+        .into_iter()
+        .map(|(id, label, auth, _)| (id, label, auth))
+        .collect()
+}
+
+/// 刷新单个账号的 token，成功后写回 store 并（若为活跃账号）同步 `~/.codex/auth.json`。
+async fn refresh_one_token(
+    app: &AppHandle,
+    state: &AppState,
+    account_id: &str,
+    account_label: &str,
+    account_auth_json: serde_json::Value,
+) -> Result<(), String> {
+    let refreshed = match refresh_chatgpt_auth_tokens(&account_auth_json).await {
+        Ok(v) => v,
+        Err(err) => {
+            log::warn!("token 刷新失败 [{account_label}]: {err}");
+            return Err(err);
+        }
+    };
+
+    let now = now_unix_seconds();
+    let target_variant_key = auth_variant_key(&refreshed).unwrap_or_default();
+
+    let write_active = {
+        let _guard = state.store_lock.lock().await;
+        // 在锁内读取当前活跃账号，确保与写入 accounts.json 原子一致。
+        let current_variant_key = current_auth_variant_key();
+        let mut store = load_store(app)?;
+        let mut found = false;
+        for account in &mut store.accounts {
+            if account.id == account_id {
+                account.auth_json = refreshed.clone();
+                account.updated_at = now;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            log::warn!("token 刷新后账号已不存在 [{account_label}]，跳过写入");
+            return Ok(());
+        }
+        store.settings.last_token_refresh_at = Some(now);
+        save_store(app, &store)?;
+        current_variant_key
+            .as_deref()
+            .filter(|k| *k == target_variant_key.as_str())
+            .map(|_| refreshed.clone())
+    };
+
+    if let Some(auth_json) = write_active {
+        if let Err(err) = write_active_codex_auth(&auth_json) {
+            log::warn!("同步活跃账号 auth.json 失败 [{account_label}]: {err}");
+            return Err(err);
+        }
+    }
+
+    log::info!("token 刷新成功 [{account_label}]");
+    Ok(())
+}
+
+/// 由 daemon 调用：刷新最紧迫的一个即将过期的账号 token。
+/// 返回 `true` 表示找到并尝试了刷新（不论成功与否）。
+pub(crate) async fn daemon_refresh_next_expiring(app: &AppHandle, state: &AppState) -> bool {
+    let target = {
+        let _guard = state.store_lock.lock().await;
+        let store = match load_store(app) {
+            Ok(s) => s,
+            Err(err) => {
+                log::warn!("token daemon: 读取账号存储失败: {err}");
+                return false;
+            }
+        };
+        expiring_accounts_sorted(&store, TOKEN_EXPIRY_THRESHOLD_SECS)
+            .into_iter()
+            .next()
+    };
+
+    let Some((id, label, auth_json)) = target else {
+        return false;
+    };
+
+    if let Err(err) = refresh_one_token(app, state, &id, &label, auth_json).await {
+        log::warn!("token daemon: 刷新失败 [{label}]: {err}");
+    }
+    true
+}
+
 
 fn should_retry_with_token_refresh(
     fetch_result: &Result<crate::models::UsageSnapshot, String>,
