@@ -4,7 +4,7 @@
 - 查看账号用量
 - 快速切换和启动 Codex
 - 本地 `/v1` 反代
-- cloudflared 公网访问
+- cloudflare 公网访问
 
 仓库地址：<https://github.com/170-carry/codex-tools>
 
