@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 
 use crate::models::ExtractedAuth;
 use crate::models::PreparedOauthLogin;
+use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
 use crate::utils::truncate_for_error;
 
@@ -697,9 +698,7 @@ fn write_auth_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut temp_file = private_create_new_options()
             .open(&temp_path)
             .map_err(|e| format!("创建临时 auth.json 失败 {}: {e}", temp_path.display()))?;
         temp_file

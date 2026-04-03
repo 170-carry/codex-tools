@@ -43,3 +43,4 @@ async-stream = "0.3"
 rfd = "0.15"
 if-addrs = "0.13"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+constant_time_eq = "0.3"

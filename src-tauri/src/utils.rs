@@ -38,8 +38,42 @@ pub(crate) fn set_private_permissions(path: &Path) {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // 在 Windows 上尝试通过 icacls 移除 Everyone 的读权限，仅保留当前用户
+        if let Some(path_str) = path.to_str() {
+            let current_user = std::env::var("USERNAME").unwrap_or_default();
+            if !current_user.is_empty() {
+                let _ = std::process::Command::new("icacls")
+                    .args([
+                        path_str,
+                        "/inheritance:r",
+                        "/grant:r",
+                        &format!("{current_user}:(R,W)"),
+                    ])
+                    .output();
+            }
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
     let _ = path;
+}
+
+/// 返回用于创建私有临时文件的 OpenOptions：
+/// - Unix：以 0o600 权限创建（从一开始就限制访问，消除 TOCTOU）
+/// - 其他平台：使用默认 OpenOptions，之后再调用 set_private_permissions
+pub(crate) fn private_create_new_options() -> fs::OpenOptions {
+    let mut opts = fs::OpenOptions::new();
+    opts.create_new(true).write(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+
+    opts
 }
 
 pub(crate) fn prepare_process_path() {
