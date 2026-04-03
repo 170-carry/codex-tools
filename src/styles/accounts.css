@@ -476,7 +476,8 @@
 }
 
 .cardEditIcon,
-.cardDeleteIcon {
+.cardDeleteIcon,
+.cardExportIcon {
   position: static;
   width: 28px;
   height: 28px;
@@ -488,6 +489,7 @@
   color: color-mix(in srgb, var(--subtle) 84%, var(--ink) 16%);
 }
 
+.cardExportIcon .iconGlyph,
 .cardEditIcon .iconGlyph,
 .cardDeleteIcon .iconGlyph {
   width: 16px;

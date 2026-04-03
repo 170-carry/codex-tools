@@ -40,9 +40,11 @@ function sortVariantsForGroup(left: AccountSummary, right: AccountSummary): numb
 type AccountsGridProps = {
   accounts: AccountSummary[];
   loading: boolean;
+  exportingAccounts: boolean;
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
+  onExport: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
@@ -51,9 +53,11 @@ type AccountsGridProps = {
 export function AccountsGrid({
   accounts,
   loading,
+  exportingAccounts,
   switchingId,
   renamingAccountId,
   pendingDeleteId,
+  onExport,
   onRename,
   onSwitch,
   onDelete,
@@ -90,9 +94,11 @@ export function AccountsGrid({
         <AccountCard
           key={group.id}
           accounts={group.variants}
+          exportingAccounts={exportingAccounts}
           switchingId={switchingId}
           renamingAccountId={renamingAccountId}
           pendingDeleteId={pendingDeleteId}
+          onExport={onExport}
           onRename={onRename}
           onSwitch={onSwitch}
           onDelete={onDelete}

@@ -160,10 +160,19 @@ pub(crate) async fn import_auth_json_accounts_internal(
 pub(crate) async fn export_accounts_zip_internal(
     app: &AppHandle,
     state: &AppState,
+    account_key: Option<String>,
 ) -> Result<Option<String>, String> {
+    let selected_account_key = account_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string);
     let export_payload = {
         let _guard = state.store_lock.lock().await;
-        let store = load_store(app)?;
+        let mut store = load_store(app)?;
+        if let Some(account_key) = selected_account_key.as_ref() {
+            store.accounts.retain(|account| account.account_key() == *account_key);
+        }
         serde_json::to_vec_pretty(&store).map_err(|error| format!("序列化账号列表失败: {error}"))?
     };
     let default_file_name = format!("codex-tools-accounts-{}.zip", now_unix_seconds());

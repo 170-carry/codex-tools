@@ -462,8 +462,9 @@ async fn import_auth_json_accounts(
 async fn export_accounts_zip(
     app: AppHandle,
     state: State<'_, AppState>,
+    account_key: Option<String>,
 ) -> Result<Option<String>, String> {
-    account_service::export_accounts_zip_internal(&app, state.inner()).await
+    account_service::export_accounts_zip_internal(&app, state.inner(), account_key).await
 }
 
 #[tauri::command]

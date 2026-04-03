@@ -161,8 +161,6 @@ function App() {
                             <div className="accountsHero">
                                 <MetaStrip
                                     accountCount={accounts.length}
-                                    exportingAccounts={exportingAccounts}
-                                    onExportAccounts={() => void onExportAccounts()}
                                 />
                                 <AddAccountSection
                                     onOpenAddDialog={onOpenAddDialog}
@@ -173,9 +171,11 @@ function App() {
                             <AccountsGrid
                                 accounts={accounts}
                                 loading={loading}
+                                exportingAccounts={exportingAccounts}
                                 switchingId={switchingId}
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
+                                onExport={(account) => void onExportAccounts(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}
                                 onSwitch={(account) => void onSwitch(account)}
                                 onDelete={(account) => void onDelete(account)}

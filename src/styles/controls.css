@@ -900,10 +900,6 @@ button.danger {
   line-height: 1.2;
 }
 
-.metaExportButton {
-  min-width: 84px;
-}
-
 .importBar {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--line) 90%, var(--surface-tint) 10%);

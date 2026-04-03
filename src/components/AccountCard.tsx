@@ -10,9 +10,11 @@ import {
 
 type AccountCardProps = {
   accounts: AccountSummary[];
+  exportingAccounts: boolean;
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
+  onExport: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
@@ -130,9 +132,11 @@ function pickDefaultAccount(accounts: AccountSummary[]): AccountSummary | null {
 
 export function AccountCard({
   accounts,
+  exportingAccounts,
   switchingId,
   renamingAccountId,
   pendingDeleteId,
+  onExport,
   onRename,
   onSwitch,
   onDelete,
@@ -286,6 +290,20 @@ export function AccountCard({
           )}
         </div>
         <div className="cardActions">
+          <button
+            type="button"
+            className="cardExportIcon"
+            onClick={() => onExport(selectedAccount)}
+            disabled={exportingAccounts}
+            aria-label={copy.addAccount.exportButton}
+            title={copy.addAccount.exportButton}
+          >
+            <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+          </button>
           <button
             type="button"
             className="cardEditIcon"
