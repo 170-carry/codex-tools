@@ -1,6 +1,6 @@
 [package]
 name = "codex-tools-proxyd"
-version = "1.7.1"
+version = "1.7.2"
 edition = "2021"
 rust-version = "1.77.2"
 

@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.7.1"
+version = "1.7.2"
 description = "Codex Tools"
 authors = ["you"]
 license = "MIT"
@@ -28,6 +28,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri-plugin-log = "2"
 tauri = { version = "2.10.0", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2.4.1"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 reqwest = { version = "0.12", features = ["json", "gzip", "stream"] }
 uuid = { version = "1", features = ["v4"] }

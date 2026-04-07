@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Tools",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "identifier": "com.carry.codex-tools",
   "build": {
     "frontendDist": "../dist",

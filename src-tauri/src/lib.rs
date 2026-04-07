@@ -1151,6 +1151,10 @@ fn start_auth_keepalive_loop(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("检测到重复启动请求，切换到现有实例");
+            restore_main_window(app);
+        }))
         .manage(AppState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
