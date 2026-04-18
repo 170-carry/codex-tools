@@ -95,6 +95,33 @@ pub(crate) async fn import_current_auth_account_internal(
     commit_prepared_import(app, state, prepared).await
 }
 
+pub(crate) async fn reauthorize_account_internal(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+    auth_json: serde_json::Value,
+) -> Result<ImportAccountsResult, String> {
+    let prepared = prepare_auth_json_import(auth_json, None).await?;
+
+    let mut _guard = state.store_lock.lock().await;
+    let mut store = load_store(app)?;
+    let Some(existing) = store.accounts.iter_mut().find(|account| account.id == id) else {
+        return Err("未找到要重新授权的账号".to_string());
+    };
+
+    validate_reauthorization_target(existing, &prepared)?;
+    apply_reauthorized_account(existing, prepared);
+    dedupe_account_variants(&mut store.accounts);
+    save_store(app, &store)?;
+
+    Ok(ImportAccountsResult {
+        total_count: 1,
+        imported_count: 0,
+        updated_count: 1,
+        failures: Vec::new(),
+    })
+}
+
 pub(crate) async fn import_auth_json_accounts_internal(
     app: &AppHandle,
     state: &AppState,
@@ -998,6 +1025,70 @@ fn apply_prepared_import_to_account(
     existing.usage_error = None;
     existing.auth_refresh_blocked = false;
     existing.auth_refresh_error = None;
+}
+
+fn apply_reauthorized_account(existing: &mut StoredAccount, prepared: PreparedImport) {
+    let PreparedImport {
+        principal_id,
+        auth_json,
+        account_id,
+        email,
+        plan_type,
+        usage,
+        ..
+    } = prepared;
+
+    let now = now_unix_seconds();
+    let resolved_plan_type = plan_type.or_else(|| {
+        usage
+            .as_ref()
+            .and_then(|snapshot| snapshot.plan_type.clone())
+    });
+
+    existing.principal_id = Some(principal_id);
+    existing.email = email.or_else(|| existing.email.clone());
+    existing.account_id = account_id;
+    existing.plan_type = resolved_plan_type;
+    existing.auth_json = auth_json;
+    existing.updated_at = now;
+    existing.usage = usage;
+    existing.usage_error = None;
+    existing.auth_refresh_blocked = false;
+    existing.auth_refresh_error = None;
+}
+
+fn validate_reauthorization_target(
+    existing: &StoredAccount,
+    prepared: &PreparedImport,
+) -> Result<(), String> {
+    if let (Some(existing_email), Some(new_email)) =
+        (existing.email.as_deref(), prepared.email.as_deref())
+    {
+        if existing_email.trim().eq_ignore_ascii_case(new_email.trim()) {
+            return Ok(());
+        }
+    }
+
+    if existing
+        .principal_id
+        .as_deref()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case(prepared.principal_id.trim()))
+        || existing.account_id == prepared.account_id
+    {
+        return Ok(());
+    }
+
+    let target_label = existing
+        .email
+        .as_deref()
+        .unwrap_or(existing.label.as_str());
+    let new_label = prepared
+        .email
+        .as_deref()
+        .unwrap_or_else(|| prepared.account_id.as_str());
+    Err(format!(
+        "重新授权得到的账号与目标账号不一致。目标账号: {target_label}；新账号: {new_label}。请确认浏览器登录的是同一个账号。"
+    ))
 }
 
 fn expand_import_json_content(

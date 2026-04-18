@@ -24,6 +24,7 @@ function App() {
         loading,
         refreshing,
         addDialogOpen,
+        reauthorizeAccount,
         importingAccounts,
         oauthWaitingForCallback,
         exportingAccounts,
@@ -67,6 +68,7 @@ function App() {
         closeUpdateDialog,
         updateSettings,
         onOpenAddDialog,
+        onReauthorizeAccount,
         onPrepareOauthLogin,
         onOpenOauthAuthorizationPage,
         onCloseAddDialog,
@@ -133,6 +135,7 @@ function App() {
 
                 <AddAccountDialog
                     open={addDialogOpen}
+                    reauthorizeAccount={reauthorizeAccount}
                     importingAccounts={importingAccounts}
                     oauthWaitingForCallback={oauthWaitingForCallback}
                     onPrepareOauth={onPrepareOauthLogin}
@@ -180,6 +183,7 @@ function App() {
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
                                 onExport={(account) => void onExportAccounts(account)}
+                                onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}
                                 onSwitch={(account) => void onSwitch(account)}
                                 onDelete={(account) => void onDelete(account)}

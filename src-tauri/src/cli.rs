@@ -73,6 +73,15 @@ pub(crate) fn validate_configured_codex_path(configured_path: Option<&str>) -> R
         return Ok(());
     };
 
+    #[cfg(target_os = "windows")]
+    if is_windows_store_codex_path(path) {
+        return if has_windows_store_codex_app() {
+            Ok(())
+        } else {
+            Err(INVALID_CONFIGURED_CODEX_PATH_MESSAGE.to_string())
+        };
+    }
+
     if find_configured_codex_app_path_from_path(Some(path)).is_some()
         || find_configured_codex_cli_path(Some(path)).is_some()
         || is_macos_app_bundle(path)
@@ -91,12 +100,25 @@ pub(crate) fn find_configured_codex_app_path(configured_path: Option<&str>) -> O
 
 #[cfg(target_os = "windows")]
 pub(crate) fn is_windows_store_codex_path(path: &Path) -> bool {
-    let normalized = path.to_string_lossy().to_ascii_lowercase();
-    normalized.contains("\\windowsapps\\")
+    let normalized = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    normalized.contains("\\windowsapps\\openai.codex_")
 }
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn is_windows_store_codex_path(_path: &Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn has_windows_store_codex_app() -> bool {
+    find_windows_codex_store_app_id().is_some()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn has_windows_store_codex_app() -> bool {
     false
 }
 
@@ -198,6 +220,14 @@ fn find_configured_codex_app_path_from_path(configured_path: Option<&Path>) -> O
 
     #[cfg(target_os = "windows")]
     {
+        if is_windows_store_codex_path(configured_path) {
+            return if has_windows_store_codex_app() {
+                Some(configured_path.to_path_buf())
+            } else {
+                None
+            };
+        }
+
         if configured_path.is_file() && is_windows_codex_app_file(configured_path) {
             return Some(configured_path.to_path_buf());
         }

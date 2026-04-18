@@ -44,6 +44,7 @@ pub(crate) struct PendingOauthLogin {
     pub(crate) state: String,
     pub(crate) code_verifier: String,
     pub(crate) expires_at: i64,
+    pub(crate) reauthorize_account_id: Option<String>,
 }
 
 pub(crate) fn oauth_redirect_port() -> u16 {
@@ -126,6 +127,7 @@ pub(crate) fn prepare_oauth_login(
         state,
         code_verifier,
         expires_at,
+        reauthorize_account_id: None,
     };
     let prepared = PreparedOauthLogin {
         auth_url,

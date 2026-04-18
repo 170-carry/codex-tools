@@ -45,6 +45,7 @@ type AccountsGridProps = {
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
   onExport: (account: AccountSummary) => void;
+  onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
@@ -58,6 +59,7 @@ export function AccountsGrid({
   renamingAccountId,
   pendingDeleteId,
   onExport,
+  onReauthorize,
   onRename,
   onSwitch,
   onDelete,
@@ -99,6 +101,7 @@ export function AccountsGrid({
           renamingAccountId={renamingAccountId}
           pendingDeleteId={pendingDeleteId}
           onExport={onExport}
+          onReauthorize={onReauthorize}
           onRename={onRename}
           onSwitch={onSwitch}
           onDelete={onDelete}

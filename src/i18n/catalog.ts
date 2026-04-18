@@ -71,15 +71,19 @@ export type MessageCatalog = {
     dialogAriaLabel: string;
     dialogTitle: string;
     dialogSubtitle: string;
+    reauthorizeDialogTitle: string;
+    reauthorizeDialogSubtitle: (label: string) => string;
     tabsAriaLabel: string;
     oauthTab: string;
     oauthDescription: string;
+    reauthorizeOauthDescription: string;
     oauthLinkLabel: string;
     oauthOpenBrowser: string;
     oauthListening: string;
     oauthCallbackLabel: string;
     oauthCallbackPlaceholder: string;
     oauthParseCallback: string;
+    reauthorizeParseCallback: string;
     oauthPreparing: string;
     oauthCallbackSubmitting: string;
     currentTab: string;
@@ -104,6 +108,7 @@ export type MessageCatalog = {
     currentBadge: string;
     launch: string;
     launching: string;
+    reauthorize: string;
     editAlias: string;
     aliasInputLabel: string;
     delete: string;
@@ -471,6 +476,8 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
     metaStrip: raw.metaStrip,
     addAccount: {
       ...raw.addAccount,
+      reauthorizeDialogSubtitle: (label) =>
+        fillTemplate(raw.addAccount.reauthorizeDialogSubtitle, { label }),
       uploadFileSummary: (firstPath, count) =>
         fillTemplate(raw.addAccount.uploadFileSummary, {
           firstPath,

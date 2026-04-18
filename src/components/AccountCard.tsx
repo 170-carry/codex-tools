@@ -15,6 +15,7 @@ type AccountCardProps = {
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
   onExport: (account: AccountSummary) => void;
+  onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
@@ -56,6 +57,16 @@ function EditIcon() {
     <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4z" />
+    </svg>
+  );
+}
+
+function ReauthorizeIcon() {
+  return (
+    <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+      <path d="M12 8v4l3 2" />
     </svg>
   );
 }
@@ -137,6 +148,7 @@ export function AccountCard({
   renamingAccountId,
   pendingDeleteId,
   onExport,
+  onReauthorize,
   onRename,
   onSwitch,
   onDelete,
@@ -303,6 +315,15 @@ export function AccountCard({
               <path d="m7 10 5 5 5-5" />
               <path d="M5 21h14" />
             </svg>
+          </button>
+          <button
+            type="button"
+            className="cardReauthorizeIcon"
+            onClick={() => onReauthorize(selectedAccount)}
+            aria-label={copy.accountCard.reauthorize}
+            title={copy.accountCard.reauthorize}
+          >
+            <ReauthorizeIcon />
           </button>
           <button
             type="button"

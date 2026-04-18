@@ -477,6 +477,7 @@
 
 .cardEditIcon,
 .cardDeleteIcon,
+.cardReauthorizeIcon,
 .cardExportIcon {
   position: static;
   width: 28px;
@@ -490,6 +491,7 @@
 }
 
 .cardExportIcon .iconGlyph,
+.cardReauthorizeIcon .iconGlyph,
 .cardEditIcon .iconGlyph,
 .cardDeleteIcon .iconGlyph {
   width: 16px;

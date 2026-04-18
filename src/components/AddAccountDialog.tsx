@@ -9,12 +9,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n/I18nProvider";
-import type { AuthJsonImportInput, PreparedOauthLogin } from "../types/app";
+import type { AccountSummary, AuthJsonImportInput, PreparedOauthLogin } from "../types/app";
 
 type AddAccountRoute = "oauth" | "current" | "upload";
 
 type AddAccountDialogProps = {
   open: boolean;
+  reauthorizeAccount: AccountSummary | null;
   importingAccounts: boolean;
   oauthWaitingForCallback: boolean;
   onPrepareOauth: () => Promise<PreparedOauthLogin>;
@@ -63,6 +64,7 @@ function AddAccountRouteIcon({ route }: { route: AddAccountRoute }) {
 
 export function AddAccountDialog({
   open,
+  reauthorizeAccount,
   importingAccounts,
   oauthWaitingForCallback,
   onPrepareOauth,
@@ -126,12 +128,19 @@ export function AddAccountDialog({
   }, [closeBlocked, onClose, open, resetOauthState]);
 
   const routeOptions = useMemo(
-    () => [
-      {
+    () => {
+      const oauthRoute = {
         id: "oauth" as const,
         label: copy.addAccount.oauthTab,
-        description: copy.addAccount.oauthDescription,
-      },
+        description: reauthorizeAccount
+          ? copy.addAccount.reauthorizeOauthDescription
+          : copy.addAccount.oauthDescription,
+      };
+      if (reauthorizeAccount) {
+        return [oauthRoute];
+      }
+      return [
+        oauthRoute,
       {
         id: "current" as const,
         label: copy.addAccount.currentTab,
@@ -142,11 +151,18 @@ export function AddAccountDialog({
         label: copy.addAccount.uploadTab,
         description: copy.addAccount.uploadDescription,
       },
-    ],
-    [copy.addAccount],
+      ];
+    },
+    [copy.addAccount, reauthorizeAccount],
   );
 
   const activeRouteMeta = routeOptions.find((item) => item.id === activeRoute) ?? routeOptions[0];
+  const dialogTitle = reauthorizeAccount
+    ? copy.addAccount.reauthorizeDialogTitle
+    : copy.addAccount.dialogTitle;
+  const dialogSubtitle = reauthorizeAccount
+    ? copy.addAccount.reauthorizeDialogSubtitle(reauthorizeAccount.label)
+    : copy.addAccount.dialogSubtitle;
 
   const selectedSummary = useMemo(() => {
     if (selectedFiles.length === 0) {
@@ -335,8 +351,8 @@ export function AddAccountDialog({
       >
         <div className="settingsHeader">
           <div>
-            <h2>{copy.addAccount.dialogTitle}</h2>
-            <p className="addAccountDialogSubtitle">{copy.addAccount.dialogSubtitle}</p>
+            <h2>{dialogTitle}</h2>
+            <p className="addAccountDialogSubtitle">{dialogSubtitle}</p>
           </div>
           <button
             type="button"
@@ -434,13 +450,15 @@ export function AddAccountDialog({
                 >
                   {pendingRoute === "oauth" || importingAccounts
                     ? copy.addAccount.oauthCallbackSubmitting
-                    : copy.addAccount.oauthParseCallback}
+                    : reauthorizeAccount
+                      ? copy.addAccount.reauthorizeParseCallback
+                      : copy.addAccount.oauthParseCallback}
                 </button>
 
                 {!oauthLogin ? (
                   <div className="addOauthStatus">
                     <strong>{copy.addAccount.oauthPreparing}</strong>
-                    <p>{copy.addAccount.oauthDescription}</p>
+                    <p>{activeRouteMeta.description}</p>
                   </div>
                 ) : null}
               </div>

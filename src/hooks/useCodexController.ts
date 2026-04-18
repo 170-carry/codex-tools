@@ -143,6 +143,7 @@ export function useCodexController() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [reauthorizeAccount, setReauthorizeAccount] = useState<AccountSummary | null>(null);
   const [importingAccounts, setImportingAccounts] = useState(false);
   const [oauthWaitingForCallback, setOauthWaitingForCallback] = useState(false);
   const [exportingAccounts, setExportingAccounts] = useState(false);
@@ -779,6 +780,7 @@ export function useCodexController() {
           localizeImportResult(event.payload.result),
           copy.notices.oauthImportPrefix,
         );
+        setReauthorizeAccount(null);
         return;
       }
 
@@ -811,13 +813,16 @@ export function useCodexController() {
 
   const onOpenAddDialog = useCallback(() => {
     setOauthWaitingForCallback(false);
+    setReauthorizeAccount(null);
     setAddDialogOpen(true);
   }, []);
 
   const onPrepareOauthLogin = useCallback(async () => {
     setOauthWaitingForCallback(false);
     try {
-      return await invoke<PreparedOauthLogin>("prepare_oauth_login");
+      return await invoke<PreparedOauthLogin>("prepare_oauth_login", {
+        accountId: reauthorizeAccount?.id ?? null,
+      });
     } catch (error) {
       setNotice({
         type: "error",
@@ -825,7 +830,7 @@ export function useCodexController() {
       });
       throw error;
     }
-  }, [copy.notices, localizeError]);
+  }, [copy.notices, localizeError, reauthorizeAccount]);
 
   const onOpenOauthAuthorizationPage = useCallback(
     async (url: string) => {
@@ -859,7 +864,14 @@ export function useCodexController() {
 
     void onCancelOauthLogin();
     setAddDialogOpen(false);
+    setReauthorizeAccount(null);
   }, [importingAccounts, onCancelOauthLogin]);
+
+  const onReauthorizeAccount = useCallback((account: AccountSummary) => {
+    setOauthWaitingForCallback(false);
+    setReauthorizeAccount(account);
+    setAddDialogOpen(true);
+  }, []);
 
   const onImportCurrentAuth = useCallback(async () => {
     if (importingAccounts) {
@@ -920,6 +932,7 @@ export function useCodexController() {
           callbackUrl,
         });
         await applyImportResult(localizeImportResult(result), copy.notices.oauthImportPrefix);
+        setReauthorizeAccount(null);
       } catch (error) {
         setNotice({
           type: "error",
@@ -1569,6 +1582,7 @@ export function useCodexController() {
     refreshing,
     addDialogOpen,
     importingAccounts,
+    reauthorizeAccount,
     oauthWaitingForCallback,
     exportingAccounts,
     apiProxyStatus,
@@ -1611,6 +1625,7 @@ export function useCodexController() {
     closeUpdateDialog,
     updateSettings,
     onOpenAddDialog,
+    onReauthorizeAccount,
     onPrepareOauthLogin,
     onOpenOauthAuthorizationPage,
     onCloseAddDialog,

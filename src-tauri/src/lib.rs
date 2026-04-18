@@ -224,7 +224,11 @@ async fn complete_oauth_login_internal(
     };
 
     let auth_json = auth::complete_oauth_callback_login(&pending, callback_url).await?;
-    import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+    if let Some(account_id) = pending.reauthorize_account_id.as_deref() {
+        account_service::reauthorize_account_internal(app, state, account_id, auth_json).await
+    } else {
+        import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+    }
 }
 
 async fn emit_oauth_callback_finished(app: &AppHandle, payload: OauthCallbackFinishedEvent) {
@@ -637,11 +641,21 @@ async fn pick_codex_launch_path(
 async fn prepare_oauth_login(
     app: AppHandle,
     state: State<'_, AppState>,
+    account_id: Option<String>,
 ) -> Result<PreparedOauthLogin, String> {
     let _oauth_guard = state.oauth_flow_lock.lock().await;
     stop_oauth_callback_listener(state.inner()).await;
     let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
-    let (pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    let (mut pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    pending.reauthorize_account_id = account_id
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = Some(pending.clone());
@@ -903,6 +917,34 @@ async fn switch_account_and_launch(
                     error
                 );
                 app_launch_error = Some(error);
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    if cli::has_windows_store_codex_app() {
+        match cli::launch_windows_store_codex() {
+            Ok(()) => {
+                return Ok(SwitchAccountResult {
+                    account_id: account.account_id,
+                    launched_app_path: None,
+                    used_fallback_cli: false,
+                    opencode_synced,
+                    opencode_sync_error,
+                    opencode_desktop_restarted,
+                    opencode_desktop_restart_error,
+                    restarted_editor_apps,
+                    editor_restart_error,
+                });
+            }
+            Err(error) => {
+                log::warn!("通过 Windows Store AUMID 启动 Codex 失败: {error}");
+                app_launch_error = Some(match app_launch_error {
+                    Some(previous_error) => {
+                        format!("{previous_error}；且通过 Windows Store AUMID 启动失败: {error}")
+                    }
+                    None => format!("通过 Windows Store AUMID 启动失败: {error}"),
+                });
             }
         }
     }
