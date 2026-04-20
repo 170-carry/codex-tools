@@ -9,9 +9,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n/I18nProvider";
-import type { AccountSummary, AuthJsonImportInput, PreparedOauthLogin } from "../types/app";
+import type {
+  AccountSummary,
+  AuthJsonImportInput,
+  CreateApiAccountInput,
+  PreparedOauthLogin,
+} from "../types/app";
 
-type AddAccountRoute = "oauth" | "current" | "upload";
+type AddAccountRoute = "oauth" | "current" | "upload" | "api";
 
 type AddAccountDialogProps = {
   open: boolean;
@@ -23,6 +28,7 @@ type AddAccountDialogProps = {
   onCompleteOauth: (callbackUrl: string) => Promise<void>;
   onCancelOauth: () => Promise<void>;
   onImportCurrentAuth: () => Promise<void>;
+  onCreateApiAccount: (input: CreateApiAccountInput) => Promise<void>;
   onImportFiles: (items: AuthJsonImportInput[]) => Promise<void>;
   onClose: () => void;
 };
@@ -53,6 +59,17 @@ function AddAccountRouteIcon({ route }: { route: AddAccountRoute }) {
     );
   }
 
+  if (route === "api") {
+    return (
+      <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 8.5h16" />
+        <path d="M4 15.5h16" />
+        <path d="M7 4.5v15" />
+        <path d="M17 4.5v15" />
+      </svg>
+    );
+  }
+
   return (
     <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M12 16V4" />
@@ -72,6 +89,7 @@ export function AddAccountDialog({
   onCompleteOauth,
   onCancelOauth,
   onImportCurrentAuth,
+  onCreateApiAccount,
   onImportFiles,
   onClose,
 }: AddAccountDialogProps) {
@@ -83,6 +101,15 @@ export function AddAccountDialog({
   const [preparingOauth, setPreparingOauth] = useState(false);
   const [oauthLogin, setOauthLogin] = useState<PreparedOauthLogin | null>(null);
   const [oauthCallbackUrl, setOauthCallbackUrl] = useState("");
+  const [apiForm, setApiForm] = useState<CreateApiAccountInput>({
+    label: "",
+    baseUrl: "",
+    apiKey: "",
+    modelName: "",
+    forceSave: false,
+  });
+  const [apiInlineError, setApiInlineError] = useState<string | null>(null);
+  const [apiCanForceSave, setApiCanForceSave] = useState(false);
   const oauthAutoPrepareAttemptedRef = useRef(false);
   const oauthPrepareRequestRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,6 +139,15 @@ export function AddAccountDialog({
       setSelectedFiles([]);
       setReadingFiles(false);
       setPendingRoute(null);
+      setApiForm({
+        label: "",
+        baseUrl: "",
+        apiKey: "",
+        modelName: "",
+        forceSave: false,
+      });
+      setApiInlineError(null);
+      setApiCanForceSave(false);
       resetOauthState(true);
       return;
     }
@@ -141,16 +177,21 @@ export function AddAccountDialog({
       }
       return [
         oauthRoute,
-      {
-        id: "current" as const,
-        label: copy.addAccount.currentTab,
-        description: copy.addAccount.currentDescription,
-      },
-      {
-        id: "upload" as const,
-        label: copy.addAccount.uploadTab,
-        description: copy.addAccount.uploadDescription,
-      },
+        {
+          id: "current" as const,
+          label: copy.addAccount.currentTab,
+          description: copy.addAccount.currentDescription,
+        },
+        {
+          id: "upload" as const,
+          label: copy.addAccount.uploadTab,
+          description: copy.addAccount.uploadDescription,
+        },
+        {
+          id: "api" as const,
+          label: copy.addAccount.apiTab,
+          description: copy.addAccount.apiDescription,
+        },
       ];
     },
     [copy.addAccount, reauthorizeAccount],
@@ -185,6 +226,12 @@ export function AddAccountDialog({
       })),
     [selectedFiles],
   );
+  const apiSubmitDisabled =
+    actionLocked ||
+    apiForm.label.trim() === "" ||
+    apiForm.baseUrl.trim() === "" ||
+    apiForm.apiKey.trim() === "" ||
+    apiForm.modelName.trim() === "";
 
   const handlePrepareOauth = useCallback(async () => {
     if (busy || preparingOauth) {
@@ -329,6 +376,40 @@ export function AddAccountDialog({
       await onImportFiles(items);
     } finally {
       setReadingFiles(false);
+      setPendingRoute(null);
+    }
+  };
+
+  const handleApiFieldChange =
+    (field: keyof CreateApiAccountInput) =>
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      setApiForm((current) => ({
+        ...current,
+        [field]: value,
+        forceSave: false,
+      }));
+      setApiInlineError(null);
+      setApiCanForceSave(false);
+    };
+
+  const handleCreateApiAccount = async (forceSave: boolean) => {
+    if (actionLocked) {
+      return;
+    }
+
+    setPendingRoute("api");
+    setApiInlineError(null);
+    try {
+      await onCreateApiAccount({
+        ...apiForm,
+        forceSave,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setApiInlineError(message);
+      setApiCanForceSave(!forceSave);
+    } finally {
       setPendingRoute(null);
     }
   };
@@ -542,6 +623,92 @@ export function AddAccountDialog({
                     ? copy.addAccount.uploadImporting
                     : copy.addAccount.uploadStartImport}
                 </button>
+              </div>
+            ) : null}
+
+            {activeRoute === "api" ? (
+              <div className="addAccountPanelBody addApiSection">
+                <div className="addApiFieldGrid">
+                  <label className="addOauthField">
+                    <span className="addOauthFieldLabel">{copy.addAccount.apiNameLabel}</span>
+                    <input
+                      className="addOauthInput"
+                      value={apiForm.label}
+                      onChange={handleApiFieldChange("label")}
+                      placeholder={copy.addAccount.apiNamePlaceholder}
+                      spellCheck={false}
+                    />
+                  </label>
+
+                  <label className="addOauthField">
+                    <span className="addOauthFieldLabel">{copy.addAccount.apiBaseUrlLabel}</span>
+                    <input
+                      className="addOauthInput"
+                      value={apiForm.baseUrl}
+                      onChange={handleApiFieldChange("baseUrl")}
+                      placeholder={copy.addAccount.apiBaseUrlPlaceholder}
+                      spellCheck={false}
+                    />
+                    <span className="addFieldHint">{copy.addAccount.apiBaseUrlHint}</span>
+                  </label>
+
+                  <label className="addOauthField">
+                    <span className="addOauthFieldLabel">{copy.addAccount.apiKeyLabel}</span>
+                    <input
+                      className="addOauthInput"
+                      value={apiForm.apiKey}
+                      onChange={handleApiFieldChange("apiKey")}
+                      placeholder={copy.addAccount.apiKeyPlaceholder}
+                      spellCheck={false}
+                    />
+                  </label>
+
+                  <label className="addOauthField">
+                    <span className="addOauthFieldLabel">{copy.addAccount.apiModelLabel}</span>
+                    <input
+                      className="addOauthInput"
+                      value={apiForm.modelName}
+                      onChange={handleApiFieldChange("modelName")}
+                      placeholder={copy.addAccount.apiModelPlaceholder}
+                      spellCheck={false}
+                    />
+                  </label>
+                </div>
+
+                {apiInlineError ? (
+                  <div className="addApiErrorBox">
+                    <strong>{copy.addAccount.apiValidationFailed}</strong>
+                    <p>{apiInlineError}</p>
+                  </div>
+                ) : (
+                  <div className="addOauthStatus addApiStatus">
+                    <strong>{copy.addAccount.apiValidationTitle}</strong>
+                    <p>{copy.addAccount.apiValidationDescription}</p>
+                  </div>
+                )}
+
+                <div className="addApiActionRow">
+                  <button
+                    type="button"
+                    className="primary addAccountPrimaryAction"
+                    onClick={() => void handleCreateApiAccount(false)}
+                    disabled={apiSubmitDisabled}
+                  >
+                    {pendingRoute === "api"
+                      ? copy.addAccount.apiSaving
+                      : copy.addAccount.apiValidateAndSave}
+                  </button>
+                  {apiCanForceSave ? (
+                    <button
+                      type="button"
+                      className="ghost addAccountSecondaryAction"
+                      onClick={() => void handleCreateApiAccount(true)}
+                      disabled={actionLocked}
+                    >
+                      {copy.addAccount.apiForceSave}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 

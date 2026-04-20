@@ -23,7 +23,7 @@ pub(crate) struct AccountsStore {
 }
 
 fn default_store_version() -> u8 {
-    1
+    2
 }
 
 impl Default for AccountsStore {
@@ -38,15 +38,52 @@ impl Default for AccountsStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) enum AccountSourceKind {
+    Chatgpt,
+    Relay,
+}
+
+impl Default for AccountSourceKind {
+    fn default() -> Self {
+        Self::Chatgpt
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct StoredAccount {
     pub(crate) id: String,
     pub(crate) label: String,
+    #[serde(default)]
+    pub(crate) source_kind: AccountSourceKind,
     #[serde(default)]
     pub(crate) principal_id: Option<String>,
     pub(crate) email: Option<String>,
     pub(crate) account_id: String,
     pub(crate) plan_type: Option<String>,
     pub(crate) auth_json: Value,
+    #[serde(default)]
+    pub(crate) api_base_url: Option<String>,
+    #[serde(default)]
+    pub(crate) api_key: Option<String>,
+    #[serde(default)]
+    pub(crate) model_name: Option<String>,
+    #[serde(default)]
+    pub(crate) balance_text: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_auth_path: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_config_path: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_auth_ready: bool,
+    #[serde(default)]
+    pub(crate) profile_config_ready: bool,
+    #[serde(default)]
+    pub(crate) profile_integrity_error: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_last_validated_at: Option<i64>,
+    #[serde(default)]
+    pub(crate) profile_last_validation_error: Option<String>,
     pub(crate) added_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) usage: Option<UsageSnapshot>,
@@ -62,10 +99,19 @@ pub(crate) struct StoredAccount {
 pub(crate) struct AccountSummary {
     pub(crate) id: String,
     pub(crate) label: String,
+    pub(crate) source_kind: AccountSourceKind,
     pub(crate) email: Option<String>,
     pub(crate) account_key: String,
     pub(crate) account_id: String,
     pub(crate) plan_type: Option<String>,
+    pub(crate) api_base_url: Option<String>,
+    pub(crate) model_name: Option<String>,
+    pub(crate) balance_text: Option<String>,
+    pub(crate) profile_auth_ready: bool,
+    pub(crate) profile_config_ready: bool,
+    pub(crate) profile_integrity_error: Option<String>,
+    pub(crate) profile_last_validated_at: Option<i64>,
+    pub(crate) profile_last_validation_error: Option<String>,
     pub(crate) added_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) usage: Option<UsageSnapshot>,
@@ -137,6 +183,17 @@ pub(crate) struct AuthJsonImportInput {
     pub(crate) source: String,
     pub(crate) content: String,
     pub(crate) label: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateApiAccountInput {
+    pub(crate) label: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) model_name: String,
+    #[serde(default)]
+    pub(crate) force_save: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -319,6 +376,8 @@ pub(crate) struct AppSettings {
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
     pub(crate) launch_codex_after_switch: bool,
     pub(crate) codex_launch_path: Option<String>,
+    #[serde(default)]
+    pub(crate) active_account_id: Option<String>,
     pub(crate) sync_opencode_openai_auth: bool,
     pub(crate) restart_opencode_desktop_on_switch: bool,
     pub(crate) restart_editors_on_switch: bool,
@@ -339,6 +398,7 @@ impl Default for AppSettings {
             tray_usage_display_mode: TrayUsageDisplayMode::Remaining,
             launch_codex_after_switch: true,
             codex_launch_path: None,
+            active_account_id: None,
             sync_opencode_openai_auth: false,
             restart_opencode_desktop_on_switch: false,
             restart_editors_on_switch: false,
@@ -373,6 +433,10 @@ pub(crate) struct AppSettingsPatch {
 
 impl StoredAccount {
     pub(crate) fn principal_key(&self) -> String {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return format!("relay:{}", self.id);
+        }
+
         normalized_identity_key(self.principal_id.as_deref())
             .or_else(|| {
                 extract_auth(&self.auth_json)
@@ -384,10 +448,18 @@ impl StoredAccount {
     }
 
     pub(crate) fn account_key(&self) -> String {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return crate::profile_files::relay_account_key(&self.id);
+        }
+
         account_group_key(&self.principal_key(), &self.account_id)
     }
 
     pub(crate) fn resolved_plan_type(&self) -> Option<String> {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return self.plan_type.clone();
+        }
+
         self.plan_type
             .clone()
             .or_else(|| {
@@ -403,6 +475,10 @@ impl StoredAccount {
     }
 
     pub(crate) fn variant_key(&self) -> String {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return self.account_key();
+        }
+
         account_variant_key(
             &self.principal_key(),
             &self.account_id,
@@ -427,10 +503,19 @@ impl StoredAccount {
         AccountSummary {
             id: self.id.clone(),
             label: self.label.clone(),
+            source_kind: self.source_kind.clone(),
             email: self.email.clone(),
             account_key,
             account_id: self.account_id.clone(),
             plan_type: self.plan_type.clone(),
+            api_base_url: self.api_base_url.clone(),
+            model_name: self.model_name.clone(),
+            balance_text: self.balance_text.clone(),
+            profile_auth_ready: self.profile_auth_ready,
+            profile_config_ready: self.profile_config_ready,
+            profile_integrity_error: self.profile_integrity_error.clone(),
+            profile_last_validated_at: self.profile_last_validated_at,
+            profile_last_validation_error: self.profile_last_validation_error.clone(),
             added_at: self.added_at,
             updated_at: self.updated_at,
             usage: self.usage.clone(),
@@ -513,6 +598,36 @@ fn merge_duplicate_account_variant(left: StoredAccount, right: StoredAccount) ->
     }
     if preferred.auth_json.is_null() && !alternate.auth_json.is_null() {
         preferred.auth_json = alternate.auth_json.clone();
+    }
+    if preferred.api_base_url.is_none() {
+        preferred.api_base_url = alternate.api_base_url.clone();
+    }
+    if preferred.api_key.is_none() {
+        preferred.api_key = alternate.api_key.clone();
+    }
+    if preferred.model_name.is_none() {
+        preferred.model_name = alternate.model_name.clone();
+    }
+    if preferred.balance_text.is_none() {
+        preferred.balance_text = alternate.balance_text.clone();
+    }
+    if preferred.profile_auth_path.is_none() {
+        preferred.profile_auth_path = alternate.profile_auth_path.clone();
+    }
+    if preferred.profile_config_path.is_none() {
+        preferred.profile_config_path = alternate.profile_config_path.clone();
+    }
+    preferred.profile_auth_ready = preferred.profile_auth_ready || alternate.profile_auth_ready;
+    preferred.profile_config_ready =
+        preferred.profile_config_ready || alternate.profile_config_ready;
+    if preferred.profile_integrity_error.is_none() {
+        preferred.profile_integrity_error = alternate.profile_integrity_error.clone();
+    }
+    if preferred.profile_last_validated_at.is_none() {
+        preferred.profile_last_validated_at = alternate.profile_last_validated_at;
+    }
+    if preferred.profile_last_validation_error.is_none() {
+        preferred.profile_last_validation_error = alternate.profile_last_validation_error.clone();
     }
 
     preferred

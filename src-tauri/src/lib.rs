@@ -6,6 +6,7 @@ mod editor_apps;
 mod i18n;
 mod models;
 mod opencode;
+mod profile_files;
 pub mod proxy_daemon;
 mod proxy_service;
 mod remote_service;
@@ -39,6 +40,7 @@ use models::AppSettings;
 use models::AppSettingsPatch;
 use models::AuthJsonImportInput;
 use models::CloudflaredStatus;
+use models::CreateApiAccountInput;
 use models::DeployRemoteProxyInput;
 use models::EditorAppId;
 use models::ImportAccountsResult;
@@ -451,6 +453,17 @@ async fn import_current_auth_account(
 }
 
 #[tauri::command]
+async fn create_api_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: CreateApiAccountInput,
+) -> Result<AccountSummary, String> {
+    let summary = account_service::create_api_account_internal(&app, state.inner(), input).await?;
+    let _ = tray::refresh_macos_tray_snapshot(&app);
+    Ok(summary)
+}
+
+#[tauri::command]
 async fn import_auth_json_accounts(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -756,7 +769,9 @@ async fn switch_account_and_launch(
         .cloned()
         .ok_or_else(|| "找不到要切换的账号".to_string())?;
 
-    if auth::auth_tokens_need_refresh(&account.auth_json) {
+    if matches!(account.source_kind, models::AccountSourceKind::Chatgpt)
+        && auth::auth_tokens_need_refresh(&account.auth_json)
+    {
         if account.auth_refresh_blocked {
             return Err(format!(
                 "切换账号前刷新登录令牌失败: {}",
@@ -837,7 +852,27 @@ async fn switch_account_and_launch(
     let effective_restart_targets =
         restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
     let configured_codex_launch_path = store.settings.codex_launch_path.clone();
-    auth::write_active_codex_auth(&account.auth_json)?;
+    {
+        let _guard = state.store_lock.lock().await;
+        let mut latest_store = store::load_store(&app)?;
+        let stored_account = latest_store
+            .accounts
+            .iter_mut()
+            .find(|stored| stored.id == id)
+            .ok_or_else(|| "找不到要切换的账号".to_string())?;
+        profile_files::sync_account_profile_in_store_path(
+            &store::account_store_path_from_data_dir(
+                &app.path()
+                    .app_data_dir()
+                    .map_err(|error| format!("无法获取应用数据目录: {error}"))?,
+            ),
+            stored_account,
+        )?;
+        profile_files::apply_account_profile(stored_account)?;
+        latest_store.settings.active_account_id = Some(stored_account.id.clone());
+        account = stored_account.clone();
+        store::save_store(&app, &latest_store)?;
+    }
     let _ = tray::refresh_macos_tray_snapshot(&app);
 
     let mut opencode_synced = false;
@@ -845,7 +880,11 @@ async fn switch_account_and_launch(
     let mut opencode_desktop_restarted = false;
     let mut opencode_desktop_restart_error = None;
     if should_sync_opencode {
-        match opencode::sync_openai_auth_from_codex_auth(&account.auth_json) {
+        match if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
+            opencode::sync_openai_auth_from_codex_auth(&account.auth_json)
+        } else {
+            Err("当前条目为 API 中转站配置，无法同步为 opencode 的 OAuth 登录态。".to_string())
+        } {
             Ok(()) => {
                 opencode_synced = true;
                 if should_restart_opencode_desktop {
@@ -1290,6 +1329,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_accounts,
             import_current_auth_account,
+            create_api_account,
             import_auth_json_accounts,
             export_accounts_zip,
             delete_account,

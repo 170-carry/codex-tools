@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { AccountSummary } from "../types/app";
+import type { AccountSummary, TrayUsageDisplayMode } from "../types/app";
 import { useI18n } from "../i18n/I18nProvider";
 import { AccountCard } from "./AccountCard";
 import { compareAccountsByRemaining } from "../utils/accountRanking";
@@ -10,6 +10,7 @@ type AccountGroup = {
 };
 
 const PLAN_PRIORITY: Record<string, number> = {
+  api: 0,
   team: 0,
   enterprise: 1,
   business: 2,
@@ -44,6 +45,7 @@ type AccountsGridProps = {
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
+  usageDisplayMode: TrayUsageDisplayMode;
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
@@ -58,6 +60,7 @@ export function AccountsGrid({
   switchingId,
   renamingAccountId,
   pendingDeleteId,
+  usageDisplayMode,
   onExport,
   onReauthorize,
   onRename,
@@ -100,6 +103,7 @@ export function AccountsGrid({
           switchingId={switchingId}
           renamingAccountId={renamingAccountId}
           pendingDeleteId={pendingDeleteId}
+          usageDisplayMode={usageDisplayMode}
           onExport={onExport}
           onReauthorize={onReauthorize}
           onRename={onRename}

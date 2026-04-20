@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -22,13 +23,16 @@ use crate::auth::read_current_codex_auth;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::refresh_chatgpt_auth_tokens_serialized;
 use crate::models::dedupe_account_variants;
+use crate::models::AccountSourceKind;
 use crate::models::AccountSummary;
 use crate::models::AccountsStore;
 use crate::models::AuthJsonImportInput;
+use crate::models::CreateApiAccountInput;
 use crate::models::ImportAccountFailure;
 use crate::models::ImportAccountsResult;
 use crate::models::StoredAccount;
 use crate::models::UsageSnapshot;
+use crate::profile_files;
 use crate::state::AppState;
 use crate::store::account_store_path_from_data_dir;
 use crate::store::load_store;
@@ -73,7 +77,7 @@ pub(crate) async fn list_accounts_internal(
     let store = load_store(app)?;
     let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
-    Ok(store
+    let mut summaries = store
         .accounts
         .iter()
         .map(|account| {
@@ -82,7 +86,17 @@ pub(crate) async fn list_accounts_internal(
                 current_variant_key.as_deref(),
             )
         })
-        .collect())
+        .collect::<Vec<_>>();
+
+    if !summaries.iter().any(|account| account.is_current) {
+        if let Some(active_id) = store.settings.active_account_id.as_deref() {
+            if let Some(account) = summaries.iter_mut().find(|account| account.id == active_id) {
+                account.is_current = true;
+            }
+        }
+    }
+
+    Ok(summaries)
 }
 
 pub(crate) async fn import_current_auth_account_internal(
@@ -93,6 +107,79 @@ pub(crate) async fn import_current_auth_account_internal(
     let auth_json = read_current_codex_auth()?;
     let prepared = prepare_auth_json_import(auth_json, label).await?;
     commit_prepared_import(app, state, prepared).await
+}
+
+pub(crate) async fn create_api_account_internal(
+    app: &AppHandle,
+    state: &AppState,
+    input: CreateApiAccountInput,
+) -> Result<AccountSummary, String> {
+    let label = profile_files::normalize_relay_label(&input.label)?;
+    let base_url = profile_files::normalize_relay_base_url(&input.base_url)?;
+    let api_key = profile_files::normalize_relay_api_key(&input.api_key)?;
+    let model_name = profile_files::normalize_relay_model_name(&input.model_name)?;
+
+    let (last_validated_at, balance_text, profile_last_validation_error) = if input.force_save {
+        (None, None, None)
+    } else {
+        let balance = profile_files::validate_relay_target(&base_url, &api_key, &model_name).await?;
+        (Some(now_unix_seconds()), balance, None)
+    };
+
+    let current_account_key = current_auth_account_key();
+    let current_variant_key = current_auth_variant_key();
+    let summary = {
+        let mut _guard = state.store_lock.lock().await;
+        let mut store = load_store(app)?;
+        let now = now_unix_seconds();
+        let id = uuid::Uuid::new_v4().to_string();
+        let account_id = profile_files::relay_account_id(&id);
+        let mut stored = StoredAccount {
+            id: id.clone(),
+            label,
+            source_kind: AccountSourceKind::Relay,
+            principal_id: None,
+            email: None,
+            account_id,
+            plan_type: None,
+            auth_json: profile_files::build_api_auth_json(&api_key),
+            api_base_url: Some(base_url),
+            api_key: Some(api_key),
+            model_name: Some(model_name),
+            balance_text,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: last_validated_at,
+            profile_last_validation_error,
+            added_at: now,
+            updated_at: now,
+            usage: None,
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+        };
+        profile_files::sync_account_profile_in_store_path(
+            &account_store_path_from_data_dir(
+                &app.path()
+                    .app_data_dir()
+                    .map_err(|error| format!("无法获取应用数据目录: {error}"))?,
+            ),
+            &mut stored,
+        )?;
+
+        let summary = stored.to_summary(
+            current_account_key.as_deref(),
+            current_variant_key.as_deref(),
+        );
+        store.accounts.push(stored);
+        save_store(app, &store)?;
+        summary
+    };
+
+    Ok(summary)
 }
 
 pub(crate) async fn reauthorize_account_internal(
@@ -111,6 +198,12 @@ pub(crate) async fn reauthorize_account_internal(
 
     validate_reauthorization_target(existing, &prepared)?;
     apply_reauthorized_account(existing, prepared);
+    let store_path = account_store_path_from_data_dir(
+        &app.path()
+            .app_data_dir()
+            .map_err(|error| format!("无法获取应用数据目录: {error}"))?,
+    );
+    profile_files::sync_account_profile_in_store_path(&store_path, existing)?;
     dedupe_account_variants(&mut store.accounts);
     save_store(app, &store)?;
 
@@ -174,19 +267,34 @@ pub(crate) async fn import_auth_json_accounts_internal(
         let mut store = load_store(app)?;
         let mut imported_count = 0usize;
         let mut updated_count = 0usize;
+        let mut touched_ids = HashSet::new();
+        let store_path = account_store_path_from_data_dir(
+            &app.path()
+                .app_data_dir()
+                .map_err(|error| format!("无法获取应用数据目录: {error}"))?,
+        );
 
         for prepared in prepared_imports {
-            let (_, updated_existing) = upsert_prepared_import(
+            let (summary, updated_existing) = upsert_prepared_import(
                 &mut store,
                 prepared,
                 current_account_key.as_deref(),
                 current_variant_key.as_deref(),
             );
+            touched_ids.insert(summary.id);
             if updated_existing {
                 updated_count += 1;
             } else {
                 imported_count += 1;
             }
+        }
+
+        for account in store
+            .accounts
+            .iter_mut()
+            .filter(|account| touched_ids.contains(&account.id))
+        {
+            profile_files::sync_account_profile_in_store_path(&store_path, account)?;
         }
 
         save_store(app, &store)?;
@@ -237,11 +345,16 @@ pub(crate) async fn delete_account_internal(
 ) -> Result<(), String> {
     let _guard = state.store_lock.lock().await;
     let mut store = load_store(app)?;
+    let removed_current = store.settings.active_account_id.as_deref() == Some(id);
     let original_len = store.accounts.len();
     store.accounts.retain(|account| account.id != id);
 
     if original_len == store.accounts.len() {
         return Err("未找到要删除的账号".to_string());
+    }
+
+    if removed_current {
+        store.settings.active_account_id = None;
     }
 
     save_store(app, &store)?;
@@ -387,7 +500,7 @@ pub(crate) async fn refresh_all_usage_internal(
     // 与当前 auth 文件重新对齐，确保 current 标签准确。
     let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
-    let summaries: Vec<AccountSummary> = store
+    let mut summaries: Vec<AccountSummary> = store
         .accounts
         .iter()
         .map(|account| {
@@ -397,6 +510,14 @@ pub(crate) async fn refresh_all_usage_internal(
             )
         })
         .collect();
+
+    if !summaries.iter().any(|account| account.is_current) {
+        if let Some(active_id) = store.settings.active_account_id.as_deref() {
+            if let Some(account) = summaries.iter_mut().find(|account| account.id == active_id) {
+                account.is_current = true;
+            }
+        }
+    }
 
     Ok(summaries)
 }
@@ -408,6 +529,10 @@ fn build_refresh_targets(
     let mut targets_by_account_key: HashMap<String, RefreshTarget> = HashMap::new();
 
     for account in accounts {
+        if matches!(account.source_kind, AccountSourceKind::Relay) {
+            continue;
+        }
+
         let account_key = account.account_key();
         let current_override = current_auth_override
             .filter(|(current_account_key, _)| current_account_key == &account_key);
@@ -774,8 +899,26 @@ async fn commit_prepared_import(
             current_account_key.as_deref(),
             current_variant_key.as_deref(),
         );
+        let store_path = account_store_path_from_data_dir(
+            &app.path()
+                .app_data_dir()
+                .map_err(|error| format!("无法获取应用数据目录: {error}"))?,
+        );
+        if let Some(account) = store.accounts.iter_mut().find(|account| account.id == summary.id) {
+            profile_files::sync_account_profile_in_store_path(&store_path, account)?;
+        }
         save_store(app, &store)?;
-        summary
+        store
+            .accounts
+            .iter()
+            .find(|account| account.id == summary.id)
+            .map(|account| {
+                account.to_summary(
+                    current_account_key.as_deref(),
+                    current_variant_key.as_deref(),
+                )
+            })
+            .unwrap_or(summary)
     };
 
     Ok(summary)
@@ -968,11 +1111,23 @@ fn upsert_prepared_import(
         let stored = StoredAccount {
             id: uuid::Uuid::new_v4().to_string(),
             label: resolved_label,
+            source_kind: AccountSourceKind::Chatgpt,
             principal_id: Some(principal_id.clone()),
             email,
             account_id,
             plan_type: resolved_plan_type,
             auth_json,
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
             added_at: now,
             updated_at: now,
             usage,
@@ -987,11 +1142,23 @@ fn upsert_prepared_import(
         let stored = StoredAccount {
             id: uuid::Uuid::new_v4().to_string(),
             label: resolved_label,
+            source_kind: AccountSourceKind::Chatgpt,
             principal_id: Some(principal_id),
             email,
             account_id,
             plan_type: resolved_plan_type,
             auth_json,
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
             added_at: now,
             updated_at: now,
             usage,
@@ -1016,10 +1183,15 @@ fn apply_prepared_import_to_account(
     now: i64,
 ) {
     existing.label = label;
+    existing.source_kind = AccountSourceKind::Chatgpt;
     existing.principal_id = Some(principal_id);
     existing.email = email;
     existing.plan_type = plan_type.or(existing.plan_type.clone());
     existing.auth_json = auth_json;
+    existing.api_base_url = None;
+    existing.api_key = None;
+    existing.model_name = None;
+    existing.balance_text = None;
     existing.updated_at = now;
     existing.usage = usage;
     existing.usage_error = None;
@@ -1046,10 +1218,15 @@ fn apply_reauthorized_account(existing: &mut StoredAccount, prepared: PreparedIm
     });
 
     existing.principal_id = Some(principal_id);
+    existing.source_kind = AccountSourceKind::Chatgpt;
     existing.email = email.or_else(|| existing.email.clone());
     existing.account_id = account_id;
     existing.plan_type = resolved_plan_type;
     existing.auth_json = auth_json;
+    existing.api_base_url = None;
+    existing.api_key = None;
+    existing.model_name = None;
+    existing.balance_text = None;
     existing.updated_at = now;
     existing.usage = usage;
     existing.usage_error = None;

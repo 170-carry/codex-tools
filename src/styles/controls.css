@@ -102,7 +102,7 @@
 
 .addAccountTabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -201,7 +201,8 @@
 .addAccountPanelBody,
 .addOauthSection,
 .addCurrentSection,
-.addUploadSection {
+.addUploadSection,
+.addApiSection {
   display: grid;
   gap: 16px;
 }
@@ -234,6 +235,11 @@
   font: 700 0.75rem/1.15 var(--font-ui);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.addFieldHint {
+  color: color-mix(in srgb, var(--subtle) 88%, var(--ink) 12%);
+  font: 500 0.74rem/1.5 var(--font-ui);
 }
 
 .addOauthInput,
@@ -327,6 +333,63 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.addApiFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+}
+
+.addApiStatus,
+.addApiErrorBox {
+  border-radius: 18px;
+  padding: 14px 15px;
+  display: grid;
+  gap: 6px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--meta-bg) 58%, var(--surface-tint) 42%),
+      color-mix(in srgb, var(--meta-bg) 34%, transparent)
+    );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.28) inset,
+    0 0 0 1px color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+}
+
+.addApiErrorBox {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(242, 106, 119, 0.09),
+      rgba(242, 106, 119, 0.03)
+    );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.24) inset,
+    0 0 0 1px rgba(242, 106, 119, 0.22);
+}
+
+.addApiErrorBox strong {
+  font: 700 0.94rem/1.2 var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.addApiErrorBox p {
+  margin: 0;
+  color: var(--error-text);
+  font: 500 0.82rem/1.58 var(--font-ui);
+}
+
+.addApiActionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.addAccountSecondaryAction {
+  min-width: 148px;
 }
 
 .addUploadQueue {

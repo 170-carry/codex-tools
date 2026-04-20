@@ -1,4 +1,10 @@
 ## 更新日志
+- v1.8.0
+  1. 新增“导入 API”入口，可保存 OpenAI 兼容 Base URL、API Key 与模型名称
+  2. API 条目保存前会进行真实接口检测；检测失败时可查看错误并选择“仍然保存”
+  3. 每个普通账号与 API 条目均支持独立 `auth.json` 与 `config.toml` profile，用于切换时覆盖到 `~/.codex/`
+  4. 启动时扫描账号 profile 完整性，缺失时只提示“配置不完整”，不会删除或重置旧账号数据
+  5. API 卡片改为显示接口、模型与可选余额，不再显示 ChatGPT 用量圆环
 - v1.7.8
   1. 基于上游 `v1.7.7`（截至 2026-04-18 的 `upstream/main`）补齐 Windows 下微软商店版 Codex 的启动链路修复
   2. 修复微软商店版 Codex 启动误命中 `Codex Tools` 自身 AUMID 的问题，改为更严格识别 `OpenAI.Codex` 目标

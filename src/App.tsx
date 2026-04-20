@@ -75,6 +75,7 @@ function App() {
         onCancelOauthLogin,
         onCompleteOauthCallbackLogin,
         onImportCurrentAuth,
+        onCreateApiAccount,
         onImportAuthFiles,
         onExportAccounts,
         loadApiProxyStatus,
@@ -143,6 +144,7 @@ function App() {
                     onCompleteOauth={onCompleteOauthCallbackLogin}
                     onCancelOauth={onCancelOauthLogin}
                     onImportCurrentAuth={onImportCurrentAuth}
+                    onCreateApiAccount={onCreateApiAccount}
                     onImportFiles={onImportAuthFiles}
                     onClose={onCloseAddDialog}
                 />
@@ -182,6 +184,7 @@ function App() {
                                 switchingId={switchingId}
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
+                                usageDisplayMode={settings.trayUsageDisplayMode}
                                 onExport={(account) => void onExportAccounts(account)}
                                 onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}

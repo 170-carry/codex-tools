@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.7.7"
+version = "1.8.0"
 description = "Codex Tools"
 authors = ["you"]
 license = "MIT"
@@ -45,3 +45,4 @@ rfd = "0.15"
 if-addrs = "0.13"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+toml_edit = "0.22"

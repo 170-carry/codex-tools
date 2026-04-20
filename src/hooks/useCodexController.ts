@@ -14,6 +14,7 @@ import type {
   AppSettings,
   AuthJsonImportInput,
   CloudflaredStatus,
+  CreateApiAccountInput,
   ImportAccountsResult,
   InstalledEditorApp,
   Notice,
@@ -183,6 +184,7 @@ export function useCodexController() {
   const settingsUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const reloginPromptedAccountKeysRef = useRef<Set<string>>(new Set());
+  const profileIntegrityPromptedRef = useRef(false);
 
   const sortedAccounts = useMemo(() => sortAccountsByRemaining(accounts), [accounts]);
 
@@ -197,6 +199,12 @@ export function useCodexController() {
         ...account,
         usageError: account.usageError ? localizeError(account.usageError) : null,
         authRefreshError: account.authRefreshError ? localizeError(account.authRefreshError) : null,
+        profileIntegrityError: account.profileIntegrityError
+          ? localizeError(account.profileIntegrityError)
+          : null,
+        profileLastValidationError: account.profileLastValidationError
+          ? localizeError(account.profileLastValidationError)
+          : null,
       })),
     [localizeError],
   );
@@ -290,7 +298,26 @@ export function useCodexController() {
   const loadAccounts = useCallback(async () => {
     const data = await invoke<AccountSummary[]>("list_accounts");
     applyAccounts(data);
+    return data;
   }, [applyAccounts]);
+
+  const maybeShowProfileIntegrityNotice = useCallback(
+    (items: AccountSummary[]) => {
+      if (profileIntegrityPromptedRef.current) {
+        return;
+      }
+      const incompleteCount = items.filter((account) => account.profileIntegrityError).length;
+      if (incompleteCount <= 0) {
+        return;
+      }
+      profileIntegrityPromptedRef.current = true;
+      setNotice({
+        type: "info",
+        message: copy.notices.profileIntegrityWarning(incompleteCount),
+      });
+    },
+    [copy.notices],
+  );
 
   const loadSettings = useCallback(async () => {
     const data = await invoke<AppSettings>("get_app_settings");
@@ -593,7 +620,8 @@ export function useCodexController() {
         await loadInstalledEditorApps();
         await loadOpencodeDesktopAppInstalled();
         await loadSettings();
-        await loadAccounts();
+        const initialAccounts = await loadAccounts();
+        maybeShowProfileIntegrityNotice(initialAccounts);
         await loadApiProxyStatus();
         await loadCloudflaredStatus();
         await refreshUsage(true);
@@ -634,6 +662,7 @@ export function useCodexController() {
     loadInstalledEditorApps,
     loadOpencodeDesktopAppInstalled,
     loadSettings,
+    maybeShowProfileIntegrityNotice,
     refreshUsage,
   ]);
 
@@ -921,6 +950,31 @@ export function useCodexController() {
       }
     },
     [applyImportResult, copy.notices, localizeError, localizeImportResult],
+  );
+
+  const onCreateApiAccount = useCallback(
+    async (input: CreateApiAccountInput) => {
+      setImportingAccounts(true);
+      try {
+        await invoke<AccountSummary>("create_api_account", { input });
+        await loadAccounts();
+        setAddDialogOpen(false);
+        setNotice({
+          type: "ok",
+          message: copy.notices.apiAccountCreated(input.label),
+        });
+      } catch (error) {
+        const message = localizeError(String(error));
+        setNotice({
+          type: "error",
+          message: copy.notices.apiAccountCreateFailed(message),
+        });
+        throw new Error(message);
+      } finally {
+        setImportingAccounts(false);
+      }
+    },
+    [copy.notices, loadAccounts, localizeError],
   );
 
   const onCompleteOauthCallbackLogin = useCallback(
@@ -1632,6 +1686,7 @@ export function useCodexController() {
     onCancelOauthLogin,
     onCompleteOauthCallbackLogin,
     onImportCurrentAuth,
+    onCreateApiAccount,
     onImportAuthFiles,
     onExportAccounts,
     loadApiProxyStatus,

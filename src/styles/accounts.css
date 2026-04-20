@@ -118,6 +118,13 @@
   --stamp-plan-bg: rgba(191, 151, 255, 0.12);
 }
 
+.accountCard.tone-api {
+  --tone-a: rgba(88, 152, 255, 0.84);
+  --stamp-plan-color: #305e9f;
+  --stamp-plan-border: rgba(88, 152, 255, 0.28);
+  --stamp-plan-bg: rgba(88, 152, 255, 0.12);
+}
+
 .accountCard.tone-enterprise {
   --tone-a: rgba(255, 210, 116, 0.86);
 }
@@ -159,6 +166,13 @@
   --stamp-plan-color: #f0e0ff;
   --stamp-plan-border: rgba(181, 146, 255, 0.7);
   --stamp-plan-bg: rgba(130, 95, 219, 0.26);
+}
+
+:root[data-theme="dark"] .accountCard.tone-api {
+  --tone-a: rgba(118, 178, 255, 0.94);
+  --stamp-plan-color: #e6f1ff;
+  --stamp-plan-border: rgba(118, 178, 255, 0.68);
+  --stamp-plan-bg: rgba(73, 125, 214, 0.26);
 }
 
 :root[data-theme="dark"] .accountCard.tone-free {
@@ -227,6 +241,18 @@
   color: var(--stamp-plan-color);
   border-color: var(--stamp-plan-border);
   background: var(--stamp-plan-bg);
+}
+
+.apiBadge,
+.stateBadge {
+  min-height: 25px;
+  padding: 0 10px;
+}
+
+.stateBadge {
+  color: color-mix(in srgb, var(--ink) 72%, var(--subtle) 28%);
+  border-color: color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  background: color-mix(in srgb, var(--surface-hover-bg) 62%, transparent);
 }
 
 .planBadgeButton {
@@ -337,6 +363,42 @@
 .usageGrid.isFreePlan {
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
+}
+
+.relayInfoPanel {
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--surface-tint) 10%);
+  border-radius: 15px;
+  padding: 14px 15px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%),
+      color-mix(in srgb, var(--meta-bg) 46%, transparent)
+    );
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.relayInfoRow {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.relayInfoRow span {
+  color: var(--subtle);
+  font: 700 0.67rem/1.2 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.relayInfoRow strong {
+  color: var(--ink);
+  font: 650 0.82rem/1.4 var(--font-mono);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .usageDial {

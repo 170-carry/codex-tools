@@ -92,6 +92,23 @@ export type MessageCatalog = {
     currentImporting: string;
     uploadTab: string;
     uploadDescription: string;
+    apiTab: string;
+    apiDescription: string;
+    apiNameLabel: string;
+    apiNamePlaceholder: string;
+    apiBaseUrlLabel: string;
+    apiBaseUrlPlaceholder: string;
+    apiBaseUrlHint: string;
+    apiKeyLabel: string;
+    apiKeyPlaceholder: string;
+    apiModelLabel: string;
+    apiModelPlaceholder: string;
+    apiValidationTitle: string;
+    apiValidationDescription: string;
+    apiValidationFailed: string;
+    apiValidateAndSave: string;
+    apiSaving: string;
+    apiForceSave: string;
     uploadChooseFiles: string;
     uploadChooseFolder: string;
     uploadNoJsonFiles: string;
@@ -108,6 +125,12 @@ export type MessageCatalog = {
     currentBadge: string;
     launch: string;
     launching: string;
+    apiBadge: string;
+    profileIncomplete: string;
+    validationFailed: string;
+    endpointLabel: string;
+    modelLabel: string;
+    balanceLabel: string;
     reauthorize: string;
     editAlias: string;
     aliasInputLabel: string;
@@ -392,6 +415,9 @@ export type MessageCatalog = {
     oauthImportPrefix: string;
     currentAccountImportSuccess: string;
     currentAccountImportFailed: (error: string) => string;
+    apiAccountCreated: (label: string) => string;
+    apiAccountCreateFailed: (error: string) => string;
+    profileIntegrityWarning: (count: number) => string;
     accountAliasUpdated: (label: string) => string;
     accountAliasUpdateFailed: (error: string) => string;
     accountsExported: string;
@@ -522,6 +548,11 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.notices.oauthLinkPrepareFailed, { error }),
       currentAccountImportFailed: (error) =>
         fillTemplate(raw.notices.currentAccountImportFailed, { error }),
+      apiAccountCreated: (label) => fillTemplate(raw.notices.apiAccountCreated, { label }),
+      apiAccountCreateFailed: (error) =>
+        fillTemplate(raw.notices.apiAccountCreateFailed, { error }),
+      profileIntegrityWarning: (count) =>
+        fillTemplate(raw.notices.profileIntegrityWarning, { count }),
       accountAliasUpdated: (label) => fillTemplate(raw.notices.accountAliasUpdated, { label }),
       accountAliasUpdateFailed: (error) =>
         fillTemplate(raw.notices.accountAliasUpdateFailed, { error }),

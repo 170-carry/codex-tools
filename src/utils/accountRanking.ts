@@ -21,6 +21,10 @@ function accountRemainingScore(account: AccountSummary): {
 }
 
 export function compareAccountsByRemaining(a: AccountSummary, b: AccountSummary): number {
+  if (a.sourceKind !== b.sourceKind) {
+    return a.sourceKind === "chatgpt" ? -1 : 1;
+  }
+
   const left = accountRemainingScore(a);
   const right = accountRemainingScore(b);
 

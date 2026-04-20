@@ -18,6 +18,7 @@ use crate::auth::write_active_codex_auth;
 use crate::models::dedupe_account_variants;
 use crate::models::AccountsStore;
 use crate::models::StoredAccount;
+use crate::profile_files;
 use crate::utils::now_unix_seconds;
 use crate::utils::set_private_permissions;
 use crate::utils::short_account;
@@ -156,11 +157,23 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
     let stored = StoredAccount {
         id: Uuid::new_v4().to_string(),
         label,
+        source_kind: Default::default(),
         principal_id: Some(extracted.principal_id),
         email: extracted.email,
         account_id: extracted.account_id,
         plan_type: extracted.plan_type,
         auth_json,
+        api_base_url: None,
+        api_key: None,
+        model_name: None,
+        balance_text: None,
+        profile_auth_path: None,
+        profile_config_path: None,
+        profile_auth_ready: false,
+        profile_config_ready: false,
+        profile_integrity_error: None,
+        profile_last_validated_at: None,
+        profile_last_validation_error: None,
         added_at: now,
         updated_at: now,
         usage: None,
@@ -168,6 +181,8 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
         auth_refresh_blocked: false,
         auth_refresh_error: None,
     };
+    let mut stored = stored;
+    let _ = profile_files::sync_account_profile_in_store_path(path, &mut stored);
     store.accounts.push(stored);
     save_store_to_path(path, &store)?;
     Ok(())
@@ -257,6 +272,10 @@ fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStor
             .is_none()
         {
             account.principal_id = Some(account.principal_key());
+            changed = true;
+        }
+
+        if profile_files::ensure_profile_metadata(path, account) {
             changed = true;
         }
     }

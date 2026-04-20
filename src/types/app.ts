@@ -20,13 +20,24 @@ export type UsageSnapshot = {
   credits: CreditSnapshot | null;
 };
 
+export type AccountSourceKind = "chatgpt" | "relay";
+
 export type AccountSummary = {
   id: string;
   label: string;
+  sourceKind: AccountSourceKind;
   email: string | null;
   accountKey: string;
   accountId: string;
   planType: string | null;
+  apiBaseUrl: string | null;
+  modelName: string | null;
+  balanceText: string | null;
+  profileAuthReady: boolean;
+  profileConfigReady: boolean;
+  profileIntegrityError: string | null;
+  profileLastValidatedAt: number | null;
+  profileLastValidationError: string | null;
   addedAt: number;
   updatedAt: number;
   usage: UsageSnapshot | null;
@@ -62,6 +73,14 @@ export type AuthJsonImportInput = {
   source: string;
   content: string;
   label: string | null;
+};
+
+export type CreateApiAccountInput = {
+  label: string;
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
+  forceSave: boolean;
 };
 
 export type ImportAccountFailure = {
