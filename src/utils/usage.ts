@@ -42,6 +42,7 @@ export function formatPlan(
   if (normalized === "team") return "Team";
   if (normalized === "enterprise") return "Enterprise";
   if (normalized === "business") return "Business";
+  if (normalized === "api") return "API";
   return normalized[0].toUpperCase() + normalized.slice(1);
 }
 
@@ -52,6 +53,7 @@ export function planTone(plan: string | null | undefined): string {
   if (normalized === "plus") return "plus";
   if (normalized === "enterprise") return "enterprise";
   if (normalized === "business") return "business";
+  if (normalized === "api") return "api";
   if (normalized === "free") return "free";
   return "unknown";
 }

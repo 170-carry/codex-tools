@@ -24,6 +24,7 @@ function App() {
         loading,
         refreshing,
         addDialogOpen,
+        reauthorizeAccount,
         importingAccounts,
         oauthWaitingForCallback,
         exportingAccounts,
@@ -67,12 +68,14 @@ function App() {
         closeUpdateDialog,
         updateSettings,
         onOpenAddDialog,
+        onReauthorizeAccount,
         onPrepareOauthLogin,
         onOpenOauthAuthorizationPage,
         onCloseAddDialog,
         onCancelOauthLogin,
         onCompleteOauthCallbackLogin,
         onImportCurrentAuth,
+        onCreateApiAccount,
         onImportAuthFiles,
         onExportAccounts,
         loadApiProxyStatus,
@@ -133,6 +136,7 @@ function App() {
 
                 <AddAccountDialog
                     open={addDialogOpen}
+                    reauthorizeAccount={reauthorizeAccount}
                     importingAccounts={importingAccounts}
                     oauthWaitingForCallback={oauthWaitingForCallback}
                     onPrepareOauth={onPrepareOauthLogin}
@@ -140,6 +144,7 @@ function App() {
                     onCompleteOauth={onCompleteOauthCallbackLogin}
                     onCancelOauth={onCancelOauthLogin}
                     onImportCurrentAuth={onImportCurrentAuth}
+                    onCreateApiAccount={onCreateApiAccount}
                     onImportFiles={onImportAuthFiles}
                     onClose={onCloseAddDialog}
                 />
@@ -179,7 +184,9 @@ function App() {
                                 switchingId={switchingId}
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
+                                usageDisplayMode={settings.trayUsageDisplayMode}
                                 onExport={(account) => void onExportAccounts(account)}
+                                onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}
                                 onSwitch={(account) => void onSwitch(account)}
                                 onDelete={(account) => void onDelete(account)}

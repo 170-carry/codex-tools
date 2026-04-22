@@ -34,9 +34,8 @@ use tokio::sync::oneshot;
 
 #[cfg(feature = "desktop")]
 use tauri::AppHandle;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
+use crate::app_paths;
 use crate::auth::extract_auth;
 use crate::auth::refresh_chatgpt_auth_tokens_serialized;
 use crate::models::ApiProxyStatus;
@@ -1849,9 +1848,7 @@ fn api_proxy_key_path(storage: &ProxyStorageContext) -> Result<PathBuf, String> 
 
 #[cfg(feature = "desktop")]
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|error| format!("无法获取应用数据目录: {error}"))
+    app_paths::app_data_dir(app)
 }
 
 fn write_private_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {

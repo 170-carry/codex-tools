@@ -1,4 +1,5 @@
 mod account_service;
+mod app_paths;
 mod auth;
 mod cli;
 mod cloudflared_service;
@@ -6,6 +7,7 @@ mod editor_apps;
 mod i18n;
 mod models;
 mod opencode;
+mod profile_files;
 pub mod proxy_daemon;
 mod proxy_service;
 mod remote_service;
@@ -39,6 +41,7 @@ use models::AppSettings;
 use models::AppSettingsPatch;
 use models::AuthJsonImportInput;
 use models::CloudflaredStatus;
+use models::CreateApiAccountInput;
 use models::DeployRemoteProxyInput;
 use models::EditorAppId;
 use models::ImportAccountsResult;
@@ -224,7 +227,11 @@ async fn complete_oauth_login_internal(
     };
 
     let auth_json = auth::complete_oauth_callback_login(&pending, callback_url).await?;
-    import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+    if let Some(account_id) = pending.reauthorize_account_id.as_deref() {
+        account_service::reauthorize_account_internal(app, state, account_id, auth_json).await
+    } else {
+        import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+    }
 }
 
 async fn emit_oauth_callback_finished(app: &AppHandle, payload: OauthCallbackFinishedEvent) {
@@ -447,6 +454,17 @@ async fn import_current_auth_account(
 }
 
 #[tauri::command]
+async fn create_api_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: CreateApiAccountInput,
+) -> Result<AccountSummary, String> {
+    let summary = account_service::create_api_account_internal(&app, state.inner(), input).await?;
+    let _ = tray::refresh_macos_tray_snapshot(&app);
+    Ok(summary)
+}
+
+#[tauri::command]
 async fn import_auth_json_accounts(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -637,11 +655,21 @@ async fn pick_codex_launch_path(
 async fn prepare_oauth_login(
     app: AppHandle,
     state: State<'_, AppState>,
+    account_id: Option<String>,
 ) -> Result<PreparedOauthLogin, String> {
     let _oauth_guard = state.oauth_flow_lock.lock().await;
     stop_oauth_callback_listener(state.inner()).await;
     let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
-    let (pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    let (mut pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    pending.reauthorize_account_id = account_id
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = Some(pending.clone());
@@ -742,7 +770,9 @@ async fn switch_account_and_launch(
         .cloned()
         .ok_or_else(|| "找不到要切换的账号".to_string())?;
 
-    if auth::auth_tokens_need_refresh(&account.auth_json) {
+    if matches!(account.source_kind, models::AccountSourceKind::Chatgpt)
+        && auth::auth_tokens_need_refresh(&account.auth_json)
+    {
         if account.auth_refresh_blocked {
             return Err(format!(
                 "切换账号前刷新登录令牌失败: {}",
@@ -768,7 +798,7 @@ async fn switch_account_and_launch(
 
                 if should_block_refresh {
                     let blocked_message = "授权过期，请重新登录授权。";
-                    match app.path().app_data_dir() {
+                    match app_paths::app_data_dir(&app) {
                         Ok(data_dir) => {
                             let store_path = store::account_store_path_from_data_dir(&data_dir);
                             if let Err(persist_error) =
@@ -823,7 +853,25 @@ async fn switch_account_and_launch(
     let effective_restart_targets =
         restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
     let configured_codex_launch_path = store.settings.codex_launch_path.clone();
-    auth::write_active_codex_auth(&account.auth_json)?;
+    {
+        let _guard = state.store_lock.lock().await;
+        let mut latest_store = store::load_store(&app)?;
+        let stored_account = latest_store
+            .accounts
+            .iter_mut()
+            .find(|stored| stored.id == id)
+            .ok_or_else(|| "找不到要切换的账号".to_string())?;
+        profile_files::sync_account_profile_in_store_path(
+            &store::account_store_path_from_data_dir(
+                &app_paths::app_data_dir(&app)?,
+            ),
+            stored_account,
+        )?;
+        profile_files::apply_account_profile(stored_account)?;
+        latest_store.settings.active_account_id = Some(stored_account.id.clone());
+        account = stored_account.clone();
+        store::save_store(&app, &latest_store)?;
+    }
     let _ = tray::refresh_macos_tray_snapshot(&app);
 
     let mut opencode_synced = false;
@@ -831,7 +879,11 @@ async fn switch_account_and_launch(
     let mut opencode_desktop_restarted = false;
     let mut opencode_desktop_restart_error = None;
     if should_sync_opencode {
-        match opencode::sync_openai_auth_from_codex_auth(&account.auth_json) {
+        match if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
+            opencode::sync_openai_auth_from_codex_auth(&account.auth_json)
+        } else {
+            Err("当前条目为 API 中转站配置，无法同步为 opencode 的 OAuth 登录态。".to_string())
+        } {
             Ok(()) => {
                 opencode_synced = true;
                 if should_restart_opencode_desktop {
@@ -878,22 +930,61 @@ async fn switch_account_and_launch(
     // 切换时强制结束旧实例，避免触发“是否退出”确认弹窗。
     force_stop_running_codex();
 
+    let mut app_launch_error = None;
     if let Some(path) = cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
         .or_else(cli::find_codex_app_path)
     {
-        launch_codex_app(&path, workspace_path.as_deref())?;
+        match launch_codex_app(&path, workspace_path.as_deref()) {
+            Ok(()) => {
+                return Ok(SwitchAccountResult {
+                    account_id: account.account_id,
+                    launched_app_path: Some(path.to_string_lossy().to_string()),
+                    used_fallback_cli: false,
+                    opencode_synced,
+                    opencode_sync_error,
+                    opencode_desktop_restarted,
+                    opencode_desktop_restart_error,
+                    restarted_editor_apps,
+                    editor_restart_error,
+                });
+            }
+            Err(error) => {
+                log::warn!(
+                    "通过 Codex 应用路径启动失败 {}: {}",
+                    path.display(),
+                    error
+                );
+                app_launch_error = Some(error);
+            }
+        }
+    }
 
-        return Ok(SwitchAccountResult {
-            account_id: account.account_id,
-            launched_app_path: Some(path.to_string_lossy().to_string()),
-            used_fallback_cli: false,
-            opencode_synced,
-            opencode_sync_error,
-            opencode_desktop_restarted,
-            opencode_desktop_restart_error,
-            restarted_editor_apps,
-            editor_restart_error,
-        });
+    #[cfg(target_os = "windows")]
+    if cli::has_windows_store_codex_app() {
+        match cli::launch_windows_store_codex() {
+            Ok(()) => {
+                return Ok(SwitchAccountResult {
+                    account_id: account.account_id,
+                    launched_app_path: None,
+                    used_fallback_cli: false,
+                    opencode_synced,
+                    opencode_sync_error,
+                    opencode_desktop_restarted,
+                    opencode_desktop_restart_error,
+                    restarted_editor_apps,
+                    editor_restart_error,
+                });
+            }
+            Err(error) => {
+                log::warn!("通过 Windows Store AUMID 启动 Codex 失败: {error}");
+                app_launch_error = Some(match app_launch_error {
+                    Some(previous_error) => {
+                        format!("{previous_error}；且通过 Windows Store AUMID 启动失败: {error}")
+                    }
+                    None => format!("通过 Windows Store AUMID 启动失败: {error}"),
+                });
+            }
+        }
     }
 
     let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
@@ -902,7 +993,15 @@ async fn switch_account_and_launch(
         cmd.arg(workspace);
     }
     cmd.spawn()
-        .map_err(|e| format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}"))?;
+        .map_err(|e| {
+            if let Some(app_launch_error) = app_launch_error.as_ref() {
+                format!(
+                    "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
+                )
+            } else {
+                format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
+            }
+        })?;
 
     Ok(SwitchAccountResult {
         account_id: account.account_id,
@@ -936,6 +1035,11 @@ fn launch_codex_app(path: &std::path::Path, workspace_path: Option<&str>) -> Res
 
     #[cfg(target_os = "windows")]
     {
+        if cli::is_windows_store_codex_path(path) {
+            let _ = workspace_path;
+            return cli::launch_windows_store_codex();
+        }
+
         let mut cmd = new_background_command(path);
         if let Some(workspace) = workspace_path {
             cmd.arg(workspace);
@@ -1224,6 +1328,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_accounts,
             import_current_auth_account,
+            create_api_account,
             import_auth_json_accounts,
             export_accounts_zip,
             delete_account,

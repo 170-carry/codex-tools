@@ -9,8 +9,8 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use tauri::AppHandle;
-use tauri::Manager;
 
+use crate::app_paths;
 use crate::models::CloudflaredStatus;
 use crate::models::CloudflaredTunnelMode;
 use crate::models::NamedCloudflaredTunnelInput;
@@ -580,11 +580,7 @@ fn read_last_log_line(path: &Path) -> Option<String> {
 }
 
 fn next_cloudflared_log_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法获取应用数据目录: {e}"))?
-        .join("cloudflared");
+    let dir = app_paths::app_data_dir(app)?.join("cloudflared");
     fs::create_dir_all(&dir)
         .map_err(|e| format!("创建 cloudflared 日志目录失败 {}: {e}", dir.display()))?;
 

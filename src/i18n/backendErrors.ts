@@ -372,6 +372,56 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
+    source: "未找到微软商店版 Codex 的启动标识（AUMID）。",
+    target: phrases(
+      "未找到微软商店版 Codex 的启动标识（AUMID）。",
+      "Unable to find the launch identifier (AUMID) for the Microsoft Store version of Codex.",
+      "Microsoft Store 版 Codex の起動識別子 (AUMID) が見つかりません。",
+      "Microsoft Store 버전 Codex 의 시작 식별자(AUMID)를 찾을 수 없습니다.",
+      "Не удалось найти идентификатор запуска (AUMID) для версии Codex из Microsoft Store."
+    ),
+  },
+  {
+    source: "微软商店版 Codex 激活后未检测到进程启动",
+    target: phrases(
+      "微软商店版 Codex 激活后未检测到进程启动",
+      "No Codex process was detected after activating the Microsoft Store version",
+      "Microsoft Store 版 Codex を有効化した後もプロセスの起動を検出できませんでした",
+      "Microsoft Store 버전 Codex 를 활성화한 뒤에도 프로세스 시작을 감지하지 못했습니다",
+      "После активации версии Codex из Microsoft Store запуск процесса не был обнаружен"
+    ),
+  },
+  {
+    source: "创建微软商店激活管理器失败",
+    target: phrases(
+      "创建微软商店激活管理器失败",
+      "Failed to create the Microsoft Store activation manager",
+      "Microsoft Store のアクティベーションマネージャーを作成できませんでした",
+      "Microsoft Store 활성화 관리자를 만들지 못했습니다",
+      "Не удалось создать диспетчер активации Microsoft Store"
+    ),
+  },
+  {
+    source: "通过 AUMID 激活 Codex 失败",
+    target: phrases(
+      "通过 AUMID 激活 Codex 失败",
+      "Failed to activate Codex via AUMID",
+      "AUMID 経由で Codex を起動できませんでした",
+      "AUMID 를 통해 Codex 를 활성화하지 못했습니다",
+      "Не удалось активировать Codex через AUMID"
+    ),
+  },
+  {
+    source: "初始化 Windows COM 失败",
+    target: phrases(
+      "初始化 Windows COM 失败",
+      "Failed to initialize Windows COM",
+      "Windows COM の初期化に失敗しました",
+      "Windows COM 초기화에 실패했습니다",
+      "Не удалось инициализировать Windows COM"
+    ),
+  },
+  {
     source: "未知编辑器标识",
     target: phrases(
       "未知编辑器标识",

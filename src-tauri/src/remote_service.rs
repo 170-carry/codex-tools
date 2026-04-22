@@ -10,6 +10,7 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::app_paths;
 use crate::models::AccountsStore;
 use crate::models::DeployRemoteProxyInput;
 use crate::models::RemoteAuthMode;
@@ -816,10 +817,7 @@ fn render_systemd_unit(server: &RemoteServerConfig, service_name: &str) -> Strin
 }
 
 fn local_accounts_store_json(app: &AppHandle) -> Result<String, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法获取应用数据目录: {error}"))?;
+    let data_dir = app_paths::app_data_dir(app)?;
     let path = account_store_path_from_data_dir(&data_dir);
 
     if path.exists() {

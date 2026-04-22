@@ -14,6 +14,7 @@ import type {
   AppSettings,
   AuthJsonImportInput,
   CloudflaredStatus,
+  CreateApiAccountInput,
   ImportAccountsResult,
   InstalledEditorApp,
   Notice,
@@ -27,7 +28,7 @@ import type {
   SwitchAccountResult,
   UpdateSettingsOptions,
 } from "../types/app";
-import { pickBestRemainingAccount, sortAccountsByRemaining } from "../utils/accountRanking";
+import { pickBestSmartSwitchAccount, sortAccountsByRemaining } from "../utils/accountRanking";
 
 const REFRESH_MS = 30_000;
 const EDITOR_SCAN_MS = 60_000;
@@ -38,6 +39,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   trayUsageDisplayMode: "remaining",
   launchCodexAfterSwitch: true,
+  smartSwitchIncludeApi: false,
   codexLaunchPath: null,
   syncOpencodeOpenaiAuth: false,
   restartOpencodeDesktopOnSwitch: false,
@@ -143,6 +145,7 @@ export function useCodexController() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [reauthorizeAccount, setReauthorizeAccount] = useState<AccountSummary | null>(null);
   const [importingAccounts, setImportingAccounts] = useState(false);
   const [oauthWaitingForCallback, setOauthWaitingForCallback] = useState(false);
   const [exportingAccounts, setExportingAccounts] = useState(false);
@@ -182,6 +185,7 @@ export function useCodexController() {
   const settingsUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const reloginPromptedAccountKeysRef = useRef<Set<string>>(new Set());
+  const profileIntegrityPromptedRef = useRef(false);
 
   const sortedAccounts = useMemo(() => sortAccountsByRemaining(accounts), [accounts]);
 
@@ -196,6 +200,12 @@ export function useCodexController() {
         ...account,
         usageError: account.usageError ? localizeError(account.usageError) : null,
         authRefreshError: account.authRefreshError ? localizeError(account.authRefreshError) : null,
+        profileIntegrityError: account.profileIntegrityError
+          ? localizeError(account.profileIntegrityError)
+          : null,
+        profileLastValidationError: account.profileLastValidationError
+          ? localizeError(account.profileLastValidationError)
+          : null,
       })),
     [localizeError],
   );
@@ -289,7 +299,26 @@ export function useCodexController() {
   const loadAccounts = useCallback(async () => {
     const data = await invoke<AccountSummary[]>("list_accounts");
     applyAccounts(data);
+    return data;
   }, [applyAccounts]);
+
+  const maybeShowProfileIntegrityNotice = useCallback(
+    (items: AccountSummary[]) => {
+      if (profileIntegrityPromptedRef.current) {
+        return;
+      }
+      const incompleteCount = items.filter((account) => account.profileIntegrityError).length;
+      if (incompleteCount <= 0) {
+        return;
+      }
+      profileIntegrityPromptedRef.current = true;
+      setNotice({
+        type: "info",
+        message: copy.notices.profileIntegrityWarning(incompleteCount),
+      });
+    },
+    [copy.notices],
+  );
 
   const loadSettings = useCallback(async () => {
     const data = await invoke<AppSettings>("get_app_settings");
@@ -592,7 +621,8 @@ export function useCodexController() {
         await loadInstalledEditorApps();
         await loadOpencodeDesktopAppInstalled();
         await loadSettings();
-        await loadAccounts();
+        const initialAccounts = await loadAccounts();
+        maybeShowProfileIntegrityNotice(initialAccounts);
         await loadApiProxyStatus();
         await loadCloudflaredStatus();
         await refreshUsage(true);
@@ -633,6 +663,7 @@ export function useCodexController() {
     loadInstalledEditorApps,
     loadOpencodeDesktopAppInstalled,
     loadSettings,
+    maybeShowProfileIntegrityNotice,
     refreshUsage,
   ]);
 
@@ -779,6 +810,7 @@ export function useCodexController() {
           localizeImportResult(event.payload.result),
           copy.notices.oauthImportPrefix,
         );
+        setReauthorizeAccount(null);
         return;
       }
 
@@ -811,13 +843,16 @@ export function useCodexController() {
 
   const onOpenAddDialog = useCallback(() => {
     setOauthWaitingForCallback(false);
+    setReauthorizeAccount(null);
     setAddDialogOpen(true);
   }, []);
 
   const onPrepareOauthLogin = useCallback(async () => {
     setOauthWaitingForCallback(false);
     try {
-      return await invoke<PreparedOauthLogin>("prepare_oauth_login");
+      return await invoke<PreparedOauthLogin>("prepare_oauth_login", {
+        accountId: reauthorizeAccount?.id ?? null,
+      });
     } catch (error) {
       setNotice({
         type: "error",
@@ -825,7 +860,7 @@ export function useCodexController() {
       });
       throw error;
     }
-  }, [copy.notices, localizeError]);
+  }, [copy.notices, localizeError, reauthorizeAccount]);
 
   const onOpenOauthAuthorizationPage = useCallback(
     async (url: string) => {
@@ -859,7 +894,14 @@ export function useCodexController() {
 
     void onCancelOauthLogin();
     setAddDialogOpen(false);
+    setReauthorizeAccount(null);
   }, [importingAccounts, onCancelOauthLogin]);
+
+  const onReauthorizeAccount = useCallback((account: AccountSummary) => {
+    setOauthWaitingForCallback(false);
+    setReauthorizeAccount(account);
+    setAddDialogOpen(true);
+  }, []);
 
   const onImportCurrentAuth = useCallback(async () => {
     if (importingAccounts) {
@@ -911,6 +953,31 @@ export function useCodexController() {
     [applyImportResult, copy.notices, localizeError, localizeImportResult],
   );
 
+  const onCreateApiAccount = useCallback(
+    async (input: CreateApiAccountInput) => {
+      setImportingAccounts(true);
+      try {
+        await invoke<AccountSummary>("create_api_account", { input });
+        await loadAccounts();
+        setAddDialogOpen(false);
+        setNotice({
+          type: "ok",
+          message: copy.notices.apiAccountCreated(input.label),
+        });
+      } catch (error) {
+        const message = localizeError(String(error));
+        setNotice({
+          type: "error",
+          message: copy.notices.apiAccountCreateFailed(message),
+        });
+        throw new Error(message);
+      } finally {
+        setImportingAccounts(false);
+      }
+    },
+    [copy.notices, loadAccounts, localizeError],
+  );
+
   const onCompleteOauthCallbackLogin = useCallback(
     async (callbackUrl: string) => {
       setOauthWaitingForCallback(false);
@@ -920,6 +987,7 @@ export function useCodexController() {
           callbackUrl,
         });
         await applyImportResult(localizeImportResult(result), copy.notices.oauthImportPrefix);
+        setReauthorizeAccount(null);
       } catch (error) {
         setNotice({
           type: "error",
@@ -1537,7 +1605,10 @@ export function useCodexController() {
       return;
     }
 
-    const target = pickBestRemainingAccount(sortedAccounts);
+    const target = pickBestSmartSwitchAccount(
+      sortedAccounts,
+      settings.smartSwitchIncludeApi,
+    );
     if (!target) {
       setNotice({ type: "info", message: copy.notices.smartSwitchNoTarget });
       return;
@@ -1551,7 +1622,7 @@ export function useCodexController() {
     }
 
     await onSwitch(target);
-  }, [copy.notices, onSwitch, sortedAccounts, switchingId]);
+  }, [copy.notices, onSwitch, settings.smartSwitchIncludeApi, sortedAccounts, switchingId]);
 
   const onUpdateRemoteServers = useCallback(
     async (remoteServers: RemoteServerConfig[]) => {
@@ -1569,6 +1640,7 @@ export function useCodexController() {
     refreshing,
     addDialogOpen,
     importingAccounts,
+    reauthorizeAccount,
     oauthWaitingForCallback,
     exportingAccounts,
     apiProxyStatus,
@@ -1611,12 +1683,14 @@ export function useCodexController() {
     closeUpdateDialog,
     updateSettings,
     onOpenAddDialog,
+    onReauthorizeAccount,
     onPrepareOauthLogin,
     onOpenOauthAuthorizationPage,
     onCloseAddDialog,
     onCancelOauthLogin,
     onCompleteOauthCallbackLogin,
     onImportCurrentAuth,
+    onCreateApiAccount,
     onImportAuthFiles,
     onExportAccounts,
     loadApiProxyStatus,

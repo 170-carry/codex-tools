@@ -4,11 +4,34 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::thread;
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
 
 use crate::utils::new_background_command;
+#[cfg(target_os = "windows")]
+use crate::utils::new_resolved_command;
+#[cfg(target_os = "windows")]
+use windows::core::HSTRING;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_LOCAL_SERVER,
+    COINIT_APARTMENTTHREADED,
+};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Shell::{
+    ApplicationActivationManager, IApplicationActivationManager, AO_NONE,
+};
 
 const INVALID_CONFIGURED_CODEX_PATH_MESSAGE: &str =
     "设置的 Codex 启动路径无效。请填写 Codex.exe 或 codex/codex.exe 的完整路径，或填写包含它们的安装目录。";
+#[cfg(target_os = "windows")]
+const WINDOWS_STORE_LAUNCH_TIMEOUT_MS: u64 = 8_000;
+#[cfg(target_os = "windows")]
+const WINDOWS_STORE_LAUNCH_POLL_MS: u64 = 250;
 
 /// 构造可直接启动 Codex CLI 的命令。
 ///
@@ -50,6 +73,15 @@ pub(crate) fn validate_configured_codex_path(configured_path: Option<&str>) -> R
         return Ok(());
     };
 
+    #[cfg(target_os = "windows")]
+    if is_windows_store_codex_path(path) {
+        return if has_windows_store_codex_app() {
+            Ok(())
+        } else {
+            Err(INVALID_CONFIGURED_CODEX_PATH_MESSAGE.to_string())
+        };
+    }
+
     if find_configured_codex_app_path_from_path(Some(path)).is_some()
         || find_configured_codex_cli_path(Some(path)).is_some()
         || is_macos_app_bundle(path)
@@ -64,6 +96,46 @@ pub(crate) fn find_configured_codex_app_path(configured_path: Option<&str>) -> O
     let normalized = normalize_configured_path(configured_path)?;
 
     find_configured_codex_app_path_from_path(Some(&normalized))
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn is_windows_store_codex_path(path: &Path) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    normalized.contains("\\windowsapps\\openai.codex_")
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn is_windows_store_codex_path(_path: &Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn has_windows_store_codex_app() -> bool {
+    find_windows_codex_store_app_id().is_some()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn has_windows_store_codex_app() -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn launch_windows_store_codex() -> Result<(), String> {
+    let app_id = find_windows_codex_store_app_id().ok_or_else(|| {
+        "未找到微软商店版 Codex 的启动标识（AUMID）。".to_string()
+    })?;
+    let baseline_pids = list_running_windows_codex_process_ids();
+    let process_id = activate_windows_store_codex_by_aumid(&app_id)?;
+    if wait_for_windows_store_codex_process(process_id, &baseline_pids) {
+        Ok(())
+    } else {
+        Err(format!(
+            "微软商店版 Codex 激活后未检测到进程启动（{WINDOWS_STORE_LAUNCH_TIMEOUT_MS} ms）。"
+        ))
+    }
 }
 
 pub(crate) fn find_codex_app_path() -> Option<PathBuf> {
@@ -148,6 +220,14 @@ fn find_configured_codex_app_path_from_path(configured_path: Option<&Path>) -> O
 
     #[cfg(target_os = "windows")]
     {
+        if is_windows_store_codex_path(configured_path) {
+            return if has_windows_store_codex_app() {
+                Some(configured_path.to_path_buf())
+            } else {
+                None
+            };
+        }
+
         if configured_path.is_file() && is_windows_codex_app_file(configured_path) {
             return Some(configured_path.to_path_buf());
         }
@@ -386,6 +466,212 @@ fn append_where_matches(candidates: &mut Vec<PathBuf>, commands: &[&str]) {
 }
 
 #[cfg(target_os = "windows")]
+fn find_windows_codex_store_app_id() -> Option<String> {
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+$pattern = '^OpenAI\.Codex_[^!]+![^!]+$'
+$candidates = New-Object System.Collections.Generic.List[string]
+
+@(
+  Get-StartApps |
+    Where-Object { $_.AppID -and $_.AppID -match $pattern } |
+    Select-Object -ExpandProperty AppID -Unique
+) | ForEach-Object {
+  if ($_ -and -not $candidates.Contains($_)) {
+    [void]$candidates.Add($_)
+  }
+}
+
+try {
+  @(
+    (New-Object -ComObject Shell.Application).
+      NameSpace('shell:::{4234d49b-0245-4df3-b780-3893943456e1}').
+      Items() |
+      Select-Object @{n='AUMID';e={$_.Path}} |
+      Where-Object { $_.AUMID -and $_.AUMID -match $pattern } |
+      Select-Object -ExpandProperty AUMID -Unique
+  ) | ForEach-Object {
+    if ($_ -and -not $candidates.Contains($_)) {
+      [void]$candidates.Add($_)
+    }
+  }
+} catch {}
+
+try {
+  $pkg = Get-AppxPackage -Name 'OpenAI.Codex' | Select-Object -First 1
+  if ($null -ne $pkg) {
+    $manifest = $pkg | Get-AppxPackageManifest
+    foreach ($app in @($manifest.Package.Applications.Application)) {
+      if ($null -ne $app -and $app.Id) {
+        $aumid = '{0}!{1}' -f $pkg.PackageFamilyName, $app.Id
+        if ($aumid -match $pattern -and -not $candidates.Contains($aumid)) {
+          [void]$candidates.Add($aumid)
+        }
+      }
+    }
+  }
+} catch {}
+
+$match = $candidates |
+  Sort-Object @{Expression = { $_ -notmatch '!App$' }}, @{Expression = { $_ }} |
+  Select-Object -First 1
+if ($match) {
+  $match
+  exit 0
+}
+"#;
+
+    let output = new_resolved_command("powershell")
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(target_os = "windows")]
+fn activate_windows_store_codex_by_aumid(app_id: &str) -> Result<u32, String> {
+    let _com_guard = WindowsComGuard::initialize()?;
+    let activation_manager: IApplicationActivationManager = unsafe {
+        CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_LOCAL_SERVER)
+    }
+    .map_err(|error| format!("创建微软商店激活管理器失败: {error}"))?;
+
+    let app_id = HSTRING::from(app_id);
+    let arguments = HSTRING::new();
+    unsafe { activation_manager.ActivateApplication(&app_id, &arguments, AO_NONE) }
+        .map_err(|error| format!("通过 AUMID 激活 Codex 失败: {error}"))
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_windows_store_codex_process(expected_pid: u32, baseline_pids: &[u32]) -> bool {
+    let baseline = baseline_pids.iter().copied().collect::<HashSet<_>>();
+    let deadline = Instant::now() + Duration::from_millis(WINDOWS_STORE_LAUNCH_TIMEOUT_MS);
+    loop {
+        if expected_pid > 0 && is_windows_process_running(expected_pid) {
+            return true;
+        }
+
+        let current_pids = list_running_windows_codex_process_ids();
+        if current_pids.iter().any(|pid| !baseline.contains(pid)) {
+            return true;
+        }
+
+        if Instant::now() >= deadline {
+            return false;
+        }
+
+        thread::sleep(Duration::from_millis(WINDOWS_STORE_LAUNCH_POLL_MS));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn list_running_windows_codex_process_ids() -> Vec<u32> {
+    let mut pids = Vec::new();
+    for image_name in ["Codex.exe", "Codex Desktop.exe"] {
+        let filter = format!("IMAGENAME eq {image_name}");
+        let Ok(output) = new_resolved_command("tasklist")
+            .args(["/FO", "CSV", "/NH", "/FI", &filter])
+            .output()
+        else {
+            continue;
+        };
+
+        if !output.status.success() {
+            continue;
+        }
+
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Some(pid) = parse_tasklist_csv_pid(line) {
+                pids.push(pid);
+            }
+        }
+    }
+
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_process_running(pid: u32) -> bool {
+    let filter = format!("PID eq {pid}");
+    let Ok(output) = new_resolved_command("tasklist")
+        .args(["/FO", "CSV", "/NH", "/FI", &filter])
+        .output()
+    else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| parse_tasklist_csv_pid(line).is_some())
+}
+
+#[cfg(target_os = "windows")]
+fn parse_tasklist_csv_pid(line: &str) -> Option<u32> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with("INFO:") || !trimmed.starts_with('"') {
+        return None;
+    }
+
+    let mut parts = trimmed.trim_matches('"').split("\",\"");
+    let _image_name = parts.next()?;
+    parts.next()?.parse().ok()
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsComGuard {
+    should_uninitialize: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsComGuard {
+    fn initialize() -> Result<Self, String> {
+        let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        if hr == RPC_E_CHANGED_MODE {
+            return Ok(Self {
+                should_uninitialize: false,
+            });
+        }
+        if hr.is_ok() {
+            return Ok(Self {
+                should_uninitialize: true,
+            });
+        }
+        Err(format!("初始化 Windows COM 失败: {hr}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsComGuard {
+    fn drop(&mut self) {
+        if self.should_uninitialize {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn append_windows_codex_app_candidates_from_dir(candidates: &mut Vec<PathBuf>, dir: &Path) {
     for name in ["Codex.exe", "Codex Desktop.exe"] {
         candidates.push(dir.join(name));
@@ -433,7 +719,7 @@ fn first_executable_candidate(candidates: Vec<PathBuf>) -> Option<PathBuf> {
         if !seen.insert(candidate.clone()) {
             continue;
         }
-        if is_executable_file(&candidate) {
+        if is_executable_file(&candidate) && is_windows_codex_app_file(&candidate) {
             return Some(candidate);
         }
     }
@@ -469,6 +755,7 @@ fn is_windows_codex_app_file(path: &Path) -> bool {
     let normalized_path = path.to_string_lossy().to_ascii_lowercase();
     if normalized_path.contains("\\winget\\links\\")
         || normalized_path.contains("\\shims\\")
+        || normalized_path.contains("\\resources\\")
         || normalized_path.contains("\\resources\\bin\\")
     {
         return false;

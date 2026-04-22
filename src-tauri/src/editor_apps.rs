@@ -80,7 +80,7 @@ pub(crate) fn restart_selected_editor_apps(
     targets: &[EditorAppId],
 ) -> (Vec<EditorAppId>, Option<String>) {
     if targets.is_empty() {
-        return (Vec::new(), Some("未选择重启目标编辑器".to_string()));
+        return (Vec::new(), None);
     }
 
     let mut restarted = Vec::new();

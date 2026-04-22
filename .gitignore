@@ -28,3 +28,4 @@ push.sh
 release/
 debug/
 src-tauri/gen/
+.dev-runtime/

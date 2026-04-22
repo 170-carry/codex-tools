@@ -16,6 +16,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
+use crate::app_paths;
 use crate::models::ExtractedAuth;
 use crate::models::PreparedOauthLogin;
 use crate::utils::set_private_permissions;
@@ -44,6 +45,7 @@ pub(crate) struct PendingOauthLogin {
     pub(crate) state: String,
     pub(crate) code_verifier: String,
     pub(crate) expires_at: i64,
+    pub(crate) reauthorize_account_id: Option<String>,
 }
 
 pub(crate) fn oauth_redirect_port() -> u16 {
@@ -126,6 +128,7 @@ pub(crate) fn prepare_oauth_login(
         state,
         code_verifier,
         expires_at,
+        reauthorize_account_id: None,
     };
     let prepared = PreparedOauthLogin {
         auth_url,
@@ -600,8 +603,7 @@ fn build_auth_json_from_oauth_tokens(token_response: OAuthTokenResponse) -> Resu
 }
 
 fn codex_auth_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "无法读取 HOME 目录".to_string())?;
-    Ok(home.join(".codex").join("auth.json"))
+    app_paths::codex_auth_path()
 }
 
 fn auth_token_object(auth_json: &Value) -> Option<&Map<String, Value>> {

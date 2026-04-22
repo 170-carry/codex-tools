@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
-import type { AccountSummary } from "../types/app";
+import type { AccountSummary, TrayUsageDisplayMode, UsageWindow } from "../types/app";
 import {
   formatPlan,
   formatWindowLabel,
   percent,
   planTone,
+  remainingPercent,
 } from "../utils/usage";
 
 type AccountCardProps = {
@@ -14,7 +15,9 @@ type AccountCardProps = {
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
+  usageDisplayMode: TrayUsageDisplayMode;
   onExport: (account: AccountSummary) => void;
+  onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
@@ -26,7 +29,7 @@ type UsageDialProps = {
   label: string;
   resetTitle: string;
   resetValue: string;
-  usedPercent: number | null | undefined;
+  displayPercent: number | null | undefined;
 };
 
 function LaunchIcon({ spinning }: { spinning: boolean }) {
@@ -60,20 +63,30 @@ function EditIcon() {
   );
 }
 
+function ReauthorizeIcon() {
+  return (
+    <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+      <path d="M12 8v4l3 2" />
+    </svg>
+  );
+}
+
 function UsageDial({
   accent,
   centerLabel,
   label,
   resetTitle,
   resetValue,
-  usedPercent,
+  displayPercent,
 }: UsageDialProps) {
   const radius = 29;
   const circumference = 2 * Math.PI * radius;
   const normalized =
-    usedPercent === undefined || usedPercent === null || Number.isNaN(usedPercent)
+    displayPercent === undefined || displayPercent === null || Number.isNaN(displayPercent)
       ? 0
-      : Math.max(0, Math.min(100, usedPercent));
+      : Math.max(0, Math.min(100, displayPercent));
   const dashOffset = circumference * (1 - normalized / 100);
 
   return (
@@ -94,7 +107,7 @@ function UsageDial({
           />
         </svg>
         <div className="usageDialCenter">
-          <strong>{percent(usedPercent)}</strong>
+          <strong>{percent(displayPercent)}</strong>
           <span>{centerLabel}</span>
         </div>
       </div>
@@ -122,6 +135,18 @@ function formatResetValue(epochSec: number | null | undefined, locale?: string) 
   });
 }
 
+function formatRelayEndpoint(baseUrl: string | null | undefined) {
+  if (!baseUrl) {
+    return "--";
+  }
+
+  try {
+    return new URL(baseUrl).host || baseUrl;
+  } catch {
+    return baseUrl;
+  }
+}
+
 function pickDefaultAccount(accounts: AccountSummary[]): AccountSummary | null {
   const current = accounts.find((account) => account.isCurrent);
   if (current) {
@@ -136,7 +161,9 @@ export function AccountCard({
   switchingId,
   renamingAccountId,
   pendingDeleteId,
+  usageDisplayMode,
   onExport,
+  onReauthorize,
   onRename,
   onSwitch,
   onDelete,
@@ -163,19 +190,27 @@ export function AccountCard({
   }
 
   const usage = selectedAccount.usage;
+  const isRelay = selectedAccount.sourceKind === "relay";
   const fiveHour = usage?.fiveHour ?? null;
   const oneWeek = usage?.oneWeek ?? null;
-  const normalizedPlan = selectedAccount.planType || usage?.planType;
+  const normalizedPlan = isRelay ? "api" : selectedAccount.planType || usage?.planType;
   const tone = planTone(normalizedPlan);
   const isSwitching = switchingId === selectedAccount.id;
   const isRenaming = renamingAccountId === selectedAccount.accountKey;
   const isDeletePending = pendingDeleteId === selectedAccount.id;
   const isFreePlan = tone === "free";
+  const showUsage = usageDisplayMode !== "hidden";
+  const usageCenterLabel =
+    usageDisplayMode === "remaining" ? copy.accountCard.remaining : copy.accountCard.used;
+  const displayUsagePercent = (window: UsageWindow | null) =>
+    usageDisplayMode === "remaining" ? remainingPercent(window) : window?.usedPercent ?? null;
   const launchLabel = isSwitching ? copy.accountCard.launching : copy.accountCard.launch;
   const fiveHourReset = formatResetValue(fiveHour?.resetAt, locale);
   const oneWeekReset = formatResetValue(oneWeek?.resetAt, locale);
   const normalizedDraftLabel = draftLabel.trim();
   const footerErrors = [
+    selectedAccount.profileIntegrityError,
+    selectedAccount.profileLastValidationError,
     selectedAccount.authRefreshError,
     selectedAccount.usageError,
   ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
@@ -225,7 +260,23 @@ export function AccountCard({
       <header className="cardHeader">
         <div className="cardIdentity">
           <div className="cardBadges">
-            {accounts.map((account) => {
+            {isRelay ? (
+              <>
+                <span className="cardBadge planBadge apiBadge">{copy.accountCard.apiBadge}</span>
+                {selectedAccount.profileIntegrityError ? (
+                  <span className="cardBadge stateBadge">{copy.accountCard.profileIncomplete}</span>
+                ) : null}
+                {selectedAccount.profileLastValidationError ? (
+                  <span className="cardBadge stateBadge">{copy.accountCard.validationFailed}</span>
+                ) : null}
+                {selectedAccount.isCurrent ? (
+                  <span className="planCurrentGlass" aria-hidden="true">
+                    {copy.accountCard.currentStamp}
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              accounts.map((account) => {
               const variantPlan = formatPlan(
                 account.planType || account.usage?.planType,
                 copy.accountCard.planLabels,
@@ -254,7 +305,8 @@ export function AccountCard({
                   )}
                 </button>
               );
-            })}
+              })
+            )}
           </div>
           {isEditingAlias ? (
             <div className="cardAliasEditor">
@@ -304,6 +356,17 @@ export function AccountCard({
               <path d="M5 21h14" />
             </svg>
           </button>
+          {!isRelay ? (
+            <button
+              type="button"
+              className="cardReauthorizeIcon"
+              onClick={() => onReauthorize(selectedAccount)}
+              aria-label={copy.accountCard.reauthorize}
+              title={copy.accountCard.reauthorize}
+            >
+              <ReauthorizeIcon />
+            </button>
+          ) : null}
           <button
             type="button"
             className="cardEditIcon"
@@ -332,36 +395,57 @@ export function AccountCard({
         </div>
       </header>
 
-      <div className={`usageGrid ${isFreePlan ? "isFreePlan" : ""}`}>
-        {!isFreePlan && (
+      {showUsage && !isRelay ? (
+        <div className={`usageGrid ${isFreePlan ? "isFreePlan" : ""}`}>
+          {!isFreePlan && (
+            <UsageDial
+              accent="hot"
+              centerLabel={usageCenterLabel}
+              label={formatWindowLabel(fiveHour, {
+                fallback: copy.accountCard.fiveHourFallback,
+                oneWeek: copy.accountCard.oneWeekLabel,
+                hourSuffix: copy.accountCard.hourSuffix,
+                minuteSuffix: copy.accountCard.minuteSuffix,
+              })}
+              resetTitle={copy.accountCard.resetAt}
+              resetValue={fiveHourReset}
+              displayPercent={displayUsagePercent(fiveHour)}
+            />
+          )}
           <UsageDial
-            accent="hot"
-            centerLabel={copy.accountCard.used}
-            label={formatWindowLabel(fiveHour, {
-              fallback: copy.accountCard.fiveHourFallback,
+            accent="cool"
+            centerLabel={usageCenterLabel}
+            label={formatWindowLabel(oneWeek, {
+              fallback: copy.accountCard.oneWeekFallback,
               oneWeek: copy.accountCard.oneWeekLabel,
               hourSuffix: copy.accountCard.hourSuffix,
               minuteSuffix: copy.accountCard.minuteSuffix,
             })}
             resetTitle={copy.accountCard.resetAt}
-            resetValue={fiveHourReset}
-            usedPercent={fiveHour?.usedPercent}
+            resetValue={oneWeekReset}
+            displayPercent={displayUsagePercent(oneWeek)}
           />
-        )}
-        <UsageDial
-          accent="cool"
-          centerLabel={copy.accountCard.used}
-          label={formatWindowLabel(oneWeek, {
-            fallback: copy.accountCard.oneWeekFallback,
-            oneWeek: copy.accountCard.oneWeekLabel,
-            hourSuffix: copy.accountCard.hourSuffix,
-            minuteSuffix: copy.accountCard.minuteSuffix,
-          })}
-          resetTitle={copy.accountCard.resetAt}
-          resetValue={oneWeekReset}
-          usedPercent={oneWeek?.usedPercent}
-        />
-      </div>
+        </div>
+      ) : null}
+
+      {isRelay ? (
+        <div className="relayInfoPanel">
+          <div className="relayInfoRow">
+            <span>{copy.accountCard.endpointLabel}</span>
+            <strong>{formatRelayEndpoint(selectedAccount.apiBaseUrl)}</strong>
+          </div>
+          <div className="relayInfoRow">
+            <span>{copy.accountCard.modelLabel}</span>
+            <strong>{selectedAccount.modelName ?? "--"}</strong>
+          </div>
+          {selectedAccount.balanceText ? (
+            <div className="relayInfoRow">
+              <span>{copy.accountCard.balanceLabel}</span>
+              <strong>{selectedAccount.balanceText}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <footer className="cardFooter">
         {footerErrors.map((message) => (

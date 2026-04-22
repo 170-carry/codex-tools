@@ -14,7 +14,16 @@ pub(crate) async fn get_app_settings_internal(
     state: &AppState,
 ) -> Result<AppSettings, String> {
     let _guard = state.store_lock.lock().await;
-    let store = load_store(app)?;
+    let mut store = load_store(app)?;
+    if store
+        .settings
+        .codex_launch_path
+        .as_deref()
+        .is_some_and(should_discard_codex_launch_path)
+    {
+        store.settings.codex_launch_path = None;
+        save_store(app, &store)?;
+    }
     Ok(store.settings)
 }
 
@@ -41,10 +50,11 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.launch_codex_after_switch {
             store.settings.launch_codex_after_switch = value;
         }
+        if let Some(value) = patch.smart_switch_include_api {
+            store.settings.smart_switch_include_api = value;
+        }
         if let Some(value) = patch.codex_launch_path {
-            let normalized = normalize_codex_launch_path(value);
-            cli::validate_configured_codex_path(normalized.as_deref())?;
-            store.settings.codex_launch_path = normalized;
+            store.settings.codex_launch_path = normalize_codex_launch_path_for_storage(value)?;
         }
         if let Some(value) = patch.sync_opencode_openai_auth {
             store.settings.sync_opencode_openai_auth = value;
@@ -133,4 +143,21 @@ fn normalize_codex_launch_path(value: Option<String>) -> Option<String> {
             Some(unquoted.to_string())
         }
     })
+}
+
+fn normalize_codex_launch_path_for_storage(value: Option<String>) -> Result<Option<String>, String> {
+    let normalized = normalize_codex_launch_path(value);
+    if normalized
+        .as_deref()
+        .is_some_and(should_discard_codex_launch_path)
+    {
+        return Ok(None);
+    }
+
+    cli::validate_configured_codex_path(normalized.as_deref())?;
+    Ok(normalized)
+}
+
+fn should_discard_codex_launch_path(path: &str) -> bool {
+    cli::is_windows_store_codex_path(std::path::Path::new(path)) && cli::has_windows_store_codex_app()
 }
