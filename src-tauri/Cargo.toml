@@ -31,6 +31,8 @@ tauri = { version = "2.10.0", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2.4.1"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 reqwest = { version = "0.12", features = ["json", "gzip", "stream"] }
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 base64 = "0.22"
@@ -44,5 +46,7 @@ async-stream = "0.3"
 rfd = "0.15"
 if-addrs = "0.13"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
-windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
 toml_edit = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }

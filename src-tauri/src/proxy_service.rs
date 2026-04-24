@@ -6,6 +6,7 @@ use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -25,12 +26,18 @@ use axum::routing::get;
 use axum::routing::post;
 use axum::Json;
 use axum::Router;
+use futures_util::SinkExt;
+use futures_util::Stream;
+use futures_util::StreamExt;
 use if_addrs::IfAddr;
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::Message;
 
 #[cfg(feature = "desktop")]
 use tauri::AppHandle;
@@ -61,11 +68,12 @@ const DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES: usize =
     DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB * 1024 * 1024;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS: u64 = 1_800;
 const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_MIB";
-const CODEX_CLIENT_VERSION: &str = "0.101.0";
-const CODEX_USER_AGENT: &str = "codex_cli_rs/0.101.0 (Mac OS 26.0.1; arm64) Apple_Terminal/464";
+const CODEX_CLIENT_VERSION: &str = "0.124.0";
+const CODEX_USER_AGENT: &str = "codex_cli_rs/0.124.0";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const MODELS: &[&str] = &[
     "gpt-5",
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5-mini",
     "gpt-5-codex",
@@ -77,9 +85,18 @@ const MODELS: &[&str] = &[
     "gpt-5.3-codex",
     "gpt-5.3-codex-spark",
 ];
-const REQUEST_MODEL_MAPPINGS: &[(&str, &str)] = &[("gpt5.4", "gpt-5.4"), ("gpt-5-4", "gpt-5.4")];
-const RESPONSE_MODEL_NORMALIZATIONS: &[(&str, &str)] =
-    &[("gpt5.4", "gpt-5.4"), ("gpt-5-4", "gpt-5.4")];
+const REQUEST_MODEL_MAPPINGS: &[(&str, &str)] = &[
+    ("gpt5.5", "gpt-5.5"),
+    ("gpt-5-5", "gpt-5.5"),
+    ("gpt5.4", "gpt-5.4"),
+    ("gpt-5-4", "gpt-5.4"),
+];
+const RESPONSE_MODEL_NORMALIZATIONS: &[(&str, &str)] = &[
+    ("gpt5.5", "gpt-5.5"),
+    ("gpt-5-5", "gpt-5.5"),
+    ("gpt5.4", "gpt-5.4"),
+    ("gpt-5-4", "gpt-5.4"),
+];
 const UNSUPPORTED_RESPONSES_REQUEST_FIELDS: &[&str] = &["metadata", "prompt_cache_retention"];
 
 #[derive(Clone)]
@@ -113,6 +130,78 @@ struct ProxyContext {
     upstream_base_url: String,
     client: reqwest::Client,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
+}
+
+type UpstreamByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>;
+
+enum CodexUpstreamResponse {
+    Http(reqwest::Response),
+    WebSocket {
+        headers: HeaderMap,
+        stream: UpstreamByteStream,
+    },
+}
+
+impl CodexUpstreamResponse {
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::Http(response) => response.status(),
+            Self::WebSocket { .. } => StatusCode::OK,
+        }
+    }
+
+    fn headers(&self) -> &HeaderMap {
+        match self {
+            Self::Http(response) => response.headers(),
+            Self::WebSocket { headers, .. } => headers,
+        }
+    }
+
+    fn into_stream(self) -> (HeaderMap, UpstreamByteStream) {
+        match self {
+            Self::Http(mut response) => {
+                let headers = response.headers().clone();
+                let output = stream! {
+                    loop {
+                        match response.chunk().await {
+                            Ok(Some(chunk)) => yield Ok(chunk),
+                            Ok(None) => break,
+                            Err(error) => {
+                                yield Err(error.to_string());
+                                break;
+                            }
+                        }
+                    }
+                };
+                (headers, Box::pin(output))
+            }
+            Self::WebSocket { headers, stream } => (headers, stream),
+        }
+    }
+
+    async fn into_bytes(self) -> Result<(HeaderMap, Bytes), String> {
+        match self {
+            Self::Http(response) => {
+                let headers = response.headers().clone();
+                let body = response
+                    .bytes()
+                    .await
+                    .map_err(|error| format!("读取上游响应失败: {error}"))?;
+                Ok((headers, body))
+            }
+            Self::WebSocket {
+                headers,
+                mut stream,
+            } => {
+                let mut body = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk?;
+                    body.extend_from_slice(&chunk);
+                }
+                Ok((headers, Bytes::from(body)))
+            }
+        }
+    }
 }
 
 struct ApiProxyHandleState {
@@ -465,9 +554,8 @@ async fn chat_completions_handler(
     if downstream_stream {
         build_chat_streaming_response(upstream_response)
     } else {
-        let upstream_headers = upstream_response.headers().clone();
-        let upstream_body = match upstream_response.bytes().await {
-            Ok(bytes) => bytes,
+        let (upstream_headers, upstream_body) = match upstream_response.into_bytes().await {
+            Ok(value) => value,
             Err(error) => {
                 let message = format!("读取 Codex 上游响应失败: {error}");
                 update_proxy_error(&context, Some(message.clone())).await;
@@ -530,9 +618,8 @@ async fn responses_handler(
     if downstream_stream {
         build_passthrough_sse_response(upstream_response)
     } else {
-        let upstream_headers = upstream_response.headers().clone();
-        let upstream_body = match upstream_response.bytes().await {
-            Ok(bytes) => bytes,
+        let (upstream_headers, upstream_body) = match upstream_response.into_bytes().await {
+            Ok(value) => value,
             Err(error) => {
                 let message = format!("读取 Codex 上游响应失败: {error}");
                 update_proxy_error(&context, Some(message.clone())).await;
@@ -879,6 +966,62 @@ fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
     Ok(remap_model_name(model, REQUEST_MODEL_MAPPINGS).unwrap_or_else(|| model.to_string()))
 }
 
+fn should_use_responses_websocket(payload: &Value) -> bool {
+    payload
+        .get("model")
+        .and_then(Value::as_str)
+        .map(|model| model == "gpt-5.5" || model.starts_with("gpt-5.5-"))
+        .unwrap_or(false)
+}
+
+fn websocket_response_create_payload(payload: &Value) -> Value {
+    let mut payload = payload.clone();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "type".to_string(),
+            Value::String("response.create".to_string()),
+        );
+    }
+    payload
+}
+
+fn websocket_url_from_http_url(url: &str) -> Result<String, String> {
+    if let Some(rest) = url.strip_prefix("https://") {
+        Ok(format!("wss://{rest}"))
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        Ok(format!("ws://{rest}"))
+    } else if url.starts_with("ws://") || url.starts_with("wss://") {
+        Ok(url.to_string())
+    } else {
+        Err(format!("无法转换 Codex WebSocket 上游地址: {url}"))
+    }
+}
+
+fn insert_header(headers: &mut HeaderMap, name: &'static str, value: &str) -> Result<(), String> {
+    let name = axum::http::HeaderName::from_bytes(name.as_bytes())
+        .map_err(|error| format!("构建上游请求头名称 {name} 失败: {error}"))?;
+    let value = axum::http::HeaderValue::from_str(value)
+        .map_err(|error| format!("构建上游请求头 {name} 失败: {error}"))?;
+    headers.insert(name, value);
+    Ok(())
+}
+
+fn websocket_event_type(data: &str) -> Option<String> {
+    serde_json::from_str::<Value>(data).ok().and_then(|value| {
+        value
+            .get("type")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
+}
+
+fn websocket_event_is_terminal(data: &str) -> bool {
+    matches!(
+        websocket_event_type(data).as_deref(),
+        Some("response.completed" | "response.failed")
+    )
+}
+
 fn normalize_model_for_client(model: &str) -> String {
     remap_model_name(model, RESPONSE_MODEL_NORMALIZATIONS).unwrap_or_else(|| model.to_string())
 }
@@ -1126,7 +1269,7 @@ async fn send_codex_request_over_candidates(
     context: &ProxyContext,
     headers: &HeaderMap,
     payload: &Value,
-) -> Result<(ProxyCandidate, reqwest::Response), Response<Body>> {
+) -> Result<(ProxyCandidate, CodexUpstreamResponse), Response<Body>> {
     let candidates = match load_proxy_candidates(&context.storage).await {
         Ok(items) if !items.is_empty() => items,
         Ok(_) => {
@@ -1165,8 +1308,8 @@ async fn send_codex_request_over_candidates(
             }
 
             let upstream_headers = upstream.headers().clone();
-            let upstream_body = match upstream.bytes().await {
-                Ok(bytes) => bytes,
+            let upstream_body = match upstream.into_bytes().await {
+                Ok((_, bytes)) => bytes,
                 Err(error) => {
                     attempt_errors
                         .push(format!("{}: 读取上游响应失败: {}", candidate.label, error));
@@ -1243,7 +1386,7 @@ async fn forward_codex_request_with_candidate(
     candidate: &ProxyCandidate,
     headers: &HeaderMap,
     payload: &Value,
-) -> Result<reqwest::Response, String> {
+) -> Result<CodexUpstreamResponse, String> {
     let upstream_url = format!("{}/responses", context.upstream_base_url);
     let session_id = headers
         .get("session_id")
@@ -1262,6 +1405,18 @@ async fn forward_codex_request_with_candidate(
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(CODEX_USER_AGENT);
+
+    if should_use_responses_websocket(payload) {
+        return forward_codex_websocket_request_with_candidate(
+            context,
+            candidate,
+            payload,
+            &session_id,
+            version,
+            user_agent,
+        )
+        .await;
+    }
 
     let serialized =
         serde_json::to_vec(payload).map_err(|error| format!("序列化上游请求失败: {error}"))?;
@@ -1284,7 +1439,99 @@ async fn forward_codex_request_with_candidate(
         .body(serialized)
         .send()
         .await
+        .map(CodexUpstreamResponse::Http)
         .map_err(|error| format!("请求 Codex 上游失败 {upstream_url}: {error}"))
+}
+
+async fn forward_codex_websocket_request_with_candidate(
+    context: &ProxyContext,
+    candidate: &ProxyCandidate,
+    payload: &Value,
+    session_id: &str,
+    version: &str,
+    user_agent: &str,
+) -> Result<CodexUpstreamResponse, String> {
+    let upstream_url = format!("{}/responses", context.upstream_base_url);
+    let websocket_url = websocket_url_from_http_url(&upstream_url)?;
+    let mut request = websocket_url
+        .as_str()
+        .into_client_request()
+        .map_err(|error| format!("构建 Codex WebSocket 请求失败 {websocket_url}: {error}"))?;
+
+    insert_header(
+        request.headers_mut(),
+        "Authorization",
+        &format!("Bearer {}", candidate.access_token),
+    )?;
+    insert_header(
+        request.headers_mut(),
+        "ChatGPT-Account-Id",
+        &candidate.account_id,
+    )?;
+    insert_header(request.headers_mut(), "Originator", "codex_cli_rs")?;
+    insert_header(request.headers_mut(), "Version", version)?;
+    insert_header(request.headers_mut(), "Session_id", session_id)?;
+    insert_header(request.headers_mut(), "User-Agent", user_agent)?;
+
+    let (mut websocket, response) = connect_async(request)
+        .await
+        .map_err(|error| format!("连接 Codex WebSocket 上游失败 {websocket_url}: {error}"))?;
+
+    let request_text = serde_json::to_string(&websocket_response_create_payload(payload))
+        .map_err(|error| format!("序列化 Codex WebSocket 请求失败: {error}"))?;
+    websocket
+        .send(Message::Text(request_text.into()))
+        .await
+        .map_err(|error| format!("发送 Codex WebSocket 请求失败: {error}"))?;
+
+    let headers = response.headers().clone();
+    let output = stream! {
+        loop {
+            let message = match tokio::time::timeout(
+                std::time::Duration::from_secs(DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS),
+                websocket.next(),
+            )
+            .await
+            {
+                Ok(Some(message)) => message,
+                Ok(None) => break,
+                Err(_) => {
+                    yield Err("Codex WebSocket 上游读取超时".to_string());
+                    break;
+                }
+            };
+            match message {
+                Ok(Message::Text(text)) => {
+                    let text = text.to_string();
+                    let event_name = websocket_event_type(&text);
+                    let rewritten = rewrite_sse_event_data_models_for_client(&text);
+                    yield Ok::<Bytes, String>(serialize_sse_event(event_name.as_deref(), &rewritten));
+                    if websocket_event_is_terminal(&text) {
+                        break;
+                    }
+                }
+                Ok(Message::Binary(_)) => {
+                    yield Err("Codex WebSocket 上游返回了非预期的二进制消息".to_string());
+                    break;
+                }
+                Ok(Message::Close(_)) => break,
+                Ok(Message::Ping(payload)) => {
+                    let _ = websocket.send(Message::Pong(payload)).await;
+                }
+                Ok(Message::Pong(_)) => {}
+                Ok(Message::Frame(_)) => {}
+                Err(error) => {
+                    yield Err(format!("Codex WebSocket 上游中断: {error}"));
+                    break;
+                }
+            }
+        }
+    };
+
+    Ok(CodexUpstreamResponse::WebSocket {
+        headers,
+        stream: Box::pin(output),
+    })
 }
 
 async fn load_proxy_candidates(
@@ -1965,15 +2212,14 @@ fn build_json_proxy_response(
     build_proxy_response(status, upstream_headers, body)
 }
 
-fn build_passthrough_sse_response(upstream: reqwest::Response) -> Response<Body> {
-    let upstream_headers = upstream.headers().clone();
+fn build_passthrough_sse_response(upstream: CodexUpstreamResponse) -> Response<Body> {
+    let (upstream_headers, mut upstream_stream) = upstream.into_stream();
     let output = stream! {
-        let mut upstream = upstream;
         let mut decoder = SseDecoder::default();
 
-        loop {
-            match upstream.chunk().await {
-                Ok(Some(chunk)) => {
+        while let Some(chunk) = upstream_stream.next().await {
+            match chunk {
+                Ok(chunk) => {
                     for event in decoder.push(&chunk) {
                         yield Ok::<Bytes, Infallible>(serialize_sse_event(
                             event.event.as_deref(),
@@ -1981,7 +2227,6 @@ fn build_passthrough_sse_response(upstream: reqwest::Response) -> Response<Body>
                         ));
                     }
                 }
-                Ok(None) => break,
                 Err(_) => return,
             }
         }
@@ -2007,22 +2252,21 @@ fn build_passthrough_sse_response(upstream: reqwest::Response) -> Response<Body>
         .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建流式代理响应失败"))
 }
 
-fn build_chat_streaming_response(mut upstream: reqwest::Response) -> Response<Body> {
-    let upstream_headers = upstream.headers().clone();
+fn build_chat_streaming_response(upstream: CodexUpstreamResponse) -> Response<Body> {
+    let (upstream_headers, mut upstream_stream) = upstream.into_stream();
     let output = stream! {
         let mut decoder = SseDecoder::default();
         let mut state = ChatStreamState::default();
 
-        loop {
-            match upstream.chunk().await {
-                Ok(Some(chunk)) => {
+        while let Some(chunk) = upstream_stream.next().await {
+            match chunk {
+                Ok(chunk) => {
                     for event in decoder.push(&chunk) {
                         for value in translate_sse_event_to_chat_chunk(&event, &mut state) {
                             yield Ok::<Bytes, Infallible>(sse_data_chunk(&value));
                         }
                     }
                 }
-                Ok(None) => break,
                 Err(error) => {
                     yield Ok::<Bytes, Infallible>(sse_data_chunk(&json!({
                         "error": {
@@ -2104,31 +2348,123 @@ fn extract_completed_response_from_sse(bytes: &[u8]) -> Result<Value, String> {
             return value
                 .get("response")
                 .cloned()
+                .map(|response| ensure_completed_response_output(response, ""))
                 .ok_or_else(|| "Codex 响应缺少 response 字段".to_string());
+        }
+        if let Some(message) = response_error_message_from_value(&value) {
+            return Err(message);
         }
     }
 
     let mut decoder = SseDecoder::default();
+    let mut first_error = None::<String>;
+    let mut output_text = String::new();
     for event in decoder.push(bytes) {
-        if let Some(response) = response_completed_from_event(&event) {
-            return Ok(response);
+        if let Ok(parsed) = serde_json::from_str::<Value>(&event.data) {
+            collect_output_text_delta(&parsed, &mut output_text);
+            if let Some(response) = response_completed_from_value(&parsed) {
+                return Ok(ensure_completed_response_output(response, &output_text));
+            }
+            if first_error.is_none() {
+                first_error = response_error_message_from_value(&parsed);
+            }
         }
     }
     for event in decoder.finish() {
-        if let Some(response) = response_completed_from_event(&event) {
-            return Ok(response);
+        if let Ok(parsed) = serde_json::from_str::<Value>(&event.data) {
+            collect_output_text_delta(&parsed, &mut output_text);
+            if let Some(response) = response_completed_from_value(&parsed) {
+                return Ok(ensure_completed_response_output(response, &output_text));
+            }
+            if first_error.is_none() {
+                first_error = response_error_message_from_value(&parsed);
+            }
         }
+    }
+
+    if let Some(message) = first_error {
+        return Err(message);
     }
 
     Err("未在 Codex SSE 中找到 response.completed 事件".to_string())
 }
 
-fn response_completed_from_event(event: &SseEvent) -> Option<Value> {
-    let parsed = serde_json::from_str::<Value>(&event.data).ok()?;
+fn response_completed_from_value(parsed: &Value) -> Option<Value> {
     if parsed.get("type").and_then(Value::as_str) != Some("response.completed") {
         return None;
     }
     parsed.get("response").cloned()
+}
+
+fn collect_output_text_delta(value: &Value, output_text: &mut String) {
+    if value.get("type").and_then(Value::as_str) == Some("response.output_text.delta") {
+        if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+            output_text.push_str(delta);
+        }
+    }
+}
+
+fn ensure_completed_response_output(mut response: Value, output_text: &str) -> Value {
+    if output_text.is_empty() || response_has_text_output(&response) {
+        return response;
+    }
+
+    if let Some(object) = response.as_object_mut() {
+        object.insert(
+            "output".to_string(),
+            Value::Array(vec![json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": output_text,
+                    "annotations": []
+                }]
+            })]),
+        );
+    }
+    response
+}
+
+fn response_has_text_output(response: &Value) -> bool {
+    response
+        .get("output")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().any(|item| {
+                item.get("content")
+                    .and_then(Value::as_array)
+                    .map(|content| {
+                        content.iter().any(|part| {
+                            part.get("type").and_then(Value::as_str) == Some("output_text")
+                                && part
+                                    .get("text")
+                                    .and_then(Value::as_str)
+                                    .map(|text| !text.is_empty())
+                                    .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn response_error_message_from_value(value: &Value) -> Option<String> {
+    match value.get("type").and_then(Value::as_str) {
+        Some("error") => value
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        Some("response.failed") => value
+            .get("response")
+            .and_then(|response| response.get("error"))
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        _ => None,
+    }
 }
 
 fn convert_completed_response_to_chat_completion(response: &Value) -> Value {
@@ -2902,6 +3238,24 @@ mod tests {
     }
 
     #[test]
+    fn accepts_chat_request_with_official_gpt_5_5_name() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ]
+        });
+
+        let (payload, _) =
+            convert_openai_chat_request_to_codex(&request).expect("request should convert");
+
+        assert_eq!(
+            payload.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.5")
+        );
+    }
+
+    #[test]
     fn accepts_responses_request_with_legacy_gpt5_4_name() {
         let request = json!({
             "model": "gpt5.4",
@@ -2914,6 +3268,38 @@ mod tests {
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.4")
+        );
+    }
+
+    #[test]
+    fn maps_responses_request_model_gpt_5_5_alias_to_upstream() {
+        let request = json!({
+            "model": "gpt-5-5",
+            "input": "hello"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert_eq!(
+            payload.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.5")
+        );
+    }
+
+    #[test]
+    fn accepts_responses_request_with_legacy_gpt5_5_name() {
+        let request = json!({
+            "model": "gpt5.5",
+            "input": "hello"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert_eq!(
+            payload.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.5")
         );
     }
 
@@ -3013,6 +3399,32 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
         assert_eq!(
             converted.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.4-2026-03-09")
+        );
+    }
+
+    #[test]
+    fn maps_completed_response_gpt_5_5_model_alias_back_to_client() {
+        let response = json!({
+            "id": "resp_123",
+            "created_at": 1772966030i64,
+            "model": "gpt5.5-2026-04-23",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        { "type": "output_text", "text": "2" }
+                    ]
+                }
+            ]
+        });
+
+        let converted = convert_completed_response_to_chat_completion(&response);
+
+        assert_eq!(
+            converted.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.5-2026-04-23")
         );
     }
 
