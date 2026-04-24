@@ -1,4 +1,6 @@
 ## 更新日志
+- v1.8.0
+  1. 同步版本号并发布
 - v1.7.7
   1. 修复 Cursor / Codex 插件接入时 `prompt_cache_retention` 参数导致的上游报错
   2. 修复 Windows 下已设置 Codex 启动路径仍无法拉起的问题
