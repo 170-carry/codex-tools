@@ -118,6 +118,7 @@ export function AddAccountDialog({
   const busy = importingAccounts || readingFiles;
   const actionLocked = busy || preparingOauth;
   const closeBlocked = busy;
+  const routeSwitchBlocked = busy || oauthWaitingForCallback;
 
   const resetOauthState = useCallback(
     (cancelRemote: boolean) => {
@@ -148,7 +149,7 @@ export function AddAccountDialog({
       });
       setApiInlineError(null);
       setApiCanForceSave(false);
-      resetOauthState(true);
+      resetOauthState(!oauthWaitingForCallback);
       return;
     }
 
@@ -161,7 +162,7 @@ export function AddAccountDialog({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [closeBlocked, onClose, open, resetOauthState]);
+  }, [closeBlocked, oauthWaitingForCallback, onClose, open, resetOauthState]);
 
   const routeOptions = useMemo(
     () => {
@@ -461,7 +462,7 @@ export function AddAccountDialog({
                   aria-pressed={active}
                   className={`addAccountTab${active ? " isActive" : ""}`}
                   onClick={() => setActiveRoute(route.id)}
-                  disabled={busy}
+                  disabled={routeSwitchBlocked}
                 >
                   <span className="addAccountTabIcon">
                     <AddAccountRouteIcon route={route.id} />

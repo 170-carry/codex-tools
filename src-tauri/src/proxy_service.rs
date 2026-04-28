@@ -3,10 +3,13 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs;
 use std::io::Write;
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -26,6 +29,8 @@ use axum::routing::get;
 use axum::routing::post;
 use axum::Json;
 use axum::Router;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use futures_util::SinkExt;
 use futures_util::Stream;
 use futures_util::StreamExt;
@@ -33,8 +38,12 @@ use if_addrs::IfAddr;
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::sync::oneshot;
+use tokio_tungstenite::client_async_tls_with_config;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -67,9 +76,12 @@ const DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB: usize = 512;
 const DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES: usize =
     DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB * 1024 * 1024;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS: u64 = 1_800;
+const DEFAULT_PROXY_CONNECT_TIMEOUT_SECS: u64 = 30;
+const MAX_PROXY_CONNECT_RESPONSE_BYTES: usize = 16 * 1024;
 const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_MIB";
-const CODEX_CLIENT_VERSION: &str = "0.124.0";
-const CODEX_USER_AGENT: &str = "codex_cli_rs/0.124.0";
+const CODEX_CLIENT_VERSION: &str = "0.125.0";
+const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
+const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const MODELS: &[&str] = &[
     "gpt-5",
@@ -130,6 +142,14 @@ struct ProxyContext {
     upstream_base_url: String,
     client: reqwest::Client,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HttpProxyConfig {
+    host: String,
+    port: u16,
+    authorization: Option<String>,
+    source: String,
 }
 
 type UpstreamByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>;
@@ -997,6 +1017,287 @@ fn websocket_url_from_http_url(url: &str) -> Result<String, String> {
     }
 }
 
+async fn connect_codex_websocket(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    websocket_url: &str,
+) -> Result<
+    (
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+        tokio_tungstenite::tungstenite::handshake::client::Response,
+    ),
+    String,
+> {
+    let Some((target_host, target_port)) = websocket_target_host_port(websocket_url) else {
+        return connect_async(request)
+            .await
+            .map_err(|error| format!("连接 Codex WebSocket 上游失败 {websocket_url}: {error}"));
+    };
+
+    if let Some(proxy) = resolve_websocket_http_proxy(websocket_url, &target_host) {
+        let stream = connect_http_proxy_tunnel(&proxy, &target_host, target_port).await?;
+        return client_async_tls_with_config(request, stream, None, None)
+            .await
+            .map_err(|error| {
+                format!(
+                    "通过 {} 连接 Codex WebSocket 上游失败 {websocket_url}: {error}",
+                    proxy.source
+                )
+            });
+    }
+
+    connect_async(request)
+        .await
+        .map_err(|error| format!("连接 Codex WebSocket 上游失败 {websocket_url}: {error}"))
+}
+
+async fn connect_http_proxy_tunnel(
+    proxy: &HttpProxyConfig,
+    target_host: &str,
+    target_port: u16,
+) -> Result<TcpStream, String> {
+    let proxy_addr = format!("{}:{}", proxy.host, proxy.port);
+    let mut stream = tokio::time::timeout(
+        std::time::Duration::from_secs(DEFAULT_PROXY_CONNECT_TIMEOUT_SECS),
+        TcpStream::connect(&proxy_addr),
+    )
+    .await
+    .map_err(|_| format!("连接代理 {} 超时", proxy.source))?
+    .map_err(|error| format!("连接代理 {} 失败: {error}", proxy.source))?;
+
+    let target = format!("{target_host}:{target_port}");
+    let mut request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
+    if let Some(authorization) = proxy.authorization.as_deref() {
+        request.push_str("Proxy-Authorization: ");
+        request.push_str(authorization);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|error| format!("发送代理 CONNECT 请求失败: {error}"))?;
+
+    let mut response = Vec::new();
+    let mut buffer = [0_u8; 1024];
+    loop {
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(DEFAULT_PROXY_CONNECT_TIMEOUT_SECS),
+            stream.read(&mut buffer),
+        )
+        .await
+        .map_err(|_| format!("等待代理 CONNECT 响应超时: {}", proxy.source))?
+        .map_err(|error| format!("读取代理 CONNECT 响应失败: {error}"))?;
+        if read == 0 {
+            return Err(format!("代理 {} 提前关闭 CONNECT 连接", proxy.source));
+        }
+        response.extend_from_slice(&buffer[..read]);
+        if find_http_header_end(&response).is_some() {
+            break;
+        }
+        if response.len() > MAX_PROXY_CONNECT_RESPONSE_BYTES {
+            return Err(format!("代理 {} 的 CONNECT 响应过大", proxy.source));
+        }
+    }
+
+    let header_end = find_http_header_end(&response)
+        .ok_or_else(|| format!("代理 {} 未返回完整 CONNECT 响应", proxy.source))?;
+    let header_text = String::from_utf8_lossy(&response[..header_end]);
+    let status = header_text
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or_default();
+    if status != "200" {
+        return Err(format!(
+            "代理 {} 拒绝 CONNECT {target}: {}",
+            proxy.source,
+            header_text.lines().next().unwrap_or("empty response")
+        ));
+    }
+
+    Ok(stream)
+}
+
+fn find_http_header_end(bytes: &[u8]) -> Option<usize> {
+    bytes
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| index + 4)
+}
+
+fn websocket_target_host_port(websocket_url: &str) -> Option<(String, u16)> {
+    let parsed = reqwest::Url::parse(websocket_url).ok()?;
+    let host = parsed.host_str()?.to_string();
+    let port = parsed.port_or_known_default()?;
+    Some((host, port))
+}
+
+fn resolve_websocket_http_proxy(websocket_url: &str, target_host: &str) -> Option<HttpProxyConfig> {
+    if should_bypass_proxy_for_host(target_host) {
+        return None;
+    }
+
+    let parsed = reqwest::Url::parse(websocket_url).ok()?;
+    let env_vars: &[&str] = match parsed.scheme() {
+        "wss" => &[
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+        ],
+        "ws" => &["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"],
+        _ => &[],
+    };
+
+    for env_var in env_vars {
+        if let Ok(value) = std::env::var(env_var) {
+            if let Some(proxy) = parse_http_proxy_config(&value, env_var) {
+                return Some(proxy);
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if parsed.scheme() == "wss" {
+            if let Some(proxy) = macos_system_proxy_config(true) {
+                return Some(proxy);
+            }
+        }
+        macos_system_proxy_config(false)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+fn parse_http_proxy_config(raw: &str, source: &str) -> Option<HttpProxyConfig> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{trimmed}")
+    };
+    let parsed = reqwest::Url::parse(&normalized).ok()?;
+    if parsed.scheme() != "http" {
+        return None;
+    }
+
+    let host = parsed.host_str()?.to_string();
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let authorization = if parsed.username().is_empty() {
+        None
+    } else {
+        let password = parsed.password().unwrap_or_default();
+        let credentials = format!("{}:{password}", parsed.username());
+        Some(format!("Basic {}", BASE64_STANDARD.encode(credentials)))
+    };
+
+    Some(HttpProxyConfig {
+        host,
+        port,
+        authorization,
+        source: source.to_string(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_system_proxy_config(https: bool) -> Option<HttpProxyConfig> {
+    let output = Command::new("scutil").arg("--proxy").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let prefix = if https { "HTTPS" } else { "HTTP" };
+    if macos_proxy_value(&text, &format!("{prefix}Enable")).as_deref() != Some("1") {
+        return None;
+    }
+    let host = macos_proxy_value(&text, &format!("{prefix}Proxy"))?;
+    let port = macos_proxy_value(&text, &format!("{prefix}Port"))?
+        .parse::<u16>()
+        .ok()?;
+
+    Some(HttpProxyConfig {
+        host,
+        port,
+        authorization: None,
+        source: format!("macOS {prefix} system proxy"),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_proxy_value(text: &str, key: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let (name, value) = line.trim().split_once(':')?;
+        (name.trim() == key).then(|| value.trim().to_string())
+    })
+}
+
+fn should_bypass_proxy_for_host(host: &str) -> bool {
+    let Some(no_proxy) = std::env::var("NO_PROXY")
+        .ok()
+        .or_else(|| std::env::var("no_proxy").ok())
+    else {
+        return false;
+    };
+    host_matches_no_proxy(host, &no_proxy)
+}
+
+fn host_matches_no_proxy(host: &str, no_proxy: &str) -> bool {
+    let host = host
+        .trim()
+        .trim_matches('[')
+        .trim_matches(']')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+    let host_is_ip = host.parse::<IpAddr>().is_ok();
+
+    no_proxy.split(',').any(|entry| {
+        let entry = entry.trim().to_ascii_lowercase();
+        if entry.is_empty() {
+            return false;
+        }
+        if entry == "*" {
+            return true;
+        }
+        let pattern = strip_no_proxy_port(&entry);
+        if host_is_ip {
+            return host == pattern;
+        }
+        if let Some(suffix) = pattern.strip_prefix("*.") {
+            return host == suffix || host.ends_with(&format!(".{suffix}"));
+        }
+        if let Some(suffix) = pattern.strip_prefix('.') {
+            return host == suffix || host.ends_with(&format!(".{suffix}"));
+        }
+        host == pattern || host.ends_with(&format!(".{pattern}"))
+    })
+}
+
+fn strip_no_proxy_port(entry: &str) -> &str {
+    if entry.starts_with('[') {
+        return entry
+            .split_once(']')
+            .map(|(host, _)| host.trim_start_matches('['))
+            .unwrap_or(entry);
+    }
+    match entry.rsplit_once(':') {
+        Some((host, port)) if port.parse::<u16>().is_ok() => host,
+        _ => entry,
+    }
+}
+
 fn insert_header(headers: &mut HeaderMap, name: &'static str, value: &str) -> Result<(), String> {
     let name = axum::http::HeaderName::from_bytes(name.as_bytes())
         .map_err(|error| format!("构建上游请求头名称 {name} 失败: {error}"))?;
@@ -1471,11 +1772,15 @@ async fn forward_codex_websocket_request_with_candidate(
     insert_header(request.headers_mut(), "Originator", "codex_cli_rs")?;
     insert_header(request.headers_mut(), "Version", version)?;
     insert_header(request.headers_mut(), "Session_id", session_id)?;
+    insert_header(request.headers_mut(), "x-client-request-id", session_id)?;
+    insert_header(
+        request.headers_mut(),
+        "OpenAI-Beta",
+        RESPONSES_WEBSOCKETS_BETA,
+    )?;
     insert_header(request.headers_mut(), "User-Agent", user_agent)?;
 
-    let (mut websocket, response) = connect_async(request)
-        .await
-        .map_err(|error| format!("连接 Codex WebSocket 上游失败 {websocket_url}: {error}"))?;
+    let (mut websocket, response) = connect_codex_websocket(request, &websocket_url).await?;
 
     let request_text = serde_json::to_string(&websocket_response_create_payload(payload))
         .map_err(|error| format!("序列化 Codex WebSocket 请求失败: {error}"))?;
@@ -3110,12 +3415,16 @@ mod tests {
     use super::convert_completed_response_to_chat_completion;
     use super::convert_openai_chat_request_to_codex;
     use super::extract_completed_response_from_sse;
+    use super::find_http_header_end;
+    use super::host_matches_no_proxy;
     use super::normalize_openai_responses_request;
+    use super::parse_http_proxy_config;
     use super::parse_proxy_request_body_limit_mib;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
     use super::translate_sse_event_to_chat_chunk;
+    use super::websocket_target_host_port;
     use super::ChatStreamState;
     use super::SseEvent;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
@@ -3327,6 +3636,51 @@ mod tests {
             payload.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.5")
         );
+    }
+
+    #[test]
+    fn parses_websocket_target_host_and_port() {
+        assert_eq!(
+            websocket_target_host_port("wss://chatgpt.com/backend-api/codex/responses"),
+            Some(("chatgpt.com".to_string(), 443))
+        );
+        assert_eq!(
+            websocket_target_host_port("ws://127.0.0.1:8787/v1/responses"),
+            Some(("127.0.0.1".to_string(), 8787))
+        );
+    }
+
+    #[test]
+    fn parses_http_proxy_config_with_basic_auth() {
+        let proxy = parse_http_proxy_config("http://user:pass@127.0.0.1:7890", "HTTPS_PROXY")
+            .expect("proxy config should parse");
+
+        assert_eq!(proxy.host, "127.0.0.1");
+        assert_eq!(proxy.port, 7890);
+        assert_eq!(proxy.source, "HTTPS_PROXY");
+        assert_eq!(proxy.authorization.as_deref(), Some("Basic dXNlcjpwYXNz"));
+    }
+
+    #[test]
+    fn rejects_unsupported_websocket_proxy_schemes() {
+        assert!(parse_http_proxy_config("socks5://127.0.0.1:7890", "ALL_PROXY").is_none());
+    }
+
+    #[test]
+    fn matches_no_proxy_domains_and_ips() {
+        assert!(host_matches_no_proxy(
+            "api.chatgpt.com",
+            "localhost,.chatgpt.com"
+        ));
+        assert!(host_matches_no_proxy("127.0.0.1", "localhost,127.0.0.1"));
+        assert!(!host_matches_no_proxy("chatgpt.com", "example.com"));
+    }
+
+    #[test]
+    fn finds_http_connect_response_header_end() {
+        let response = b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: test\r\n\r\n";
+        assert_eq!(find_http_header_end(response), Some(response.len()));
+        assert_eq!(find_http_header_end(b"HTTP/1.1 200 OK\r\n"), None);
     }
 
     #[test]

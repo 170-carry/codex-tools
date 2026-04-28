@@ -18,6 +18,15 @@
     "ariaLabel": "Обзор аккаунтов",
     "accountCount": "Аккаунты",
     "currentActive": "Активен сейчас",
+    "tokensSession": "Токены сессии",
+    "tokens24h": "Токены 24h",
+    "tokens7d": "Токены 7d",
+    "tokens30d": "Токены 30d",
+    "tokensPending": "Чтение локальных журналов токенов Codex",
+    "tokensUpdatedAt": "Обновлено",
+    "tokensSources": "Файлы журналов",
+    "tokensEvents": "События токенов",
+    "tokensFailedSources": "Ошибки чтения",
     "exportAll": "Экспортировать все"
   },
   "addAccount": {

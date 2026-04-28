@@ -62,6 +62,15 @@ export type MessageCatalog = {
     ariaLabel: string;
     accountCount: string;
     currentActive: string;
+    tokensSession: string;
+    tokens24h: string;
+    tokens7d: string;
+    tokens30d: string;
+    tokensPending: string;
+    tokensUpdatedAt: string;
+    tokensSources: string;
+    tokensEvents: string;
+    tokensFailedSources: string;
     exportAll: string;
   };
   addAccount: {

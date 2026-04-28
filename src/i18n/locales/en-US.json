@@ -18,6 +18,15 @@
     "ariaLabel": "Account overview",
     "accountCount": "Accounts",
     "currentActive": "Active now",
+    "tokensSession": "Session tokens",
+    "tokens24h": "24h tokens",
+    "tokens7d": "7d tokens",
+    "tokens30d": "30d tokens",
+    "tokensPending": "Reading local Codex token logs",
+    "tokensUpdatedAt": "Updated",
+    "tokensSources": "Log files",
+    "tokensEvents": "Token events",
+    "tokensFailedSources": "Read failures",
     "exportAll": "Export all"
   },
   "addAccount": {

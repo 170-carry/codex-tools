@@ -14,6 +14,7 @@ import type {
   AppSettings,
   AuthJsonImportInput,
   CloudflaredStatus,
+  CodexTokenUsageSnapshot,
   CreateApiAccountInput,
   ImportAccountsResult,
   InstalledEditorApp,
@@ -31,6 +32,7 @@ import type {
 import { pickBestSmartSwitchAccount, sortAccountsByRemaining } from "../utils/accountRanking";
 
 const REFRESH_MS = 30_000;
+const TOKEN_USAGE_REFRESH_MS = 60_000;
 const EDITOR_SCAN_MS = 60_000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
@@ -142,8 +144,11 @@ function buildRemoteProxyFallback(
 export function useCodexController() {
   const { copy, locale } = useI18n();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [tokenUsage, setTokenUsage] = useState<CodexTokenUsageSnapshot | null>(null);
+  const [tokenUsageError, setTokenUsageError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshingTokenUsage, setRefreshingTokenUsage] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [reauthorizeAccount, setReauthorizeAccount] = useState<AccountSummary | null>(null);
   const [importingAccounts, setImportingAccounts] = useState(false);
@@ -425,6 +430,30 @@ export function useCodexController() {
     }
   }, [applyAccounts, copy.notices, localizeError]);
 
+  const refreshTokenUsage = useCallback(async (quiet = false) => {
+    try {
+      if (!quiet) {
+        setRefreshingTokenUsage(true);
+      }
+      const data = await invoke<CodexTokenUsageSnapshot>("get_codex_token_usage");
+      setTokenUsage(data);
+      setTokenUsageError(null);
+    } catch (error) {
+      const localized = localizeError(String(error));
+      setTokenUsageError(localized);
+      if (!quiet) {
+        setNotice({
+          type: "error",
+          message: copy.notices.refreshFailed(localized),
+        });
+      }
+    } finally {
+      if (!quiet) {
+        setRefreshingTokenUsage(false);
+      }
+    }
+  }, [copy.notices, localizeError]);
+
   const applyImportResult = useCallback(
     async (result: ImportAccountsResult, prefix: string) => {
       const successCount = result.importedCount + result.updatedCount;
@@ -626,6 +655,7 @@ export function useCodexController() {
         await loadApiProxyStatus();
         await loadCloudflaredStatus();
         await refreshUsage(true);
+        await refreshTokenUsage(true);
         await checkForAppUpdate(true);
       } finally {
         if (!cancelled) {
@@ -640,6 +670,10 @@ export function useCodexController() {
       void refreshUsage(true);
     }, REFRESH_MS);
 
+    const tokenUsageTimer = setInterval(() => {
+      void refreshTokenUsage(true);
+    }, TOKEN_USAGE_REFRESH_MS);
+
     const editorTimer = setInterval(() => {
       void loadInstalledEditorApps();
       void loadOpencodeDesktopAppInstalled();
@@ -652,6 +686,7 @@ export function useCodexController() {
     return () => {
       cancelled = true;
       clearInterval(usageTimer);
+      clearInterval(tokenUsageTimer);
       clearInterval(editorTimer);
       clearInterval(updateTimer);
     };
@@ -664,6 +699,7 @@ export function useCodexController() {
     loadOpencodeDesktopAppInstalled,
     loadSettings,
     maybeShowProfileIntegrityNotice,
+    refreshTokenUsage,
     refreshUsage,
   ]);
 
@@ -892,10 +928,12 @@ export function useCodexController() {
       return;
     }
 
-    void onCancelOauthLogin();
+    if (!oauthWaitingForCallback) {
+      void onCancelOauthLogin();
+    }
     setAddDialogOpen(false);
     setReauthorizeAccount(null);
-  }, [importingAccounts, onCancelOauthLogin]);
+  }, [importingAccounts, oauthWaitingForCallback, onCancelOauthLogin]);
 
   const onReauthorizeAccount = useCallback((account: AccountSummary) => {
     setOauthWaitingForCallback(false);
@@ -1636,8 +1674,11 @@ export function useCodexController() {
 
   return {
     accounts: sortedAccounts,
+    tokenUsage,
+    tokenUsageError,
     loading,
     refreshing,
+    refreshingTokenUsage,
     addDialogOpen,
     importingAccounts,
     reauthorizeAccount,
@@ -1677,6 +1718,7 @@ export function useCodexController() {
     installedEditorApps,
     hasOpencodeDesktopApp,
     refreshUsage,
+    refreshTokenUsage,
     checkForAppUpdate,
     installPendingUpdate,
     openManualDownloadPage,

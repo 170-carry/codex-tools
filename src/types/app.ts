@@ -20,6 +20,31 @@ export type UsageSnapshot = {
   credits: CreditSnapshot | null;
 };
 
+export type CodexTokenTotals = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+};
+
+export type CodexTokenSessionUsage = {
+  startedAt: number | null;
+  updatedAt: number;
+  total: CodexTokenTotals;
+};
+
+export type CodexTokenUsageSnapshot = {
+  updatedAt: number;
+  sourcePathCount: number;
+  failedPathCount: number;
+  eventCount: number;
+  last24h: CodexTokenTotals;
+  last7d: CodexTokenTotals;
+  last30d: CodexTokenTotals;
+  latestSession: CodexTokenSessionUsage | null;
+};
+
 export type AccountSourceKind = "chatgpt" | "relay";
 
 export type AccountSummary = {

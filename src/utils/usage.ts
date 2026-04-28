@@ -7,6 +7,22 @@ export function percent(value: number | undefined | null): string {
   return `${Math.max(0, Math.min(100, value)).toFixed(0)}%`;
 }
 
+export function formatTokenCount(value: number | undefined | null, locale?: string): string {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "--";
+  }
+
+  const normalized = Math.max(0, value);
+  if (normalized < 1000) {
+    return new Intl.NumberFormat(locale).format(normalized);
+  }
+
+  return new Intl.NumberFormat(locale, {
+    notation: "compact",
+    maximumFractionDigits: normalized < 100_000 ? 1 : 0,
+  }).format(normalized);
+}
+
 export function remainingPercent(window: UsageWindow | null): number | null {
   if (!window) {
     return null;

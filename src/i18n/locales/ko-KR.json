@@ -18,6 +18,15 @@
     "ariaLabel": "계정 개요",
     "accountCount": "계정 수",
     "currentActive": "현재 활성",
+    "tokensSession": "세션 토큰",
+    "tokens24h": "24h 토큰",
+    "tokens7d": "7d 토큰",
+    "tokens30d": "30d 토큰",
+    "tokensPending": "로컬 Codex 토큰 로그 읽는 중",
+    "tokensUpdatedAt": "업데이트",
+    "tokensSources": "로그 파일",
+    "tokensEvents": "토큰 이벤트",
+    "tokensFailedSources": "읽기 실패",
     "exportAll": "전체 내보내기"
   },
   "addAccount": {

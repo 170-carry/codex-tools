@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
-import type { AccountSummary, TrayUsageDisplayMode, UsageWindow } from "../types/app";
+import type { AccountSummary, UsageWindow } from "../types/app";
 import {
   formatPlan,
   formatWindowLabel,
@@ -15,7 +15,6 @@ type AccountCardProps = {
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
-  usageDisplayMode: TrayUsageDisplayMode;
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
@@ -161,7 +160,6 @@ export function AccountCard({
   switchingId,
   renamingAccountId,
   pendingDeleteId,
-  usageDisplayMode,
   onExport,
   onReauthorize,
   onRename,
@@ -199,11 +197,8 @@ export function AccountCard({
   const isRenaming = renamingAccountId === selectedAccount.accountKey;
   const isDeletePending = pendingDeleteId === selectedAccount.id;
   const isFreePlan = tone === "free";
-  const showUsage = usageDisplayMode !== "hidden";
-  const usageCenterLabel =
-    usageDisplayMode === "remaining" ? copy.accountCard.remaining : copy.accountCard.used;
-  const displayUsagePercent = (window: UsageWindow | null) =>
-    usageDisplayMode === "remaining" ? remainingPercent(window) : window?.usedPercent ?? null;
+  const usageCenterLabel = copy.accountCard.remaining;
+  const displayUsagePercent = (window: UsageWindow | null) => remainingPercent(window);
   const launchLabel = isSwitching ? copy.accountCard.launching : copy.accountCard.launch;
   const fiveHourReset = formatResetValue(fiveHour?.resetAt, locale);
   const oneWeekReset = formatResetValue(oneWeek?.resetAt, locale);
@@ -395,7 +390,7 @@ export function AccountCard({
         </div>
       </header>
 
-      {showUsage && !isRelay ? (
+      {!isRelay ? (
         <div className={`usageGrid ${isFreePlan ? "isFreePlan" : ""}`}>
           {!isFreePlan && (
             <UsageDial

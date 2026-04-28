@@ -5,11 +5,13 @@ use serde_json::Map;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
+use std::error::Error as StdError;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 use time::format_description::well_known::Rfc3339;
@@ -24,10 +26,13 @@ use crate::utils::truncate_for_error;
 
 const DEFAULT_OAUTH_ISSUER: &str = "https://auth.openai.com";
 const DEFAULT_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const DEFAULT_OAUTH_SCOPE: &str = "openid profile email offline_access";
+const DEFAULT_OAUTH_SCOPE: &str =
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const DEFAULT_OAUTH_ORIGINATOR: &str = "codex_vscode";
 const DEFAULT_OAUTH_REDIRECT_PORT: u16 = 1455;
-const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 300;
+const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 900;
+const OAUTH_TOKEN_EXCHANGE_MAX_ATTEMPTS: usize = 3;
+const OAUTH_TOKEN_EXCHANGE_RETRY_DELAY_MS: u64 = 500;
 const NON_CHATGPT_AUTH_MODE_ERROR: &str =
     "当前账号不是 ChatGPT 登录模式，无法读取 Codex 5h/1week 用量。请先执行 codex login。";
 const MISSING_CHATGPT_TOKEN_ERROR: &str = "当前 auth.json 未包含 ChatGPT 登录令牌。若该文件来自新版 Codex（尤其是 macOS），令牌可能保存在系统钥匙串/安全存储中，因此不能仅靠这个 auth.json 跨机导入。请在目标设备执行 codex login，或提供包含 access_token / id_token / refresh_token 的完整 auth.json。";
@@ -575,18 +580,41 @@ async fn exchange_authorization_code(
         .map_err(|error| format!("创建 HTTP 客户端失败: {error}"))?;
 
     let token_url = format!("{DEFAULT_OAUTH_ISSUER}/oauth/token");
-    let response = client
-        .post(&token_url)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", pending.redirect_uri.as_str()),
-            ("client_id", DEFAULT_OAUTH_CLIENT_ID),
-            ("code_verifier", pending.code_verifier.as_str()),
-        ])
-        .send()
-        .await
-        .map_err(|error| format!("换取登录令牌失败 {token_url}: {error}"))?;
+    exchange_authorization_code_with_client(
+        &client,
+        &token_url,
+        code,
+        pending,
+        OAUTH_TOKEN_EXCHANGE_MAX_ATTEMPTS,
+        OAUTH_TOKEN_EXCHANGE_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn exchange_authorization_code_with_client(
+    client: &reqwest::Client,
+    token_url: &str,
+    code: &str,
+    pending: &PendingOauthLogin,
+    max_attempts: usize,
+    retry_delay_ms: u64,
+) -> Result<Value, String> {
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", pending.redirect_uri.as_str()),
+        ("client_id", DEFAULT_OAUTH_CLIENT_ID),
+        ("code_verifier", pending.code_verifier.as_str()),
+    ];
+
+    let response = send_authorization_code_exchange_request(
+        client,
+        token_url,
+        &form,
+        max_attempts,
+        retry_delay_ms,
+    )
+    .await?;
 
     let status = response.status();
     if !status.is_success() {
@@ -603,6 +631,53 @@ async fn exchange_authorization_code(
         .map_err(|error| format!("解析 OAuth 登录响应失败: {error}"))?;
 
     build_auth_json_from_oauth_tokens(token_response)
+}
+
+async fn send_authorization_code_exchange_request(
+    client: &reqwest::Client,
+    token_url: &str,
+    form: &[(&str, &str)],
+    max_attempts: usize,
+    retry_delay_ms: u64,
+) -> Result<reqwest::Response, String> {
+    let max_attempts = max_attempts.max(1);
+    for attempt in 1..=max_attempts {
+        let send_result = client.post(token_url).form(form).send().await;
+        match send_result {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                let error_message = format_reqwest_error(&error);
+                if attempt >= max_attempts {
+                    return Err(format!("换取登录令牌失败 {token_url}: {error_message}"));
+                }
+                log::warn!(
+                    "OAuth token exchange attempt {attempt}/{max_attempts} failed: {error_message}"
+                );
+                if retry_delay_ms > 0 {
+                    tokio::time::sleep(Duration::from_millis(
+                        retry_delay_ms.saturating_mul(attempt as u64),
+                    ))
+                    .await;
+                }
+            }
+        }
+    }
+
+    Err(format!("换取登录令牌失败 {token_url}: 未执行令牌请求"))
+}
+
+fn format_reqwest_error(error: &reqwest::Error) -> String {
+    let mut segments = vec![error.to_string()];
+    let mut source = StdError::source(error);
+    while let Some(inner) = source {
+        let message = inner.to_string();
+        if !message.is_empty() && !segments.iter().any(|item| item == &message) {
+            segments.push(message);
+        }
+        source = inner.source();
+    }
+
+    segments.join(": ")
 }
 
 fn build_auth_json_from_oauth_tokens(token_response: OAuthTokenResponse) -> Result<Value, String> {
@@ -877,10 +952,84 @@ fn extract_client_id_from_claims(claims: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::Read;
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+    use std::time::Instant;
 
     fn jwt_with_exp(exp: i64) -> String {
         let payload = URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
         format!("header.{payload}.signature")
+    }
+
+    fn jwt_with_chatgpt_account_id(account_id: &str) -> String {
+        let payload = URL_SAFE_NO_PAD.encode(
+            json!({
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": account_id
+                }
+            })
+            .to_string(),
+        );
+        format!("header.{payload}.signature")
+    }
+
+    fn spawn_flaky_token_exchange_server(id_token: String) -> (String, thread::JoinHandle<usize>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test token server should bind");
+        listener
+            .set_nonblocking(true)
+            .expect("test token server should be nonblocking");
+        let token_url = format!(
+            "http://{}/oauth/token",
+            listener
+                .local_addr()
+                .expect("test token server address should be available")
+        );
+
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut attempts = 0usize;
+
+            while attempts < 2 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        attempts += 1;
+                        if attempts == 1 {
+                            drop(stream);
+                            continue;
+                        }
+
+                        let mut buffer = [0_u8; 4096];
+                        let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                        let _ = stream.read(&mut buffer);
+                        let body = json!({
+                            "access_token": "access-token",
+                            "refresh_token": "refresh-token",
+                            "id_token": id_token
+                        })
+                        .to_string();
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream
+                            .write_all(response.as_bytes())
+                            .expect("test token response should be written");
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("test token server failed: {error}"),
+                }
+            }
+
+            attempts
+        });
+
+        (token_url, handle)
     }
 
     #[test]
@@ -1045,5 +1194,45 @@ mod tests {
         assert!(prepared.auth_url.contains(&format!(
             "redirect_uri=http%3A%2F%2Flocalhost%3A{custom_port}%2Fauth%2Fcallback"
         )));
+    }
+
+    #[tokio::test]
+    async fn exchange_authorization_code_retries_transient_send_failure() {
+        let account_id = "acct_retry";
+        let id_token = jwt_with_chatgpt_account_id(account_id);
+        let (token_url, server_handle) = spawn_flaky_token_exchange_server(id_token);
+        let pending = PendingOauthLogin {
+            redirect_uri: "http://localhost:1455/auth/callback".to_string(),
+            state: "state".to_string(),
+            code_verifier: "code-verifier".to_string(),
+            expires_at: 0,
+            reauthorize_account_id: None,
+        };
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client should build");
+
+        let auth_json = exchange_authorization_code_with_client(
+            &client,
+            &token_url,
+            "auth-code",
+            &pending,
+            2,
+            0,
+        )
+        .await
+        .expect("token exchange should retry once and succeed");
+
+        let accepted = server_handle
+            .join()
+            .expect("test token server should finish cleanly");
+        assert_eq!(accepted, 2);
+        assert_eq!(
+            auth_json
+                .pointer("/tokens/account_id")
+                .and_then(Value::as_str),
+            Some(account_id)
+        );
     }
 }

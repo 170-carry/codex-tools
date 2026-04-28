@@ -21,8 +21,11 @@ function App() {
     const { themeMode, toggleTheme } = useThemeMode();
     const {
         accounts,
+        tokenUsage,
+        tokenUsageError,
         loading,
         refreshing,
+        refreshingTokenUsage,
         addDialogOpen,
         reauthorizeAccount,
         importingAccounts,
@@ -62,6 +65,7 @@ function App() {
         startingCloudflared,
         stoppingCloudflared,
         refreshUsage,
+        refreshTokenUsage,
         checkForAppUpdate,
         installPendingUpdate,
         openManualDownloadPage,
@@ -115,21 +119,27 @@ function App() {
             }
             event.preventDefault();
             void refreshUsage(false);
+            void refreshTokenUsage(false);
         };
 
         window.addEventListener("keydown", onKeyDown);
         return () => {
             window.removeEventListener("keydown", onKeyDown);
         };
-    }, [refreshUsage]);
+    }, [refreshTokenUsage, refreshUsage]);
+
+    const refreshAccountsView = () => {
+        void refreshUsage(false);
+        void refreshTokenUsage(false);
+    };
 
     return (
         <div className="shell">
             <div className="ambient" />
             <main className="panel">
                 <AppTopBar
-                    onRefresh={() => void refreshUsage(false)}
-                    refreshing={refreshing}
+                    onRefresh={refreshAccountsView}
+                    refreshing={refreshing || refreshingTokenUsage}
                     onGoHome={() => setActiveTab("accounts")}
                     showRefresh={activeTab === "accounts"}
                 />
@@ -168,6 +178,8 @@ function App() {
                             <div className="accountsHero">
                                 <MetaStrip
                                     accountCount={accounts.length}
+                                    tokenUsage={tokenUsage}
+                                    tokenUsageError={tokenUsageError}
                                     exportingAccounts={exportingAccounts}
                                     onExportAccounts={() => void onExportAccounts()}
                                 />
@@ -184,7 +196,6 @@ function App() {
                                 switchingId={switchingId}
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
-                                usageDisplayMode={settings.trayUsageDisplayMode}
                                 onExport={(account) => void onExportAccounts(account)}
                                 onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}

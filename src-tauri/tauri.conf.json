@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Tools",
-  "version": "1.8.3",
+  "version": "1.8.4",
   "identifier": "com.carry.codex-tools",
   "build": {
     "frontendDist": "../dist",
@@ -18,7 +18,8 @@
         "resizable": true,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

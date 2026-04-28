@@ -18,6 +18,15 @@
     "ariaLabel": "账号概览",
     "accountCount": "账号数",
     "currentActive": "当前活跃",
+    "tokensSession": "会话 Token",
+    "tokens24h": "24h Token",
+    "tokens7d": "7d Token",
+    "tokens30d": "30d Token",
+    "tokensPending": "正在读取本机 Codex token 日志",
+    "tokensUpdatedAt": "更新时间",
+    "tokensSources": "日志文件",
+    "tokensEvents": "Token 事件",
+    "tokensFailedSources": "读取失败",
     "exportAll": "全部导出"
   },
   "addAccount": {

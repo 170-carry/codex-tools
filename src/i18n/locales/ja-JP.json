@@ -18,6 +18,15 @@
     "ariaLabel": "アカウント概要",
     "accountCount": "アカウント数",
     "currentActive": "現在アクティブ",
+    "tokensSession": "セッショントークン",
+    "tokens24h": "24h トークン",
+    "tokens7d": "7d トークン",
+    "tokens30d": "30d トークン",
+    "tokensPending": "ローカル Codex トークンログを読み取り中",
+    "tokensUpdatedAt": "更新時刻",
+    "tokensSources": "ログファイル",
+    "tokensEvents": "トークンイベント",
+    "tokensFailedSources": "読み取り失敗",
     "exportAll": "すべてエクスポート"
   },
   "addAccount": {

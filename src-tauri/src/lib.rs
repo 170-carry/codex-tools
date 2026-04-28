@@ -14,6 +14,7 @@ mod remote_service;
 mod settings_service;
 mod state;
 mod store;
+mod token_usage;
 mod tray;
 mod usage;
 mod utils;
@@ -22,6 +23,7 @@ use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
+use std::net::TcpStream;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -130,19 +132,31 @@ fn build_oauth_callback_url(redirect_uri: &str, path: &str) -> Result<String, St
     Ok(callback_url.to_string())
 }
 
-fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(TcpListener, u16), String> {
-    match TcpListener::bind(("127.0.0.1", preferred_port)) {
-        Ok(listener) => Ok((listener, preferred_port)),
+fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(Vec<TcpListener>, u16), String> {
+    match bind_oauth_callback_listener_on_port(preferred_port) {
+        Ok(listeners) => return Ok((listeners, preferred_port)),
         Err(error) if error.kind() == ErrorKind::AddrInUse => {
-            let fallback = TcpListener::bind(("127.0.0.1", 0)).map_err(|fallback_error| {
-                format!(
-                    "无法启动 OAuth 回调监听 127.0.0.1:{preferred_port}: {error}；自动回退到空闲端口也失败: {fallback_error}"
-                )
-            })?;
-            let port = fallback
-                .local_addr()
-                .map_err(|addr_error| format!("无法读取 OAuth 回调监听端口: {addr_error}"))?
-                .port();
+            cancel_oauth_listener_on_port(preferred_port);
+            for _ in 0..10 {
+                thread::sleep(Duration::from_millis(100));
+                match bind_oauth_callback_listener_on_port(preferred_port) {
+                    Ok(listeners) => return Ok((listeners, preferred_port)),
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AddrInUse => {}
+                    Err(retry_error) => {
+                        return Err(format!(
+                            "无法启动 OAuth 回调监听 localhost:{preferred_port}: {retry_error}"
+                        ));
+                    }
+                }
+            }
+
+            let (fallback, port) = bind_oauth_callback_listener_on_ephemeral().map_err(
+                |fallback_error| {
+                    format!(
+                        "无法启动 OAuth 回调监听 localhost:{preferred_port}: {error}；自动回退到空闲端口也失败: {fallback_error}"
+                    )
+                },
+            )?;
             log::warn!(
                 "OAuth 回调默认端口 {} 已占用，已自动回退到本地空闲端口 {}",
                 preferred_port,
@@ -151,9 +165,88 @@ fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(TcpListener, u16
             Ok((fallback, port))
         }
         Err(error) => Err(format!(
-            "无法启动 OAuth 回调监听 127.0.0.1:{preferred_port}: {error}"
+            "无法启动 OAuth 回调监听 localhost:{preferred_port}: {error}"
         )),
     }
+}
+
+fn bind_oauth_callback_listener_on_port(port: u16) -> std::io::Result<Vec<TcpListener>> {
+    let ipv4 = TcpListener::bind(("127.0.0.1", port))?;
+    let mut listeners = vec![ipv4];
+    if let Some(ipv6) = bind_optional_oauth_ipv6_listener(port)? {
+        listeners.push(ipv6);
+    }
+    Ok(listeners)
+}
+
+fn bind_oauth_callback_listener_on_ephemeral() -> std::io::Result<(Vec<TcpListener>, u16)> {
+    let mut last_error = None;
+    for _ in 0..10 {
+        let ipv4 = TcpListener::bind(("127.0.0.1", 0))?;
+        let port = ipv4.local_addr()?.port();
+        let mut listeners = vec![ipv4];
+        match bind_optional_oauth_ipv6_listener(port) {
+            Ok(Some(ipv6)) => {
+                listeners.push(ipv6);
+                return Ok((listeners, port));
+            }
+            Ok(None) => return Ok((listeners, port)),
+            Err(error) if error.kind() == ErrorKind::AddrInUse => {
+                last_error = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(ErrorKind::AddrInUse, "无法找到可用的 OAuth 回调端口")
+    }))
+}
+
+fn bind_optional_oauth_ipv6_listener(port: u16) -> std::io::Result<Option<TcpListener>> {
+    match TcpListener::bind(("::1", port)) {
+        Ok(listener) => Ok(Some(listener)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::AddrNotAvailable | ErrorKind::Unsupported
+            ) =>
+        {
+            log::warn!("当前系统无法监听 IPv6 OAuth 回调 ::1:{port}: {error}");
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn cancel_oauth_listener_on_port(port: u16) {
+    for host in ["127.0.0.1", "::1"] {
+        if let Err(error) = send_oauth_cancel_request(host, port) {
+            log::debug!("取消旧 OAuth 回调监听 {host}:{port} 失败: {error}");
+        }
+    }
+}
+
+fn send_oauth_cancel_request(host: &str, port: u16) -> std::io::Result<()> {
+    let address = if host == "::1" {
+        format!("[::1]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let mut stream = TcpStream::connect_timeout(
+        &address
+            .parse()
+            .map_err(|error| std::io::Error::new(ErrorKind::InvalidInput, error))?,
+        Duration::from_millis(350),
+    )?;
+    stream.set_read_timeout(Some(Duration::from_millis(350)))?;
+    stream.set_write_timeout(Some(Duration::from_millis(350)))?;
+    stream.write_all(b"GET /cancel HTTP/1.1\r\n")?;
+    stream.write_all(format!("Host: {address}\r\n").as_bytes())?;
+    stream.write_all(b"Connection: close\r\n\r\n")?;
+    let mut buffer = [0_u8; 64];
+    let _ = stream.read(&mut buffer);
+    Ok(())
 }
 
 async fn stop_oauth_callback_listener(state: &AppState) {
@@ -240,7 +333,7 @@ async fn emit_oauth_callback_finished(app: &AppHandle, payload: OauthCallbackFin
 
 fn run_oauth_callback_listener(
     app: AppHandle,
-    listener: TcpListener,
+    listeners: Vec<TcpListener>,
     pending: auth::PendingOauthLogin,
     shutdown_rx: std::sync::mpsc::Receiver<()>,
 ) {
@@ -269,131 +362,130 @@ fn run_oauth_callback_listener(
             break;
         }
 
-        match listener.accept() {
-            Ok((mut stream, _)) => {
-                let path = match read_oauth_request_path(&mut stream) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "400 Bad Request",
-                            "授权失败",
-                            &error,
-                        );
-                        break;
-                    }
-                };
+        let mut accepted_stream = None;
+        let mut listener_error = None;
+        for listener in &listeners {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    accepted_stream = Some(stream);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    listener_error = Some(error);
+                    break;
+                }
+            }
+        }
 
-                if path == "/cancel" {
+        if let Some(error) = listener_error {
+            tauri::async_runtime::block_on(async {
+                emit_oauth_callback_finished(
+                    &app,
+                    OauthCallbackFinishedEvent {
+                        result: None,
+                        error: Some(format!("OAuth 回调监听失败: {error}")),
+                    },
+                )
+                .await;
+            });
+            break;
+        }
+
+        if let Some(mut stream) = accepted_stream {
+            let path = match read_oauth_request_path(&mut stream) {
+                Ok(value) => value,
+                Err(error) => {
+                    write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                    break;
+                }
+            };
+
+            if path == "/cancel" {
+                write_oauth_html_response(
+                    &mut stream,
+                    "200 OK",
+                    "授权已取消",
+                    "当前授权监听已取消，可以关闭这个页面。",
+                );
+                break;
+            }
+
+            if !path.starts_with("/auth/callback") {
+                write_oauth_html_response(
+                    &mut stream,
+                    "404 Not Found",
+                    "未识别的回调地址",
+                    "当前地址不是 Codex Tools 的 OAuth 回调地址，可以关闭这个页面。",
+                );
+                continue;
+            }
+
+            let callback_url = match build_oauth_callback_url(&pending.redirect_uri, &path) {
+                Ok(value) => value,
+                Err(error) => {
+                    write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                    break;
+                }
+            };
+            let callback_result = tauri::async_runtime::block_on(async {
+                let state = app.state::<AppState>();
+                let pending_matches = {
+                    let guard = state.pending_oauth_login.lock().await;
+                    guard
+                        .as_ref()
+                        .is_some_and(|current| current.state.as_str() == pending.state.as_str())
+                };
+                if !pending_matches {
+                    return Err("当前授权会话已失效，请回到应用重新打开授权页面。".to_string());
+                }
+
+                let result =
+                    complete_oauth_login_internal(&app, state.inner(), &callback_url).await;
+                clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
+                result
+            });
+
+            match callback_result {
+                Ok(result) => {
                     write_oauth_html_response(
                         &mut stream,
                         "200 OK",
-                        "授权已取消",
-                        "当前授权监听已取消，可以关闭这个页面。",
+                        "授权完成",
+                        "账号已经写入 Codex Tools，可以回到应用继续操作。",
                     );
-                    break;
+                    restore_main_window(&app);
+                    tauri::async_runtime::block_on(async {
+                        emit_oauth_callback_finished(
+                            &app,
+                            OauthCallbackFinishedEvent {
+                                result: Some(result),
+                                error: None,
+                            },
+                        )
+                        .await;
+                    });
                 }
-
-                if !path.starts_with("/auth/callback") {
-                    write_oauth_html_response(
-                        &mut stream,
-                        "404 Not Found",
-                        "未识别的回调地址",
-                        "当前地址不是 Codex Tools 的 OAuth 回调地址，可以关闭这个页面。",
-                    );
-                    continue;
-                }
-
-                let callback_url = match build_oauth_callback_url(&pending.redirect_uri, &path) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "400 Bad Request",
-                            "授权失败",
-                            &error,
-                        );
-                        break;
-                    }
-                };
-                let callback_result = tauri::async_runtime::block_on(async {
-                    let state = app.state::<AppState>();
-                    let pending_matches = {
-                        let guard = state.pending_oauth_login.lock().await;
-                        guard
-                            .as_ref()
-                            .is_some_and(|current| current.state.as_str() == pending.state.as_str())
-                    };
-                    if !pending_matches {
-                        return Err("当前授权会话已失效，请回到应用重新打开授权页面。".to_string());
-                    }
-
-                    let result =
-                        complete_oauth_login_internal(&app, state.inner(), &callback_url).await;
-                    clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
-                    result
-                });
-
-                match callback_result {
-                    Ok(result) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "200 OK",
-                            "授权完成",
-                            "账号已经写入 Codex Tools，可以回到应用继续操作。",
-                        );
-                        restore_main_window(&app);
+                Err(error) => {
+                    write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                    restore_main_window(&app);
+                    if !error.contains("会话已失效") {
                         tauri::async_runtime::block_on(async {
                             emit_oauth_callback_finished(
                                 &app,
                                 OauthCallbackFinishedEvent {
-                                    result: Some(result),
-                                    error: None,
+                                    result: None,
+                                    error: Some(error),
                                 },
                             )
                             .await;
                         });
                     }
-                    Err(error) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "400 Bad Request",
-                            "授权失败",
-                            &error,
-                        );
-                        restore_main_window(&app);
-                        if !error.contains("会话已失效") {
-                            tauri::async_runtime::block_on(async {
-                                emit_oauth_callback_finished(
-                                    &app,
-                                    OauthCallbackFinishedEvent {
-                                        result: None,
-                                        error: Some(error),
-                                    },
-                                )
-                                .await;
-                            });
-                        }
-                    }
                 }
-                break;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(120));
-            }
-            Err(error) => {
-                tauri::async_runtime::block_on(async {
-                    emit_oauth_callback_finished(
-                        &app,
-                        OauthCallbackFinishedEvent {
-                            result: None,
-                            error: Some(format!("OAuth 回调监听失败: {error}")),
-                        },
-                    )
-                    .await;
-                });
-                break;
-            }
+            break;
+        } else {
+            thread::sleep(Duration::from_millis(120));
         }
     }
 
@@ -407,18 +499,20 @@ fn run_oauth_callback_listener(
 async fn start_oauth_callback_listener(
     app: &AppHandle,
     state: &AppState,
-    listener: TcpListener,
+    listeners: Vec<TcpListener>,
     pending: &auth::PendingOauthLogin,
 ) -> Result<(), String> {
-    listener
-        .set_nonblocking(true)
-        .map_err(|error| format!("无法设置 OAuth 回调监听模式: {error}"))?;
+    for listener in &listeners {
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| format!("无法设置 OAuth 回调监听模式: {error}"))?;
+    }
 
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
     let app_handle = app.clone();
     let pending_login = pending.clone();
     let task = thread::spawn(move || {
-        run_oauth_callback_listener(app_handle, listener, pending_login, shutdown_rx);
+        run_oauth_callback_listener(app_handle, listeners, pending_login, shutdown_rx);
     });
 
     let mut guard = state.oauth_listener.lock().await;
@@ -537,6 +631,13 @@ async fn refresh_all_usage(
     .await?;
     let _ = tray::update_macos_tray_snapshot(&app, &summaries);
     Ok(summaries)
+}
+
+#[tauri::command]
+async fn get_codex_token_usage() -> Result<token_usage::CodexTokenUsageSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(token_usage::collect_codex_token_usage_snapshot)
+        .await
+        .map_err(|error| format!("统计 Codex token 用量失败: {error}"))?
 }
 
 #[tauri::command]
@@ -661,15 +762,14 @@ async fn prepare_oauth_login(
     stop_oauth_callback_listener(state.inner()).await;
     let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
     let (mut pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
-    pending.reauthorize_account_id = account_id
-        .and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
+    pending.reauthorize_account_id = account_id.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = Some(pending.clone());
@@ -741,10 +841,23 @@ mod tests {
             .expect("should read local addr")
             .port();
 
-        let (_listener, resolved_port) =
+        let (_listeners, resolved_port) =
             bind_oauth_callback_listener(preferred_port).expect("bind should fall back");
 
         assert_ne!(resolved_port, preferred_port);
+    }
+
+    #[test]
+    fn bind_oauth_callback_listener_uses_preferred_port_when_available() {
+        let probe = TcpListener::bind(("127.0.0.1", 0)).expect("should bind a local test port");
+        let preferred_port = probe.local_addr().expect("should read local addr").port();
+        drop(probe);
+
+        let (listeners, resolved_port) =
+            bind_oauth_callback_listener(preferred_port).expect("bind should use preferred port");
+
+        assert_eq!(resolved_port, preferred_port);
+        assert!(!listeners.is_empty());
     }
 }
 
@@ -862,9 +975,7 @@ async fn switch_account_and_launch(
             .find(|stored| stored.id == id)
             .ok_or_else(|| "找不到要切换的账号".to_string())?;
         profile_files::sync_account_profile_in_store_path(
-            &store::account_store_path_from_data_dir(
-                &app_paths::app_data_dir(&app)?,
-            ),
+            &store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?),
             stored_account,
         )?;
         profile_files::apply_account_profile(stored_account)?;
@@ -949,11 +1060,7 @@ async fn switch_account_and_launch(
                 });
             }
             Err(error) => {
-                log::warn!(
-                    "通过 Codex 应用路径启动失败 {}: {}",
-                    path.display(),
-                    error
-                );
+                log::warn!("通过 Codex 应用路径启动失败 {}: {}", path.display(), error);
                 app_launch_error = Some(error);
             }
         }
@@ -992,16 +1099,15 @@ async fn switch_account_and_launch(
     if let Some(workspace) = workspace_path.as_deref() {
         cmd.arg(workspace);
     }
-    cmd.spawn()
-        .map_err(|e| {
-            if let Some(app_launch_error) = app_launch_error.as_ref() {
-                format!(
-                    "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
-                )
-            } else {
-                format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
-            }
-        })?;
+    cmd.spawn().map_err(|e| {
+        if let Some(app_launch_error) = app_launch_error.as_ref() {
+            format!(
+                "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
+            )
+        } else {
+            format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
+        }
+    })?;
 
     Ok(SwitchAccountResult {
         account_id: account.account_id,
@@ -1351,6 +1457,7 @@ pub fn run() {
             delete_account,
             update_account_label,
             refresh_all_usage,
+            get_codex_token_usage,
             get_app_settings,
             update_app_settings,
             detect_codex_app,
