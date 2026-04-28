@@ -14,6 +14,7 @@ use crate::auth::current_auth_account_key;
 use crate::auth::extract_auth;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::write_active_codex_auth;
+use crate::models::AccountSourceKind;
 use crate::models::dedupe_account_variants;
 use crate::models::AccountsStore;
 use crate::models::StoredAccount;
@@ -274,6 +275,9 @@ fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStor
         if profile_files::ensure_profile_metadata(path, account) {
             changed = true;
         }
+        if repair_missing_profile_files(path, account) {
+            changed = true;
+        }
     }
 
     if dedupe_account_variants(&mut store.accounts) {
@@ -292,6 +296,41 @@ fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStor
     }
 
     store
+}
+
+fn repair_missing_profile_files(path: &Path, account: &mut StoredAccount) -> bool {
+    if account.profile_auth_ready && account.profile_config_ready {
+        return false;
+    }
+    if !can_sync_profile(account) {
+        return false;
+    }
+
+    match profile_files::sync_account_profile_in_store_path(path, account) {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!("自动修复账号 profile 文件失败 {}: {}", account.id, error);
+            false
+        }
+    }
+}
+
+fn can_sync_profile(account: &StoredAccount) -> bool {
+    match &account.source_kind {
+        AccountSourceKind::Chatgpt => true,
+        AccountSourceKind::Relay => {
+            has_text(account.api_base_url.as_deref())
+                && has_text(account.api_key.as_deref())
+                && has_text(account.model_name.as_deref())
+        }
+    }
+}
+
+fn has_text(value: Option<&str>) -> bool {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
 }
 
 fn write_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -551,6 +590,7 @@ mod tests {
     use super::save_store_to_path;
     use super::LAST_GOOD_BACKUP_FILE_NAME;
     use super::PREVIOUS_GOOD_BACKUP_FILE_NAME;
+    use crate::models::AccountSourceKind;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use serde_json::json;
@@ -699,5 +739,81 @@ mod tests {
             loaded.accounts[0].principal_id.as_deref(),
             Some("legacy@example.com")
         );
+    }
+
+    #[test]
+    fn load_store_repairs_missing_profile_files() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let legacy_store = sample_store("legacy", "workspace-1", 10);
+        fs::write(
+            &store_path,
+            serde_json::to_string_pretty(&legacy_store).expect("serialize legacy store"),
+        )
+        .expect("write legacy store");
+
+        let loaded = load_store_from_path(&store_path).expect("load legacy store");
+        let account = &loaded.accounts[0];
+        let auth_path = account
+            .profile_auth_path
+            .as_ref()
+            .map(PathBuf::from)
+            .expect("profile auth path");
+        let config_path = account
+            .profile_config_path
+            .as_ref()
+            .map(PathBuf::from)
+            .expect("profile config path");
+
+        assert!(account.profile_auth_ready);
+        assert!(account.profile_config_ready);
+        assert_eq!(account.profile_integrity_error, None);
+        assert!(auth_path.is_file());
+        assert!(config_path.is_file());
+
+        let persisted: AccountsStore =
+            serde_json::from_str(&fs::read_to_string(&store_path).expect("read repaired store"))
+                .expect("parse repaired store");
+        assert!(persisted.accounts[0].profile_auth_ready);
+        assert!(persisted.accounts[0].profile_config_ready);
+        assert_eq!(persisted.accounts[0].profile_integrity_error, None);
+    }
+
+    #[test]
+    fn load_store_repairs_missing_relay_profile_files() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut relay_store = sample_store("relay", "relay:workspace-1", 10);
+        relay_store.accounts[0].source_kind = AccountSourceKind::Relay;
+        relay_store.accounts[0].api_base_url = Some("https://example.test/v1".to_string());
+        relay_store.accounts[0].api_key = Some("sk-test".to_string());
+        relay_store.accounts[0].model_name = Some("gpt-5.5-codex".to_string());
+        fs::write(
+            &store_path,
+            serde_json::to_string_pretty(&relay_store).expect("serialize relay store"),
+        )
+        .expect("write relay store");
+
+        let loaded = load_store_from_path(&store_path).expect("load relay store");
+        let account = &loaded.accounts[0];
+        let auth_path = account
+            .profile_auth_path
+            .as_ref()
+            .map(PathBuf::from)
+            .expect("profile auth path");
+        let config_path = account
+            .profile_config_path
+            .as_ref()
+            .map(PathBuf::from)
+            .expect("profile config path");
+        let auth_contents = fs::read_to_string(auth_path).expect("read relay auth");
+        let config_contents = fs::read_to_string(config_path).expect("read relay config");
+
+        assert!(account.profile_auth_ready);
+        assert!(account.profile_config_ready);
+        assert_eq!(account.profile_integrity_error, None);
+        assert!(auth_contents.contains("sk-test"));
+        assert!(config_contents.contains("https://example.test/v1"));
+        assert!(config_contents.contains("gpt-5.5-codex"));
     }
 }
