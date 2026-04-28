@@ -967,11 +967,15 @@ fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
 }
 
 fn should_use_responses_websocket(payload: &Value) -> bool {
-    payload
-        .get("model")
-        .and_then(Value::as_str)
-        .map(|model| model == "gpt-5.5" || model.starts_with("gpt-5.5-"))
-        .unwrap_or(false)
+    let _ = payload;
+    // Keep gpt-5.5 on the HTTP SSE path for now.
+    //
+    // Real upstream `/backend-api/codex/responses` over plain HTTP already returns
+    // `response.completed` for gpt-5.5 in a few seconds on this host, while the
+    // current tokio-tungstenite WebSocket path can stall before yielding any
+    // upstream frames. Returning false here is the narrowest safe fix for the
+    // local 8666 proxy hang without changing the request/response conversion code.
+    false
 }
 
 fn websocket_response_create_payload(payload: &Value) -> Value {
@@ -3115,6 +3119,7 @@ mod tests {
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
+    use super::should_use_responses_websocket;
     use super::translate_sse_event_to_chat_chunk;
     use super::ChatStreamState;
     use super::SseEvent;
@@ -3327,6 +3332,19 @@ mod tests {
             payload.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.5")
         );
+    }
+
+    #[test]
+    fn gpt_5_5_responses_request_does_not_force_websocket() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "input": "hello"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert!(!should_use_responses_websocket(&payload));
     }
 
     #[test]
