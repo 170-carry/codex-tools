@@ -16,6 +16,10 @@ use std::sync::RwLock;
 use async_stream::stream;
 use axum::body::Body;
 use axum::body::Bytes;
+use axum::extract::ws::rejection::WebSocketUpgradeRejection;
+use axum::extract::ws::Message as AxumWebSocketMessage;
+use axum::extract::ws::WebSocket as AxumWebSocket;
+use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -411,7 +415,10 @@ pub(crate) async fn start_api_proxy_with_runtime(
         .route("/health", get(health_handler))
         .route("/v1/models", get(models_handler))
         .route("/v1/chat/completions", post(chat_completions_handler))
-        .route("/v1/responses", post(responses_handler))
+        .route(
+            "/v1/responses",
+            post(responses_handler).get(responses_websocket_handler),
+        )
         .fallback(any(unsupported_proxy_handler))
         .layer(DefaultBodyLimit::max(request_body_limit))
         .with_state(context.clone());
@@ -667,6 +674,193 @@ async fn responses_handler(
 
         build_json_proxy_response(StatusCode::OK, &upstream_headers, body)
     }
+}
+
+async fn responses_websocket_handler(
+    State(context): State<Arc<ProxyContext>>,
+    headers: HeaderMap,
+    ws: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
+) -> Response<Body> {
+    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
+        return response;
+    }
+
+    let Ok(ws) = ws else {
+        return json_error_response(
+            StatusCode::UPGRADE_REQUIRED,
+            "GET /v1/responses requires a WebSocket upgrade.",
+        );
+    };
+
+    ws.on_upgrade(move |socket| handle_responses_websocket(socket, context, headers))
+        .into_response()
+}
+
+async fn handle_responses_websocket(
+    mut socket: AxumWebSocket,
+    context: Arc<ProxyContext>,
+    headers: HeaderMap,
+) {
+    let upstream_payload = match receive_responses_websocket_create(&mut socket).await {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = send_responses_websocket_error(&mut socket, &message).await;
+            let _ = socket.close().await;
+            return;
+        }
+    };
+
+    let upstream =
+        match send_codex_request_over_candidates(&context, &headers, &upstream_payload).await {
+            Ok(value) => value,
+            Err(response) => {
+                let message = format!(
+                    "Codex upstream request failed with status {}",
+                    response.status()
+                );
+                let _ = send_responses_websocket_error(&mut socket, &message).await;
+                let _ = socket.close().await;
+                return;
+            }
+        };
+
+    let (candidate, upstream_response) = upstream;
+    update_proxy_target(&context, &candidate).await;
+    update_proxy_error(&context, None).await;
+
+    if let Err(message) = relay_responses_sse_to_websocket(&mut socket, upstream_response).await {
+        update_proxy_error(&context, Some(message.clone())).await;
+        let _ = send_responses_websocket_error(&mut socket, &message).await;
+    }
+
+    let _ = socket.close().await;
+}
+
+async fn receive_responses_websocket_create(socket: &mut AxumWebSocket) -> Result<Value, String> {
+    while let Some(message) = socket.recv().await {
+        let message = message.map_err(|error| format!("读取 WebSocket 首帧失败: {error}"))?;
+        match message {
+            AxumWebSocketMessage::Text(text) => {
+                return normalize_responses_websocket_create(text.as_bytes())
+            }
+            AxumWebSocketMessage::Binary(bytes) => {
+                return normalize_responses_websocket_create(&bytes)
+            }
+            AxumWebSocketMessage::Close(_) => {
+                return Err("WebSocket 在发送 response.create 前已关闭".to_string())
+            }
+            AxumWebSocketMessage::Ping(_) | AxumWebSocketMessage::Pong(_) => {}
+        }
+    }
+
+    Err("WebSocket 未收到 response.create 首帧".to_string())
+}
+
+fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<Value, String> {
+    let mut request = serde_json::from_slice::<Value>(bytes)
+        .map_err(|error| format!("WebSocket 首帧不是合法 JSON: {error}"))?;
+    let object = request
+        .as_object_mut()
+        .ok_or_else(|| "WebSocket 首帧必须是 JSON 对象".to_string())?;
+
+    if object.get("type").and_then(Value::as_str) == Some("response.create") {
+        object.remove("type");
+    } else if object.contains_key("type") {
+        return Err("WebSocket 首帧必须是 response.create 或 Responses payload".to_string());
+    }
+
+    object.insert("stream".to_string(), Value::Bool(true));
+
+    normalize_openai_responses_request(request).map(|(payload, _)| payload)
+}
+
+async fn relay_responses_sse_to_websocket(
+    socket: &mut AxumWebSocket,
+    upstream: CodexUpstreamResponse,
+) -> Result<(), String> {
+    let (_, mut upstream_stream) = upstream.into_stream();
+    let mut decoder = SseDecoder::default();
+
+    while let Some(chunk) = upstream_stream.next().await {
+        let chunk = chunk?;
+        for event in decoder.push(&chunk) {
+            let done = is_responses_terminal_event(&event);
+            send_responses_websocket_event(socket, &event).await?;
+            if done {
+                return Ok(());
+            }
+        }
+    }
+
+    for event in decoder.finish() {
+        let done = is_responses_terminal_event(&event);
+        send_responses_websocket_event(socket, &event).await?;
+        if done {
+            return Ok(());
+        }
+    }
+
+    Ok(())
+}
+
+async fn send_responses_websocket_event(
+    socket: &mut AxumWebSocket,
+    event: &SseEvent,
+) -> Result<(), String> {
+    let data = rewrite_sse_event_data_models_for_client(&event.data);
+    let text = match serde_json::from_str::<Value>(&data) {
+        Ok(value) => serde_json::to_string(&value).unwrap_or(data),
+        Err(_) => data,
+    };
+
+    socket
+        .send(AxumWebSocketMessage::Text(text))
+        .await
+        .map_err(|error| format!("发送 WebSocket 响应帧失败: {error}"))
+}
+
+async fn send_responses_websocket_error(
+    socket: &mut AxumWebSocket,
+    message: &str,
+) -> Result<(), String> {
+    let payload = json!({
+        "type": "error",
+        "error": {
+            "message": message,
+        }
+    });
+    let text = serde_json::to_string(&payload).unwrap_or_else(|_| {
+        "{\"type\":\"error\",\"error\":{\"message\":\"WebSocket error\"}}".to_string()
+    });
+
+    socket
+        .send(AxumWebSocketMessage::Text(text))
+        .await
+        .map_err(|error| format!("发送 WebSocket 错误帧失败: {error}"))
+}
+
+fn is_responses_terminal_event(event: &SseEvent) -> bool {
+    let event_type = serde_json::from_str::<Value>(&event.data)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("type")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+        .or_else(|| event.event.clone());
+
+    matches!(
+        event_type.as_deref(),
+        Some(
+            "response.completed"
+                | "response.done"
+                | "response.failed"
+                | "response.incomplete"
+                | "response.cancelled"
+                | "response.canceled"
+        )
+    )
 }
 
 async fn unsupported_proxy_handler(
@@ -987,11 +1181,8 @@ fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
 }
 
 fn should_use_responses_websocket(payload: &Value) -> bool {
-    payload
-        .get("model")
-        .and_then(Value::as_str)
-        .map(|model| model == "gpt-5.5" || model.starts_with("gpt-5.5-"))
-        .unwrap_or(false)
+    let _ = payload;
+    false
 }
 
 fn websocket_response_create_payload(payload: &Value) -> Value {
@@ -3417,18 +3608,22 @@ mod tests {
     use super::extract_completed_response_from_sse;
     use super::find_http_header_end;
     use super::host_matches_no_proxy;
+    use super::is_responses_terminal_event;
     use super::normalize_openai_responses_request;
+    use super::normalize_responses_websocket_create;
     use super::parse_http_proxy_config;
     use super::parse_proxy_request_body_limit_mib;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
+    use super::should_use_responses_websocket;
     use super::translate_sse_event_to_chat_chunk;
     use super::websocket_target_host_port;
     use super::ChatStreamState;
     use super::SseEvent;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
     use serde_json::json;
+    use serde_json::Value;
 
     #[test]
     fn converts_chat_request_to_codex_payload() {
@@ -3636,6 +3831,77 @@ mod tests {
             payload.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.5")
         );
+    }
+
+    #[test]
+    fn keeps_gpt_5_5_on_http_sse_upstream() {
+        let payload = json!({
+            "model": "gpt-5.5",
+            "input": "hello",
+            "stream": true
+        });
+
+        assert!(!should_use_responses_websocket(&payload));
+    }
+
+    #[test]
+    fn normalizes_websocket_response_create_to_streaming_payload() {
+        let request = json!({
+            "type": "response.create",
+            "model": "gpt-5-5",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Say OK only."
+                        }
+                    ]
+                }
+            ],
+            "stream": false
+        });
+        let bytes = serde_json::to_vec(&request).expect("serialize request");
+
+        let payload = normalize_responses_websocket_create(&bytes)
+            .expect("websocket payload should normalize");
+
+        assert_eq!(
+            payload.get("type").and_then(Value::as_str),
+            None,
+            "transport wrapper type should not be sent upstream"
+        );
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.5")
+        );
+        assert_eq!(payload.get("stream").and_then(Value::as_bool), Some(true));
+        assert_eq!(payload.get("store").and_then(Value::as_bool), Some(false));
+    }
+
+    #[test]
+    fn rejects_unexpected_websocket_event_type() {
+        let request = json!({
+            "type": "session.update",
+            "model": "gpt-5.5",
+            "input": []
+        });
+        let bytes = serde_json::to_vec(&request).expect("serialize request");
+
+        let error = normalize_responses_websocket_create(&bytes).expect_err("wrong type rejected");
+
+        assert!(error.contains("response.create"));
+    }
+
+    #[test]
+    fn recognizes_responses_terminal_events_from_sse_payload() {
+        let event = SseEvent {
+            event: Some("response.completed".to_string()),
+            data: "{\"type\":\"response.completed\"}".to_string(),
+        };
+
+        assert!(is_responses_terminal_event(&event));
     }
 
     #[test]

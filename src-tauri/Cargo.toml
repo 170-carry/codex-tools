@@ -41,7 +41,7 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
 async-stream = "0.3"
 rfd = "0.15"
 if-addrs = "0.13"
