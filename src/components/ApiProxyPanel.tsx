@@ -864,7 +864,51 @@ export function ApiProxyPanel({
               />
             </label>
 
-            <div className="proxyInlineSetting proxyContextSetting">
+            <div className="proxyInlineSetting">
+              <span className="proxyInlineLabel">{proxyCopy.defaultStartLabel}</span>
+              <label className="themeSwitch" aria-label={proxyCopy.defaultStartLabel}>
+                <input
+                  type="checkbox"
+                  checked={autoStartEnabled}
+                  disabled={savingSettings}
+                  onChange={(event) => onToggleAutoStart(event.target.checked)}
+                />
+                <span className="themeSwitchTrack" aria-hidden="true">
+                  <span className="themeSwitchThumb" />
+                </span>
+                <span className="themeSwitchText">
+                  {autoStartEnabled
+                    ? proxyCopy.defaultStartEnabled
+                    : proxyCopy.defaultStartDisabled}
+                </span>
+              </label>
+            </div>
+
+            <div className="proxyControlActions">
+              <button className="ghost" onClick={onRefresh} disabled={busy}>
+                {proxyCopy.refreshStatus}
+              </button>
+              {status.running ? (
+                <button className="danger" onClick={onStop} disabled={busy}>
+                  {stopping ? proxyCopy.stopping : proxyCopy.stop}
+                </button>
+              ) : (
+                <button
+                  className="primary"
+                  onClick={() => {
+                    void handleStart();
+                  }}
+                  disabled={busy || accountCount === 0 || effectivePort === null}
+                >
+                  {starting ? proxyCopy.starting : proxyCopy.start}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="proxyContextPanel">
+            <div className="proxyContextPanelGrid">
+              <div className="proxyInlineSetting proxyContextSetting">
               <span className="proxyInlineLabel">{proxyCopy.gpt55ContextLabel}</span>
               <div className="proxyContextControl">
                 <div
@@ -930,9 +974,9 @@ export function ApiProxyPanel({
                   </span>
                 )}
               </div>
-            </div>
+              </div>
 
-            <div className="proxyInlineSetting proxyContextSetting">
+              <div className="proxyInlineSetting proxyContextSetting">
               <span className="proxyInlineLabel">{proxyCopy.gpt55AutoCompactLabel}</span>
               <div className="proxyContextControl">
                 <div
@@ -1002,47 +1046,8 @@ export function ApiProxyPanel({
                   </span>
                 )}
               </div>
-            </div>
+              </div>
 
-            <div className="proxyInlineSetting">
-              <span className="proxyInlineLabel">{proxyCopy.defaultStartLabel}</span>
-              <label className="themeSwitch" aria-label={proxyCopy.defaultStartLabel}>
-                <input
-                  type="checkbox"
-                  checked={autoStartEnabled}
-                  disabled={savingSettings}
-                  onChange={(event) => onToggleAutoStart(event.target.checked)}
-                />
-                <span className="themeSwitchTrack" aria-hidden="true">
-                  <span className="themeSwitchThumb" />
-                </span>
-                <span className="themeSwitchText">
-                  {autoStartEnabled
-                    ? proxyCopy.defaultStartEnabled
-                    : proxyCopy.defaultStartDisabled}
-                </span>
-              </label>
-            </div>
-
-            <div className="proxyControlActions">
-              <button className="ghost" onClick={onRefresh} disabled={busy}>
-                {proxyCopy.refreshStatus}
-              </button>
-              {status.running ? (
-                <button className="danger" onClick={onStop} disabled={busy}>
-                  {stopping ? proxyCopy.stopping : proxyCopy.stop}
-                </button>
-              ) : (
-                <button
-                  className="primary"
-                  onClick={() => {
-                    void handleStart();
-                  }}
-                  disabled={busy || accountCount === 0 || effectivePort === null}
-                >
-                  {starting ? proxyCopy.starting : proxyCopy.start}
-                </button>
-              )}
             </div>
           </div>
 
