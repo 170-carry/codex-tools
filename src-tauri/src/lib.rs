@@ -1,4 +1,5 @@
 mod account_service;
+mod app_paths;
 mod auth;
 mod cli;
 mod cloudflared_service;
@@ -6,6 +7,7 @@ mod editor_apps;
 mod i18n;
 mod models;
 mod opencode;
+mod profile_files;
 pub mod proxy_daemon;
 mod proxy_service;
 mod remote_service;
@@ -13,15 +15,17 @@ mod settings_service;
 mod state;
 mod store;
 mod token_refresh_daemon;
+mod token_usage;
 mod tray;
 mod usage;
 mod utils;
 
-use std::process::Command;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
-use std::io::ErrorKind;
 use std::net::TcpListener;
+use std::net::TcpStream;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -36,10 +40,12 @@ use tauri::WindowEvent;
 
 use models::AccountSummary;
 use models::ApiProxyStatus;
+use models::ApiProxyUsageStats;
 use models::AppSettings;
 use models::AppSettingsPatch;
 use models::AuthJsonImportInput;
 use models::CloudflaredStatus;
+use models::CreateApiAccountInput;
 use models::DeployRemoteProxyInput;
 use models::EditorAppId;
 use models::ImportAccountsResult;
@@ -52,8 +58,11 @@ use models::StartCloudflaredTunnelInput;
 use models::SwitchAccountResult;
 use state::AppState;
 use state::OauthCallbackListenerHandle;
+#[cfg(target_os = "windows")]
+use utils::new_background_command;
 
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
+const AUTH_KEEPALIVE_INTERVAL_SECS: u64 = 300;
 
 fn escape_html(input: &str) -> String {
     input
@@ -78,7 +87,7 @@ fn write_oauth_html_response(
     );
     let response = format!(
         "HTTP/1.1 {status_line}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.as_bytes().len(),
+        body.len(),
         body
     );
     let _ = stream.write_all(response.as_bytes());
@@ -114,12 +123,9 @@ fn read_oauth_request_path(stream: &mut std::net::TcpStream) -> Result<String, S
         .ok_or_else(|| "OAuth 回调请求缺少路径".to_string())
 }
 
-fn build_oauth_callback_url(
-    redirect_uri: &str,
-    path: &str,
-) -> Result<String, String> {
-    let mut callback_url =
-        reqwest::Url::parse(redirect_uri).map_err(|error| format!("OAuth redirect_uri 无效: {error}"))?;
+fn build_oauth_callback_url(redirect_uri: &str, path: &str) -> Result<String, String> {
+    let mut callback_url = reqwest::Url::parse(redirect_uri)
+        .map_err(|error| format!("OAuth redirect_uri 无效: {error}"))?;
     let request_url = reqwest::Url::parse(&format!("http://localhost{path}"))
         .map_err(|error| format!("OAuth 回调路径无效: {error}"))?;
     callback_url.set_path(request_url.path());
@@ -128,19 +134,31 @@ fn build_oauth_callback_url(
     Ok(callback_url.to_string())
 }
 
-fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(TcpListener, u16), String> {
-    match TcpListener::bind(("127.0.0.1", preferred_port)) {
-        Ok(listener) => Ok((listener, preferred_port)),
+fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(Vec<TcpListener>, u16), String> {
+    match bind_oauth_callback_listener_on_port(preferred_port) {
+        Ok(listeners) => return Ok((listeners, preferred_port)),
         Err(error) if error.kind() == ErrorKind::AddrInUse => {
-            let fallback = TcpListener::bind(("127.0.0.1", 0)).map_err(|fallback_error| {
-                format!(
-                    "无法启动 OAuth 回调监听 127.0.0.1:{preferred_port}: {error}；自动回退到空闲端口也失败: {fallback_error}"
-                )
-            })?;
-            let port = fallback
-                .local_addr()
-                .map_err(|addr_error| format!("无法读取 OAuth 回调监听端口: {addr_error}"))?
-                .port();
+            cancel_oauth_listener_on_port(preferred_port);
+            for _ in 0..10 {
+                thread::sleep(Duration::from_millis(100));
+                match bind_oauth_callback_listener_on_port(preferred_port) {
+                    Ok(listeners) => return Ok((listeners, preferred_port)),
+                    Err(retry_error) if retry_error.kind() == ErrorKind::AddrInUse => {}
+                    Err(retry_error) => {
+                        return Err(format!(
+                            "无法启动 OAuth 回调监听 localhost:{preferred_port}: {retry_error}"
+                        ));
+                    }
+                }
+            }
+
+            let (fallback, port) = bind_oauth_callback_listener_on_ephemeral().map_err(
+                |fallback_error| {
+                    format!(
+                        "无法启动 OAuth 回调监听 localhost:{preferred_port}: {error}；自动回退到空闲端口也失败: {fallback_error}"
+                    )
+                },
+            )?;
             log::warn!(
                 "OAuth 回调默认端口 {} 已占用，已自动回退到本地空闲端口 {}",
                 preferred_port,
@@ -149,9 +167,88 @@ fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(TcpListener, u16
             Ok((fallback, port))
         }
         Err(error) => Err(format!(
-            "无法启动 OAuth 回调监听 127.0.0.1:{preferred_port}: {error}"
+            "无法启动 OAuth 回调监听 localhost:{preferred_port}: {error}"
         )),
     }
+}
+
+fn bind_oauth_callback_listener_on_port(port: u16) -> std::io::Result<Vec<TcpListener>> {
+    let ipv4 = TcpListener::bind(("127.0.0.1", port))?;
+    let mut listeners = vec![ipv4];
+    if let Some(ipv6) = bind_optional_oauth_ipv6_listener(port)? {
+        listeners.push(ipv6);
+    }
+    Ok(listeners)
+}
+
+fn bind_oauth_callback_listener_on_ephemeral() -> std::io::Result<(Vec<TcpListener>, u16)> {
+    let mut last_error = None;
+    for _ in 0..10 {
+        let ipv4 = TcpListener::bind(("127.0.0.1", 0))?;
+        let port = ipv4.local_addr()?.port();
+        let mut listeners = vec![ipv4];
+        match bind_optional_oauth_ipv6_listener(port) {
+            Ok(Some(ipv6)) => {
+                listeners.push(ipv6);
+                return Ok((listeners, port));
+            }
+            Ok(None) => return Ok((listeners, port)),
+            Err(error) if error.kind() == ErrorKind::AddrInUse => {
+                last_error = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(ErrorKind::AddrInUse, "无法找到可用的 OAuth 回调端口")
+    }))
+}
+
+fn bind_optional_oauth_ipv6_listener(port: u16) -> std::io::Result<Option<TcpListener>> {
+    match TcpListener::bind(("::1", port)) {
+        Ok(listener) => Ok(Some(listener)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::AddrNotAvailable | ErrorKind::Unsupported
+            ) =>
+        {
+            log::warn!("当前系统无法监听 IPv6 OAuth 回调 ::1:{port}: {error}");
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn cancel_oauth_listener_on_port(port: u16) {
+    for host in ["127.0.0.1", "::1"] {
+        if let Err(error) = send_oauth_cancel_request(host, port) {
+            log::debug!("取消旧 OAuth 回调监听 {host}:{port} 失败: {error}");
+        }
+    }
+}
+
+fn send_oauth_cancel_request(host: &str, port: u16) -> std::io::Result<()> {
+    let address = if host == "::1" {
+        format!("[::1]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let mut stream = TcpStream::connect_timeout(
+        &address
+            .parse()
+            .map_err(|error| std::io::Error::new(ErrorKind::InvalidInput, error))?,
+        Duration::from_millis(350),
+    )?;
+    stream.set_read_timeout(Some(Duration::from_millis(350)))?;
+    stream.set_write_timeout(Some(Duration::from_millis(350)))?;
+    stream.write_all(b"GET /cancel HTTP/1.1\r\n")?;
+    stream.write_all(format!("Host: {address}\r\n").as_bytes())?;
+    stream.write_all(b"Connection: close\r\n\r\n")?;
+    let mut buffer = [0_u8; 64];
+    let _ = stream.read(&mut buffer);
+    Ok(())
 }
 
 async fn stop_oauth_callback_listener(state: &AppState) {
@@ -225,7 +322,11 @@ async fn complete_oauth_login_internal(
     };
 
     let auth_json = auth::complete_oauth_callback_login(&pending, callback_url).await?;
-    import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+    if let Some(account_id) = pending.reauthorize_account_id.as_deref() {
+        account_service::reauthorize_account_internal(app, state, account_id, auth_json).await
+    } else {
+        import_oauth_auth_json(app, state, auth_json, "oauth-callback").await
+    }
 }
 
 async fn emit_oauth_callback_finished(app: &AppHandle, payload: OauthCallbackFinishedEvent) {
@@ -234,7 +335,7 @@ async fn emit_oauth_callback_finished(app: &AppHandle, payload: OauthCallbackFin
 
 fn run_oauth_callback_listener(
     app: AppHandle,
-    listener: TcpListener,
+    listeners: Vec<TcpListener>,
     pending: auth::PendingOauthLogin,
     shutdown_rx: std::sync::mpsc::Receiver<()>,
 ) {
@@ -263,123 +364,130 @@ fn run_oauth_callback_listener(
             break;
         }
 
-        match listener.accept() {
-            Ok((mut stream, _)) => {
-                let path = match read_oauth_request_path(&mut stream) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
-                        break;
-                    }
-                };
+        let mut accepted_stream = None;
+        let mut listener_error = None;
+        for listener in &listeners {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    accepted_stream = Some(stream);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    listener_error = Some(error);
+                    break;
+                }
+            }
+        }
 
-                if path == "/cancel" {
+        if let Some(error) = listener_error {
+            tauri::async_runtime::block_on(async {
+                emit_oauth_callback_finished(
+                    &app,
+                    OauthCallbackFinishedEvent {
+                        result: None,
+                        error: Some(format!("OAuth 回调监听失败: {error}")),
+                    },
+                )
+                .await;
+            });
+            break;
+        }
+
+        if let Some(mut stream) = accepted_stream {
+            let path = match read_oauth_request_path(&mut stream) {
+                Ok(value) => value,
+                Err(error) => {
+                    write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                    break;
+                }
+            };
+
+            if path == "/cancel" {
+                write_oauth_html_response(
+                    &mut stream,
+                    "200 OK",
+                    "授权已取消",
+                    "当前授权监听已取消，可以关闭这个页面。",
+                );
+                break;
+            }
+
+            if !path.starts_with("/auth/callback") {
+                write_oauth_html_response(
+                    &mut stream,
+                    "404 Not Found",
+                    "未识别的回调地址",
+                    "当前地址不是 Codex Tools 的 OAuth 回调地址，可以关闭这个页面。",
+                );
+                continue;
+            }
+
+            let callback_url = match build_oauth_callback_url(&pending.redirect_uri, &path) {
+                Ok(value) => value,
+                Err(error) => {
+                    write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                    break;
+                }
+            };
+            let callback_result = tauri::async_runtime::block_on(async {
+                let state = app.state::<AppState>();
+                let pending_matches = {
+                    let guard = state.pending_oauth_login.lock().await;
+                    guard
+                        .as_ref()
+                        .is_some_and(|current| current.state.as_str() == pending.state.as_str())
+                };
+                if !pending_matches {
+                    return Err("当前授权会话已失效，请回到应用重新打开授权页面。".to_string());
+                }
+
+                let result =
+                    complete_oauth_login_internal(&app, state.inner(), &callback_url).await;
+                clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
+                result
+            });
+
+            match callback_result {
+                Ok(result) => {
                     write_oauth_html_response(
                         &mut stream,
                         "200 OK",
-                        "授权已取消",
-                        "当前授权监听已取消，可以关闭这个页面。",
+                        "授权完成",
+                        "账号已经写入 Codex Tools，可以回到应用继续操作。",
                     );
-                    break;
+                    restore_main_window(&app);
+                    tauri::async_runtime::block_on(async {
+                        emit_oauth_callback_finished(
+                            &app,
+                            OauthCallbackFinishedEvent {
+                                result: Some(result),
+                                error: None,
+                            },
+                        )
+                        .await;
+                    });
                 }
-
-                if !path.starts_with("/auth/callback") {
-                    write_oauth_html_response(
-                        &mut stream,
-                        "404 Not Found",
-                        "未识别的回调地址",
-                        "当前地址不是 Codex Tools 的 OAuth 回调地址，可以关闭这个页面。",
-                    );
-                    continue;
-                }
-
-                let callback_url = match build_oauth_callback_url(&pending.redirect_uri, &path) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "400 Bad Request",
-                            "授权失败",
-                            &error,
-                        );
-                        break;
-                    }
-                };
-                let callback_result = tauri::async_runtime::block_on(async {
-                    let state = app.state::<AppState>();
-                    let pending_matches = {
-                        let guard = state.pending_oauth_login.lock().await;
-                        guard
-                            .as_ref()
-                            .is_some_and(|current| current.state.as_str() == pending.state.as_str())
-                    };
-                    if !pending_matches {
-                        return Err("当前授权会话已失效，请回到应用重新打开授权页面。".to_string());
-                    }
-
-                    let result = complete_oauth_login_internal(&app, state.inner(), &callback_url).await;
-                    clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
-                    result
-                });
-
-                match callback_result {
-                    Ok(result) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "200 OK",
-                            "授权完成",
-                            "账号已经写入 Codex Tools，可以回到应用继续操作。",
-                        );
+                Err(error) => {
+                    write_oauth_html_response(&mut stream, "400 Bad Request", "授权失败", &error);
+                    restore_main_window(&app);
+                    if !error.contains("会话已失效") {
                         tauri::async_runtime::block_on(async {
                             emit_oauth_callback_finished(
                                 &app,
                                 OauthCallbackFinishedEvent {
-                                    result: Some(result),
-                                    error: None,
+                                    result: None,
+                                    error: Some(error),
                                 },
                             )
                             .await;
                         });
                     }
-                    Err(error) => {
-                        write_oauth_html_response(
-                            &mut stream,
-                            "400 Bad Request",
-                            "授权失败",
-                            &error,
-                        );
-                        if !error.contains("会话已失效") {
-                            tauri::async_runtime::block_on(async {
-                                emit_oauth_callback_finished(
-                                    &app,
-                                    OauthCallbackFinishedEvent {
-                                        result: None,
-                                        error: Some(error),
-                                    },
-                                )
-                                .await;
-                            });
-                        }
-                    }
                 }
-                break;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(120));
-            }
-            Err(error) => {
-                tauri::async_runtime::block_on(async {
-                    emit_oauth_callback_finished(
-                        &app,
-                        OauthCallbackFinishedEvent {
-                            result: None,
-                            error: Some(format!("OAuth 回调监听失败: {error}")),
-                        },
-                    )
-                    .await;
-                });
-                break;
-            }
+            break;
+        } else {
+            thread::sleep(Duration::from_millis(120));
         }
     }
 
@@ -393,18 +501,20 @@ fn run_oauth_callback_listener(
 async fn start_oauth_callback_listener(
     app: &AppHandle,
     state: &AppState,
-    listener: TcpListener,
+    listeners: Vec<TcpListener>,
     pending: &auth::PendingOauthLogin,
 ) -> Result<(), String> {
-    listener
-        .set_nonblocking(true)
-        .map_err(|error| format!("无法设置 OAuth 回调监听模式: {error}"))?;
+    for listener in &listeners {
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| format!("无法设置 OAuth 回调监听模式: {error}"))?;
+    }
 
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
     let app_handle = app.clone();
     let pending_login = pending.clone();
     let task = thread::spawn(move || {
-        run_oauth_callback_listener(app_handle, listener, pending_login, shutdown_rx);
+        run_oauth_callback_listener(app_handle, listeners, pending_login, shutdown_rx);
     });
 
     let mut guard = state.oauth_listener.lock().await;
@@ -440,6 +550,17 @@ async fn import_current_auth_account(
 }
 
 #[tauri::command]
+async fn create_api_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: CreateApiAccountInput,
+) -> Result<AccountSummary, String> {
+    let summary = account_service::create_api_account_internal(&app, state.inner(), input).await?;
+    let _ = tray::refresh_macos_tray_snapshot(&app);
+    Ok(summary)
+}
+
+#[tauri::command]
 async fn import_auth_json_accounts(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -457,8 +578,9 @@ async fn import_auth_json_accounts(
 async fn export_accounts_zip(
     app: AppHandle,
     state: State<'_, AppState>,
+    account_key: Option<String>,
 ) -> Result<Option<String>, String> {
-    account_service::export_accounts_zip_internal(&app, state.inner()).await
+    account_service::export_accounts_zip_internal(&app, state.inner(), account_key).await
 }
 
 #[tauri::command]
@@ -511,6 +633,13 @@ async fn refresh_all_usage(
     .await?;
     let _ = tray::update_macos_tray_snapshot(&app, &summaries);
     Ok(summaries)
+}
+
+#[tauri::command]
+async fn get_codex_token_usage() -> Result<token_usage::CodexTokenUsageSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(token_usage::collect_codex_token_usage_snapshot)
+        .await
+        .map_err(|error| format!("统计 Codex token 用量失败: {error}"))?
 }
 
 #[tauri::command]
@@ -569,18 +698,15 @@ fn open_external_url(url: String) -> Result<(), String> {
         // as command separators unless they are shell-escaped very carefully.
         // Prefer the Windows URL protocol handler so the link goes to the
         // user's default browser instead of opening a File Explorer window.
-        Command::new("rundll32.exe")
+        let mut primary = new_background_command("rundll32.exe");
+        primary
             .args(["url.dll,FileProtocolHandler", &url])
             .spawn()
             .or_else(|primary_error| {
-                Command::new("explorer.exe")
-                    .arg(&url)
-                    .spawn()
-                    .map_err(|fallback_error| {
-                        format!(
-                            "打开外部链接失败: rundll32={primary_error}; explorer={fallback_error}"
-                        )
-                    })
+                let mut fallback = new_background_command("explorer.exe");
+                fallback.arg(&url).spawn().map_err(|fallback_error| {
+                    format!("打开外部链接失败: rundll32={primary_error}; explorer={fallback_error}")
+                })
             })?;
         Ok(())
     }
@@ -632,16 +758,26 @@ async fn pick_codex_launch_path(
 async fn prepare_oauth_login(
     app: AppHandle,
     state: State<'_, AppState>,
+    account_id: Option<String>,
 ) -> Result<PreparedOauthLogin, String> {
     let _oauth_guard = state.oauth_flow_lock.lock().await;
     stop_oauth_callback_listener(state.inner()).await;
     let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
-    let (pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    let (mut pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    pending.reauthorize_account_id = account_id.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = Some(pending.clone());
     }
-    if let Err(error) = start_oauth_callback_listener(&app, state.inner(), listener, &pending).await {
+    if let Err(error) = start_oauth_callback_listener(&app, state.inner(), listener, &pending).await
+    {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = None;
         return Err(error);
@@ -707,10 +843,23 @@ mod tests {
             .expect("should read local addr")
             .port();
 
-        let (_listener, resolved_port) =
+        let (_listeners, resolved_port) =
             bind_oauth_callback_listener(preferred_port).expect("bind should fall back");
 
         assert_ne!(resolved_port, preferred_port);
+    }
+
+    #[test]
+    fn bind_oauth_callback_listener_uses_preferred_port_when_available() {
+        let probe = TcpListener::bind(("127.0.0.1", 0)).expect("should bind a local test port");
+        let preferred_port = probe.local_addr().expect("should read local addr").port();
+        drop(probe);
+
+        let (listeners, resolved_port) =
+            bind_oauth_callback_listener(preferred_port).expect("bind should use preferred port");
+
+        assert_eq!(resolved_port, preferred_port);
+        assert!(!listeners.is_empty());
     }
 }
 
@@ -729,12 +878,87 @@ async fn switch_account_and_launch(
         store::load_store(&app)?
     };
 
-    let account = store
+    let mut account = store
         .accounts
         .iter()
         .find(|account| account.id == id)
         .cloned()
         .ok_or_else(|| "找不到要切换的账号".to_string())?;
+
+    if matches!(account.source_kind, models::AccountSourceKind::Chatgpt)
+        && auth::auth_tokens_need_refresh(&account.auth_json)
+    {
+        if account.auth_refresh_blocked {
+            return Err(format!(
+                "切换账号前刷新登录令牌失败: {}",
+                account
+                    .auth_refresh_error
+                    .clone()
+                    .unwrap_or_else(|| "授权过期，请重新登录授权。".to_string())
+            ));
+        }
+
+        let refreshed_auth = match auth::refresh_chatgpt_auth_tokens_serialized(
+            &account.auth_json,
+            &state.auth_refresh_lock,
+        )
+        .await
+        {
+            Ok(refreshed_auth) => refreshed_auth,
+            Err(error) => {
+                let normalized_error = normalize_switch_refresh_error(&error);
+                let should_block_refresh = normalized_error
+                    == "当前账号的 refresh_token 已失效或已被轮换，请重新登录授权。"
+                    || normalized_error == "当前账号授权已过期，请重新登录授权。";
+
+                if should_block_refresh {
+                    let blocked_message = "授权过期，请重新登录授权。";
+                    match app_paths::app_data_dir(&app) {
+                        Ok(data_dir) => {
+                            let store_path = store::account_store_path_from_data_dir(&data_dir);
+                            if let Err(persist_error) =
+                                store::update_account_group_refresh_state_in_path(
+                                    &store_path,
+                                    &account.account_key(),
+                                    None,
+                                    true,
+                                    Some(blocked_message),
+                                    utils::now_unix_seconds(),
+                                    true,
+                                )
+                            {
+                                log::warn!("切换失败后写回账号停刷状态失败: {persist_error}");
+                            }
+                        }
+                        Err(path_error) => {
+                            log::warn!("切换失败后获取应用数据目录失败: {path_error}");
+                        }
+                    }
+                }
+
+                return Err(format!("切换账号前刷新登录令牌失败: {normalized_error}"));
+            }
+        };
+
+        account.auth_json = refreshed_auth.clone();
+
+        let refreshed_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("读取系统时间失败: {error}"))?
+            .as_secs() as i64;
+        let _guard = state.store_lock.lock().await;
+        let mut latest_store = store::load_store(&app)?;
+        let stored_account = latest_store
+            .accounts
+            .iter_mut()
+            .find(|stored| stored.id == id)
+            .ok_or_else(|| "找不到要切换的账号".to_string())?;
+        stored_account.auth_json = refreshed_auth;
+        stored_account.updated_at = refreshed_at;
+        stored_account.auth_refresh_blocked = false;
+        stored_account.auth_refresh_error = None;
+        store::save_store(&app, &latest_store)?;
+    }
 
     let should_sync_opencode = store.settings.sync_opencode_openai_auth;
     let should_restart_opencode_desktop =
@@ -744,7 +968,23 @@ async fn switch_account_and_launch(
     let effective_restart_targets =
         restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
     let configured_codex_launch_path = store.settings.codex_launch_path.clone();
-    auth::write_active_codex_auth(&account.auth_json)?;
+    {
+        let _guard = state.store_lock.lock().await;
+        let mut latest_store = store::load_store(&app)?;
+        let stored_account = latest_store
+            .accounts
+            .iter_mut()
+            .find(|stored| stored.id == id)
+            .ok_or_else(|| "找不到要切换的账号".to_string())?;
+        profile_files::sync_account_profile_in_store_path(
+            &store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?),
+            stored_account,
+        )?;
+        profile_files::apply_account_profile(stored_account)?;
+        latest_store.settings.active_account_id = Some(stored_account.id.clone());
+        account = stored_account.clone();
+        store::save_store(&app, &latest_store)?;
+    }
     let _ = tray::refresh_macos_tray_snapshot(&app);
 
     let mut opencode_synced = false;
@@ -752,7 +992,11 @@ async fn switch_account_and_launch(
     let mut opencode_desktop_restarted = false;
     let mut opencode_desktop_restart_error = None;
     if should_sync_opencode {
-        match opencode::sync_openai_auth_from_codex_auth(&account.auth_json) {
+        match if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
+            opencode::sync_openai_auth_from_codex_auth(&account.auth_json)
+        } else {
+            Err("当前条目为 API 中转站配置，无法同步为 opencode 的 OAuth 登录态。".to_string())
+        } {
             Ok(()) => {
                 opencode_synced = true;
                 if should_restart_opencode_desktop {
@@ -799,32 +1043,57 @@ async fn switch_account_and_launch(
     // 切换时强制结束旧实例，避免触发“是否退出”确认弹窗。
     force_stop_running_codex();
 
+    let mut app_launch_error = None;
     if let Some(path) = cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
         .or_else(cli::find_codex_app_path)
     {
-        let mut cmd = Command::new("open");
-        cmd.arg("-na").arg(&path);
-        if let Some(workspace) = workspace_path.as_deref() {
-            cmd.arg(workspace);
+        match launch_codex_app(&path, workspace_path.as_deref()) {
+            Ok(()) => {
+                return Ok(SwitchAccountResult {
+                    account_id: account.account_id,
+                    launched_app_path: Some(path.to_string_lossy().to_string()),
+                    used_fallback_cli: false,
+                    opencode_synced,
+                    opencode_sync_error,
+                    opencode_desktop_restarted,
+                    opencode_desktop_restart_error,
+                    restarted_editor_apps,
+                    editor_restart_error,
+                });
+            }
+            Err(error) => {
+                log::warn!("通过 Codex 应用路径启动失败 {}: {}", path.display(), error);
+                app_launch_error = Some(error);
+            }
         }
-        let status = cmd
-            .status()
-            .map_err(|e| format!("启动 Codex.app 失败: {e}"))?;
-        if !status.success() {
-            return Err("Codex.app 启动失败".to_string());
-        }
+    }
 
-        return Ok(SwitchAccountResult {
-            account_id: account.account_id,
-            launched_app_path: Some(path.to_string_lossy().to_string()),
-            used_fallback_cli: false,
-            opencode_synced,
-            opencode_sync_error,
-            opencode_desktop_restarted,
-            opencode_desktop_restart_error,
-            restarted_editor_apps,
-            editor_restart_error,
-        });
+    #[cfg(target_os = "windows")]
+    if cli::has_windows_store_codex_app() {
+        match cli::launch_windows_store_codex() {
+            Ok(()) => {
+                return Ok(SwitchAccountResult {
+                    account_id: account.account_id,
+                    launched_app_path: None,
+                    used_fallback_cli: false,
+                    opencode_synced,
+                    opencode_sync_error,
+                    opencode_desktop_restarted,
+                    opencode_desktop_restart_error,
+                    restarted_editor_apps,
+                    editor_restart_error,
+                });
+            }
+            Err(error) => {
+                log::warn!("通过 Windows Store AUMID 启动 Codex 失败: {error}");
+                app_launch_error = Some(match app_launch_error {
+                    Some(previous_error) => {
+                        format!("{previous_error}；且通过 Windows Store AUMID 启动失败: {error}")
+                    }
+                    None => format!("通过 Windows Store AUMID 启动失败: {error}"),
+                });
+            }
+        }
     }
 
     let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
@@ -832,8 +1101,15 @@ async fn switch_account_and_launch(
     if let Some(workspace) = workspace_path.as_deref() {
         cmd.arg(workspace);
     }
-    cmd.spawn()
-        .map_err(|e| format!("未检测到 Codex.app，且通过 codex app 启动失败: {e}"))?;
+    cmd.spawn().map_err(|e| {
+        if let Some(app_launch_error) = app_launch_error.as_ref() {
+            format!(
+                "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
+            )
+        } else {
+            format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
+        }
+    })?;
 
     Ok(SwitchAccountResult {
         account_id: account.account_id,
@@ -846,6 +1122,92 @@ async fn switch_account_and_launch(
         restarted_editor_apps,
         editor_restart_error,
     })
+}
+
+fn launch_codex_app(path: &std::path::Path, workspace_path: Option<&str>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Command::new("open");
+        cmd.arg("-na").arg(path);
+        if let Some(workspace) = workspace_path {
+            cmd.arg(workspace);
+        }
+        let status = cmd
+            .status()
+            .map_err(|e| format!("启动 Codex 应用失败: {e}"))?;
+        if !status.success() {
+            return Err("启动 Codex 应用失败".to_string());
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if cli::is_windows_store_codex_path(path) {
+            let _ = workspace_path;
+            return cli::launch_windows_store_codex();
+        }
+
+        let mut cmd = new_background_command(path);
+        if let Some(workspace) = workspace_path {
+            cmd.arg(workspace);
+        }
+        cmd.spawn()
+            .map_err(|e| format!("启动 Codex 应用失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let mut cmd = Command::new(path);
+        if let Some(workspace) = workspace_path {
+            cmd.arg(workspace);
+        }
+        cmd.spawn()
+            .map_err(|e| format!("启动 Codex 应用失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        let _ = path;
+        let _ = workspace_path;
+        Err("当前平台暂不支持直接启动 Codex 应用".to_string())
+    }
+}
+
+fn normalize_switch_refresh_error(raw_error: &str) -> String {
+    let normalized = raw_error.to_ascii_lowercase();
+    if normalized.contains("refresh_token_reused")
+        || is_invalid_refresh_grant(&normalized)
+        || normalized
+            .contains("your refresh token has already been used to generate a new access token")
+        || normalized.contains("refresh token expired")
+        || normalized.contains("refresh_token expired")
+        || normalized.contains("expired refresh token")
+        || normalized.contains("refresh token is expired")
+        || normalized.contains("refresh token revoked")
+        || normalized.contains("refresh_token_revoked")
+        || normalized.contains("refresh token invalid")
+        || normalized.contains("invalid refresh token")
+    {
+        return "当前账号的 refresh_token 已失效或已被轮换，请重新登录授权。".to_string();
+    }
+    if normalized.contains("please try signing in again")
+        || normalized.contains("provided authentication token is expired")
+        || normalized.contains("token is expired")
+    {
+        return "当前账号授权已过期，请重新登录授权。".to_string();
+    }
+    raw_error.to_string()
+}
+
+fn is_invalid_refresh_grant(normalized_error: &str) -> bool {
+    normalized_error.contains("invalid_grant")
+        && (normalized_error.contains("refresh")
+            || normalized_error.contains("expired")
+            || normalized_error.contains("revoked")
+            || normalized_error.contains("invalid"))
 }
 
 #[tauri::command]
@@ -879,6 +1241,23 @@ async fn refresh_api_proxy_key(
     state: State<'_, AppState>,
 ) -> Result<ApiProxyStatus, String> {
     proxy_service::refresh_api_proxy_key_internal(&app, state.inner()).await
+}
+
+#[tauri::command]
+async fn get_api_proxy_usage_stats(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    range_seconds: Option<i64>,
+) -> Result<ApiProxyUsageStats, String> {
+    proxy_service::get_api_proxy_usage_stats_internal(&app, state.inner(), range_seconds).await
+}
+
+#[tauri::command]
+async fn clear_api_proxy_usage_stats(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    proxy_service::clear_api_proxy_usage_stats_internal(&app, state.inner()).await
 }
 
 #[tauri::command]
@@ -962,7 +1341,7 @@ fn force_stop_running_codex() {
 
     #[cfg(target_os = "windows")]
     {
-        let _ = Command::new("taskkill")
+        let _ = new_background_command("taskkill")
             .args(["/F", "/IM", "Codex.exe", "/T"])
             .status();
     }
@@ -1033,11 +1412,32 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
     }
 }
 
+fn start_auth_keepalive_loop(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let state = app.state::<AppState>();
+            match account_service::refresh_all_usage_internal(&app, state.inner(), true).await {
+                Ok(summaries) => {
+                    let _ = tray::update_macos_tray_snapshot(&app, &summaries);
+                }
+                Err(error) => {
+                    log::warn!("后台账号保活失败: {error}");
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(AUTH_KEEPALIVE_INTERVAL_SECS)).await;
+        }
+    });
+}
+
 // ===== App Bootstrap =====
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("检测到重复启动请求，切换到现有实例");
+            restore_main_window(app);
+        }))
         .manage(AppState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1064,16 +1464,19 @@ pub fn run() {
             // 启动阶段先同步当前本机登录账号，再初始化状态栏，保证首次展示即一致。
             store::sync_current_auth_account_on_startup(app.handle())?;
             tray::setup_system_tray(app.handle())?;
+            start_auth_keepalive_loop(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             list_accounts,
             import_current_auth_account,
+            create_api_account,
             import_auth_json_accounts,
             export_accounts_zip,
             delete_account,
             update_account_label,
             refresh_all_usage,
+            get_codex_token_usage,
             get_app_settings,
             update_app_settings,
             detect_codex_app,
@@ -1089,6 +1492,8 @@ pub fn run() {
             start_api_proxy,
             stop_api_proxy,
             refresh_api_proxy_key,
+            get_api_proxy_usage_stats,
+            clear_api_proxy_usage_stats,
             get_cloudflared_status,
             install_cloudflared,
             start_cloudflared_tunnel,

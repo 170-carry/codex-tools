@@ -21,9 +21,13 @@ function App() {
     const { themeMode, toggleTheme } = useThemeMode();
     const {
         accounts,
+        tokenUsage,
+        tokenUsageError,
         loading,
         refreshing,
+        refreshingTokenUsage,
         addDialogOpen,
+        reauthorizeAccount,
         importingAccounts,
         oauthWaitingForCallback,
         exportingAccounts,
@@ -35,6 +39,7 @@ function App() {
         updateProgress,
         pendingUpdate,
         updateDialogOpen,
+        skipPendingUpdateVersion,
         notice,
         openExternalUrl,
         settings,
@@ -42,6 +47,11 @@ function App() {
         hasOpencodeDesktopApp,
         savingSettings,
         apiProxyStatus,
+        apiProxyUsageStats,
+        apiProxyUsageRange,
+        apiProxyUsageMetric,
+        apiProxyUsageLoading,
+        apiProxyUsageClearing,
         cloudflaredStatus,
         remoteProxyStatuses,
         remoteProxyLogs,
@@ -60,21 +70,27 @@ function App() {
         startingCloudflared,
         stoppingCloudflared,
         refreshUsage,
+        refreshTokenUsage,
         checkForAppUpdate,
         installPendingUpdate,
         openManualDownloadPage,
         closeUpdateDialog,
         updateSettings,
         onOpenAddDialog,
+        onReauthorizeAccount,
         onPrepareOauthLogin,
         onOpenOauthAuthorizationPage,
         onCloseAddDialog,
         onCancelOauthLogin,
         onCompleteOauthCallbackLogin,
         onImportCurrentAuth,
+        onCreateApiAccount,
         onImportAuthFiles,
         onExportAccounts,
         loadApiProxyStatus,
+        onSelectApiProxyUsageRange,
+        onSelectApiProxyUsageMetric,
+        onClearApiProxyUsageStats,
         onStartApiProxy,
         onStopApiProxy,
         onRefreshApiProxyKey,
@@ -111,27 +127,34 @@ function App() {
             }
             event.preventDefault();
             void refreshUsage(false);
+            void refreshTokenUsage(false);
         };
 
         window.addEventListener("keydown", onKeyDown);
         return () => {
             window.removeEventListener("keydown", onKeyDown);
         };
-    }, [refreshUsage]);
+    }, [refreshTokenUsage, refreshUsage]);
+
+    const refreshAccountsView = () => {
+        void refreshUsage(false);
+        void refreshTokenUsage(false);
+    };
 
     return (
         <div className="shell">
             <div className="ambient" />
             <main className="panel">
                 <AppTopBar
-                    onRefresh={() => void refreshUsage(false)}
-                    refreshing={refreshing}
+                    onRefresh={refreshAccountsView}
+                    refreshing={refreshing || refreshingTokenUsage}
                     onGoHome={() => setActiveTab("accounts")}
                     showRefresh={activeTab === "accounts"}
                 />
 
                 <AddAccountDialog
                     open={addDialogOpen}
+                    reauthorizeAccount={reauthorizeAccount}
                     importingAccounts={importingAccounts}
                     oauthWaitingForCallback={oauthWaitingForCallback}
                     onPrepareOauth={onPrepareOauthLogin}
@@ -139,6 +162,7 @@ function App() {
                     onCompleteOauth={onCompleteOauthCallbackLogin}
                     onCancelOauth={onCancelOauthLogin}
                     onImportCurrentAuth={onImportCurrentAuth}
+                    onCreateApiAccount={onCreateApiAccount}
                     onImportFiles={onImportAuthFiles}
                     onClose={onCloseAddDialog}
                 />
@@ -152,7 +176,8 @@ function App() {
                     installingUpdate={installingUpdate}
                     onClose={closeUpdateDialog}
                     onManualDownload={() => void openManualDownloadPage()}
-                    onRetryAutoDownload={() => void installPendingUpdate()}
+                    onSkipVersion={() => void skipPendingUpdateVersion()}
+                    onInstallNow={() => void installPendingUpdate()}
                 />
 
                 <section className="viewStage">
@@ -161,6 +186,8 @@ function App() {
                             <div className="accountsHero">
                                 <MetaStrip
                                     accountCount={accounts.length}
+                                    tokenUsage={tokenUsage}
+                                    tokenUsageError={tokenUsageError}
                                     exportingAccounts={exportingAccounts}
                                     onExportAccounts={() => void onExportAccounts()}
                                 />
@@ -173,9 +200,12 @@ function App() {
                             <AccountsGrid
                                 accounts={accounts}
                                 loading={loading}
+                                exportingAccounts={exportingAccounts}
                                 switchingId={switchingId}
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
+                                onExport={(account) => void onExportAccounts(account)}
+                                onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}
                                 onSwitch={(account) => void onSwitch(account)}
                                 onDelete={(account) => void onDelete(account)}
@@ -184,10 +214,17 @@ function App() {
                     ) : activeTab === "proxy" ? (
                         <ApiProxyPanel
                             status={apiProxyStatus}
+                            apiProxyUsageStats={apiProxyUsageStats}
+                            apiProxyUsageRange={apiProxyUsageRange}
+                            apiProxyUsageMetric={apiProxyUsageMetric}
+                            apiProxyUsageLoading={apiProxyUsageLoading}
+                            apiProxyUsageClearing={apiProxyUsageClearing}
                             cloudflaredStatus={cloudflaredStatus}
                             accountCount={accounts.length}
                             autoStartEnabled={settings.autoStartApiProxy}
                             savedPort={settings.apiProxyPort}
+                            loadBalanceMode={settings.apiProxyLoadBalanceMode}
+                            sequentialFiveHourLimitPercent={settings.apiProxySequentialFiveHourLimitPercent}
                             remoteServers={settings.remoteServers}
                             remoteStatuses={remoteProxyStatuses}
                             remoteLogs={remoteProxyLogs}
@@ -207,6 +244,9 @@ function App() {
                             stoppingCloudflared={stoppingCloudflared}
                             onStart={onStartApiProxy}
                             onStop={() => void onStopApiProxy()}
+                            onSelectApiProxyUsageRange={onSelectApiProxyUsageRange}
+                            onSelectApiProxyUsageMetric={onSelectApiProxyUsageMetric}
+                            onClearApiProxyUsageStats={onClearApiProxyUsageStats}
                             onRefreshApiKey={() => void onRefreshApiProxyKey()}
                             onRefresh={() => void loadApiProxyStatus()}
                             onToggleAutoStart={(enabled) =>
@@ -217,6 +257,16 @@ function App() {
                             onPersistPort={(port) =>
                                 updateSettings(
                                     { apiProxyPort: port },
+                                    { silent: true, keepInteractive: true },
+                                )}
+                            onUpdateLoadBalanceMode={(mode) =>
+                                updateSettings(
+                                    { apiProxyLoadBalanceMode: mode },
+                                    { silent: true, keepInteractive: true },
+                                )}
+                            onUpdateSequentialFiveHourLimitPercent={(percent) =>
+                                updateSettings(
+                                    { apiProxySequentialFiveHourLimitPercent: percent },
                                     { silent: true, keepInteractive: true },
                                 )}
                             onUpdateRemoteServers={(servers) => void onUpdateRemoteServers(servers)}

@@ -11,9 +11,14 @@ import type { MessageCatalog } from "../i18n/catalog";
 import type {
   AccountSummary,
   ApiProxyStatus,
+  ApiProxyUsageMetric,
+  ApiProxyUsageRange,
+  ApiProxyUsageStats,
   AppSettings,
   AuthJsonImportInput,
   CloudflaredStatus,
+  CodexTokenUsageSnapshot,
+  CreateApiAccountInput,
   ImportAccountsResult,
   InstalledEditorApp,
   Notice,
@@ -27,18 +32,30 @@ import type {
   SwitchAccountResult,
   UpdateSettingsOptions,
 } from "../types/app";
-import { pickBestRemainingAccount, sortAccountsByRemaining } from "../utils/accountRanking";
+import { pickBestSmartSwitchAccount, sortAccountsByRemaining } from "../utils/accountRanking";
 
 const REFRESH_MS = 30_000;
+const TOKEN_USAGE_REFRESH_MS = 60_000;
 const EDITOR_SCAN_MS = 60_000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const AUTO_UPDATE_ENABLED = false;
 const API_PROXY_POLL_MS = 4_000;
+const API_PROXY_USAGE_POLL_MS = 2_000;
 const CLOUDFLARED_POLL_MS = 3_000;
+const DEFAULT_API_PROXY_USAGE_RANGE: ApiProxyUsageRange = "24h";
+const DEFAULT_API_PROXY_USAGE_METRIC: ApiProxyUsageMetric = "calls";
+const API_PROXY_USAGE_RANGE_SECONDS: Record<ApiProxyUsageRange, number> = {
+  "1h": 3_600,
+  "24h": 86_400,
+  "7d": 604_800,
+  "14d": 1_209_600,
+  "30d": 2_592_000,
+};
 const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   trayUsageDisplayMode: "remaining",
   launchCodexAfterSwitch: true,
+  smartSwitchIncludeApi: false,
   codexLaunchPath: null,
   syncOpencodeOpenaiAuth: false,
   restartOpencodeDesktopOnSwitch: false,
@@ -46,8 +63,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   restartEditorTargets: [],
   autoStartApiProxy: false,
   apiProxyPort: 8787,
+  apiProxyLoadBalanceMode: "average",
+  apiProxySequentialFiveHourLimitPercent: 80,
   remoteServers: [],
   locale: DEFAULT_LOCALE,
+  skippedUpdateVersion: null,
 };
 const DEFAULT_API_PROXY_STATUS: ApiProxyStatus = {
   running: false,
@@ -140,13 +160,26 @@ function buildRemoteProxyFallback(
 export function useCodexController() {
   const { copy, locale } = useI18n();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [tokenUsage, setTokenUsage] = useState<CodexTokenUsageSnapshot | null>(null);
+  const [tokenUsageError, setTokenUsageError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshingTokenUsage, setRefreshingTokenUsage] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [reauthorizeAccount, setReauthorizeAccount] = useState<AccountSummary | null>(null);
   const [importingAccounts, setImportingAccounts] = useState(false);
   const [oauthWaitingForCallback, setOauthWaitingForCallback] = useState(false);
   const [exportingAccounts, setExportingAccounts] = useState(false);
   const [apiProxyStatus, setApiProxyStatus] = useState<ApiProxyStatus>(DEFAULT_API_PROXY_STATUS);
+  const [apiProxyUsageStats, setApiProxyUsageStats] = useState<ApiProxyUsageStats | null>(null);
+  const [apiProxyUsageLoading, setApiProxyUsageLoading] = useState(true);
+  const [apiProxyUsageClearing, setApiProxyUsageClearing] = useState(false);
+  const [apiProxyUsageRange, setApiProxyUsageRange] = useState<ApiProxyUsageRange>(
+    DEFAULT_API_PROXY_USAGE_RANGE,
+  );
+  const [apiProxyUsageMetric, setApiProxyUsageMetric] = useState<ApiProxyUsageMetric>(
+    DEFAULT_API_PROXY_USAGE_METRIC,
+  );
   const [cloudflaredStatus, setCloudflaredStatus] = useState<CloudflaredStatus>(DEFAULT_CLOUDFLARED_STATUS);
   const [remoteProxyStatusesRaw, setRemoteProxyStatusesRaw] = useState<Record<string, RemoteProxyStatus>>({});
   const [remoteProxyLogs, setRemoteProxyLogs] = useState<Record<string, string>>({});
@@ -180,6 +213,11 @@ export function useCodexController() {
   const installingUpdateRef = useRef(false);
   const deleteConfirmTimerRef = useRef<number | null>(null);
   const settingsUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
+  const apiProxyUsageLoadSeqRef = useRef(0);
+  const apiProxyUsagePollInFlightRef = useRef(false);
+  const reloginPromptedAccountKeysRef = useRef<Set<string>>(new Set());
+  const profileIntegrityPromptedRef = useRef(false);
 
   const sortedAccounts = useMemo(() => sortAccountsByRemaining(accounts), [accounts]);
 
@@ -193,8 +231,55 @@ export function useCodexController() {
       items.map((account) => ({
         ...account,
         usageError: account.usageError ? localizeError(account.usageError) : null,
+        authRefreshError: account.authRefreshError ? localizeError(account.authRefreshError) : null,
+        profileIntegrityError: account.profileIntegrityError
+          ? localizeError(account.profileIntegrityError)
+          : null,
+        profileLastValidationError: account.profileLastValidationError
+          ? localizeError(account.profileLastValidationError)
+          : null,
       })),
     [localizeError],
+  );
+
+  const applyAccounts = useCallback(
+    (items: AccountSummary[], options?: { notifyBlocked?: boolean }) => {
+      const localized = localizeAccounts(items);
+      setAccounts(localized);
+
+      const activeBlockedKeys = new Set(
+        localized
+          .filter((account) => account.authRefreshBlocked && account.authRefreshError)
+          .map((account) => account.accountKey),
+      );
+      reloginPromptedAccountKeysRef.current.forEach((accountKey) => {
+        if (!activeBlockedKeys.has(accountKey)) {
+          reloginPromptedAccountKeysRef.current.delete(accountKey);
+        }
+      });
+
+      if (options?.notifyBlocked === false) {
+        return false;
+      }
+
+      const nextBlockedAccount = localized.find(
+        (account) =>
+          account.authRefreshBlocked &&
+          account.authRefreshError &&
+          !reloginPromptedAccountKeysRef.current.has(account.accountKey),
+      );
+      if (!nextBlockedAccount) {
+        return false;
+      }
+
+      reloginPromptedAccountKeysRef.current.add(nextBlockedAccount.accountKey);
+      setNotice({
+        type: "info",
+        message: copy.notices.reloginRequired(nextBlockedAccount.label),
+      });
+      return true;
+    },
+    [copy.notices, localizeAccounts],
   );
 
   const localizeApiProxyStatus = useCallback(
@@ -245,11 +330,31 @@ export function useCodexController() {
 
   const loadAccounts = useCallback(async () => {
     const data = await invoke<AccountSummary[]>("list_accounts");
-    setAccounts(localizeAccounts(data));
-  }, [localizeAccounts]);
+    applyAccounts(data);
+    return data;
+  }, [applyAccounts]);
+
+  const maybeShowProfileIntegrityNotice = useCallback(
+    (items: AccountSummary[]) => {
+      if (profileIntegrityPromptedRef.current) {
+        return;
+      }
+      const incompleteCount = items.filter((account) => account.profileIntegrityError).length;
+      if (incompleteCount <= 0) {
+        return;
+      }
+      profileIntegrityPromptedRef.current = true;
+      setNotice({
+        type: "info",
+        message: copy.notices.profileIntegrityWarning(incompleteCount),
+      });
+    },
+    [copy.notices],
+  );
 
   const loadSettings = useCallback(async () => {
     const data = await invoke<AppSettings>("get_app_settings");
+    settingsRef.current = data;
     setSettings(data);
   }, []);
 
@@ -280,6 +385,44 @@ export function useCodexController() {
     }
   }, [localizeApiProxyStatus]);
 
+  const loadApiProxyUsageStats = useCallback(
+    async (range: ApiProxyUsageRange, options?: { silent?: boolean }) => {
+      const isSilent = options?.silent === true;
+      if (isSilent) {
+        if (apiProxyUsagePollInFlightRef.current) {
+          return;
+        }
+        apiProxyUsagePollInFlightRef.current = true;
+      } else {
+        setApiProxyUsageStats(null);
+        setApiProxyUsageLoading(true);
+      }
+
+      const requestId = ++apiProxyUsageLoadSeqRef.current;
+
+      try {
+        const data = await invoke<ApiProxyUsageStats>("get_api_proxy_usage_stats", {
+          rangeSeconds: API_PROXY_USAGE_RANGE_SECONDS[range],
+        });
+        if (requestId !== apiProxyUsageLoadSeqRef.current) {
+          return;
+        }
+        setApiProxyUsageStats(data);
+      } catch {
+        if (requestId !== apiProxyUsageLoadSeqRef.current) {
+          return;
+        }
+      } finally {
+        if (isSilent) {
+          apiProxyUsagePollInFlightRef.current = false;
+        } else if (requestId === apiProxyUsageLoadSeqRef.current) {
+          setApiProxyUsageLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
   const loadCloudflaredStatus = useCallback(async () => {
     try {
       const data = await invoke<CloudflaredStatus>("get_cloudflared_status");
@@ -299,6 +442,7 @@ export function useCodexController() {
 
         try {
           const data = await invoke<AppSettings>("update_app_settings", { patch });
+          settingsRef.current = data;
           setSettings(data);
           if (!options?.silent) {
             setNotice({ type: "ok", message: copy.notices.settingsUpdated });
@@ -333,8 +477,8 @@ export function useCodexController() {
       const data = await invoke<AccountSummary[]>("refresh_all_usage", {
         forceAuthRefresh: !quiet,
       });
-      setAccounts(localizeAccounts(data));
-      if (!quiet) {
+      const promptedRelogin = applyAccounts(data);
+      if (!quiet && !promptedRelogin) {
         setNotice({ type: "ok", message: copy.notices.usageRefreshed });
       }
     } catch (error) {
@@ -349,7 +493,31 @@ export function useCodexController() {
         setRefreshing(false);
       }
     }
-  }, [copy.notices, localizeAccounts, localizeError]);
+  }, [applyAccounts, copy.notices, localizeError]);
+
+  const refreshTokenUsage = useCallback(async (quiet = false) => {
+    try {
+      if (!quiet) {
+        setRefreshingTokenUsage(true);
+      }
+      const data = await invoke<CodexTokenUsageSnapshot>("get_codex_token_usage");
+      setTokenUsage(data);
+      setTokenUsageError(null);
+    } catch (error) {
+      const localized = localizeError(String(error));
+      setTokenUsageError(localized);
+      if (!quiet) {
+        setNotice({
+          type: "error",
+          message: copy.notices.refreshFailed(localized),
+        });
+      }
+    } finally {
+      if (!quiet) {
+        setRefreshingTokenUsage(false);
+      }
+    }
+  }, [copy.notices, localizeError]);
 
   const applyImportResult = useCallback(
     async (result: ImportAccountsResult, prefix: string) => {
@@ -473,6 +641,11 @@ export function useCodexController() {
       try {
         const update = await check();
         if (update) {
+          if (quiet && settingsRef.current.skippedUpdateVersion === update.version) {
+            return;
+          }
+
+          setUpdateProgress(null);
           setPendingUpdate({
             currentVersion: update.currentVersion,
             version: update.version,
@@ -486,10 +659,10 @@ export function useCodexController() {
               message: copy.notices.foundNewVersion(update.version, update.currentVersion),
             });
           }
-          void installPendingUpdate(update);
         } else {
           setPendingUpdate(null);
           setUpdateDialogOpen(false);
+          setUpdateProgress(null);
           if (!quiet) {
             setNotice({ type: "ok", message: copy.notices.alreadyLatest });
           }
@@ -507,7 +680,7 @@ export function useCodexController() {
         }
       }
     },
-    [copy.notices, installPendingUpdate, localizeError],
+    [copy.notices, localizeError],
   );
 
   const openManualDownloadPage = useCallback(async () => {
@@ -536,6 +709,20 @@ export function useCodexController() {
     setUpdateDialogOpen(false);
   }, []);
 
+  const skipPendingUpdateVersion = useCallback(async () => {
+    if (!pendingUpdate) {
+      return;
+    }
+
+    setPendingUpdate(null);
+    setUpdateProgress(null);
+    setUpdateDialogOpen(false);
+    await updateSettings(
+      { skippedUpdateVersion: pendingUpdate.version },
+      { silent: true, keepInteractive: true },
+    );
+  }, [pendingUpdate, updateSettings]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -544,10 +731,16 @@ export function useCodexController() {
         await loadInstalledEditorApps();
         await loadOpencodeDesktopAppInstalled();
         await loadSettings();
-        await loadAccounts();
+        const initialAccounts = await loadAccounts();
+        maybeShowProfileIntegrityNotice(initialAccounts);
         await loadApiProxyStatus();
+        await loadApiProxyUsageStats(DEFAULT_API_PROXY_USAGE_RANGE);
         await loadCloudflaredStatus();
         await refreshUsage(true);
+        if (AUTO_UPDATE_ENABLED) {
+          await checkForAppUpdate(true);
+        }
+        await refreshTokenUsage(true);
         if (AUTO_UPDATE_ENABLED) {
           await checkForAppUpdate(true);
         }
@@ -564,6 +757,10 @@ export function useCodexController() {
       void refreshUsage(true);
     }, REFRESH_MS);
 
+    const tokenUsageTimer = setInterval(() => {
+      void refreshTokenUsage(true);
+    }, TOKEN_USAGE_REFRESH_MS);
+
     const editorTimer = setInterval(() => {
       void loadInstalledEditorApps();
       void loadOpencodeDesktopAppInstalled();
@@ -578,6 +775,7 @@ export function useCodexController() {
     return () => {
       cancelled = true;
       clearInterval(usageTimer);
+      clearInterval(tokenUsageTimer);
       clearInterval(editorTimer);
       if (updateTimer !== null) {
         clearInterval(updateTimer);
@@ -587,10 +785,13 @@ export function useCodexController() {
     checkForAppUpdate,
     loadAccounts,
     loadApiProxyStatus,
+    loadApiProxyUsageStats,
     loadCloudflaredStatus,
     loadInstalledEditorApps,
     loadOpencodeDesktopAppInstalled,
     loadSettings,
+    maybeShowProfileIntegrityNotice,
+    refreshTokenUsage,
     refreshUsage,
   ]);
 
@@ -683,6 +884,31 @@ export function useCodexController() {
   }, [apiProxyStatus.running, loadApiProxyStatus]);
 
   useEffect(() => {
+    if (
+      !apiProxyStatus.running ||
+      apiProxyUsageLoading ||
+      apiProxyUsageClearing ||
+      apiProxyUsagePollInFlightRef.current
+    ) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      void loadApiProxyUsageStats(apiProxyUsageRange, { silent: true });
+    }, API_PROXY_USAGE_POLL_MS);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [
+    apiProxyStatus.running,
+    apiProxyUsageClearing,
+    apiProxyUsageLoading,
+    apiProxyUsageRange,
+    loadApiProxyUsageStats,
+  ]);
+
+  useEffect(() => {
     if (!cloudflaredStatus.running) {
       return;
     }
@@ -737,6 +963,7 @@ export function useCodexController() {
           localizeImportResult(event.payload.result),
           copy.notices.oauthImportPrefix,
         );
+        setReauthorizeAccount(null);
         return;
       }
 
@@ -769,13 +996,16 @@ export function useCodexController() {
 
   const onOpenAddDialog = useCallback(() => {
     setOauthWaitingForCallback(false);
+    setReauthorizeAccount(null);
     setAddDialogOpen(true);
   }, []);
 
   const onPrepareOauthLogin = useCallback(async () => {
     setOauthWaitingForCallback(false);
     try {
-      return await invoke<PreparedOauthLogin>("prepare_oauth_login");
+      return await invoke<PreparedOauthLogin>("prepare_oauth_login", {
+        accountId: reauthorizeAccount?.id ?? null,
+      });
     } catch (error) {
       setNotice({
         type: "error",
@@ -783,7 +1013,7 @@ export function useCodexController() {
       });
       throw error;
     }
-  }, [copy.notices, localizeError]);
+  }, [copy.notices, localizeError, reauthorizeAccount]);
 
   const onOpenOauthAuthorizationPage = useCallback(
     async (url: string) => {
@@ -815,9 +1045,18 @@ export function useCodexController() {
       return;
     }
 
-    void onCancelOauthLogin();
+    if (!oauthWaitingForCallback) {
+      void onCancelOauthLogin();
+    }
     setAddDialogOpen(false);
-  }, [importingAccounts, onCancelOauthLogin]);
+    setReauthorizeAccount(null);
+  }, [importingAccounts, oauthWaitingForCallback, onCancelOauthLogin]);
+
+  const onReauthorizeAccount = useCallback((account: AccountSummary) => {
+    setOauthWaitingForCallback(false);
+    setReauthorizeAccount(account);
+    setAddDialogOpen(true);
+  }, []);
 
   const onImportCurrentAuth = useCallback(async () => {
     if (importingAccounts) {
@@ -869,6 +1108,31 @@ export function useCodexController() {
     [applyImportResult, copy.notices, localizeError, localizeImportResult],
   );
 
+  const onCreateApiAccount = useCallback(
+    async (input: CreateApiAccountInput) => {
+      setImportingAccounts(true);
+      try {
+        await invoke<AccountSummary>("create_api_account", { input });
+        await loadAccounts();
+        setAddDialogOpen(false);
+        setNotice({
+          type: "ok",
+          message: copy.notices.apiAccountCreated(input.label),
+        });
+      } catch (error) {
+        const message = localizeError(String(error));
+        setNotice({
+          type: "error",
+          message: copy.notices.apiAccountCreateFailed(message),
+        });
+        throw new Error(message);
+      } finally {
+        setImportingAccounts(false);
+      }
+    },
+    [copy.notices, loadAccounts, localizeError],
+  );
+
   const onCompleteOauthCallbackLogin = useCallback(
     async (callbackUrl: string) => {
       setOauthWaitingForCallback(false);
@@ -878,6 +1142,7 @@ export function useCodexController() {
           callbackUrl,
         });
         await applyImportResult(localizeImportResult(result), copy.notices.oauthImportPrefix);
+        setReauthorizeAccount(null);
       } catch (error) {
         setNotice({
           type: "error",
@@ -900,14 +1165,16 @@ export function useCodexController() {
     ],
   );
 
-  const onExportAccounts = useCallback(async () => {
+  const onExportAccounts = useCallback(async (account?: AccountSummary) => {
     if (exportingAccounts) {
       return;
     }
 
     setExportingAccounts(true);
     try {
-      const exportedPath = await invoke<string | null>("export_accounts_zip");
+      const exportedPath = await invoke<string | null>("export_accounts_zip", {
+        accountKey: account?.accountKey ?? null,
+      });
       if (exportedPath) {
         setNotice({ type: "ok", message: copy.notices.accountsExported });
       }
@@ -932,6 +1199,7 @@ export function useCodexController() {
         port: port ?? null,
       });
       setApiProxyStatus(localizeApiProxyStatus(status));
+      void loadApiProxyUsageStats(apiProxyUsageRange);
       const target = status.port ? `127.0.0.1:${status.port}` : copy.notices.proxyLocalTargetFallback;
       setNotice({ type: "ok", message: copy.notices.proxyStarted(target) });
     } catch (error) {
@@ -944,7 +1212,9 @@ export function useCodexController() {
     }
   }, [
     apiProxyStatus.running,
+    apiProxyUsageRange,
     copy.notices,
+    loadApiProxyUsageStats,
     localizeApiProxyStatus,
     localizeError,
     startingApiProxy,
@@ -995,6 +1265,50 @@ export function useCodexController() {
       setRefreshingApiProxyKey(false);
     }
   }, [copy.notices, localizeApiProxyStatus, localizeError, refreshingApiProxyKey]);
+
+  const onSelectApiProxyUsageRange = useCallback(
+    (range: ApiProxyUsageRange) => {
+      if (range === apiProxyUsageRange) {
+        return;
+      }
+      setApiProxyUsageRange(range);
+      void loadApiProxyUsageStats(range);
+    },
+    [apiProxyUsageRange, loadApiProxyUsageStats],
+  );
+
+  const onSelectApiProxyUsageMetric = useCallback((metric: ApiProxyUsageMetric) => {
+    if (metric === apiProxyUsageMetric) {
+      return;
+    }
+    setApiProxyUsageMetric(metric);
+  }, [apiProxyUsageMetric]);
+
+  const onClearApiProxyUsageStats = useCallback(async () => {
+    if (apiProxyUsageClearing) {
+      return;
+    }
+
+    setApiProxyUsageClearing(true);
+    try {
+      await invoke("clear_api_proxy_usage_stats");
+      await loadApiProxyUsageStats(apiProxyUsageRange);
+      setNotice({ type: "ok", message: copy.notices.apiProxyUsageCleared });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: copy.notices.apiProxyUsageClearFailed(localizeError(String(error))),
+      });
+    } finally {
+      setApiProxyUsageClearing(false);
+    }
+  }, [
+    apiProxyUsageClearing,
+    apiProxyUsageRange,
+    copy.notices,
+    loadApiProxyUsageStats,
+    localizeError,
+  ]);
 
   const ensureRemoteLocalDependency = useCallback(
     async (server: RemoteServerConfig) => {
@@ -1493,7 +1807,10 @@ export function useCodexController() {
       return;
     }
 
-    const target = pickBestRemainingAccount(sortedAccounts);
+    const target = pickBestSmartSwitchAccount(
+      sortedAccounts,
+      settings.smartSwitchIncludeApi,
+    );
     if (!target) {
       setNotice({ type: "info", message: copy.notices.smartSwitchNoTarget });
       return;
@@ -1507,7 +1824,7 @@ export function useCodexController() {
     }
 
     await onSwitch(target);
-  }, [copy.notices, onSwitch, sortedAccounts, switchingId]);
+  }, [copy.notices, onSwitch, settings.smartSwitchIncludeApi, sortedAccounts, switchingId]);
 
   const onUpdateRemoteServers = useCallback(
     async (remoteServers: RemoteServerConfig[]) => {
@@ -1521,13 +1838,22 @@ export function useCodexController() {
 
   return {
     accounts: sortedAccounts,
+    tokenUsage,
+    tokenUsageError,
     loading,
     refreshing,
+    refreshingTokenUsage,
     addDialogOpen,
     importingAccounts,
+    reauthorizeAccount,
     oauthWaitingForCallback,
     exportingAccounts,
     apiProxyStatus,
+    apiProxyUsageStats,
+    apiProxyUsageRange,
+    apiProxyUsageMetric,
+    apiProxyUsageLoading,
+    apiProxyUsageClearing,
     cloudflaredStatus,
     remoteProxyStatuses,
     remoteProxyLogs,
@@ -1553,6 +1879,7 @@ export function useCodexController() {
     updateProgress,
     pendingUpdate,
     updateDialogOpen,
+    skipPendingUpdateVersion,
     notice,
     openExternalUrl,
     settings,
@@ -1560,21 +1887,27 @@ export function useCodexController() {
     installedEditorApps,
     hasOpencodeDesktopApp,
     refreshUsage,
+    refreshTokenUsage,
     checkForAppUpdate,
     installPendingUpdate,
     openManualDownloadPage,
     closeUpdateDialog,
     updateSettings,
     onOpenAddDialog,
+    onReauthorizeAccount,
     onPrepareOauthLogin,
     onOpenOauthAuthorizationPage,
     onCloseAddDialog,
     onCancelOauthLogin,
     onCompleteOauthCallbackLogin,
     onImportCurrentAuth,
+    onCreateApiAccount,
     onImportAuthFiles,
     onExportAccounts,
     loadApiProxyStatus,
+    onSelectApiProxyUsageRange,
+    onSelectApiProxyUsageMetric,
+    onClearApiProxyUsageStats,
     onStartApiProxy,
     onStopApiProxy,
     onRefreshApiProxyKey,

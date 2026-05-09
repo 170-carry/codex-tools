@@ -1,5 +1,5 @@
 use std::env;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -8,51 +8,71 @@ use crate::models::AppLocale;
 use crate::models::TrayUsageDisplayMode;
 use crate::store::load_store;
 
-static ZH_CN_MESSAGES: LazyLock<Value> = LazyLock::new(|| {
-    parse_locale(
-        "zh-CN",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../src/i18n/locales/zh-CN.json"
-        )),
-    )
-});
-static EN_US_MESSAGES: LazyLock<Value> = LazyLock::new(|| {
-    parse_locale(
-        "en-US",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../src/i18n/locales/en-US.json"
-        )),
-    )
-});
-static JA_JP_MESSAGES: LazyLock<Value> = LazyLock::new(|| {
-    parse_locale(
-        "ja-JP",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../src/i18n/locales/ja-JP.json"
-        )),
-    )
-});
-static KO_KR_MESSAGES: LazyLock<Value> = LazyLock::new(|| {
-    parse_locale(
-        "ko-KR",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../src/i18n/locales/ko-KR.json"
-        )),
-    )
-});
-static RU_RU_MESSAGES: LazyLock<Value> = LazyLock::new(|| {
-    parse_locale(
-        "ru-RU",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../src/i18n/locales/ru-RU.json"
-        )),
-    )
-});
+static ZH_CN_MESSAGES: OnceLock<Value> = OnceLock::new();
+static EN_US_MESSAGES: OnceLock<Value> = OnceLock::new();
+static JA_JP_MESSAGES: OnceLock<Value> = OnceLock::new();
+static KO_KR_MESSAGES: OnceLock<Value> = OnceLock::new();
+static RU_RU_MESSAGES: OnceLock<Value> = OnceLock::new();
+
+fn zh_cn_messages() -> &'static Value {
+    ZH_CN_MESSAGES.get_or_init(|| {
+        parse_locale(
+            "zh-CN",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../src/i18n/locales/zh-CN.json"
+            )),
+        )
+    })
+}
+
+fn en_us_messages() -> &'static Value {
+    EN_US_MESSAGES.get_or_init(|| {
+        parse_locale(
+            "en-US",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../src/i18n/locales/en-US.json"
+            )),
+        )
+    })
+}
+
+fn ja_jp_messages() -> &'static Value {
+    JA_JP_MESSAGES.get_or_init(|| {
+        parse_locale(
+            "ja-JP",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../src/i18n/locales/ja-JP.json"
+            )),
+        )
+    })
+}
+
+fn ko_kr_messages() -> &'static Value {
+    KO_KR_MESSAGES.get_or_init(|| {
+        parse_locale(
+            "ko-KR",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../src/i18n/locales/ko-KR.json"
+            )),
+        )
+    })
+}
+
+fn ru_ru_messages() -> &'static Value {
+    RU_RU_MESSAGES.get_or_init(|| {
+        parse_locale(
+            "ru-RU",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../src/i18n/locales/ru-RU.json"
+            )),
+        )
+    })
+}
 
 fn parse_locale(code: &str, raw: &str) -> Value {
     serde_json::from_str(raw).unwrap_or_else(|error| {
@@ -62,11 +82,11 @@ fn parse_locale(code: &str, raw: &str) -> Value {
 
 fn locale_messages(locale: AppLocale) -> &'static Value {
     match locale {
-        AppLocale::ZhCn => &ZH_CN_MESSAGES,
-        AppLocale::EnUs => &EN_US_MESSAGES,
-        AppLocale::JaJp => &JA_JP_MESSAGES,
-        AppLocale::KoKr => &KO_KR_MESSAGES,
-        AppLocale::RuRu => &RU_RU_MESSAGES,
+        AppLocale::ZhCn => zh_cn_messages(),
+        AppLocale::EnUs => en_us_messages(),
+        AppLocale::JaJp => ja_jp_messages(),
+        AppLocale::KoKr => ko_kr_messages(),
+        AppLocale::RuRu => ru_ru_messages(),
     }
 }
 

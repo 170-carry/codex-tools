@@ -8,17 +8,30 @@
 >
   <defs>
     <clipPath id="bgClip">
-      <rect width="1024" height="1024" rx="240" />
+      <rect
+        x="97.5238095"
+        y="97.5238095"
+        width="828.952381"
+        height="828.952381"
+        rx="194.2857143"
+      />
     </clipPath>
   </defs>
 
   <g clip-path="url(#bgClip)">
-    <rect width="1024" height="1024" rx="240" fill="#FFFFFF" />
+    <rect
+      x="97.5238095"
+      y="97.5238095"
+      width="828.952381"
+      height="828.952381"
+      rx="194.2857143"
+      fill="#FFFFFF"
+    />
     <image
-      x="68"
-      y="72"
-      width="888"
-      height="888"
+      x="95.7217391"
+      y="95.7217391"
+      width="832.5565217"
+      height="832.5565217"
       preserveAspectRatio="xMidYMid meet"
       href="icon-legacy-source.png"
       xlink:href="icon-legacy-source.png"

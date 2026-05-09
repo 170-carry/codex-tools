@@ -5,15 +5,20 @@ use serde_json::Map;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
+use std::error::Error as StdError;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use tokio::sync::Mutex;
 
+use crate::app_paths;
 use crate::models::ExtractedAuth;
 use crate::models::PreparedOauthLogin;
 use crate::utils::set_private_permissions;
@@ -21,10 +26,13 @@ use crate::utils::truncate_for_error;
 
 const DEFAULT_OAUTH_ISSUER: &str = "https://auth.openai.com";
 const DEFAULT_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const DEFAULT_OAUTH_SCOPE: &str = "openid profile email offline_access";
+const DEFAULT_OAUTH_SCOPE: &str =
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const DEFAULT_OAUTH_ORIGINATOR: &str = "codex_vscode";
 const DEFAULT_OAUTH_REDIRECT_PORT: u16 = 1455;
-const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 300;
+const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 900;
+const OAUTH_TOKEN_EXCHANGE_MAX_ATTEMPTS: usize = 3;
+const OAUTH_TOKEN_EXCHANGE_RETRY_DELAY_MS: u64 = 500;
 const NON_CHATGPT_AUTH_MODE_ERROR: &str =
     "当前账号不是 ChatGPT 登录模式，无法读取 Codex 5h/1week 用量。请先执行 codex login。";
 const MISSING_CHATGPT_TOKEN_ERROR: &str = "当前 auth.json 未包含 ChatGPT 登录令牌。若该文件来自新版 Codex（尤其是 macOS），令牌可能保存在系统钥匙串/安全存储中，因此不能仅靠这个 auth.json 跨机导入。请在目标设备执行 codex login，或提供包含 access_token / id_token / refresh_token 的完整 auth.json。";
@@ -42,6 +50,7 @@ pub(crate) struct PendingOauthLogin {
     pub(crate) state: String,
     pub(crate) code_verifier: String,
     pub(crate) expires_at: i64,
+    pub(crate) reauthorize_account_id: Option<String>,
 }
 
 pub(crate) fn oauth_redirect_port() -> u16 {
@@ -124,6 +133,7 @@ pub(crate) fn prepare_oauth_login(
         state,
         code_verifier,
         expires_at,
+        reauthorize_account_id: None,
     };
     let prepared = PreparedOauthLogin {
         auth_url,
@@ -408,6 +418,58 @@ pub(crate) fn extract_codex_oauth_tokens(auth_json: &Value) -> Result<CodexOAuth
     })
 }
 
+pub(crate) fn auth_tokens_expire_within(auth_json: &Value, lead_time_secs: i64) -> bool {
+    let Some(tokens) = auth_token_object(auth_json) else {
+        return false;
+    };
+
+    let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs() as i64,
+        Err(_) => return false,
+    };
+    let refresh_deadline = now + lead_time_secs.max(0);
+
+    ["access_token", "id_token"].iter().any(|field| {
+        tokens
+            .get(*field)
+            .and_then(Value::as_str)
+            .and_then(jwt_expiration_unix)
+            .map(|exp| exp <= refresh_deadline)
+            .unwrap_or(false)
+    })
+}
+
+pub(crate) fn auth_tokens_need_refresh(auth_json: &Value) -> bool {
+    auth_tokens_expire_within(auth_json, 60)
+}
+
+pub(crate) fn auth_tokens_need_keepalive_refresh(
+    auth_json: &Value,
+    token_lead_time_secs: i64,
+    max_last_refresh_age_secs: i64,
+) -> bool {
+    if auth_tokens_expire_within(auth_json, token_lead_time_secs) {
+        return true;
+    }
+
+    if max_last_refresh_age_secs <= 0 || auth_token_object(auth_json).is_none() {
+        return false;
+    }
+
+    let Some(root) = auth_json.as_object() else {
+        return false;
+    };
+    let Some(last_refresh) = root.get("last_refresh").and_then(last_refresh_unix_seconds) else {
+        return true;
+    };
+    let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs() as i64,
+        Err(_) => return false,
+    };
+
+    now.saturating_sub(last_refresh) >= max_last_refresh_age_secs
+}
+
 /// 使用 auth.json 内的 refresh_token 刷新 ChatGPT OAuth 令牌。
 ///
 /// 返回更新后的 auth.json（仅内存对象，不会自动写盘）。
@@ -483,9 +545,23 @@ pub(crate) async fn refresh_chatgpt_auth_tokens(auth_json: &Value) -> Result<Val
     if let Some(refresh_token) = refreshed.refresh_token {
         tokens.insert("refresh_token".to_string(), Value::String(refresh_token));
     }
+    let last_refresh = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("读取系统时间失败: {error}"))?
+        .as_secs()
+        .to_string();
+    root.insert("last_refresh".to_string(), Value::String(last_refresh));
 
     update_last_refresh(&mut updated)?;
     Ok(normalize_auth_json_for_codex(updated))
+}
+
+pub(crate) async fn refresh_chatgpt_auth_tokens_serialized(
+    auth_json: &Value,
+    refresh_lock: &Arc<Mutex<()>>,
+) -> Result<Value, String> {
+    let _guard = refresh_lock.lock().await;
+    refresh_chatgpt_auth_tokens(auth_json).await
 }
 
 fn parse_oauth_callback_url(callback_url: &str) -> Result<reqwest::Url, String> {
@@ -504,18 +580,41 @@ async fn exchange_authorization_code(
         .map_err(|error| format!("创建 HTTP 客户端失败: {error}"))?;
 
     let token_url = format!("{DEFAULT_OAUTH_ISSUER}/oauth/token");
-    let response = client
-        .post(&token_url)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", pending.redirect_uri.as_str()),
-            ("client_id", DEFAULT_OAUTH_CLIENT_ID),
-            ("code_verifier", pending.code_verifier.as_str()),
-        ])
-        .send()
-        .await
-        .map_err(|error| format!("换取登录令牌失败 {token_url}: {error}"))?;
+    exchange_authorization_code_with_client(
+        &client,
+        &token_url,
+        code,
+        pending,
+        OAUTH_TOKEN_EXCHANGE_MAX_ATTEMPTS,
+        OAUTH_TOKEN_EXCHANGE_RETRY_DELAY_MS,
+    )
+    .await
+}
+
+async fn exchange_authorization_code_with_client(
+    client: &reqwest::Client,
+    token_url: &str,
+    code: &str,
+    pending: &PendingOauthLogin,
+    max_attempts: usize,
+    retry_delay_ms: u64,
+) -> Result<Value, String> {
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", pending.redirect_uri.as_str()),
+        ("client_id", DEFAULT_OAUTH_CLIENT_ID),
+        ("code_verifier", pending.code_verifier.as_str()),
+    ];
+
+    let response = send_authorization_code_exchange_request(
+        client,
+        token_url,
+        &form,
+        max_attempts,
+        retry_delay_ms,
+    )
+    .await?;
 
     let status = response.status();
     if !status.is_success() {
@@ -532,6 +631,53 @@ async fn exchange_authorization_code(
         .map_err(|error| format!("解析 OAuth 登录响应失败: {error}"))?;
 
     build_auth_json_from_oauth_tokens(token_response)
+}
+
+async fn send_authorization_code_exchange_request(
+    client: &reqwest::Client,
+    token_url: &str,
+    form: &[(&str, &str)],
+    max_attempts: usize,
+    retry_delay_ms: u64,
+) -> Result<reqwest::Response, String> {
+    let max_attempts = max_attempts.max(1);
+    for attempt in 1..=max_attempts {
+        let send_result = client.post(token_url).form(form).send().await;
+        match send_result {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                let error_message = format_reqwest_error(&error);
+                if attempt >= max_attempts {
+                    return Err(format!("换取登录令牌失败 {token_url}: {error_message}"));
+                }
+                log::warn!(
+                    "OAuth token exchange attempt {attempt}/{max_attempts} failed: {error_message}"
+                );
+                if retry_delay_ms > 0 {
+                    tokio::time::sleep(Duration::from_millis(
+                        retry_delay_ms.saturating_mul(attempt as u64),
+                    ))
+                    .await;
+                }
+            }
+        }
+    }
+
+    Err(format!("换取登录令牌失败 {token_url}: 未执行令牌请求"))
+}
+
+fn format_reqwest_error(error: &reqwest::Error) -> String {
+    let mut segments = vec![error.to_string()];
+    let mut source = StdError::source(error);
+    while let Some(inner) = source {
+        let message = inner.to_string();
+        if !message.is_empty() && !segments.iter().any(|item| item == &message) {
+            segments.push(message);
+        }
+        source = inner.source();
+    }
+
+    segments.join(": ")
 }
 
 fn build_auth_json_from_oauth_tokens(token_response: OAuthTokenResponse) -> Result<Value, String> {
@@ -573,8 +719,7 @@ pub(crate) fn parse_access_token_exp(auth_json: &Value) -> Option<i64> {
 }
 
 fn codex_auth_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "无法读取 HOME 目录".to_string())?;
-    Ok(home.join(".codex").join("auth.json"))
+    app_paths::codex_auth_path()
 }
 
 fn auth_token_object(auth_json: &Value) -> Option<&Map<String, Value>> {
@@ -630,6 +775,31 @@ fn normalize_last_refresh_value(value: &Value) -> Option<String> {
         }
         Value::Number(number) => number.as_i64().and_then(unix_timestamp_to_rfc3339),
         _ => None,
+    }
+}
+
+fn last_refresh_unix_seconds(value: &Value) -> Option<i64> {
+    match value {
+        Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Ok(datetime) = OffsetDateTime::parse(trimmed, &Rfc3339) {
+                return Some(datetime.unix_timestamp());
+            }
+            trimmed.parse::<i64>().ok().map(timestamp_value_to_secs)
+        }
+        Value::Number(number) => number.as_i64().map(timestamp_value_to_secs),
+        _ => None,
+    }
+}
+
+fn timestamp_value_to_secs(timestamp: i64) -> i64 {
+    if timestamp.abs() >= 1_000_000_000_000 {
+        timestamp / 1_000
+    } else {
+        timestamp
     }
 }
 
@@ -749,6 +919,12 @@ fn decode_jwt_payload(token: &str) -> Result<Value, String> {
     serde_json::from_slice(&decoded).map_err(|e| format!("解析 id_token payload 失败: {e}"))
 }
 
+fn jwt_expiration_unix(token: &str) -> Option<i64> {
+    decode_jwt_payload(token)
+        .ok()
+        .and_then(|claims| claims.get("exp").and_then(Value::as_i64))
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct RefreshedTokenPayload {
     access_token: String,
@@ -788,13 +964,161 @@ fn extract_client_id_from_claims(claims: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_auth;
-    use super::normalize_auth_json_for_codex;
-    use super::oauth_redirect_port;
-    use super::prepare_oauth_login;
-    use super::MISSING_CHATGPT_TOKEN_ERROR;
-    use super::NON_CHATGPT_AUTH_MODE_ERROR;
+    use super::*;
     use serde_json::json;
+    use std::io::Read;
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    fn jwt_with_exp(exp: i64) -> String {
+        let payload = URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
+        format!("header.{payload}.signature")
+    }
+
+    fn jwt_with_chatgpt_account_id(account_id: &str) -> String {
+        let payload = URL_SAFE_NO_PAD.encode(
+            json!({
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": account_id
+                }
+            })
+            .to_string(),
+        );
+        format!("header.{payload}.signature")
+    }
+
+    fn spawn_flaky_token_exchange_server(id_token: String) -> (String, thread::JoinHandle<usize>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test token server should bind");
+        listener
+            .set_nonblocking(true)
+            .expect("test token server should be nonblocking");
+        let token_url = format!(
+            "http://{}/oauth/token",
+            listener
+                .local_addr()
+                .expect("test token server address should be available")
+        );
+
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut attempts = 0usize;
+
+            while attempts < 2 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        attempts += 1;
+                        if attempts == 1 {
+                            drop(stream);
+                            continue;
+                        }
+
+                        let mut buffer = [0_u8; 4096];
+                        let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                        let _ = stream.read(&mut buffer);
+                        let body = json!({
+                            "access_token": "access-token",
+                            "refresh_token": "refresh-token",
+                            "id_token": id_token
+                        })
+                        .to_string();
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream
+                            .write_all(response.as_bytes())
+                            .expect("test token response should be written");
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("test token server failed: {error}"),
+                }
+            }
+
+            attempts
+        });
+
+        (token_url, handle)
+    }
+
+    #[test]
+    fn marks_refresh_needed_when_id_token_is_expired() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("current time should be available")
+            .as_secs() as i64;
+        let auth_json = json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": jwt_with_exp(now + 3600),
+                "id_token": jwt_with_exp(now - 5),
+                "refresh_token": "refresh-token"
+            }
+        });
+
+        assert!(auth_tokens_need_refresh(&auth_json));
+    }
+
+    #[test]
+    fn skips_refresh_when_both_tokens_are_still_fresh() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("current time should be available")
+            .as_secs() as i64;
+        let auth_json = json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": jwt_with_exp(now + 3600),
+                "id_token": jwt_with_exp(now + 3600),
+                "refresh_token": "refresh-token"
+            }
+        });
+
+        assert!(!auth_tokens_need_refresh(&auth_json));
+    }
+
+    #[test]
+    fn keepalive_refreshes_when_last_refresh_is_stale() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("current time should be available")
+            .as_secs() as i64;
+        let auth_json = json!({
+            "auth_mode": "chatgpt",
+            "last_refresh": now - 3600,
+            "tokens": {
+                "access_token": jwt_with_exp(now + 7200),
+                "id_token": jwt_with_exp(now + 7200),
+                "refresh_token": "refresh-token"
+            }
+        });
+
+        assert!(auth_tokens_need_keepalive_refresh(&auth_json, 60, 1800));
+    }
+
+    #[test]
+    fn keepalive_skips_when_last_refresh_is_fresh() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("current time should be available")
+            .as_secs() as i64;
+        let auth_json = json!({
+            "auth_mode": "chatgpt",
+            "last_refresh": now,
+            "tokens": {
+                "access_token": jwt_with_exp(now + 7200),
+                "id_token": jwt_with_exp(now + 7200),
+                "refresh_token": "refresh-token"
+            }
+        });
+
+        assert!(!auth_tokens_need_keepalive_refresh(&auth_json, 60, 1800));
+    }
 
     #[test]
     fn normalizes_legacy_unix_last_refresh_string() {
@@ -881,8 +1205,48 @@ mod tests {
             .redirect_uri
             .contains(&format!("localhost:{custom_port}/auth/callback")));
         assert_eq!(pending.redirect_uri, prepared.redirect_uri);
-        assert!(prepared
-            .auth_url
-            .contains(&format!("redirect_uri=http%3A%2F%2Flocalhost%3A{custom_port}%2Fauth%2Fcallback")));
+        assert!(prepared.auth_url.contains(&format!(
+            "redirect_uri=http%3A%2F%2Flocalhost%3A{custom_port}%2Fauth%2Fcallback"
+        )));
+    }
+
+    #[tokio::test]
+    async fn exchange_authorization_code_retries_transient_send_failure() {
+        let account_id = "acct_retry";
+        let id_token = jwt_with_chatgpt_account_id(account_id);
+        let (token_url, server_handle) = spawn_flaky_token_exchange_server(id_token);
+        let pending = PendingOauthLogin {
+            redirect_uri: "http://localhost:1455/auth/callback".to_string(),
+            state: "state".to_string(),
+            code_verifier: "code-verifier".to_string(),
+            expires_at: 0,
+            reauthorize_account_id: None,
+        };
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client should build");
+
+        let auth_json = exchange_authorization_code_with_client(
+            &client,
+            &token_url,
+            "auth-code",
+            &pending,
+            2,
+            0,
+        )
+        .await
+        .expect("token exchange should retry once and succeed");
+
+        let accepted = server_handle
+            .join()
+            .expect("test token server should finish cleanly");
+        assert_eq!(accepted, 2);
+        assert_eq!(
+            auth_json
+                .pointer("/tokens/account_id")
+                .and_then(Value::as_str),
+            Some(account_id)
+        );
     }
 }

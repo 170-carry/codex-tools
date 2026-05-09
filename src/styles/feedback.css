@@ -6,9 +6,10 @@
   width: min(520px, calc(100vw - 40px));
   border-radius: 12px;
   padding: 10px 13px;
-  font: 500 0.84rem/1.35 "IBM Plex Sans", sans-serif;
+  font: 500 0.84rem/1.35 var(--font-ui);
   border: 1px solid transparent;
   backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   box-shadow: 0 12px 24px rgba(18, 36, 62, 0.18);
   animation: riseIn 180ms ease both;
 }
@@ -41,6 +42,7 @@
   border: 1px solid color-mix(in srgb, var(--line) 74%, var(--brand) 26%);
   background: var(--task-toast-surface);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 16px 34px rgba(18, 36, 62, 0.2);
   animation: riseIn 180ms ease both;
 }
@@ -53,12 +55,12 @@
 }
 
 .taskProgressHeader strong {
-  font: 700 0.94rem/1.3 "IBM Plex Sans", sans-serif;
+  font: 700 0.94rem/1.3 var(--font-ui);
   color: color-mix(in srgb, var(--ink) 94%, var(--surface-tint) 6%);
 }
 
 .taskProgressHeader span {
-  font: 700 0.82rem/1 "IBM Plex Mono", monospace;
+  font: 700 0.82rem/1 var(--font-mono);
   color: color-mix(in srgb, var(--brand-strong) 82%, var(--surface-tint) 18%);
 }
 
@@ -88,14 +90,14 @@
 
 .taskProgressStage {
   margin: 0;
-  font: 700 0.82rem/1.35 "IBM Plex Sans", sans-serif;
+  font: 700 0.82rem/1.35 var(--font-ui);
   color: color-mix(in srgb, var(--ink) 88%, var(--surface-tint) 12%);
 }
 
 .taskProgressDetail {
   display: block;
   margin: 0;
-  font: 500 0.76rem/1.45 "IBM Plex Mono", monospace;
+  font: 500 0.76rem/1.45 var(--font-mono);
   color: var(--subtle);
   white-space: pre-wrap;
   word-break: break-word;
@@ -107,17 +109,17 @@
   gap: 12px;
   align-items: baseline;
   flex-wrap: wrap;
-  font: 500 0.83rem/1.3 "IBM Plex Sans", sans-serif;
+  font: 500 0.83rem/1.3 var(--font-ui);
 }
 
 .updateText strong {
-  font: 700 0.92rem/1.2 "IBM Plex Sans", sans-serif;
+  font: 700 0.92rem/1.2 var(--font-ui);
   color: var(--update-strong);
 }
 
 .updateText span {
   color: var(--update-subtle);
-  font: 500 0.78rem/1.2 "IBM Plex Sans", sans-serif;
+  font: 500 0.78rem/1.2 var(--font-ui);
 }
 
 .updateDialogActions {
@@ -130,12 +132,12 @@
 .updateBody {
   margin: 10px 0 0;
   color: var(--update-body);
-  font: 400 0.78rem/1.4 "IBM Plex Sans", sans-serif;
+  font: 400 0.78rem/1.4 var(--font-ui);
   white-space: pre-wrap;
 }
 
 .updateProgress {
   margin: 8px 0 0;
   color: var(--update-progress);
-  font: 600 0.76rem/1.2 "IBM Plex Mono", monospace;
+  font: 600 0.76rem/1.2 var(--font-mono);
 }

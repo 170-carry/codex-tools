@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::error::Error as StdError;
 
+use crate::app_paths;
 use crate::models::CreditSnapshot;
 use crate::models::UsageSnapshot;
 use crate::models::UsageWindow;
@@ -160,8 +161,7 @@ fn format_reqwest_error(err: &reqwest::Error) -> String {
 }
 
 fn read_chatgpt_base_url_from_config() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let config_path = home.join(".codex").join("config.toml");
+    let config_path = app_paths::codex_config_path().ok()?;
     let contents = std::fs::read_to_string(config_path).ok()?;
 
     for line in contents.lines() {

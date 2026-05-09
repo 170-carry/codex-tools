@@ -67,6 +67,7 @@
   padding: 0;
   background: transparent;
   backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: none;
   display: flex;
   flex-direction: column;
@@ -133,7 +134,9 @@
 }
 
 .brandLine:focus-visible {
-  outline: none;
+  outline: 2px solid color-mix(in srgb, var(--brand-cool) 58%, var(--surface-tint) 42%);
+  outline-offset: 6px;
+  border-radius: 10px;
   box-shadow: none;
   border-color: transparent;
   background: transparent;
@@ -220,6 +223,7 @@
 
 
 .viewStage {
+  --page-shell-width: 1152px;
   margin-top: 24px;
   min-height: 0;
   flex: 1;
@@ -243,6 +247,9 @@
 }
 
 .accountsPage {
+  width: min(var(--page-shell-width, 1152px), 100%);
+  margin: 0 auto;
+  padding: 10px 24px 32px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 20px;

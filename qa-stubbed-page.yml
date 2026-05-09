@@ -1,0 +1,42 @@
+- main [ref=e4] [box=18,16,1213,1193]:
+  - generic [ref=e5] [box=18,16,1213,87]:
+    - button "Codex Tools 标志 Codex Tools" [ref=e6] [cursor=pointer] [box=24,44,164,30]:
+      - img "Codex Tools 标志" [ref=e7] [box=24,44,30,30]
+      - heading "Codex Tools" [level=1] [ref=e8] [box=64,49,124,20]
+    - button "手动刷新" [ref=e11] [cursor=pointer] [box=1187,40,38,38]:
+      - img [ref=e12] [box=1196,49,21,21]
+  - generic [ref=e16] [box=18,127,1213,1008]:
+    - generic [ref=e17] [box=18,127,1213,53]:
+      - region "账号概览" [ref=e18] [box=18,136,960,35]:
+        - article [ref=e19] [box=18,137,77,34]:
+          - generic [ref=e20] [box=31,149,35,13]: 账号数
+          - strong [ref=e21] [box=74,146,8,15]: "0"
+        - 'article "更新时间: 2026/5/1 21:12:17 日志文件: 0 Token 事件: 0" [ref=e22] [box=103,137,106,34]':
+          - generic [ref=e23] [box=116,148,58,13]: 会话 Token
+          - strong [ref=e24] [box=182,146,14,16]: "--"
+        - 'article "更新时间: 2026/5/1 21:12:17 日志文件: 0 Token 事件: 0" [ref=e25] [box=217,137,96,34]':
+          - generic [ref=e26] [box=230,148,55,13]: 24h Token
+          - strong [ref=e27] [box=293,146,7,16]: "0"
+        - 'article "更新时间: 2026/5/1 21:12:17 日志文件: 0 Token 事件: 0" [ref=e28] [box=321,137,92,34]':
+          - generic [ref=e29] [box=334,148,48,13]: 7d Token
+          - strong [ref=e30] [box=390,146,7,16]: "0"
+        - 'article "更新时间: 2026/5/1 21:12:17 日志文件: 0 Token 事件: 0" [ref=e31] [box=421,137,96,34]':
+          - generic [ref=e32] [box=434,148,55,13]: 30d Token
+          - strong [ref=e33] [box=497,146,7,16]: "0"
+        - button "全部导出" [disabled] [ref=e34] [box=525,136,84,35]
+      - generic [ref=e35] [box=990,127,241,53]:
+        - button "智能切换" [ref=e36] [cursor=pointer] [box=999,136,132,35]
+        - button "添加账号" [ref=e37] [cursor=pointer] [box=1139,136,83,35]
+    - generic [ref=e39] [box=73,200,356,312]:
+      - heading "还没有账号" [level=3] [ref=e40] [box=108,235,286,23]
+      - paragraph [ref=e41] [box=108,268,260,44]: 点击“添加账号”，完成授权后会自动出现在列表中。
+  - navigation "底部导航" [ref=e42] [box=448,1153,354,56]:
+    - button "账号" [ref=e43] [cursor=pointer] [box=455,1160,108,42]:
+      - img [ref=e44] [box=483,1172,18,18]
+      - generic [ref=e49] [box=509,1175,25,13]: 账号
+    - button "API 反代" [ref=e50] [cursor=pointer] [box=571,1160,108,42]:
+      - img [ref=e51] [box=587,1172,18,18]
+      - generic [ref=e53] [box=613,1175,48,13]: API 反代
+    - button "设置" [ref=e54] [cursor=pointer] [box=687,1160,108,42]:
+      - img [ref=e55] [box=715,1172,18,18]
+      - generic [ref=e58] [box=741,1175,25,13]: 设置

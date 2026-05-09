@@ -62,6 +62,16 @@ export type MessageCatalog = {
     ariaLabel: string;
     accountCount: string;
     currentActive: string;
+    tokensSession: string;
+    tokens24h: string;
+    tokens7d: string;
+    tokens30d: string;
+    tokensPending: string;
+    tokensUpdatedAt: string;
+    tokensSources: string;
+    tokensEvents: string;
+    tokensFailedSources: string;
+    exportAll: string;
   };
   addAccount: {
     smartSwitch: string;
@@ -70,15 +80,19 @@ export type MessageCatalog = {
     dialogAriaLabel: string;
     dialogTitle: string;
     dialogSubtitle: string;
+    reauthorizeDialogTitle: string;
+    reauthorizeDialogSubtitle: (label: string) => string;
     tabsAriaLabel: string;
     oauthTab: string;
     oauthDescription: string;
+    reauthorizeOauthDescription: string;
     oauthLinkLabel: string;
     oauthOpenBrowser: string;
     oauthListening: string;
     oauthCallbackLabel: string;
     oauthCallbackPlaceholder: string;
     oauthParseCallback: string;
+    reauthorizeParseCallback: string;
     oauthPreparing: string;
     oauthCallbackSubmitting: string;
     currentTab: string;
@@ -87,6 +101,23 @@ export type MessageCatalog = {
     currentImporting: string;
     uploadTab: string;
     uploadDescription: string;
+    apiTab: string;
+    apiDescription: string;
+    apiNameLabel: string;
+    apiNamePlaceholder: string;
+    apiBaseUrlLabel: string;
+    apiBaseUrlPlaceholder: string;
+    apiBaseUrlHint: string;
+    apiKeyLabel: string;
+    apiKeyPlaceholder: string;
+    apiModelLabel: string;
+    apiModelPlaceholder: string;
+    apiValidationTitle: string;
+    apiValidationDescription: string;
+    apiValidationFailed: string;
+    apiValidateAndSave: string;
+    apiSaving: string;
+    apiForceSave: string;
     uploadChooseFiles: string;
     uploadChooseFolder: string;
     uploadNoJsonFiles: string;
@@ -103,6 +134,13 @@ export type MessageCatalog = {
     currentBadge: string;
     launch: string;
     launching: string;
+    apiBadge: string;
+    profileIncomplete: string;
+    validationFailed: string;
+    endpointLabel: string;
+    modelLabel: string;
+    balanceLabel: string;
+    reauthorize: string;
     editAlias: string;
     aliasInputLabel: string;
     delete: string;
@@ -133,6 +171,24 @@ export type MessageCatalog = {
     kicker: string;
     title: string;
     hint: string;
+    chartKicker: string;
+    chartTitle: string;
+    chartDescription: string;
+    chartRangeLabel: string;
+    chartMetricLabel: string;
+    chartCalls: string;
+    chartTokens: string;
+    chartLoadingTitle: string;
+    chartLoadingDescription: string;
+    chartEmptyTitle: string;
+    chartEmptyDescription: string;
+    chartClearHistory: string;
+    chartUpdatedAt: string;
+    loadBalanceLabel: string;
+    loadBalanceAverage: string;
+    loadBalanceSequential: string;
+    sequentialFiveHourLimitLabel: string;
+    sequentialFiveHourLimitDescription: string;
     statusLabel: string;
     statusRunning: string;
     statusStopped: string;
@@ -296,6 +352,11 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    smartSwitchIncludeApi: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+    };
     codexLaunchPath: {
       label: string;
     };
@@ -357,17 +418,19 @@ export type MessageCatalog = {
     subtitle: (currentVersion: string) => string;
     close: string;
     publishedAt: (date: string) => string;
-    autoDownloading: string;
-    autoPaused: string;
+    statusReady: string;
+    statusInstalling: string;
     manualDownload: string;
-    retryAutoDownload: string;
-    retryingAutoDownload: string;
+    skipThisVersion: string;
+    installNow: string;
+    installingNow: string;
   };
   notices: {
     settingsUpdated: string;
     updateSettingsFailed: (error: string) => string;
     usageRefreshed: string;
     refreshFailed: (error: string) => string;
+    reloginRequired: (label: string) => string;
     preparingUpdateDownload: string;
     alreadyLatest: string;
     updateDownloadStarted: string;
@@ -384,6 +447,9 @@ export type MessageCatalog = {
     oauthImportPrefix: string;
     currentAccountImportSuccess: string;
     currentAccountImportFailed: (error: string) => string;
+    apiAccountCreated: (label: string) => string;
+    apiAccountCreateFailed: (error: string) => string;
+    profileIntegrityWarning: (count: number) => string;
     accountAliasUpdated: (label: string) => string;
     accountAliasUpdateFailed: (error: string) => string;
     accountsExported: string;
@@ -421,6 +487,8 @@ export type MessageCatalog = {
     proxyStopFailed: (error: string) => string;
     proxyKeyRefreshed: string;
     proxyKeyRefreshFailed: (error: string) => string;
+    apiProxyUsageCleared: string;
+    apiProxyUsageClearFailed: (error: string) => string;
     installingDependency: (name: string) => string;
     dependencyInstalled: (name: string) => string;
     dependencyInstallFailed: (name: string, error: string) => string;
@@ -468,6 +536,8 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
     metaStrip: raw.metaStrip,
     addAccount: {
       ...raw.addAccount,
+      reauthorizeDialogSubtitle: (label) =>
+        fillTemplate(raw.addAccount.reauthorizeDialogSubtitle, { label }),
       uploadFileSummary: (firstPath, count) =>
         fillTemplate(raw.addAccount.uploadFileSummary, {
           firstPath,
@@ -498,6 +568,7 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       ...raw.notices,
       updateSettingsFailed: (error) => fillTemplate(raw.notices.updateSettingsFailed, { error }),
       refreshFailed: (error) => fillTemplate(raw.notices.refreshFailed, { error }),
+      reloginRequired: (label) => fillTemplate(raw.notices.reloginRequired, { label }),
       updateDownloadingPercent: (percent) =>
         fillTemplate(raw.notices.updateDownloadingPercent, { percent }),
       updateInstallFailed: (error) => fillTemplate(raw.notices.updateInstallFailed, { error }),
@@ -511,6 +582,11 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.notices.oauthLinkPrepareFailed, { error }),
       currentAccountImportFailed: (error) =>
         fillTemplate(raw.notices.currentAccountImportFailed, { error }),
+      apiAccountCreated: (label) => fillTemplate(raw.notices.apiAccountCreated, { label }),
+      apiAccountCreateFailed: (error) =>
+        fillTemplate(raw.notices.apiAccountCreateFailed, { error }),
+      profileIntegrityWarning: (count) =>
+        fillTemplate(raw.notices.profileIntegrityWarning, { count }),
       accountAliasUpdated: (label) => fillTemplate(raw.notices.accountAliasUpdated, { label }),
       accountAliasUpdateFailed: (error) =>
         fillTemplate(raw.notices.accountAliasUpdateFailed, { error }),
@@ -549,6 +625,8 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       proxyStopFailed: (error) => fillTemplate(raw.notices.proxyStopFailed, { error }),
       proxyKeyRefreshFailed: (error) =>
         fillTemplate(raw.notices.proxyKeyRefreshFailed, { error }),
+      apiProxyUsageClearFailed: (error) =>
+        fillTemplate(raw.notices.apiProxyUsageClearFailed, { error }),
       installingDependency: (name) =>
         fillTemplate(raw.notices.installingDependency, { name }),
       dependencyInstalled: (name) =>

@@ -178,6 +178,15 @@ export function SettingsPanel({
             disabled={savingSettings}
           />
 
+          <SwitchField
+            checked={settings.smartSwitchIncludeApi}
+            onChange={(checked) => onUpdateSettings({ smartSwitchIncludeApi: checked })}
+            label={copy.settings.smartSwitchIncludeApi.label}
+            checkedText={copy.settings.smartSwitchIncludeApi.checkedText}
+            uncheckedText={copy.settings.smartSwitchIncludeApi.uncheckedText}
+            disabled={savingSettings}
+          />
+
           <div className="settingRow">
             <div className="settingMeta">
               <strong>{copy.settings.codexLaunchPath.label}</strong>

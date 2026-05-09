@@ -1,5 +1,9 @@
 .proxyPage {
-  width: min(1040px, 100%);
+  --proxy-nested-card-radius: 16px;
+  --proxy-nested-card-line: color-mix(in srgb, var(--line) 62%, var(--surface-tint) 38%);
+  --proxy-nested-card-surface: color-mix(in srgb, var(--card) 78%, var(--surface-tint) 22%);
+  --proxy-nested-card-shadow: inset 0 1px var(--surface-highlight-soft);
+  width: min(var(--page-shell-width, 1152px), 100%);
   margin: 0 auto;
   padding: 10px 0 32px;
   border: 0;
@@ -12,6 +16,7 @@
   display: grid;
   align-content: start;
   gap: 18px;
+  padding-inline: 24px;
 }
 
 .proxyHeaderStats {
@@ -82,6 +87,553 @@
   background: var(--section-card-surface);
   box-shadow: var(--section-shadow);
   backdrop-filter: blur(14px) saturate(112%);
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+}
+
+.proxyUsageCard {
+  position: relative;
+  gap: 16px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--section-line);
+  background: var(--section-card-surface);
+  box-shadow: var(--section-shadow);
+  cursor: context-menu;
+  backdrop-filter: blur(14px) saturate(112%);
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+}
+
+.proxyUsageHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.proxyUsageHeading {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.proxyUsageHeading h3 {
+  margin: 0;
+  font: 700 1.02rem/1.1 var(--font-ui);
+  letter-spacing: -0.03em;
+}
+
+.proxyUsageHeading p {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--subtle);
+  font: 500 0.82rem/1.5 var(--font-ui);
+}
+
+.proxyUsageHeaderMeta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+}
+
+.proxyUsageStatus {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.proxyUsageUpdated {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--meta-bg) 64%, transparent);
+  color: var(--subtle);
+  font: 650 0.74rem/1 var(--font-ui);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.proxyUsageControls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.proxyUsageGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.proxyUsageChip {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--surface-tint) 14%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--meta-bg) 60%, transparent);
+  color: var(--subtle);
+  font: 650 0.76rem/1 var(--font-ui);
+  letter-spacing: -0.01em;
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.proxyUsageChip:hover:not(:disabled),
+.proxyUsageChip:focus-visible {
+  transform: translateY(-1px);
+}
+
+.proxyUsageChip.isActive {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--brand-hot) 38%, var(--brand-cool) 62%);
+  background: var(--mode-card-active-surface);
+  box-shadow:
+    0 8px 18px rgba(18, 34, 56, 0.08),
+    inset 0 1px var(--surface-highlight-soft);
+}
+
+.proxyUsageFrame {
+  position: relative;
+  display: grid;
+  grid-template-areas: "stack";
+  min-height: 320px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  border-radius: 18px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--meta-bg) 42%, transparent);
+}
+
+.proxyUsageFrame::before {
+  display: none;
+}
+
+.proxyUsageFrame.isLoading {
+  border-color: color-mix(in srgb, var(--brand-cool) 28%, var(--line) 72%);
+}
+
+.proxyUsageFrame.hasData {
+  align-items: start;
+}
+
+.proxyUsageSvg,
+.proxyUsageState,
+.proxyUsageFrameBadge {
+  grid-area: stack;
+}
+
+.proxyUsageSvg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+  display: block;
+}
+
+.proxyUsagePlotBg {
+  fill: color-mix(in srgb, var(--card) 82%, var(--surface-tint) 18%);
+  stroke: none;
+}
+
+.proxyUsageSeries {
+  transition:
+    opacity 140ms ease,
+    filter 140ms ease;
+}
+
+.proxyUsageAnimatedPlot {
+  transform-box: view-box;
+  will-change: transform, opacity;
+}
+
+.proxyUsageAnimatedPlot.isRising {
+  animation: proxyUsageRise 720ms cubic-bezier(0.18, 0.88, 0.22, 1) both;
+}
+
+.proxyUsageAnimatedPlot.isSliding {
+  animation: proxyUsageSlideLeft 680ms cubic-bezier(0.2, 0.72, 0.2, 1) both;
+}
+
+@keyframes proxyUsageRise {
+  0% {
+    opacity: 0.28;
+    transform: scaleY(0.002);
+  }
+
+  58% {
+    opacity: 1;
+    transform: scaleY(1.045);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes proxyUsageSlideLeft {
+  from {
+    transform: translateX(var(--proxyUsageSlideOffset, 0));
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+.proxyUsageSeries.isDimmed {
+  opacity: 0.28;
+}
+
+.proxyUsageSeries.isHovered {
+  opacity: 1;
+}
+
+.proxyUsageGrid line {
+  stroke: color-mix(in srgb, var(--line) 62%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.proxyUsageGrid text {
+  fill: var(--subtle);
+  font: 650 0.7rem/1 var(--font-ui);
+  letter-spacing: 0;
+}
+
+.proxyUsageGridLineVertical {
+  opacity: 0.5;
+}
+
+.proxyUsageArea {
+  stroke: none;
+}
+
+.proxyUsageLine {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.12));
+}
+
+.proxyUsageSeries.isDimmed .proxyUsageLine {
+  filter: none;
+}
+
+.proxyUsageSeries.isHovered .proxyUsageLine {
+  stroke-width: 3.2;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.18));
+}
+
+.proxyUsageSeries.isHovered .proxyUsageArea {
+  opacity: 0.95;
+}
+
+.proxyUsageHoverLayer {
+  isolation: isolate;
+}
+
+.proxyUsageHoverMarkerHalo {
+  opacity: 0.16;
+  filter: blur(1px);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: proxyUsageMarkerPulse 900ms cubic-bezier(0.2, 0.78, 0.2, 1) infinite;
+}
+
+.proxyUsageHoverMarker {
+  stroke: var(--card);
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.18));
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: proxyUsageMarkerPop 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes proxyUsageMarkerPulse {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 0.28;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes proxyUsageMarkerPop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.proxyUsageState {
+  place-self: center;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 26px 20px;
+  text-align: center;
+}
+
+.proxyUsageStateOrb {
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 30%, var(--brand-cool), transparent 70%),
+    radial-gradient(circle at 70% 70%, var(--brand-hot), transparent 70%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--line) 72%, transparent),
+    0 18px 32px rgba(0, 0, 0, 0.08);
+  opacity: 0.92;
+}
+
+.proxyUsageStateOrb.isLoading {
+  animation: proxyUsagePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes proxyUsagePulse {
+  0%,
+  100% {
+    transform: scale(0.98);
+    opacity: 0.78;
+  }
+
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+.proxyUsageState strong {
+  color: var(--ink);
+  font: 700 0.98rem/1.2 var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.proxyUsageState p {
+  margin: 0;
+  color: var(--subtle);
+  font: 500 0.82rem/1.55 var(--font-ui);
+}
+
+.proxyUsageFrameBadge {
+  place-self: start end;
+  z-index: 2;
+  margin: 12px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--meta-bg) 70%, transparent);
+  color: var(--ink);
+  font: 650 0.74rem/1 var(--font-ui);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.proxyUsageTooltip {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  width: 256px;
+  padding: 10px 11px 11px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 90%, var(--surface-tint) 10%),
+      color-mix(in srgb, var(--meta-bg) 72%, transparent)
+    );
+  box-shadow:
+    0 16px 32px rgba(8, 16, 30, 0.18),
+    inset 0 1px var(--surface-highlight-soft);
+  color: var(--ink);
+  pointer-events: none;
+  backdrop-filter: blur(12px) saturate(118%);
+  -webkit-backdrop-filter: blur(12px) saturate(118%);
+}
+
+.proxyUsageTooltipHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.proxyUsageTooltipTime {
+  color: var(--subtle);
+  font: 650 0.7rem/1.2 var(--font-ui);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.proxyUsageTooltipEntries {
+  display: grid;
+  gap: 6px;
+}
+
+.proxyUsageTooltipEntry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 20px;
+}
+
+.proxyUsageTooltipSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--surface-tint) 72%, transparent);
+}
+
+.proxyUsageTooltipMetricLabel {
+  min-width: 0;
+  color: var(--subtle);
+  font: 600 0.74rem/1.2 var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.proxyUsageTooltipEntryModel {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 650 0.74rem/1.2 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proxyUsageTooltipEntryValue {
+  font: 700 0.88rem/1.1 var(--font-mono);
+  letter-spacing: -0.01em;
+}
+
+.proxyUsageHoverCrosshair {
+  stroke: color-mix(in srgb, var(--subtle) 48%, transparent);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.36;
+}
+
+.proxyUsageContextMenu {
+  position: absolute;
+  z-index: 6;
+  width: 176px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 94%, var(--surface-tint) 6%),
+      color-mix(in srgb, var(--meta-bg) 82%, transparent)
+    );
+  box-shadow:
+    0 18px 36px rgba(8, 16, 30, 0.2),
+    inset 0 1px var(--surface-highlight-soft);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+
+.proxyUsageContextMenuItem {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font: 650 0.78rem/1 var(--font-ui);
+  text-align: left;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.proxyUsageContextMenuItem:hover:not(:disabled),
+.proxyUsageContextMenuItem:focus-visible {
+  background: color-mix(in srgb, var(--brand-hot) 14%, var(--brand-cool) 10%);
+  color: color-mix(in srgb, var(--ink) 86%, var(--brand-hot) 14%);
+  transform: translateX(1px);
+}
+
+.proxyUsageContextMenuItem:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.proxyUsageLegend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.proxyUsageLegendItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--meta-bg) 50%, transparent);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.proxyUsageLegendSwatch {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--surface-tint) 70%, transparent);
+}
+
+.proxyUsageLegendBody {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.proxyUsageLegendBody strong {
+  overflow: hidden;
+  color: var(--ink);
+  font: 700 0.82rem/1.2 var(--font-ui);
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proxyUsageLegendBody span,
+.proxyUsageLegendBody small {
+  color: var(--subtle);
+  font: 600 0.72rem/1.35 var(--font-ui);
 }
 
 .proxySectionCard + .proxySectionCard {
@@ -123,16 +675,32 @@
 }
 
 .proxySectionToggle {
-  display: inline-flex;
+  justify-self: end;
+}
+
+.proxySwitchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 16px;
+  min-height: 40px;
+}
+
+.proxySwitchRow .settingMeta {
+  min-width: 0;
+}
+
+.proxySwitchRow .settingMeta strong {
+  display: block;
+  color: var(--subtle);
+  font: 600 0.72rem/1.1 var(--font-ui);
+  letter-spacing: -0.01em;
 }
 
 .proxyControlRow {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(180px, max-content) minmax(0, 1fr);
   gap: 10px;
   align-items: end;
 }
@@ -151,11 +719,7 @@
 }
 
 .proxyInlineSetting {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  flex-wrap: wrap;
+  align-self: end;
 }
 
 .proxyControlActions {
@@ -166,6 +730,60 @@
   justify-content: flex-end;
 }
 
+.proxyBalanceCard {
+  gap: 12px;
+}
+
+.proxyBalanceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.proxyModePicker {
+  width: 172px;
+  min-width: 172px;
+}
+
+.proxyModePicker .editorPickerTrigger {
+  min-height: 38px;
+}
+
+.proxySequentialLimit {
+  display: grid;
+  gap: 8px;
+}
+
+.proxySequentialLimitHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.proxySequentialLimitHeader strong {
+  color: var(--ink);
+  font: 650 0.84rem/1 var(--font-ui);
+}
+
+.proxySequentialLimit p {
+  margin: 0;
+  color: var(--subtle);
+  font: 500 0.76rem/1.45 var(--font-ui);
+}
+
+.proxyRangeInput {
+  width: 100%;
+  accent-color: var(--brand-cool);
+}
+
+.proxyRangeInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .proxyPortInput {
   width: 132px;
   height: 38px;
@@ -174,7 +792,7 @@
   padding: 0 12px;
   background: color-mix(in srgb, var(--meta-bg) 46%, transparent);
   color: var(--ink);
-  font: 600 0.78rem/1 "IBM Plex Mono", monospace;
+  font: 600 0.78rem/1 var(--font-mono);
   outline: none;
   transition:
     border-color 160ms ease,
@@ -183,8 +801,8 @@
 }
 
 .proxyPortInput:focus {
-  border-color: var(--button-primary-border);
-  box-shadow: 0 0 0 4px rgba(255, 143, 56, 0.12);
+  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent);
 }
 
 .proxyPortInput:disabled {
@@ -197,12 +815,10 @@
   display: grid;
   gap: 8px;
   padding: 13px 14px;
-  border: 0;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--card) 80%, var(--surface-tint) 20%);
-  box-shadow:
-    inset 0 1px var(--surface-highlight-soft),
-    0 0 0 1px color-mix(in srgb, var(--line) 52%, var(--surface-tint) 48%);
+  border: 1px solid var(--proxy-nested-card-line);
+  border-radius: var(--proxy-nested-card-radius);
+  background: var(--proxy-nested-card-surface);
+  box-shadow: var(--proxy-nested-card-shadow);
 }
 
 .proxyDetailHeader {
@@ -265,7 +881,7 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--meta-bg) 48%, transparent);
   color: color-mix(in srgb, var(--ink) 90%, var(--surface-tint) 10%);
-  font: 500 0.75rem/1.5 "IBM Plex Mono", monospace;
+  font: 500 0.75rem/1.5 var(--font-mono);
   word-break: break-all;
 }
 
@@ -330,12 +946,10 @@
   display: grid;
   gap: 12px;
   padding: 14px;
-  border: 0;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--card) 76%, var(--surface-tint) 24%);
-  box-shadow:
-    inset 0 1px var(--surface-highlight-soft),
-    0 0 0 1px color-mix(in srgb, var(--line) 48%, var(--surface-tint) 52%);
+  border: 1px solid var(--proxy-nested-card-line);
+  border-radius: var(--proxy-nested-card-radius);
+  background: var(--proxy-nested-card-surface);
+  box-shadow: var(--proxy-nested-card-shadow);
 }
 
 .remoteHistoryHeader {
@@ -462,13 +1076,11 @@ button.remoteHistoryItem.isSelected {
 }
 
 .remoteServerCard {
-  border: 0;
-  border-radius: 18px;
+  border: 1px solid var(--proxy-nested-card-line);
+  border-radius: var(--proxy-nested-card-radius);
   padding: 14px 16px 16px;
-  background: color-mix(in srgb, var(--card) 72%, var(--surface-tint) 28%);
-  box-shadow:
-    inset 0 1px var(--surface-highlight-soft),
-    0 0 0 1px color-mix(in srgb, var(--line) 48%, var(--surface-tint) 52%);
+  background: var(--proxy-nested-card-surface);
+  box-shadow: var(--proxy-nested-card-shadow);
 }
 
 .remoteServerList {
@@ -519,7 +1131,7 @@ button.remoteHistoryItem.isSelected {
 
 .remoteServerIdentity span {
   color: var(--subtle);
-  font: 500 0.74rem/1.35 "IBM Plex Mono", monospace;
+  font: 500 0.74rem/1.35 var(--font-mono);
   word-break: break-all;
 }
 
@@ -644,8 +1256,8 @@ button.remoteServerDisclosure {
 
 .remoteServerField input:focus,
 .cloudflaredInputField input:focus {
-  border-color: var(--button-primary-border);
-  box-shadow: 0 0 0 4px rgba(255, 143, 56, 0.12);
+  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent);
 }
 
 .remoteServerTextarea {
@@ -657,7 +1269,7 @@ button.remoteServerDisclosure {
   padding: 10px 12px;
   background: color-mix(in srgb, var(--card) 90%, var(--surface-tint) 10%);
   color: var(--ink);
-  font: 500 0.76rem/1.45 "IBM Plex Mono", monospace;
+  font: 500 0.76rem/1.45 var(--font-mono);
   outline: none;
   transition:
     border-color 160ms ease,
@@ -666,8 +1278,8 @@ button.remoteServerDisclosure {
 }
 
 .remoteServerTextarea:focus {
-  border-color: var(--button-primary-border);
-  box-shadow: 0 0 0 4px rgba(255, 143, 56, 0.12);
+  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent);
 }
 
 .remoteAuthRow {
@@ -710,7 +1322,7 @@ button.remoteServerDisclosure {
 }
 
 .remoteServerBinaryMeta strong {
-  font: 700 0.96rem/1.25 "IBM Plex Sans", sans-serif;
+  font: 700 0.96rem/1.25 var(--font-ui);
   color: color-mix(in srgb, var(--ink) 92%, var(--surface-tint) 8%);
   word-break: break-word;
 }
@@ -851,13 +1463,11 @@ button.remoteServerDisclosure {
   display: grid;
   gap: 8px;
   align-items: center;
-  border: 0;
-  border-radius: 14px;
+  border: 1px solid var(--proxy-nested-card-line);
+  border-radius: var(--proxy-nested-card-radius);
   padding: 13px 14px;
-  background: color-mix(in srgb, var(--card) 80%, var(--surface-tint) 20%);
-  box-shadow:
-    inset 0 1px var(--surface-highlight-soft),
-    0 0 0 1px color-mix(in srgb, var(--line) 48%, var(--surface-tint) 52%);
+  background: var(--proxy-nested-card-surface);
+  box-shadow: var(--proxy-nested-card-shadow);
 }
 
 .cloudflaredInstallCard {
@@ -900,6 +1510,14 @@ button.cloudflaredModeCard::before {
   display: none;
 }
 
+button.cloudflaredModeCard:hover,
+button.cloudflaredModeCard:focus-visible {
+  transform: none;
+  filter: none;
+  background: color-mix(in srgb, var(--body-bg) 24%, var(--surface-tint) 76%);
+  box-shadow: none;
+}
+
 button.cloudflaredModeCard strong {
   font: 650 0.88rem/1.2 var(--font-ui);
   color: color-mix(in srgb, var(--ink) 92%, var(--surface-tint) 8%);
@@ -936,10 +1554,7 @@ button.cloudflaredModeCard.isActive {
 }
 
 .cloudflaredToolbarMeta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  justify-self: start;
 }
 
 .cloudflaredToolbarActions {
@@ -962,6 +1577,7 @@ button.cloudflaredModeCard.isActive {
   border-radius: 16px;
   background: var(--dock-surface);
   backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
   box-shadow:
     0 10px 24px rgba(19, 34, 58, 0.1),
     inset 0 1px var(--surface-highlight);

@@ -156,4 +156,16 @@
   );
   --account-launch-color: rgba(236, 244, 255, 0.95);
   --account-launch-shadow: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.55));
+  --proxy-usage-series-1: color-mix(in srgb, var(--brand-cool) 90%, var(--ink) 10%);
+  --proxy-usage-series-2: color-mix(in srgb, var(--brand-hot) 86%, var(--ink) 14%);
+  --proxy-usage-series-3: color-mix(in srgb, var(--credits) 78%, var(--brand-cool) 22%);
+  --proxy-usage-series-4: color-mix(in srgb, var(--ok) 76%, var(--brand-cool) 24%);
+  --proxy-usage-series-5: color-mix(in srgb, var(--danger) 78%, var(--brand-hot) 22%);
+  --proxy-usage-series-6: color-mix(in srgb, var(--stamp-current-color) 78%, var(--brand-cool) 22%);
+  --proxy-usage-series-7: color-mix(in srgb, var(--stamp-plan-color) 68%, var(--brand-hot) 32%);
+  --proxy-usage-series-8: color-mix(in srgb, var(--name-current) 72%, var(--brand-hot) 28%);
+  --proxy-usage-series-9: color-mix(in srgb, var(--brand-cool) 70%, var(--surface-tint) 30%);
+  --proxy-usage-series-10: color-mix(in srgb, var(--brand-hot) 66%, var(--subtle) 34%);
+  --proxy-usage-series-11: color-mix(in srgb, var(--credits) 68%, var(--ink) 32%);
+  --proxy-usage-series-12: color-mix(in srgb, var(--ok) 58%, var(--brand-hot) 42%);
 }

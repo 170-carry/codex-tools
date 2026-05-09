@@ -20,17 +20,55 @@ export type UsageSnapshot = {
   credits: CreditSnapshot | null;
 };
 
+export type CodexTokenTotals = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+};
+
+export type CodexTokenSessionUsage = {
+  startedAt: number | null;
+  updatedAt: number;
+  total: CodexTokenTotals;
+};
+
+export type CodexTokenUsageSnapshot = {
+  updatedAt: number;
+  sourcePathCount: number;
+  failedPathCount: number;
+  eventCount: number;
+  last24h: CodexTokenTotals;
+  last7d: CodexTokenTotals;
+  last30d: CodexTokenTotals;
+  latestSession: CodexTokenSessionUsage | null;
+};
+
+export type AccountSourceKind = "chatgpt" | "relay";
+
 export type AccountSummary = {
   id: string;
   label: string;
+  sourceKind: AccountSourceKind;
   email: string | null;
   accountKey: string;
   accountId: string;
   planType: string | null;
+  apiBaseUrl: string | null;
+  modelName: string | null;
+  balanceText: string | null;
+  profileAuthReady: boolean;
+  profileConfigReady: boolean;
+  profileIntegrityError: string | null;
+  profileLastValidatedAt: number | null;
+  profileLastValidationError: string | null;
   addedAt: number;
   updatedAt: number;
   usage: UsageSnapshot | null;
   usageError: string | null;
+  authRefreshBlocked: boolean;
+  authRefreshError: string | null;
   isCurrent: boolean;
 };
 
@@ -62,6 +100,14 @@ export type AuthJsonImportInput = {
   label: string | null;
 };
 
+export type CreateApiAccountInput = {
+  label: string;
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
+  forceSave: boolean;
+};
+
 export type ImportAccountFailure = {
   source: string;
   error: string;
@@ -84,6 +130,30 @@ export type ApiProxyStatus = {
   activeAccountId: string | null;
   activeAccountLabel: string | null;
   lastError: string | null;
+};
+
+export type ApiProxyUsageRange = "1h" | "24h" | "7d" | "14d" | "30d";
+
+export type ApiProxyUsageMetric = "calls" | "tokens";
+
+export type ApiProxyUsagePoint = {
+  timestamp: number;
+  calls: number;
+  tokens: number;
+};
+
+export type ApiProxyUsageSeries = {
+  model: string;
+  totalCalls: number;
+  totalTokens: number;
+  points: ApiProxyUsagePoint[];
+};
+
+export type ApiProxyUsageStats = {
+  updatedAt: number;
+  rangeSeconds: number;
+  bucketSeconds: number;
+  series: ApiProxyUsageSeries[];
 };
 
 export type RemoteAuthMode = "keyContent" | "keyFile" | "keyPath" | "password";
@@ -177,6 +247,8 @@ export type ThemeMode = "light" | "dark";
 
 export type TrayUsageDisplayMode = "remaining" | "used" | "hidden";
 
+export type ApiProxyLoadBalanceMode = "average" | "sequential";
+
 export type EditorAppId =
   | "vscode"
   | "vscodeInsiders"
@@ -195,6 +267,7 @@ export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
   launchCodexAfterSwitch: boolean;
+  smartSwitchIncludeApi: boolean;
   codexLaunchPath: string | null;
   syncOpencodeOpenaiAuth: boolean;
   restartOpencodeDesktopOnSwitch: boolean;
@@ -202,8 +275,11 @@ export type AppSettings = {
   restartEditorTargets: EditorAppId[];
   autoStartApiProxy: boolean;
   apiProxyPort: number;
+  apiProxyLoadBalanceMode: ApiProxyLoadBalanceMode;
+  apiProxySequentialFiveHourLimitPercent: number;
   remoteServers: RemoteServerConfig[];
   locale: AppLocale;
+  skippedUpdateVersion: string | null;
 };
 
 export type UpdateSettingsOptions = {

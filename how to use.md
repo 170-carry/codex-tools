@@ -13,7 +13,7 @@
 应用启动后，先把账号导入进来。支持以下几种方式：
 
 - OAuth 登录导入
-- 上传单个或多个 `.json` 账号文件
+- 上传单个或多个 `.json` 账号文件，或导出的 `accounts.json` 备份
 - 直接选择一个文件夹，批量读取其中的账号文件
 
 导入完成后，应用会保留你当前机器上的登录状态，不会直接覆盖正在使用的账号。
@@ -57,7 +57,22 @@
 
 启动后，本地会提供 `/v1` 兼容接口，并自动从账号池里选择可用账号转发请求。
 
+注意：
+
+- 本机直连客户端可以直接使用本地 `Base URL`
+- `Cursor` 这类可能由服务端代发请求的客户端，不一定允许访问 `127.0.0.1` 或私网地址
+- 如果 Cursor 报 `ssrf_blocked`，请改用 `cloudflared` 暴露出来的公网地址，或使用远程 Linux 反代
+
 详细说明可参考 [docs/api-proxy.md](docs/api-proxy.md)。
+
+如果你要通过 CC Switch 管理 Codex provider，也可以直接接本工具的反代：
+
+- 在 CC Switch 的 **Codex 自定义 provider** 中填写本工具显示的 `Base URL`
+- `Base URL` 填到 `/v1` 为止，例如 `http://127.0.0.1:8787/v1`
+- `API Key` 使用本工具生成的代理 `sk-...`
+- `wire_api` 选择 `responses`
+
+更完整的配置示例见 [docs/api-proxy.md](docs/api-proxy.md) 里的“通过 CC Switch 接入 Codex”。
 
 ## 6. 日常使用建议
 

@@ -87,6 +87,15 @@
     grid-template-columns: 1fr;
   }
 
+  .addApiFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .addApiActionRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .settingRow {
     grid-template-columns: 1fr;
     justify-items: start;

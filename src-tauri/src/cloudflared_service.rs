@@ -3,21 +3,21 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
 use std::process::Stdio;
 
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use tauri::AppHandle;
-use tauri::Manager;
 
+use crate::app_paths;
 use crate::models::CloudflaredStatus;
 use crate::models::CloudflaredTunnelMode;
 use crate::models::NamedCloudflaredTunnelInput;
 use crate::models::StartCloudflaredTunnelInput;
 use crate::state::AppState;
 use crate::state::CloudflaredRuntimeHandle;
+use crate::utils::new_background_command;
 use crate::utils::new_resolved_command;
 use crate::utils::now_unix_seconds;
 
@@ -272,7 +272,7 @@ fn spawn_quick_tunnel(
     service_url: &str,
     use_http2: bool,
 ) -> Result<CloudflaredRuntimeHandle, String> {
-    let mut command = Command::new(binary_path);
+    let mut command = new_background_command(binary_path);
     command
         .arg("tunnel")
         .arg("--loglevel")
@@ -329,7 +329,7 @@ async fn spawn_named_tunnel(
     )
     .await?;
 
-    let mut command = Command::new(binary_path);
+    let mut command = new_background_command(binary_path);
     command
         .arg("tunnel")
         .arg("--loglevel")
@@ -574,17 +574,12 @@ fn read_last_log_line(path: &Path) -> Option<String> {
     let raw = fs::read_to_string(path).ok()?;
     raw.lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .last()
+        .rfind(|line| !line.is_empty())
         .map(ToString::to_string)
 }
 
 fn next_cloudflared_log_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法获取应用数据目录: {e}"))?
-        .join("cloudflared");
+    let dir = app_paths::app_data_dir(app)?.join("cloudflared");
     fs::create_dir_all(&dir)
         .map_err(|e| format!("创建 cloudflared 日志目录失败 {}: {e}", dir.display()))?;
 

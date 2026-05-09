@@ -9,7 +9,8 @@ type UpdateBannerProps = {
   installingUpdate: boolean;
   onClose: () => void;
   onManualDownload: () => void;
-  onRetryAutoDownload: () => void;
+  onSkipVersion: () => void;
+  onInstallNow: () => void;
 };
 
 export function UpdateBanner({
@@ -19,7 +20,8 @@ export function UpdateBanner({
   installingUpdate,
   onClose,
   onManualDownload,
-  onRetryAutoDownload,
+  onSkipVersion,
+  onInstallNow,
 }: UpdateBannerProps) {
   const { copy } = useI18n();
 
@@ -56,15 +58,22 @@ export function UpdateBanner({
 
         <div className="updateText">
           {pendingUpdate.date && <span>{copy.updateDialog.publishedAt(pendingUpdate.date)}</span>}
-          <span>{installingUpdate ? copy.updateDialog.autoDownloading : copy.updateDialog.autoPaused}</span>
+          <span>
+            {installingUpdate
+              ? copy.updateDialog.statusInstalling
+              : copy.updateDialog.statusReady}
+          </span>
         </div>
 
         <div className="updateDialogActions">
-          <button className="ghost" onClick={onManualDownload}>
+          <button className="ghost" onClick={onSkipVersion} disabled={installingUpdate}>
+            {copy.updateDialog.skipThisVersion}
+          </button>
+          <button className="ghost" onClick={onManualDownload} disabled={installingUpdate}>
             {copy.updateDialog.manualDownload}
           </button>
-          <button className="primary" onClick={onRetryAutoDownload} disabled={installingUpdate}>
-            {installingUpdate ? copy.updateDialog.retryingAutoDownload : copy.updateDialog.retryAutoDownload}
+          <button className="primary" onClick={onInstallNow} disabled={installingUpdate}>
+            {installingUpdate ? copy.updateDialog.installingNow : copy.updateDialog.installNow}
           </button>
         </div>
 

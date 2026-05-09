@@ -15,6 +15,8 @@ use std::time::UNIX_EPOCH;
 
 use crate::auth::extract_codex_oauth_tokens;
 use crate::auth::CodexOAuthTokens;
+#[cfg(target_os = "windows")]
+use crate::utils::new_background_command;
 use crate::utils::set_private_permissions;
 
 const FALLBACK_EXPIRES_IN_MS: i64 = 55 * 60 * 1000;
@@ -593,7 +595,7 @@ fn force_kill_opencode_desktop_processes() {
     #[cfg(target_os = "windows")]
     {
         for name in OPENCODE_DESKTOP_WINDOWS_PROCESS_NAMES {
-            let _ = Command::new("taskkill")
+            let _ = new_background_command("taskkill")
                 .args(["/F", "/IM", name, "/T"])
                 .status();
         }
@@ -616,7 +618,7 @@ fn reopen_opencode_desktop_app(app_path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        Command::new(app_path)
+        new_background_command(app_path)
             .spawn()
             .map_err(|error| format!("重启 opencode 桌面端失败: {error}"))?;
         return Ok(());

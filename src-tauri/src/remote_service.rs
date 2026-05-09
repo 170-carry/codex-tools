@@ -10,6 +10,7 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::app_paths;
 use crate::models::AccountsStore;
 use crate::models::DeployRemoteProxyInput;
 use crate::models::RemoteAuthMode;
@@ -17,12 +18,28 @@ use crate::models::RemoteProxyStatus;
 use crate::models::RemoteServerConfig;
 use crate::store::account_store_path_from_data_dir;
 use crate::utils::find_command_path;
+use crate::utils::new_background_command;
 use crate::utils::new_resolved_command;
 use crate::utils::now_unix_seconds;
 use crate::utils::prepend_path_entry;
+use crate::utils::try_set_private_permissions;
 
 const REMOTE_BINARY_NAME: &str = "codex-tools-proxyd";
 const REMOTE_DEPLOY_PROGRESS_EVENT: &str = "remote-deploy-progress";
+const PROXYD_BUNDLED_SOURCE_ROOT: &str = "gen/remote-build";
+const PROXYD_BUILD_SOURCE_FILES: &[&str] = &[
+    "proxyd/Cargo.toml",
+    "proxyd/Cargo.lock",
+    "proxyd/src/main.rs",
+    "src/auth.rs",
+    "src/models.rs",
+    "src/proxy_daemon.rs",
+    "src/proxy_service.rs",
+    "src/state.rs",
+    "src/store.rs",
+    "src/usage.rs",
+    "src/utils.rs",
+];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,7 +94,7 @@ impl LocalRustToolchain {
     }
 
     fn new_cargo_command(&self) -> Command {
-        let mut command = Command::new(&self.cargo_bin);
+        let mut command = new_background_command(&self.cargo_bin);
         self.apply_to_command(&mut command);
         command
     }
@@ -477,7 +494,7 @@ fn build_linux_binary_for_server(
         Some("uname -s && uname -m".to_string()),
     );
     let platform = detect_remote_platform(server)?;
-    let workspace_manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_manifest_dir = prepare_proxyd_build_source(app)?;
     let manifest_dir = workspace_manifest_dir.join("proxyd");
     let manifest_path = manifest_dir.join("Cargo.toml");
     let target_dir = proxyd_build_target_dir()?;
@@ -655,6 +672,90 @@ fn proxyd_build_target_dir() -> Result<PathBuf, String> {
     Ok(target_dir)
 }
 
+fn prepare_proxyd_build_source(app: &AppHandle) -> Result<PathBuf, String> {
+    let source_root = resolve_proxyd_source_root(app)?;
+    let build_root = proxyd_build_source_cache_dir()?;
+
+    if build_root.exists() {
+        fs::remove_dir_all(&build_root).map_err(|error| {
+            format!(
+                "清理 proxyd 构建源码缓存目录失败 {}: {error}",
+                build_root.display()
+            )
+        })?;
+    }
+
+    for relative_path in PROXYD_BUILD_SOURCE_FILES {
+        copy_proxyd_build_source_file(&source_root, &build_root, relative_path)?;
+    }
+
+    Ok(build_root)
+}
+
+fn resolve_proxyd_source_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled_root = resource_dir.join(PROXYD_BUNDLED_SOURCE_ROOT);
+        if proxyd_source_root_available(&bundled_root) {
+            return Ok(bundled_root);
+        }
+    }
+
+    let development_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if proxyd_source_root_available(&development_root) {
+        return Ok(development_root);
+    }
+
+    Err(
+        "未找到内置 proxyd 构建源码。请重新安装包含 remote-build resources 的客户端，或在源码仓库内运行开发版客户端。"
+            .to_string(),
+    )
+}
+
+fn proxyd_source_root_available(root: &Path) -> bool {
+    PROXYD_BUILD_SOURCE_FILES
+        .iter()
+        .all(|relative_path| root.join(relative_path).is_file())
+}
+
+fn proxyd_build_source_cache_dir() -> Result<PathBuf, String> {
+    let base = dirs::cache_dir().unwrap_or_else(env::temp_dir);
+    let build_root = base.join("codex-tools").join("proxyd-build-src");
+    if let Some(parent) = build_root.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "创建 proxyd 构建源码缓存父目录失败 {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+    Ok(build_root)
+}
+
+fn copy_proxyd_build_source_file(
+    source_root: &Path,
+    destination_root: &Path,
+    relative_path: &str,
+) -> Result<(), String> {
+    let source_path = source_root.join(relative_path);
+    let destination_path = destination_root.join(relative_path);
+    let parent = destination_path.parent().ok_or_else(|| {
+        format!(
+            "proxyd 构建源码目标路径缺少父目录 {}",
+            destination_path.display()
+        )
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("创建 proxyd 构建源码目录失败 {}: {error}", parent.display()))?;
+    fs::copy(&source_path, &destination_path).map_err(|error| {
+        format!(
+            "复制 proxyd 构建源码失败 {} -> {}: {error}",
+            source_path.display(),
+            destination_path.display()
+        )
+    })?;
+    Ok(())
+}
+
 fn emit_remote_deploy_progress(
     app: &AppHandle,
     server: &RemoteServerConfig,
@@ -716,10 +817,7 @@ fn render_systemd_unit(server: &RemoteServerConfig, service_name: &str) -> Strin
 }
 
 fn local_accounts_store_json(app: &AppHandle) -> Result<String, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法获取应用数据目录: {error}"))?;
+    let data_dir = app_paths::app_data_dir(app)?;
     let path = account_store_path_from_data_dir(&data_dir);
 
     if path.exists() {
@@ -795,50 +893,59 @@ fn install_sshpass_sync() -> Result<(), String> {
         return Ok(());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        ensure_command_available(
-            "brew",
-            "未检测到 Homebrew，请先安装 brew 后再自动安装 sshpass。",
-        )?;
-        run_install_command(
-            "brew",
-            &["install", "sshpass"],
-            "通过 Homebrew 安装 sshpass 失败",
-        )?;
-    }
-
     #[cfg(target_os = "windows")]
     {
-        return Err("当前平台暂未内置一键安装 sshpass，请先手动安装。".to_string());
+        Err("当前平台暂未内置一键安装 sshpass，请先手动安装。".to_string())
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     {
-        if command_exists("apt-get") {
-            run_shell_install_command(
-                "sudo apt-get update && sudo apt-get install -y sshpass",
-                "通过 apt-get 安装 sshpass 失败",
+        #[cfg(target_os = "macos")]
+        {
+            ensure_command_available(
+                "brew",
+                "未检测到 Homebrew，请先安装 brew 后再自动安装 sshpass。",
             )?;
-        } else if command_exists("dnf") {
-            run_shell_install_command("sudo dnf install -y sshpass", "通过 dnf 安装 sshpass 失败")?;
-        } else if command_exists("yum") {
-            run_shell_install_command("sudo yum install -y sshpass", "通过 yum 安装 sshpass 失败")?;
-        } else if command_exists("pacman") {
-            run_shell_install_command(
-                "sudo pacman -Sy --noconfirm sshpass",
-                "通过 pacman 安装 sshpass 失败",
+            run_install_command(
+                "brew",
+                &["install", "sshpass"],
+                "通过 Homebrew 安装 sshpass 失败",
             )?;
-        } else {
-            return Err("当前平台暂未内置一键安装 sshpass，请先手动安装。".to_string());
         }
-    }
 
-    if !command_sshpass_available() {
-        return Err("自动安装 sshpass 后仍未检测到可执行文件。".to_string());
-    }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            if command_exists("apt-get") {
+                run_shell_install_command(
+                    "sudo apt-get update && sudo apt-get install -y sshpass",
+                    "通过 apt-get 安装 sshpass 失败",
+                )?;
+            } else if command_exists("dnf") {
+                run_shell_install_command(
+                    "sudo dnf install -y sshpass",
+                    "通过 dnf 安装 sshpass 失败",
+                )?;
+            } else if command_exists("yum") {
+                run_shell_install_command(
+                    "sudo yum install -y sshpass",
+                    "通过 yum 安装 sshpass 失败",
+                )?;
+            } else if command_exists("pacman") {
+                run_shell_install_command(
+                    "sudo pacman -Sy --noconfirm sshpass",
+                    "通过 pacman 安装 sshpass 失败",
+                )?;
+            } else {
+                return Err("当前平台暂未内置一键安装 sshpass，请先手动安装。".to_string());
+            }
+        }
 
-    Ok(())
+        if !command_sshpass_available() {
+            return Err("自动安装 sshpass 后仍未检测到可执行文件。".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 fn install_rust_toolchain_sync(app: &AppHandle, server: &RemoteServerConfig) -> Result<(), String> {
@@ -864,91 +971,94 @@ fn install_rust_toolchain_sync(app: &AppHandle, server: &RemoteServerConfig) -> 
         }
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        emit_remote_deploy_progress(
-            app,
-            server,
-            "preparingBuilder",
-            10,
-            Some("brew install rust".to_string()),
-        );
-        ensure_command_available(
-            "brew",
-            "未检测到 Homebrew，请先安装 brew 后再自动安装 Rust 工具链。",
-        )?;
-        run_install_command(
-            "brew",
-            &["install", "rust"],
-            "通过 Homebrew 安装 Rust 工具链失败",
-        )?;
-    }
-
     #[cfg(target_os = "windows")]
     {
-        return Err("当前平台暂未内置一键安装 Rust 工具链，请先手动安装。".to_string());
+        Err("当前平台暂未内置一键安装 Rust 工具链，请先手动安装。".to_string())
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     {
-        if command_exists("apt-get") {
+        #[cfg(target_os = "macos")]
+        {
             emit_remote_deploy_progress(
                 app,
                 server,
                 "preparingBuilder",
                 10,
-                Some("sudo apt-get update && sudo apt-get install -y cargo rustc".to_string()),
+                Some("brew install rust".to_string()),
             );
-            run_shell_install_command(
-                "sudo apt-get update && sudo apt-get install -y cargo rustc",
-                "通过 apt-get 安装 Rust 工具链失败",
+            ensure_command_available(
+                "brew",
+                "未检测到 Homebrew，请先安装 brew 后再自动安装 Rust 工具链。",
             )?;
-        } else if command_exists("dnf") {
-            emit_remote_deploy_progress(
-                app,
-                server,
-                "preparingBuilder",
-                10,
-                Some("sudo dnf install -y cargo rust rustup".to_string()),
-            );
-            run_shell_install_command(
-                "sudo dnf install -y cargo rust rustup",
-                "通过 dnf 安装 Rust 工具链失败",
+            run_install_command(
+                "brew",
+                &["install", "rust"],
+                "通过 Homebrew 安装 Rust 工具链失败",
             )?;
-        } else if command_exists("yum") {
-            emit_remote_deploy_progress(
-                app,
-                server,
-                "preparingBuilder",
-                10,
-                Some("sudo yum install -y cargo rust rustup".to_string()),
-            );
-            run_shell_install_command(
-                "sudo yum install -y cargo rust rustup",
-                "通过 yum 安装 Rust 工具链失败",
-            )?;
-        } else if command_exists("pacman") {
-            emit_remote_deploy_progress(
-                app,
-                server,
-                "preparingBuilder",
-                10,
-                Some("sudo pacman -Sy --noconfirm rustup cargo".to_string()),
-            );
-            run_shell_install_command(
-                "sudo pacman -Sy --noconfirm rustup cargo",
-                "通过 pacman 安装 Rust 工具链失败",
-            )?;
-        } else {
-            return Err("当前平台暂未内置一键安装 Rust 工具链，请先手动安装。".to_string());
         }
-    }
 
-    if !command_exists("cargo") {
-        return Err("自动安装 Rust 工具链后仍未检测到 cargo 命令。".to_string());
-    }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            if command_exists("apt-get") {
+                emit_remote_deploy_progress(
+                    app,
+                    server,
+                    "preparingBuilder",
+                    10,
+                    Some("sudo apt-get update && sudo apt-get install -y cargo rustc".to_string()),
+                );
+                run_shell_install_command(
+                    "sudo apt-get update && sudo apt-get install -y cargo rustc",
+                    "通过 apt-get 安装 Rust 工具链失败",
+                )?;
+            } else if command_exists("dnf") {
+                emit_remote_deploy_progress(
+                    app,
+                    server,
+                    "preparingBuilder",
+                    10,
+                    Some("sudo dnf install -y cargo rust rustup".to_string()),
+                );
+                run_shell_install_command(
+                    "sudo dnf install -y cargo rust rustup",
+                    "通过 dnf 安装 Rust 工具链失败",
+                )?;
+            } else if command_exists("yum") {
+                emit_remote_deploy_progress(
+                    app,
+                    server,
+                    "preparingBuilder",
+                    10,
+                    Some("sudo yum install -y cargo rust rustup".to_string()),
+                );
+                run_shell_install_command(
+                    "sudo yum install -y cargo rust rustup",
+                    "通过 yum 安装 Rust 工具链失败",
+                )?;
+            } else if command_exists("pacman") {
+                emit_remote_deploy_progress(
+                    app,
+                    server,
+                    "preparingBuilder",
+                    10,
+                    Some("sudo pacman -Sy --noconfirm rustup cargo".to_string()),
+                );
+                run_shell_install_command(
+                    "sudo pacman -Sy --noconfirm rustup cargo",
+                    "通过 pacman 安装 Rust 工具链失败",
+                )?;
+            } else {
+                return Err("当前平台暂未内置一键安装 Rust 工具链，请先手动安装。".to_string());
+            }
+        }
 
-    Ok(())
+        if !command_exists("cargo") {
+            return Err("自动安装 Rust 工具链后仍未检测到 cargo 命令。".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 fn ensure_linux_build_dependencies_available(
@@ -1477,7 +1587,8 @@ struct RemotePlatform {
 }
 
 struct PreparedAuth {
-    temp_identity_file: Option<PathBuf>,
+    identity_file: Option<PathBuf>,
+    cleanup_identity_file: Option<PathBuf>,
     password: Option<String>,
 }
 
@@ -1497,34 +1608,33 @@ impl PreparedAuth {
                 fs::write(&temp_path, private_key).map_err(|error| {
                     format!("写入临时 SSH 私钥文件失败 {}: {error}", temp_path.display())
                 })?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mut perms = fs::metadata(&temp_path)
-                        .map_err(|error| format!("读取临时 SSH 私钥文件权限失败: {error}"))?
-                        .permissions();
-                    perms.set_mode(0o600);
-                    fs::set_permissions(&temp_path, perms)
-                        .map_err(|error| format!("设置临时 SSH 私钥文件权限失败: {error}"))?;
-                }
+                try_set_private_permissions(&temp_path).map_err(|error| {
+                    format!(
+                        "设置临时 SSH 私钥文件权限失败 {}: {error}",
+                        temp_path.display()
+                    )
+                })?;
                 Ok(Self {
-                    temp_identity_file: Some(temp_path),
+                    identity_file: Some(temp_path.clone()),
+                    cleanup_identity_file: Some(temp_path),
                     password: None,
                 })
             }
             RemoteAuthMode::KeyFile | RemoteAuthMode::KeyPath => Ok(Self {
-                temp_identity_file: server.identity_file.as_ref().map(PathBuf::from),
+                identity_file: server.identity_file.as_ref().map(PathBuf::from),
+                cleanup_identity_file: None,
                 password: None,
             }),
             RemoteAuthMode::Password => Ok(Self {
-                temp_identity_file: None,
+                identity_file: None,
+                cleanup_identity_file: None,
                 password: server.password.clone(),
             }),
         }
     }
 
     fn identity_file_path(&self) -> Option<&Path> {
-        self.temp_identity_file.as_deref()
+        self.identity_file.as_deref()
     }
 
     fn new_command(&self, program: &str) -> Command {
@@ -1545,7 +1655,7 @@ impl PreparedAuth {
 
 impl Drop for PreparedAuth {
     fn drop(&mut self) {
-        if let Some(path) = self.temp_identity_file.as_ref() {
+        if let Some(path) = self.cleanup_identity_file.as_ref() {
             let _ = fs::remove_file(path);
         }
     }

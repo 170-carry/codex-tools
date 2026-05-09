@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use crate::models::EditorAppId;
 use crate::models::InstalledEditorApp;
+#[cfg(target_os = "windows")]
+use crate::utils::new_background_command;
 
 const RESTART_SETTLE_MS: u64 = 220;
 
@@ -78,7 +80,7 @@ pub(crate) fn restart_selected_editor_apps(
     targets: &[EditorAppId],
 ) -> (Vec<EditorAppId>, Option<String>) {
     if targets.is_empty() {
-        return (Vec::new(), Some("未选择重启目标编辑器".to_string()));
+        return (Vec::new(), None);
     }
 
     let mut restarted = Vec::new();
@@ -154,7 +156,7 @@ fn force_kill_processes(process_names: &[&str]) {
             } else {
                 format!("{name}.exe")
             };
-            let _ = Command::new("taskkill")
+            let _ = new_background_command("taskkill")
                 .args(["/F", "/IM", &image_name, "/T"])
                 .status();
         }

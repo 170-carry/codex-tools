@@ -12,6 +12,18 @@ fn default_api_proxy_port() -> u16 {
     8787
 }
 
+pub(crate) fn default_api_proxy_sequential_five_hour_limit_percent() -> f64 {
+    80.0
+}
+
+pub(crate) fn normalize_api_proxy_sequential_five_hour_limit_percent(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(0.0, 100.0)
+    } else {
+        default_api_proxy_sequential_five_hour_limit_percent()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AccountsStore {
     #[serde(default = "default_store_version")]
@@ -23,7 +35,7 @@ pub(crate) struct AccountsStore {
 }
 
 fn default_store_version() -> u8 {
-    1
+    2
 }
 
 impl Default for AccountsStore {
@@ -38,19 +50,60 @@ impl Default for AccountsStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) enum AccountSourceKind {
+    Chatgpt,
+    Relay,
+}
+
+impl Default for AccountSourceKind {
+    fn default() -> Self {
+        Self::Chatgpt
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct StoredAccount {
     pub(crate) id: String,
     pub(crate) label: String,
+    #[serde(default)]
+    pub(crate) source_kind: AccountSourceKind,
     #[serde(default)]
     pub(crate) principal_id: Option<String>,
     pub(crate) email: Option<String>,
     pub(crate) account_id: String,
     pub(crate) plan_type: Option<String>,
     pub(crate) auth_json: Value,
+    #[serde(default)]
+    pub(crate) api_base_url: Option<String>,
+    #[serde(default)]
+    pub(crate) api_key: Option<String>,
+    #[serde(default)]
+    pub(crate) model_name: Option<String>,
+    #[serde(default)]
+    pub(crate) balance_text: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_auth_path: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_config_path: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_auth_ready: bool,
+    #[serde(default)]
+    pub(crate) profile_config_ready: bool,
+    #[serde(default)]
+    pub(crate) profile_integrity_error: Option<String>,
+    #[serde(default)]
+    pub(crate) profile_last_validated_at: Option<i64>,
+    #[serde(default)]
+    pub(crate) profile_last_validation_error: Option<String>,
     pub(crate) added_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) usage: Option<UsageSnapshot>,
     pub(crate) usage_error: Option<String>,
+    #[serde(default)]
+    pub(crate) auth_refresh_blocked: bool,
+    #[serde(default)]
+    pub(crate) auth_refresh_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,14 +111,25 @@ pub(crate) struct StoredAccount {
 pub(crate) struct AccountSummary {
     pub(crate) id: String,
     pub(crate) label: String,
+    pub(crate) source_kind: AccountSourceKind,
     pub(crate) email: Option<String>,
     pub(crate) account_key: String,
     pub(crate) account_id: String,
     pub(crate) plan_type: Option<String>,
+    pub(crate) api_base_url: Option<String>,
+    pub(crate) model_name: Option<String>,
+    pub(crate) balance_text: Option<String>,
+    pub(crate) profile_auth_ready: bool,
+    pub(crate) profile_config_ready: bool,
+    pub(crate) profile_integrity_error: Option<String>,
+    pub(crate) profile_last_validated_at: Option<i64>,
+    pub(crate) profile_last_validation_error: Option<String>,
     pub(crate) added_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) usage: Option<UsageSnapshot>,
     pub(crate) usage_error: Option<String>,
+    pub(crate) auth_refresh_blocked: bool,
+    pub(crate) auth_refresh_error: Option<String>,
     pub(crate) is_current: bool,
 }
 
@@ -133,6 +197,17 @@ pub(crate) struct AuthJsonImportInput {
     pub(crate) label: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateApiAccountInput {
+    pub(crate) label: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) model_name: String,
+    #[serde(default)]
+    pub(crate) force_save: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportAccountFailure {
@@ -168,6 +243,40 @@ pub(crate) struct ApiProxyStatus {
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_account_label: Option<String>,
     pub(crate) last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiProxyUsagePoint {
+    pub(crate) timestamp: i64,
+    pub(crate) calls: i64,
+    pub(crate) tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiProxyUsageSeries {
+    pub(crate) model: String,
+    pub(crate) total_calls: i64,
+    pub(crate) total_tokens: i64,
+    pub(crate) points: Vec<ApiProxyUsagePoint>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiProxyUsageStats {
+    pub(crate) updated_at: i64,
+    pub(crate) range_seconds: i64,
+    pub(crate) bucket_seconds: i64,
+    pub(crate) series: Vec<ApiProxyUsageSeries>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ApiProxyLoadBalanceMode {
+    #[default]
+    Average,
+    Sequential,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,7 +421,11 @@ pub(crate) struct AppSettings {
     pub(crate) launch_at_startup: bool,
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
     pub(crate) launch_codex_after_switch: bool,
+    #[serde(default)]
+    pub(crate) smart_switch_include_api: bool,
     pub(crate) codex_launch_path: Option<String>,
+    #[serde(default)]
+    pub(crate) active_account_id: Option<String>,
     pub(crate) sync_opencode_openai_auth: bool,
     pub(crate) restart_opencode_desktop_on_switch: bool,
     pub(crate) restart_editors_on_switch: bool,
@@ -320,12 +433,19 @@ pub(crate) struct AppSettings {
     pub(crate) auto_start_api_proxy: bool,
     #[serde(default = "default_api_proxy_port")]
     pub(crate) api_proxy_port: u16,
+    #[serde(default)]
+    pub(crate) api_proxy_load_balance_mode: ApiProxyLoadBalanceMode,
+    #[serde(default = "default_api_proxy_sequential_five_hour_limit_percent")]
+    pub(crate) api_proxy_sequential_five_hour_limit_percent: f64,
+    #[serde(default)]
+    pub(crate) api_proxy_sequential_account_key: Option<String>,
     pub(crate) remote_servers: Vec<RemoteServerConfig>,
     pub(crate) api_proxy_api_key: Option<String>,
     pub(crate) locale: AppLocale,
     /// Unix seconds; updated whenever the daemon successfully refreshes a token.
     #[serde(default)]
     pub(crate) last_token_refresh_at: Option<i64>,
+    pub(crate) skipped_update_version: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -334,17 +454,24 @@ impl Default for AppSettings {
             launch_at_startup: false,
             tray_usage_display_mode: TrayUsageDisplayMode::Remaining,
             launch_codex_after_switch: true,
+            smart_switch_include_api: false,
             codex_launch_path: None,
+            active_account_id: None,
             sync_opencode_openai_auth: false,
             restart_opencode_desktop_on_switch: false,
             restart_editors_on_switch: false,
             restart_editor_targets: Vec::new(),
             auto_start_api_proxy: false,
             api_proxy_port: default_api_proxy_port(),
+            api_proxy_load_balance_mode: ApiProxyLoadBalanceMode::default(),
+            api_proxy_sequential_five_hour_limit_percent:
+                default_api_proxy_sequential_five_hour_limit_percent(),
+            api_proxy_sequential_account_key: None,
             remote_servers: Vec::new(),
             api_proxy_api_key: None,
             locale: AppLocale::default(),
             last_token_refresh_at: None,
+            skipped_update_version: None,
         }
     }
 }
@@ -355,6 +482,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) launch_codex_after_switch: Option<bool>,
+    pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) codex_launch_path: Option<Option<String>>,
     pub(crate) sync_opencode_openai_auth: Option<bool>,
     pub(crate) restart_opencode_desktop_on_switch: Option<bool>,
@@ -362,12 +490,19 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) restart_editor_targets: Option<Vec<EditorAppId>>,
     pub(crate) auto_start_api_proxy: Option<bool>,
     pub(crate) api_proxy_port: Option<u16>,
+    pub(crate) api_proxy_load_balance_mode: Option<ApiProxyLoadBalanceMode>,
+    pub(crate) api_proxy_sequential_five_hour_limit_percent: Option<f64>,
     pub(crate) remote_servers: Option<Vec<RemoteServerConfig>>,
     pub(crate) locale: Option<AppLocale>,
+    pub(crate) skipped_update_version: Option<Option<String>>,
 }
 
 impl StoredAccount {
     pub(crate) fn principal_key(&self) -> String {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return format!("relay:{}", self.id);
+        }
+
         normalized_identity_key(self.principal_id.as_deref())
             .or_else(|| {
                 extract_auth(&self.auth_json)
@@ -379,22 +514,37 @@ impl StoredAccount {
     }
 
     pub(crate) fn account_key(&self) -> String {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return crate::profile_files::relay_account_key(&self.id);
+        }
+
         account_group_key(&self.principal_key(), &self.account_id)
     }
 
     pub(crate) fn resolved_plan_type(&self) -> Option<String> {
-        self.usage
-            .as_ref()
-            .and_then(|usage| usage.plan_type.clone())
-            .or(self.plan_type.clone())
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return self.plan_type.clone();
+        }
+
+        self.plan_type
+            .clone()
             .or_else(|| {
                 extract_auth(&self.auth_json)
                     .ok()
                     .and_then(|auth| auth.plan_type)
             })
+            .or_else(|| {
+                self.usage
+                    .as_ref()
+                    .and_then(|usage| usage.plan_type.clone())
+            })
     }
 
     pub(crate) fn variant_key(&self) -> String {
+        if matches!(self.source_kind, AccountSourceKind::Relay) {
+            return self.account_key();
+        }
+
         account_variant_key(
             &self.principal_key(),
             &self.account_id,
@@ -419,14 +569,25 @@ impl StoredAccount {
         AccountSummary {
             id: self.id.clone(),
             label: self.label.clone(),
+            source_kind: self.source_kind.clone(),
             email: self.email.clone(),
             account_key,
             account_id: self.account_id.clone(),
             plan_type: self.plan_type.clone(),
+            api_base_url: self.api_base_url.clone(),
+            model_name: self.model_name.clone(),
+            balance_text: self.balance_text.clone(),
+            profile_auth_ready: self.profile_auth_ready,
+            profile_config_ready: self.profile_config_ready,
+            profile_integrity_error: self.profile_integrity_error.clone(),
+            profile_last_validated_at: self.profile_last_validated_at,
+            profile_last_validation_error: self.profile_last_validation_error.clone(),
             added_at: self.added_at,
             updated_at: self.updated_at,
             usage: self.usage.clone(),
             usage_error: self.usage_error.clone(),
+            auth_refresh_blocked: self.auth_refresh_blocked,
+            auth_refresh_error: self.auth_refresh_error.clone(),
             is_current,
         }
     }
@@ -495,16 +656,53 @@ fn merge_duplicate_account_variant(left: StoredAccount, right: StoredAccount) ->
     if preferred.usage_error.is_none() {
         preferred.usage_error = alternate.usage_error.clone();
     }
+    if !preferred.auth_refresh_blocked && alternate.auth_refresh_blocked {
+        preferred.auth_refresh_blocked = true;
+    }
+    if preferred.auth_refresh_error.is_none() {
+        preferred.auth_refresh_error = alternate.auth_refresh_error.clone();
+    }
     if preferred.auth_json.is_null() && !alternate.auth_json.is_null() {
         preferred.auth_json = alternate.auth_json.clone();
+    }
+    if preferred.api_base_url.is_none() {
+        preferred.api_base_url = alternate.api_base_url.clone();
+    }
+    if preferred.api_key.is_none() {
+        preferred.api_key = alternate.api_key.clone();
+    }
+    if preferred.model_name.is_none() {
+        preferred.model_name = alternate.model_name.clone();
+    }
+    if preferred.balance_text.is_none() {
+        preferred.balance_text = alternate.balance_text.clone();
+    }
+    if preferred.profile_auth_path.is_none() {
+        preferred.profile_auth_path = alternate.profile_auth_path.clone();
+    }
+    if preferred.profile_config_path.is_none() {
+        preferred.profile_config_path = alternate.profile_config_path.clone();
+    }
+    preferred.profile_auth_ready = preferred.profile_auth_ready || alternate.profile_auth_ready;
+    preferred.profile_config_ready =
+        preferred.profile_config_ready || alternate.profile_config_ready;
+    if preferred.profile_integrity_error.is_none() {
+        preferred.profile_integrity_error = alternate.profile_integrity_error.clone();
+    }
+    if preferred.profile_last_validated_at.is_none() {
+        preferred.profile_last_validated_at = alternate.profile_last_validated_at;
+    }
+    if preferred.profile_last_validation_error.is_none() {
+        preferred.profile_last_validation_error = alternate.profile_last_validation_error.clone();
     }
 
     preferred
 }
 
-fn duplicate_account_merge_score(account: &StoredAccount) -> (u8, u8, u8, i64, i64) {
+fn duplicate_account_merge_score(account: &StoredAccount) -> (u8, u8, u8, u8, i64, i64) {
     (
         u8::from(account.usage.is_some() && account.usage_error.is_none()),
+        u8::from(!account.auth_refresh_blocked),
         u8::from(account.resolved_plan_type().is_some()),
         u8::from(
             account
@@ -525,6 +723,8 @@ mod tests {
     use super::StoredAccount;
     use super::UsageSnapshot;
     use super::UsageWindow;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
     use serde_json::json;
 
     fn usage_snapshot(plan_type: &str) -> UsageSnapshot {
@@ -545,6 +745,13 @@ mod tests {
         }
     }
 
+    fn jwt_with_plan(plan_type: &str) -> String {
+        let payload = URL_SAFE_NO_PAD.encode(format!(
+            r#"{{"email":"shared@example.com","https://api.openai.com/auth":{{"chatgpt_account_id":"account-1","chatgpt_plan_type":"{plan_type}"}}}}"#
+        ));
+        format!("header.{payload}.signature")
+    }
+
     fn stored_account(
         id: &str,
         label: &str,
@@ -556,15 +763,29 @@ mod tests {
         StoredAccount {
             id: id.to_string(),
             label: label.to_string(),
+            source_kind: Default::default(),
             principal_id: Some("shared@example.com".to_string()),
             email: Some("shared@example.com".to_string()),
             account_id: account_id.to_string(),
             plan_type: plan_type.map(ToString::to_string),
             auth_json: json!({ "id": id }),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
             added_at: updated_at - 1,
             updated_at,
             usage: usage_plan_type.map(usage_snapshot),
             usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
         }
     }
 
@@ -614,33 +835,134 @@ mod tests {
     }
 
     #[test]
+    fn resolved_plan_type_prefers_stored_plan_type_over_usage_plan_type() {
+        let account = StoredAccount {
+            id: "mixed".to_string(),
+            label: "mixed".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("shared@example.com".to_string()),
+            email: Some("shared@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: Some("team".to_string()),
+            auth_json: json!({ "kind": "mixed" }),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 1,
+            usage: Some(usage_snapshot("plus")),
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+        };
+
+        assert_eq!(account.resolved_plan_type().as_deref(), Some("team"));
+        assert_eq!(account.variant_key(), "shared@example.com|account-1|team");
+    }
+
+    #[test]
+    fn resolved_plan_type_falls_back_to_auth_claim_before_usage() {
+        let account = StoredAccount {
+            id: "auth".to_string(),
+            label: "auth".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("shared@example.com".to_string()),
+            email: Some("shared@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: None,
+            auth_json: json!({
+                "auth_mode": "chatgpt",
+                "tokens": {
+                    "access_token": "token",
+                    "id_token": jwt_with_plan("team")
+                }
+            }),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 1,
+            usage: Some(usage_snapshot("plus")),
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+        };
+
+        assert_eq!(account.resolved_plan_type().as_deref(), Some("team"));
+    }
+
+    #[test]
     fn persisted_principal_id_keeps_same_workspace_different_users_separate() {
         let mut accounts = vec![
             StoredAccount {
                 id: "first".to_string(),
                 label: "first".to_string(),
+                source_kind: Default::default(),
                 principal_id: Some("first@example.com".to_string()),
                 email: None,
                 account_id: "workspace-1".to_string(),
                 plan_type: Some("team".to_string()),
                 auth_json: json!({ "kind": "legacy" }),
+                api_base_url: None,
+                api_key: None,
+                model_name: None,
+                balance_text: None,
+                profile_auth_path: None,
+                profile_config_path: None,
+                profile_auth_ready: false,
+                profile_config_ready: false,
+                profile_integrity_error: None,
+                profile_last_validated_at: None,
+                profile_last_validation_error: None,
                 added_at: 1,
                 updated_at: 1,
                 usage: None,
                 usage_error: None,
+                auth_refresh_blocked: false,
+                auth_refresh_error: None,
             },
             StoredAccount {
                 id: "second".to_string(),
                 label: "second".to_string(),
+                source_kind: Default::default(),
                 principal_id: Some("second@example.com".to_string()),
                 email: None,
                 account_id: "workspace-1".to_string(),
                 plan_type: Some("team".to_string()),
                 auth_json: json!({ "kind": "legacy" }),
+                api_base_url: None,
+                api_key: None,
+                model_name: None,
+                balance_text: None,
+                profile_auth_path: None,
+                profile_config_path: None,
+                profile_auth_ready: false,
+                profile_config_ready: false,
+                profile_integrity_error: None,
+                profile_last_validated_at: None,
+                profile_last_validation_error: None,
                 added_at: 2,
                 updated_at: 2,
                 usage: None,
                 usage_error: None,
+                auth_refresh_blocked: false,
+                auth_refresh_error: None,
             },
         ];
 
