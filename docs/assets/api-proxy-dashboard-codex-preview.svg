@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" role="img" aria-label="API Proxy dashboard Codex preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="1" stop-color="#eef3f9"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#18324c" flood-opacity="0.10"/>
+    </filter>
+    <style>
+      .card{fill:#ffffff;stroke:#dbe5ef;stroke-width:1;filter:url(#shadow)}
+      .soft{fill:#f8fafc;stroke:#e2eaf2;stroke-width:1}
+      .title{font:700 30px 'Segoe UI',Arial,sans-serif;fill:#102235}
+      .sub{font:500 16px 'Segoe UI',Arial,sans-serif;fill:#66788a}
+      .label{font:600 15px 'Segoe UI',Arial,sans-serif;fill:#53677a}
+      .value{font:800 30px 'Segoe UI',Arial,sans-serif;fill:#13283b}
+      .small{font:500 13px 'Segoe UI',Arial,sans-serif;fill:#7c8c9b}
+      .green{fill:#1fa971}.blue{fill:#377dff}.red{fill:#ef5b62}.amber{fill:#f4a62a}.ink{fill:#23364a}
+      .axis{stroke:#d6e0ea;stroke-width:1}.line{fill:none;stroke:#377dff;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+      .bar{fill:#cfe0ff}.fail{fill:#ffd4d6}.pill{fill:#eef7f3;stroke:#cce8dc;stroke-width:1}
+    </style>
+  </defs>
+  <rect width="1440" height="960" rx="0" fill="url(#bg)"/>
+
+  <rect x="44" y="36" width="1352" height="96" rx="24" class="card"/>
+  <text x="78" y="92" class="title">API Proxy 运行仪表盘</text>
+  <rect x="1128" y="62" width="222" height="42" rx="21" class="pill"/>
+  <circle cx="1153" cy="83" r="7" class="green"/>
+  <text x="1170" y="88" class="label">本地代理运行中 · 8787</text>
+  <text x="78" y="116" class="sub">Codex-authored dashboard preview · 请求、失败、延迟、token 与账号诊断集中展示</text>
+
+  <g transform="translate(44 160)">
+    <rect width="318" height="128" rx="22" class="card"/>
+    <text x="24" y="38" class="label">最近 10 分钟请求</text>
+    <text x="24" y="86" class="value">1,284</text>
+    <text x="220" y="88" class="small green">+18%</text>
+  </g>
+  <g transform="translate(386 160)">
+    <rect width="318" height="128" rx="22" class="card"/>
+    <text x="24" y="38" class="label">失败率</text>
+    <text x="24" y="86" class="value">0.8%</text>
+    <text x="220" y="88" class="small red">12 failures</text>
+  </g>
+  <g transform="translate(728 160)">
+    <rect width="318" height="128" rx="22" class="card"/>
+    <text x="24" y="38" class="label">P95 延迟</text>
+    <text x="24" y="86" class="value">1.42s</text>
+    <text x="220" y="88" class="small blue">max 3.8s</text>
+  </g>
+  <g transform="translate(1070 160)">
+    <rect width="326" height="128" rx="22" class="card"/>
+    <text x="24" y="38" class="label">In-flight</text>
+    <text x="24" y="86" class="value">6</text>
+    <text x="220" y="88" class="small amber">streaming</text>
+  </g>
+
+  <rect x="44" y="318" width="900" height="330" rx="24" class="card"/>
+  <text x="78" y="368" class="title" style="font-size:22px">请求趋势</text>
+  <text x="78" y="392" class="sub">请求量柱状 · 失败量叠加 · P95 latency 折线</text>
+  <g transform="translate(92 430)">
+    <line x1="0" y1="180" x2="790" y2="180" class="axis"/>
+    <line x1="0" y1="120" x2="790" y2="120" class="axis"/>
+    <line x1="0" y1="60" x2="790" y2="60" class="axis"/>
+    <g>
+      <rect x="22" y="92" width="34" height="88" rx="7" class="bar"/><rect x="22" y="154" width="34" height="26" rx="7" class="fail"/>
+      <rect x="88" y="74" width="34" height="106" rx="7" class="bar"/><rect x="88" y="164" width="34" height="16" rx="7" class="fail"/>
+      <rect x="154" y="46" width="34" height="134" rx="7" class="bar"/><rect x="154" y="150" width="34" height="30" rx="7" class="fail"/>
+      <rect x="220" y="64" width="34" height="116" rx="7" class="bar"/><rect x="220" y="168" width="34" height="12" rx="7" class="fail"/>
+      <rect x="286" y="34" width="34" height="146" rx="7" class="bar"/><rect x="286" y="158" width="34" height="22" rx="7" class="fail"/>
+      <rect x="352" y="78" width="34" height="102" rx="7" class="bar"/><rect x="352" y="166" width="34" height="14" rx="7" class="fail"/>
+      <rect x="418" y="52" width="34" height="128" rx="7" class="bar"/><rect x="418" y="152" width="34" height="28" rx="7" class="fail"/>
+      <rect x="484" y="28" width="34" height="152" rx="7" class="bar"/><rect x="484" y="160" width="34" height="20" rx="7" class="fail"/>
+      <rect x="550" y="70" width="34" height="110" rx="7" class="bar"/><rect x="550" y="168" width="34" height="12" rx="7" class="fail"/>
+      <rect x="616" y="44" width="34" height="136" rx="7" class="bar"/><rect x="616" y="146" width="34" height="34" rx="7" class="fail"/>
+      <rect x="682" y="84" width="34" height="96" rx="7" class="bar"/><rect x="682" y="164" width="34" height="16" rx="7" class="fail"/>
+    </g>
+    <path d="M39 112 C 110 82, 155 96, 237 72 S 372 104, 435 76 S 562 52, 633 82 S 700 106, 733 88" class="line"/>
+    <text x="0" y="220" class="small">10:00</text><text x="360" y="220" class="small">10:30</text><text x="730" y="220" class="small">11:00</text>
+  </g>
+
+  <rect x="974" y="318" width="422" height="330" rx="24" class="card"/>
+  <text x="1008" y="368" class="title" style="font-size:22px">诊断排行</text>
+  <g transform="translate(1008 406)">
+    <text x="0" y="0" class="label">Top models</text>
+    <rect x="0" y="20" width="310" height="12" rx="6" class="soft"/><rect x="0" y="20" width="252" height="12" rx="6" class="blue"/><text x="326" y="31" class="small">gpt-5.5</text>
+    <rect x="0" y="54" width="310" height="12" rx="6" class="soft"/><rect x="0" y="54" width="176" height="12" rx="6" class="green"/><text x="326" y="65" class="small">gpt-5</text>
+    <text x="0" y="110" class="label">Top endpoints</text>
+    <rect x="0" y="130" width="310" height="12" rx="6" class="soft"/><rect x="0" y="130" width="278" height="12" rx="6" class="blue"/><text x="326" y="141" class="small">responses</text>
+    <rect x="0" y="164" width="310" height="12" rx="6" class="soft"/><rect x="0" y="164" width="146" height="12" rx="6" class="amber"/><text x="326" y="175" class="small">images</text>
+  </g>
+
+  <rect x="44" y="678" width="640" height="224" rx="24" class="card"/>
+  <text x="78" y="728" class="title" style="font-size:22px">最近请求</text>
+  <g class="small">
+    <text x="80" y="770">11:02:13 · /v1/responses · gpt-5.5 · 200 · 1.1s</text>
+    <text x="80" y="810">11:02:08 · /v1/images/generations · gpt-image-2 · 200 · 8.4s</text>
+    <text x="80" y="850">11:01:55 · /v1/chat/completions · gpt-5 · 200 · 0.9s</text>
+  </g>
+
+  <rect x="716" y="678" width="680" height="224" rx="24" class="card"/>
+  <text x="750" y="728" class="title" style="font-size:22px">最近失败 / In-flight</text>
+  <g class="small">
+    <text x="752" y="770">10:59:21 · 429 · rate_limited · 已切换候选账号</text>
+    <text x="752" y="810">10:57:04 · client_disconnected_after_first_chunk · 不计为上游失败</text>
+    <text x="752" y="850">进行中 · streaming · account-03 · response.output_text.delta</text>
+  </g>
+</svg>
