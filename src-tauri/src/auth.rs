@@ -33,6 +33,7 @@ const DEFAULT_OAUTH_REDIRECT_PORT: u16 = 1455;
 const DEFAULT_OAUTH_TIMEOUT_SECS: i64 = 900;
 const OAUTH_TOKEN_EXCHANGE_MAX_ATTEMPTS: usize = 3;
 const OAUTH_TOKEN_EXCHANGE_RETRY_DELAY_MS: u64 = 500;
+const TOKEN_REFRESH_TIMEOUT_SECS: u64 = 18;
 const NON_CHATGPT_AUTH_MODE_ERROR: &str =
     "当前账号不是 ChatGPT 登录模式，无法读取 Codex 5h/1week 用量。请先执行 codex login。";
 const MISSING_CHATGPT_TOKEN_ERROR: &str = "当前 auth.json 未包含 ChatGPT 登录令牌。若该文件来自新版 Codex（尤其是 macOS），令牌可能保存在系统钥匙串/安全存储中，因此不能仅靠这个 auth.json 跨机导入。请在目标设备执行 codex login，或提供包含 access_token / id_token / refresh_token 的完整 auth.json。";
@@ -504,6 +505,7 @@ pub(crate) async fn refresh_chatgpt_auth_tokens(auth_json: &Value) -> Result<Val
 
     let client = reqwest::Client::builder()
         .user_agent("codex-tools/0.1")
+        .timeout(Duration::from_secs(TOKEN_REFRESH_TIMEOUT_SECS))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 

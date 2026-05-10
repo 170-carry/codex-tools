@@ -219,7 +219,7 @@ export type ApiProxyDashboardSnapshot = {
   last1h: DashboardWindowStats;
   last24h: DashboardWindowStats;
   inFlight: DashboardInFlightRequest[];
-  recentSlowRequests: DashboardMetricEvent[];
+  recentRequests: DashboardMetricEvent[];
   recentFailures: DashboardMetricEvent[];
 };
 

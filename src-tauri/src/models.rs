@@ -453,6 +453,8 @@ pub(crate) struct AppSettings {
     pub(crate) codex_launch_path: Option<String>,
     #[serde(default)]
     pub(crate) active_account_id: Option<String>,
+    #[serde(default)]
+    pub(crate) deleted_account_variant_keys: Vec<String>,
     pub(crate) sync_opencode_openai_auth: bool,
     pub(crate) restart_opencode_desktop_on_switch: bool,
     pub(crate) restart_editors_on_switch: bool,
@@ -485,6 +487,7 @@ impl Default for AppSettings {
             smart_switch_include_api: false,
             codex_launch_path: None,
             active_account_id: None,
+            deleted_account_variant_keys: Vec::new(),
             sync_opencode_openai_auth: false,
             restart_opencode_desktop_on_switch: false,
             restart_editors_on_switch: false,

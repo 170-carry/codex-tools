@@ -25,6 +25,7 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
+#[cfg(any(target_os = "macos", all(unix, not(target_os = "macos"))))]
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -61,6 +62,8 @@ use state::AppState;
 use state::OauthCallbackListenerHandle;
 #[cfg(target_os = "windows")]
 use utils::new_background_command;
+#[cfg(target_os = "windows")]
+use utils::silence_command_output;
 
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
 const AUTH_KEEPALIVE_INTERVAL_SECS: u64 = 300;
@@ -1372,9 +1375,10 @@ fn force_stop_running_codex() {
 
     #[cfg(target_os = "windows")]
     {
-        let _ = new_background_command("taskkill")
-            .args(["/F", "/IM", "Codex.exe", "/T"])
-            .status();
+        let mut command = new_background_command("taskkill");
+        command.args(["/F", "/IM", "Codex.exe", "/T"]);
+        silence_command_output(&mut command);
+        let _ = command.status();
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -1446,6 +1450,7 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
 fn start_auth_keepalive_loop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
+            tokio::time::sleep(Duration::from_secs(AUTH_KEEPALIVE_INTERVAL_SECS)).await;
             let state = app.state::<AppState>();
             match account_service::refresh_all_usage_internal(&app, state.inner(), true).await {
                 Ok(summaries) => {
@@ -1455,7 +1460,6 @@ fn start_auth_keepalive_loop(app: AppHandle) {
                     log::warn!("后台账号保活失败: {error}");
                 }
             }
-            tokio::time::sleep(Duration::from_secs(AUTH_KEEPALIVE_INTERVAL_SECS)).await;
         }
     });
 }

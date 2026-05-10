@@ -69,7 +69,7 @@ pub(crate) struct DashboardSnapshot {
     pub(crate) last_1h: DashboardWindowStats,
     pub(crate) last_24h: DashboardWindowStats,
     pub(crate) in_flight: Vec<DashboardInFlightRequest>,
-    pub(crate) recent_slow_requests: Vec<DashboardMetricEvent>,
+    pub(crate) recent_requests: Vec<DashboardMetricEvent>,
     pub(crate) recent_failures: Vec<DashboardMetricEvent>,
 }
 
@@ -275,7 +275,7 @@ pub(crate) fn build_dashboard_snapshot(
         last_1h: window_stats(&events, now, WINDOW_1H_SECONDS),
         last_24h: window_stats(&events, now, WINDOW_24H_SECONDS),
         in_flight,
-        recent_slow_requests: recent_slow_requests(&events),
+        recent_requests: recent_requests(&events),
         recent_failures: recent_failures(&events),
     }
 }
@@ -430,14 +430,8 @@ fn dimension_stats<'a>(
     stats
 }
 
-fn recent_slow_requests(events: &[DashboardMetricEvent]) -> Vec<DashboardMetricEvent> {
-    events
-        .iter()
-        .rev()
-        .filter(|event| event.first_chunk_ms.unwrap_or(0) > 5_000 || event.total_ms > 20_000)
-        .take(20)
-        .cloned()
-        .collect()
+fn recent_requests(events: &[DashboardMetricEvent]) -> Vec<DashboardMetricEvent> {
+    events.iter().rev().take(20).cloned().collect()
 }
 
 fn recent_failures(events: &[DashboardMetricEvent]) -> Vec<DashboardMetricEvent> {
@@ -495,6 +489,16 @@ fn timeline_buckets(
 }
 
 fn is_failure(event: &DashboardMetricEvent) -> bool {
+    match event.error_kind.as_deref() {
+        Some("client_disconnected_after_first_chunk") => return false,
+        Some("client_disconnected")
+            if event.upstream_headers_ms.is_some() && event.first_chunk_ms.is_some() =>
+        {
+            return false;
+        }
+        _ => {}
+    }
+
     event
         .status_code
         .map(|status| status >= 400)
@@ -623,5 +627,118 @@ mod tests {
                 .sum::<usize>(),
             2
         );
+    }
+
+    #[test]
+    fn finishing_in_flight_request_removes_it_from_snapshot() {
+        let id = begin_in_flight_request("/v1/responses", Some("gpt-5.4".to_string()));
+        update_in_flight_phase(&id, "first_upstream_chunk");
+
+        let snapshot_before = build_dashboard_snapshot(
+            PathBuf::from(r"C:\portable\Codex Tools Data"),
+            Vec::new(),
+            current_in_flight_requests(),
+            1_000,
+        );
+        assert_eq!(snapshot_before.in_flight.len(), 1);
+        assert_eq!(snapshot_before.in_flight[0].elapsed_ms, 0);
+
+        finish_in_flight_request(&id);
+
+        let snapshot_after = build_dashboard_snapshot(
+            PathBuf::from(r"C:\portable\Codex Tools Data"),
+            Vec::new(),
+            current_in_flight_requests(),
+            1_000,
+        );
+        assert!(snapshot_after.in_flight.is_empty());
+    }
+
+    #[test]
+    fn dashboard_keeps_latest_requests_without_slow_filter() {
+        let now = 2_000;
+        let events = vec![
+            DashboardMetricEvent {
+                finished_at: 1_990,
+                endpoint: "/v1/models".to_string(),
+                model: None,
+                account_label: None,
+                status_code: Some(200),
+                error_kind: None,
+                total_ms: 10,
+                upstream_headers_ms: Some(5),
+                first_chunk_ms: None,
+                stream_ms: None,
+                tokens: DashboardTokenUsage::default(),
+            },
+            DashboardMetricEvent {
+                finished_at: 1_995,
+                endpoint: "/v1/responses".to_string(),
+                model: Some("gpt-5.5".to_string()),
+                account_label: Some("acct-a".to_string()),
+                status_code: Some(200),
+                error_kind: None,
+                total_ms: 20,
+                upstream_headers_ms: Some(10),
+                first_chunk_ms: Some(12),
+                stream_ms: None,
+                tokens: DashboardTokenUsage::default(),
+            },
+        ];
+
+        let dashboard = build_dashboard_snapshot(
+            PathBuf::from(r"C:\portable\Codex Tools Data"),
+            events,
+            Vec::new(),
+            now,
+        );
+
+        assert_eq!(dashboard.recent_requests.len(), 2);
+        assert_eq!(dashboard.recent_requests[0].finished_at, 1_995);
+        assert_eq!(dashboard.recent_requests[1].finished_at, 1_990);
+    }
+
+    #[test]
+    fn streamed_client_disconnect_is_not_counted_as_failure() {
+        let now = 3_000;
+        let events = vec![
+            DashboardMetricEvent {
+                finished_at: 2_990,
+                endpoint: "/v1/responses".to_string(),
+                model: Some("gpt-5.5".to_string()),
+                account_label: Some("acct-a".to_string()),
+                status_code: None,
+                error_kind: Some("client_disconnected_after_first_chunk".to_string()),
+                total_ms: 10_000,
+                upstream_headers_ms: Some(2_000),
+                first_chunk_ms: Some(2_100),
+                stream_ms: Some(7_900),
+                tokens: DashboardTokenUsage::default(),
+            },
+            DashboardMetricEvent {
+                finished_at: 2_995,
+                endpoint: "/v1/responses".to_string(),
+                model: Some("gpt-5.5".to_string()),
+                account_label: None,
+                status_code: None,
+                error_kind: Some("client_disconnected".to_string()),
+                total_ms: 120_000,
+                upstream_headers_ms: None,
+                first_chunk_ms: None,
+                stream_ms: None,
+                tokens: DashboardTokenUsage::default(),
+            },
+        ];
+
+        let dashboard = build_dashboard_snapshot(
+            PathBuf::from(r"C:\portable\Codex Tools Data"),
+            events,
+            Vec::new(),
+            now,
+        );
+
+        assert_eq!(dashboard.last_10m.failure_count, 1);
+        assert_eq!(dashboard.recent_failures.len(), 1);
+        assert_eq!(dashboard.recent_failures[0].total_ms, 120_000);
     }
 }

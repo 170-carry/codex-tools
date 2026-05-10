@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 #[cfg(target_os = "macos")]
 use std::process::Command;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering as AtomicOrdering;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
@@ -99,6 +101,7 @@ const MAX_PROXY_CONNECT_RESPONSE_BYTES: usize = 16 * 1024;
 const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_MIB";
 const CODEX_CLIENT_VERSION: &str = "0.125.0";
 const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
+const RESPONSES_EXPERIMENTAL_BETA: &str = "responses=experimental";
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const GPT_5_5_MODEL_ID: &str = "gpt-5.5";
@@ -120,7 +123,6 @@ const MODELS: &[&str] = &[
     "gpt-5.1-codex-max",
     "gpt-5.2-codex",
     "gpt-5.3-codex",
-    "gpt-5.3-codex-spark",
     "gpt-image-2",
     "gpt-image-1.5",
     "gpt-image-1",
@@ -271,6 +273,16 @@ struct ResponsesTrace {
     upstream_headers_ms: Arc<RwLock<Option<u64>>>,
     first_chunk_ms: Arc<RwLock<Option<u64>>>,
     tokens: Arc<RwLock<DashboardTokenUsage>>,
+    last_sse_event_type: Arc<RwLock<Option<String>>>,
+    terminal_sse_event_type: Arc<RwLock<Option<String>>>,
+    finished: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SseTerminalOutcome {
+    Completed,
+    Failed,
+    Incomplete,
 }
 
 impl ResponsesTrace {
@@ -287,6 +299,9 @@ impl ResponsesTrace {
             upstream_headers_ms: Arc::new(RwLock::new(None)),
             first_chunk_ms: Arc::new(RwLock::new(None)),
             tokens: Arc::new(RwLock::new(DashboardTokenUsage::default())),
+            last_sse_event_type: Arc::new(RwLock::new(None)),
+            terminal_sse_event_type: Arc::new(RwLock::new(None)),
+            finished: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -395,6 +410,20 @@ impl ResponsesTrace {
         }
     }
 
+    fn observe_sse_event(&self, event: &SseEvent) -> Option<SseTerminalOutcome> {
+        self.observe_sse_data(&event.data);
+        let event_type = sse_event_type(event).unwrap_or_else(|| "unknown".to_string());
+        if let Ok(mut guard) = self.last_sse_event_type.write() {
+            *guard = Some(event_type.clone());
+        }
+
+        let outcome = sse_terminal_outcome(event)?;
+        if let Ok(mut guard) = self.terminal_sse_event_type.write() {
+            *guard = Some(event_type);
+        }
+        Some(outcome)
+    }
+
     fn set_tokens_from_usage(&self, usage: Option<&Value>) {
         let tokens = dashboard_metrics::token_usage_from_response_usage(usage);
         if let Ok(mut guard) = self.tokens.write() {
@@ -403,6 +432,13 @@ impl ResponsesTrace {
     }
 
     fn finish(&self, status_code: Option<u16>, error_kind: Option<&str>) {
+        if self.finished.swap(true, AtomicOrdering::SeqCst) {
+            return;
+        }
+        self.finish_inner(status_code, error_kind);
+    }
+
+    fn finish_inner(&self, status_code: Option<u16>, error_kind: Option<&str>) {
         let total_ms = self.elapsed_ms_u64();
         let first_chunk_ms = self.first_chunk_ms.read().ok().and_then(|value| *value);
         let event = DashboardMetricEvent {
@@ -432,6 +468,50 @@ impl ResponsesTrace {
         };
         dashboard_metrics::record_metric_event(&self.data_dir, event);
         dashboard_metrics::finish_in_flight_request(&self.dashboard_id);
+    }
+}
+
+impl Drop for ResponsesTrace {
+    fn drop(&mut self) {
+        if self.finished.swap(true, AtomicOrdering::SeqCst) {
+            return;
+        }
+        let last_sse_event = self
+            .last_sse_event_type
+            .read()
+            .ok()
+            .and_then(|value| value.clone())
+            .unwrap_or_else(|| "none".to_string());
+        let terminal_sse_event = self
+            .terminal_sse_event_type
+            .read()
+            .ok()
+            .and_then(|value| value.clone())
+            .unwrap_or_else(|| "none".to_string());
+        let upstream_headers_seen = self
+            .upstream_headers_ms
+            .read()
+            .ok()
+            .and_then(|value| *value)
+            .is_some();
+        let first_chunk_seen = self
+            .first_chunk_ms
+            .read()
+            .ok()
+            .and_then(|value| *value)
+            .is_some();
+        self.log(
+            "stream_dropped",
+            format!(
+                "upstream_headers_seen={upstream_headers_seen} first_chunk_seen={first_chunk_seen} last_sse_event={last_sse_event} terminal_sse_event={terminal_sse_event}",
+            ),
+        );
+        let error_kind = if first_chunk_seen {
+            "client_disconnected_after_first_chunk"
+        } else {
+            "client_disconnected"
+        };
+        self.finish_inner(None, Some(error_kind));
     }
 }
 
@@ -1028,7 +1108,6 @@ fn codex_model_display_name(model: &str) -> &str {
     match model {
         "gpt-5.5" => "GPT-5.5",
         "gpt-5.4" => "GPT-5.4",
-        "gpt-5.3-codex-spark" => "GPT-5.3 Codex Spark",
         "gpt-5.3-codex" => "GPT-5.3 Codex",
         "gpt-5.2-codex" => "GPT-5.2 Codex",
         "gpt-5.1-codex-max" => "GPT-5.1 Codex Max",
@@ -1045,7 +1124,6 @@ fn codex_model_display_name(model: &str) -> &str {
 fn codex_model_description(model: &str) -> &str {
     match model {
         "gpt-5.5" => "Frontier model for complex coding, research, and real-world work.",
-        "gpt-5.3-codex-spark" => "Fast triage, explore, and lightweight synthesis model.",
         model if model.contains("mini") => {
             "Small, fast, and cost-efficient model for simpler coding tasks."
         }
@@ -1662,7 +1740,11 @@ async fn send_responses_websocket_error(
 }
 
 fn is_responses_terminal_event(event: &SseEvent) -> bool {
-    let event_type = serde_json::from_str::<Value>(&event.data)
+    sse_terminal_outcome(event).is_some()
+}
+
+fn sse_event_type(event: &SseEvent) -> Option<String> {
+    serde_json::from_str::<Value>(&event.data)
         .ok()
         .and_then(|value| {
             value
@@ -1670,19 +1752,27 @@ fn is_responses_terminal_event(event: &SseEvent) -> bool {
                 .and_then(Value::as_str)
                 .map(ToString::to_string)
         })
-        .or_else(|| event.event.clone());
+        .or_else(|| event.event.clone())
+}
 
+fn sse_terminal_outcome(event: &SseEvent) -> Option<SseTerminalOutcome> {
+    let event_type = sse_event_type(event);
     matches!(
         event_type.as_deref(),
-        Some(
-            "response.completed"
-                | "response.done"
-                | "response.failed"
-                | "response.incomplete"
-                | "response.cancelled"
-                | "response.canceled"
-        )
+        Some("response.completed" | "response.done")
     )
+    .then_some(SseTerminalOutcome::Completed)
+    .or_else(|| {
+        matches!(event_type.as_deref(), Some("response.failed"))
+            .then_some(SseTerminalOutcome::Failed)
+    })
+    .or_else(|| {
+        matches!(
+            event_type.as_deref(),
+            Some("response.incomplete" | "response.cancelled" | "response.canceled")
+        )
+        .then_some(SseTerminalOutcome::Incomplete)
+    })
 }
 
 async fn unsupported_proxy_handler(
@@ -2142,7 +2232,7 @@ fn convert_image_request_parts_to_codex(
     prompt: &str,
     images: Vec<Value>,
     mask: Option<Value>,
-    edit_action: bool,
+    _edit_action: bool,
 ) -> Result<ConvertedImageRequest, String> {
     if object
         .get("response_format")
@@ -2185,14 +2275,16 @@ fn convert_image_request_parts_to_codex(
         Value::String("image_generation".to_string()),
     );
     tool.insert("model".to_string(), Value::String(tool_model.to_string()));
-    tool.insert(
-        "action".to_string(),
-        Value::String(if edit_action { "edit" } else { "generate" }.to_string()),
-    );
-    copy_image_tool_string_field(object, &mut tool, "size", "size");
+    copy_image_tool_string_field_or_default(object, &mut tool, "size", "size", "auto");
     copy_image_tool_string_field(object, &mut tool, "quality", "quality");
-    copy_image_tool_string_field(object, &mut tool, "background", "background");
-    copy_image_tool_string_field(object, &mut tool, "output_format", "output_format");
+    copy_image_tool_string_field_or_default(object, &mut tool, "background", "background", "auto");
+    copy_image_tool_string_field_or_default(
+        object,
+        &mut tool,
+        "output_format",
+        "output_format",
+        "png",
+    );
     copy_image_tool_number_field(
         object,
         &mut tool,
@@ -2207,14 +2299,8 @@ fn convert_image_request_parts_to_codex(
         "model": DEFAULT_IMAGE_CONTROLLER_MODEL,
         "stream": true,
         "store": false,
-        "instructions": "",
-        "parallel_tool_calls": true,
-        "reasoning": {
-            "effort": "medium",
-            "summary": "auto"
-        },
+        "instructions": "Use the image_generation tool when the user asks to draw, create, generate, or edit an image.",
         "input": [{
-            "type": "message",
             "role": "user",
             "content": content,
         }],
@@ -2293,6 +2379,21 @@ fn copy_image_tool_string_field(
     }
 }
 
+fn copy_image_tool_string_field_or_default(
+    source: &Map<String, Value>,
+    target: &mut Map<String, Value>,
+    source_key: &str,
+    target_key: &str,
+    default: &str,
+) {
+    let value = source
+        .get(source_key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(default);
+    target.insert(target_key.to_string(), Value::String(value.to_string()));
+}
+
 fn copy_image_tool_number_field(
     source: &Map<String, Value>,
     target: &mut Map<String, Value>,
@@ -2368,6 +2469,18 @@ fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
 fn should_use_responses_websocket(payload: &Value) -> bool {
     let _ = payload;
     false
+}
+
+fn has_image_generation_tool(payload: &Value) -> bool {
+    payload
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .any(|tool| tool.get("type").and_then(Value::as_str) == Some("image_generation"))
+        })
+        .unwrap_or(false)
 }
 
 fn websocket_response_create_payload(payload: &Value) -> Value {
@@ -2976,6 +3089,7 @@ async fn send_codex_request_over_candidates(
 
     for mut candidate in candidates {
         let mut did_refresh = false;
+        let candidate_label = safe_candidate_label(&candidate.label);
 
         loop {
             log_proxy_request_route(route);
@@ -2985,7 +3099,7 @@ async fn send_codex_request_over_candidates(
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        attempt_errors.push(format!("{}: {}", candidate.label, error));
+                        attempt_errors.push(format!("{candidate_label}: {error}"));
                         break;
                     }
                 };
@@ -3001,8 +3115,7 @@ async fn send_codex_request_over_candidates(
             let upstream_body = match upstream.into_bytes().await {
                 Ok((_, bytes)) => bytes,
                 Err(error) => {
-                    attempt_errors
-                        .push(format!("{}: 读取上游响应失败: {}", candidate.label, error));
+                    attempt_errors.push(format!("{candidate_label}: 读取上游响应失败: {error}"));
                     break;
                 }
             };
@@ -3010,8 +3123,7 @@ async fn send_codex_request_over_candidates(
             if !did_refresh && should_retry_with_token_refresh(status, &upstream_body) {
                 if candidate.auth_refresh_blocked {
                     attempt_errors.push(format!(
-                        "{}: {}",
-                        candidate.label,
+                        "{candidate_label}: {}",
                         candidate
                             .auth_refresh_error
                             .clone()
@@ -3026,8 +3138,7 @@ async fn send_codex_request_over_candidates(
                         continue;
                     }
                     Err(error) => {
-                        attempt_errors
-                            .push(format!("{}: 刷新登录态失败: {}", candidate.label, error));
+                        attempt_errors.push(format!("{candidate_label}: 刷新登录态失败: {error}"));
                         break;
                     }
                 }
@@ -3111,7 +3222,8 @@ async fn forward_codex_request_with_candidate(
     let serialized =
         serde_json::to_vec(payload).map_err(|error| format!("序列化上游请求失败: {error}"))?;
 
-    context
+    let use_responses_experimental_beta = has_image_generation_tool(payload);
+    let mut request = context
         .client
         .post(&upstream_url)
         .header(
@@ -3120,12 +3232,19 @@ async fn forward_codex_request_with_candidate(
         )
         .header("ChatGPT-Account-Id", &candidate.account_id)
         .header("Accept", "text/event-stream")
-        .header("Content-Type", "application/json")
-        .header("Originator", "codex_cli_rs")
-        .header("Version", version)
-        .header("Session_id", session_id)
-        .header("User-Agent", user_agent)
-        .header("Connection", "Keep-Alive")
+        .header("Content-Type", "application/json");
+    if use_responses_experimental_beta {
+        request = request.header("OpenAI-Beta", RESPONSES_EXPERIMENTAL_BETA);
+    } else {
+        request = request
+            .header("Originator", "codex_cli_rs")
+            .header("Version", version)
+            .header("Session_id", session_id)
+            .header("User-Agent", user_agent)
+            .header("Connection", "Keep-Alive");
+    }
+
+    request
         .body(serialized)
         .send()
         .await
@@ -3398,7 +3517,7 @@ fn compare_proxy_candidates(left: &ProxyCandidate, right: &ProxyCandidate) -> Or
         ordering => return ordering,
     }
 
-    match is_free_plan(&left.plan_type).cmp(&is_free_plan(&right.plan_type)) {
+    match is_free_plan(&right.plan_type).cmp(&is_free_plan(&left.plan_type)) {
         Ordering::Equal => {}
         ordering => return ordering,
     }
@@ -3480,7 +3599,16 @@ async fn refresh_proxy_candidate_auth(
         Ok(refreshed) => refreshed,
         Err(error) => {
             if should_suspend_proxy_refresh(&error) {
-                return Err(normalize_proxy_refresh_error(&error));
+                let normalized = normalize_proxy_refresh_error(&error);
+                let _ = persist_candidate_refresh_state(
+                    storage,
+                    &candidate.account_key,
+                    None,
+                    true,
+                    Some(&normalized),
+                )
+                .await;
+                return Err(normalized);
             }
             return Err(error);
         }
@@ -3687,6 +3815,31 @@ fn extract_error_signals(body: &Bytes) -> ErrorSignals {
     }
 }
 
+fn safe_candidate_label(label: &str) -> String {
+    let compact = label.split_whitespace().collect::<Vec<_>>().join(" ");
+    let value = truncate_for_error(&compact, 80);
+    if let Some((name, domain)) = value.split_once('@') {
+        let mut chars = name.chars();
+        let first = chars.next().unwrap_or('*');
+        return format!("{first}***@{domain}");
+    }
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() > 12 {
+        let prefix = chars.iter().take(4).collect::<String>();
+        let suffix = chars
+            .iter()
+            .rev()
+            .take(4)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<String>();
+        format!("{prefix}***{suffix}")
+    } else {
+        value
+    }
+}
+
 fn collect_error_parts(value: &Value, parts: &mut Vec<String>) {
     if let Some(error) = value.get("error") {
         if let Some(message) = error.get("message").and_then(Value::as_str) {
@@ -3735,6 +3888,7 @@ fn contains_model_restriction_signal(text: &str) -> bool {
         || text.contains("model is not supported")
         || text.contains("not available on your account")
         || text.contains("model access")
+        || text.contains("tool choice 'image_generation' not found")
 }
 
 fn contains_auth_signal(text: &str) -> bool {
@@ -4475,17 +4629,47 @@ fn build_passthrough_sse_response(
                     }
                     for event in decoder.push(&chunk) {
                         event_count += 1;
-                        trace.observe_sse_data(&event.data);
                         maybe_record_stream_usage_tokens(
                             &usage_storage,
                             &usage_metadata,
                             &event,
                             &mut recorded_usage,
                         );
-                        yield Ok::<Bytes, Infallible>(serialize_sse_event(
+                        let event_type =
+                            sse_event_type(&event).unwrap_or_else(|| "unknown".to_string());
+                        let terminal_outcome = trace.observe_sse_event(&event);
+                        if event_count == 1 || event_count % 100 == 0 {
+                            trace.log(
+                                "sse_progress",
+                                format!(
+                                    "events={event_count} chunks={chunk_count} upstream_bytes={upstream_bytes} last_sse_event={event_type}",
+                                ),
+                            );
+                        }
+                        let output = serialize_sse_event(
                             event.event.as_deref(),
                             &rewrite_sse_event_data_models_for_client(&event.data),
-                        ));
+                        );
+                        if let Some(outcome) = terminal_outcome {
+                            trace.log(
+                                "sse_terminal_event",
+                                format!(
+                                    "event={event_type} chunks={chunk_count} events={event_count} upstream_bytes={upstream_bytes}",
+                                ),
+                            );
+                            match outcome {
+                                SseTerminalOutcome::Completed => {
+                                    trace.finish(Some(StatusCode::OK.as_u16()), None);
+                                }
+                                SseTerminalOutcome::Failed => {
+                                    trace.finish(None, Some("upstream_response_failed"));
+                                }
+                                SseTerminalOutcome::Incomplete => {
+                                    trace.finish(None, Some("upstream_response_incomplete"));
+                                }
+                            }
+                        }
+                        yield Ok::<Bytes, Infallible>(output);
                     }
                 }
                 Err(error) => {
@@ -4501,17 +4685,38 @@ fn build_passthrough_sse_response(
 
         for event in decoder.finish() {
             event_count += 1;
-            trace.observe_sse_data(&event.data);
             maybe_record_stream_usage_tokens(
                 &usage_storage,
                 &usage_metadata,
                 &event,
                 &mut recorded_usage,
             );
-            yield Ok::<Bytes, Infallible>(serialize_sse_event(
+            let event_type = sse_event_type(&event).unwrap_or_else(|| "unknown".to_string());
+            let terminal_outcome = trace.observe_sse_event(&event);
+            let output = serialize_sse_event(
                 event.event.as_deref(),
                 &rewrite_sse_event_data_models_for_client(&event.data),
-            ));
+            );
+            if let Some(outcome) = terminal_outcome {
+                trace.log(
+                    "sse_terminal_event",
+                    format!(
+                        "event={event_type} chunks={chunk_count} events={event_count} upstream_bytes={upstream_bytes}",
+                    ),
+                );
+                match outcome {
+                    SseTerminalOutcome::Completed => {
+                        trace.finish(Some(StatusCode::OK.as_u16()), None);
+                    }
+                    SseTerminalOutcome::Failed => {
+                        trace.finish(None, Some("upstream_response_failed"));
+                    }
+                    SseTerminalOutcome::Incomplete => {
+                        trace.finish(None, Some("upstream_response_incomplete"));
+                    }
+                }
+            }
+            yield Ok::<Bytes, Infallible>(output);
         }
         trace.log(
             "upstream_stream_end",
@@ -4836,23 +5041,41 @@ fn collect_completed_output_item(value: &Value, output_items: &mut Vec<Value>) {
 }
 
 fn ensure_completed_response_output(mut response: Value, output_text: &str) -> Value {
-    if output_text.is_empty() || response_has_text_output(&response) {
+    if response
+        .get("output_text")
+        .and_then(Value::as_str)
+        .map(|text| !text.is_empty())
+        .unwrap_or(false)
+    {
+        return response;
+    }
+
+    let text = if output_text.is_empty() {
+        collect_response_output_text(&response)
+    } else {
+        output_text.to_string()
+    };
+
+    if text.is_empty() {
         return response;
     }
 
     if let Some(object) = response.as_object_mut() {
-        object.insert(
-            "output".to_string(),
-            Value::Array(vec![json!({
-                "type": "message",
-                "role": "assistant",
-                "content": [{
-                    "type": "output_text",
-                    "text": output_text,
-                    "annotations": []
-                }]
-            })]),
-        );
+        object.insert("output_text".to_string(), Value::String(text.clone()));
+        if !response_has_text_output(&Value::Object(object.clone())) {
+            object.insert(
+                "output".to_string(),
+                Value::Array(vec![json!({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{
+                        "type": "output_text",
+                        "text": text,
+                        "annotations": []
+                    }]
+                })]),
+            );
+        }
     }
     response
 }
@@ -4890,6 +5113,23 @@ fn response_has_text_output(response: &Value) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+fn collect_response_output_text(response: &Value) -> String {
+    response
+        .get("output")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("content").and_then(Value::as_array))
+                .flat_map(|content| content.iter())
+                .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default()
 }
 
 fn response_output_is_empty(response: &Value) -> bool {
@@ -5572,6 +5812,7 @@ mod tests {
     use super::api_proxy_usage_store_has_legacy_private_fields;
     use super::build_api_proxy_usage_stats;
     use super::build_models_response;
+    use super::classify_retriable_failure;
     use super::compare_proxy_candidates;
     use super::convert_completed_response_to_chat_completion;
     use super::convert_openai_chat_request_to_codex;
@@ -5592,8 +5833,10 @@ mod tests {
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
+    use super::safe_candidate_label;
     use super::sequential_account_key_for_request;
     use super::should_use_responses_websocket;
+    use super::sse_terminal_outcome;
     use super::translate_sse_event_to_chat_chunk;
     use super::translate_sse_event_to_image_chunk;
     use super::websocket_target_host_port;
@@ -5602,7 +5845,9 @@ mod tests {
     use super::ImageMultipartRequest;
     use super::ProxyCandidate;
     use super::ProxyLoadBalanceConfig;
+    use super::RetryFailureCategory;
     use super::SseEvent;
+    use super::SseTerminalOutcome;
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RETENTION_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
@@ -5610,6 +5855,8 @@ mod tests {
     use crate::models::AppSettings;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
+    use axum::body::Bytes;
+    use reqwest::StatusCode;
     use serde_json::json;
     use serde_json::Value;
 
@@ -5721,7 +5968,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_candidates_prefer_unblocked_paid_accounts() {
+    fn proxy_candidates_prefer_free_accounts_before_paid_accounts() {
         let mut candidates = vec![
             candidate("free", "free", 0.0, false),
             candidate("blocked-team", "team", 0.0, true),
@@ -5730,9 +5977,32 @@ mod tests {
 
         candidates.sort_by(compare_proxy_candidates);
 
-        assert_eq!(candidates[0].label, "plus");
-        assert_eq!(candidates[1].label, "free");
+        assert_eq!(candidates[0].label, "free");
+        assert_eq!(candidates[1].label, "plus");
         assert_eq!(candidates[2].label, "blocked-team");
+    }
+
+    #[test]
+    fn image_tool_choice_rejection_is_retriable_model_failure() {
+        let body = Bytes::from(
+            r#"{"error":{"message":"Tool choice 'image_generation' not found in 'tools' parameter.","type":"invalid_request_error","param":"tool_choice","code":null}}"#,
+        );
+
+        let failure = classify_retriable_failure(StatusCode::BAD_REQUEST, &body)
+            .expect("image tool choice rejection should try the next account");
+
+        assert!(matches!(
+            failure.category,
+            RetryFailureCategory::ModelRestricted
+        ));
+    }
+
+    #[test]
+    fn safe_candidate_label_redacts_email_labels() {
+        assert_eq!(
+            safe_candidate_label("operator@example.com"),
+            "o***@example.com"
+        );
     }
 
     #[test]
@@ -5740,11 +6010,34 @@ mod tests {
         let response = build_models_response(None);
         let model = model_by_id(&response, "gpt-5.5");
 
-        assert_eq!(model.get("context_window").and_then(|value| value.as_u64()), Some(1_050_000));
-        assert_eq!(model.get("model_context_window").and_then(|value| value.as_u64()), Some(1_050_000));
-        assert_eq!(model.get("max_output_tokens").and_then(|value| value.as_u64()), Some(128_000));
-        assert_eq!(model.get("effective_context_window_percent").and_then(|value| value.as_u64()), Some(100));
-        assert_eq!(model.get("auto_compact_token_limit").and_then(|value| value.as_u64()), Some(650_000));
+        assert_eq!(
+            model.get("context_window").and_then(|value| value.as_u64()),
+            Some(1_050_000)
+        );
+        assert_eq!(
+            model
+                .get("model_context_window")
+                .and_then(|value| value.as_u64()),
+            Some(1_050_000)
+        );
+        assert_eq!(
+            model
+                .get("max_output_tokens")
+                .and_then(|value| value.as_u64()),
+            Some(128_000)
+        );
+        assert_eq!(
+            model
+                .get("effective_context_window_percent")
+                .and_then(|value| value.as_u64()),
+            Some(100)
+        );
+        assert_eq!(
+            model
+                .get("auto_compact_token_limit")
+                .and_then(|value| value.as_u64()),
+            Some(650_000)
+        );
     }
 
     #[test]
@@ -5773,9 +6066,24 @@ mod tests {
             .expect("gpt-5 series");
         assert_eq!(gpt5.total_calls, 1);
         assert_eq!(gpt5.total_tokens, 42);
-        assert!(gpt5.points.iter().all(|point| point.timestamp % bucket_seconds == 0));
-        assert_eq!(gpt5.points.iter().find(|point| point.timestamp == call_bucket).map(|point| point.calls), Some(1));
-        assert_eq!(gpt5.points.iter().find(|point| point.timestamp == token_bucket).map(|point| point.tokens), Some(42));
+        assert!(gpt5
+            .points
+            .iter()
+            .all(|point| point.timestamp % bucket_seconds == 0));
+        assert_eq!(
+            gpt5.points
+                .iter()
+                .find(|point| point.timestamp == call_bucket)
+                .map(|point| point.calls),
+            Some(1)
+        );
+        assert_eq!(
+            gpt5.points
+                .iter()
+                .find(|point| point.timestamp == token_bucket)
+                .map(|point| point.tokens),
+            Some(42)
+        );
 
         for series in &stats.series {
             assert_eq!(series.points.len(), gpt5.points.len());
@@ -5862,9 +6170,22 @@ mod tests {
         }));
         let model = model_by_id(&response, "gpt-5.5");
 
-        assert_eq!(model.get("context_window").and_then(|value| value.as_u64()), Some(258_400));
-        assert_eq!(model.get("model_context_window").and_then(|value| value.as_u64()), Some(258_400));
-        assert_eq!(model.get("auto_compact_token_limit").and_then(|value| value.as_u64()), Some(258_400));
+        assert_eq!(
+            model.get("context_window").and_then(|value| value.as_u64()),
+            Some(258_400)
+        );
+        assert_eq!(
+            model
+                .get("model_context_window")
+                .and_then(|value| value.as_u64()),
+            Some(258_400)
+        );
+        assert_eq!(
+            model
+                .get("auto_compact_token_limit")
+                .and_then(|value| value.as_u64()),
+            Some(258_400)
+        );
     }
 
     #[test]
@@ -5897,7 +6218,10 @@ mod tests {
             current_key.as_deref(),
         );
 
-        assert_eq!(candidate_labels(&ordered), vec!["persisted current", "smart best"]);
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["persisted current", "smart best"]
+        );
     }
 
     #[test]
@@ -5908,7 +6232,12 @@ mod tests {
         }));
         let model = model_by_id(&response, "gpt-5.5");
 
-        assert_eq!(model.get("auto_compact_token_limit").and_then(|value| value.as_u64()), Some(500_000));
+        assert_eq!(
+            model
+                .get("auto_compact_token_limit")
+                .and_then(|value| value.as_u64()),
+            Some(500_000)
+        );
     }
 
     #[test]
@@ -5934,7 +6263,10 @@ mod tests {
             Some("b"),
         );
 
-        assert_eq!(candidate_labels(&ordered), vec!["current missing 5h", "smart best"]);
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["current missing 5h", "smart best"]
+        );
     }
 
     #[test]
@@ -5956,9 +6288,22 @@ mod tests {
             })
             .expect("gpt-5.5 catalog model should be present");
 
-        assert_eq!(model.get("context_window").and_then(|value| value.as_u64()), Some(1_050_000));
-        assert_eq!(model.get("max_context_window").and_then(|value| value.as_u64()), Some(1_050_000));
-        assert_eq!(model.get("auto_compact_token_limit").and_then(|value| value.as_u64()), Some(650_000));
+        assert_eq!(
+            model.get("context_window").and_then(|value| value.as_u64()),
+            Some(1_050_000)
+        );
+        assert_eq!(
+            model
+                .get("max_context_window")
+                .and_then(|value| value.as_u64()),
+            Some(1_050_000)
+        );
+        assert_eq!(
+            model
+                .get("auto_compact_token_limit")
+                .and_then(|value| value.as_u64()),
+            Some(650_000)
+        );
     }
 
     #[test]
@@ -5992,7 +6337,10 @@ mod tests {
             Some("a"),
         );
 
-        assert_eq!(candidate_labels(&ordered), vec!["next under limit", "current at limit", "blocked"]);
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["next under limit", "current at limit", "blocked"]
+        );
     }
 
     #[test]
@@ -6003,8 +6351,16 @@ mod tests {
         }));
         let model = model_by_id(&response, "gpt-5.5");
 
-        assert_eq!(model.get("context_window").and_then(|value| value.as_u64()), Some(1_050_000));
-        assert_eq!(model.get("model_context_window").and_then(|value| value.as_u64()), Some(1_050_000));
+        assert_eq!(
+            model.get("context_window").and_then(|value| value.as_u64()),
+            Some(1_050_000)
+        );
+        assert_eq!(
+            model
+                .get("model_context_window")
+                .and_then(|value| value.as_u64()),
+            Some(1_050_000)
+        );
     }
 
     #[test]
@@ -6227,6 +6583,31 @@ mod tests {
     }
 
     #[test]
+    fn keeps_image_generation_tools_on_http_sse_upstream() {
+        let payload = json!({
+            "model": "gpt-5.5",
+            "tools": [
+                {
+                    "type": "image_generation",
+                    "model": "gpt-image-2"
+                }
+            ]
+        });
+
+        assert!(!should_use_responses_websocket(&payload));
+    }
+
+    #[test]
+    fn does_not_use_responses_websocket_for_plain_text_requests() {
+        let payload = json!({
+            "model": "gpt-5.5",
+            "input": "hello"
+        });
+
+        assert!(!should_use_responses_websocket(&payload));
+    }
+
+    #[test]
     fn normalizes_websocket_response_create_to_streaming_payload() {
         let request = json!({
             "type": "response.create",
@@ -6287,6 +6668,35 @@ mod tests {
     }
 
     #[test]
+    fn classifies_responses_sse_terminal_outcomes() {
+        let completed = SseEvent {
+            event: Some("message".to_string()),
+            data: "{\"type\":\"response.completed\"}".to_string(),
+        };
+        let failed = SseEvent {
+            event: Some("response.failed".to_string()),
+            data: "{}".to_string(),
+        };
+        let incomplete = SseEvent {
+            event: None,
+            data: "{\"type\":\"response.incomplete\"}".to_string(),
+        };
+
+        assert_eq!(
+            sse_terminal_outcome(&completed),
+            Some(SseTerminalOutcome::Completed)
+        );
+        assert_eq!(
+            sse_terminal_outcome(&failed),
+            Some(SseTerminalOutcome::Failed)
+        );
+        assert_eq!(
+            sse_terminal_outcome(&incomplete),
+            Some(SseTerminalOutcome::Incomplete)
+        );
+    }
+
+    #[test]
     fn converts_image_generation_request_to_responses_image_tool_payload() {
         let request = json!({
             "model": "gpt-image-2",
@@ -6309,6 +6719,15 @@ mod tests {
             Some("gpt-5.5")
         );
         assert_eq!(payload.get("stream").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            payload
+                .get("input")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str),
+            None
+        );
         assert_eq!(
             payload
                 .get("input")
@@ -6338,6 +6757,15 @@ mod tests {
                 .and_then(|tool| tool.get("model"))
                 .and_then(Value::as_str),
             Some("gpt-image-2")
+        );
+        assert_eq!(
+            payload
+                .get("tools")
+                .and_then(Value::as_array)
+                .and_then(|tools| tools.first())
+                .and_then(|tool| tool.get("background"))
+                .and_then(Value::as_str),
+            Some("auto")
         );
     }
 
@@ -6491,7 +6919,7 @@ mod tests {
                 .and_then(|tools| tools.first())
                 .and_then(|tool| tool.get("action"))
                 .and_then(Value::as_str),
-            Some("edit")
+            None
         );
         assert_eq!(
             payload
@@ -6649,6 +7077,10 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 .and_then(|value| value.get("type"))
                 .and_then(|value| value.as_str()),
             Some("message")
+        );
+        assert_eq!(
+            response.get("output_text").and_then(Value::as_str),
+            Some("2")
         );
     }
 

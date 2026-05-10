@@ -144,7 +144,12 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
         .accounts
         .iter()
         .any(|account| account.variant_key() == extracted_variant_key);
-    if already_exists {
+    let was_deleted = store
+        .settings
+        .deleted_account_variant_keys
+        .iter()
+        .any(|key| key == &extracted_variant_key);
+    if already_exists || was_deleted {
         return Ok(());
     }
 
@@ -463,6 +468,17 @@ fn recover_store_from_available_sources(
 
     let mut recovered = best.store.clone();
     recovered.accounts = merged_accounts;
+    recovered.settings.deleted_account_variant_keys = candidates
+        .iter()
+        .flat_map(|candidate| {
+            candidate
+                .store
+                .settings
+                .deleted_account_variant_keys
+                .iter()
+                .cloned()
+        })
+        .collect();
     Some((recovered, recovered_sources))
 }
 
@@ -743,6 +759,32 @@ mod tests {
         assert_eq!(
             loaded.accounts[0].principal_id.as_deref(),
             Some("legacy@example.com")
+        );
+    }
+
+    #[test]
+    fn load_store_preserves_deleted_account_variant_keys() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut store = sample_store("deleted", "workspace-1", 10);
+        let variant_key = store.accounts[0].variant_key();
+        store.accounts.clear();
+        store
+            .settings
+            .deleted_account_variant_keys
+            .push(variant_key.clone());
+        fs::write(
+            &store_path,
+            serde_json::to_string_pretty(&store).expect("serialize store"),
+        )
+        .expect("write store");
+
+        let loaded = load_store_from_path(&store_path).expect("load store");
+
+        assert!(loaded.accounts.is_empty());
+        assert_eq!(
+            loaded.settings.deleted_account_variant_keys,
+            vec![variant_key]
         );
     }
 

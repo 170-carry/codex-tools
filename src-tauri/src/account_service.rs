@@ -338,6 +338,20 @@ pub(crate) async fn delete_account_internal(
     let mut store = load_store(app)?;
     let removed_current = store.settings.active_account_id.as_deref() == Some(id);
     let original_len = store.accounts.len();
+    if let Some(account) = store.accounts.iter().find(|account| account.id == id) {
+        let variant_key = account.variant_key();
+        if !store
+            .settings
+            .deleted_account_variant_keys
+            .iter()
+            .any(|key| key == &variant_key)
+        {
+            store
+                .settings
+                .deleted_account_variant_keys
+                .push(variant_key);
+        }
+    }
     store.accounts.retain(|account| account.id != id);
 
     if original_len == store.accounts.len() {
@@ -1115,6 +1129,10 @@ fn upsert_prepared_import(
     let resolved_plan_key = normalize_plan_type_key(resolved_plan_type.as_deref());
     let resolved_variant_key =
         account_variant_key(&principal_id, &account_id, resolved_plan_type.as_deref());
+    store
+        .settings
+        .deleted_account_variant_keys
+        .retain(|key| key != &resolved_variant_key);
 
     if let Some(existing) = store
         .accounts

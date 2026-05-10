@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -7,6 +8,8 @@ use crate::models::EditorAppId;
 use crate::models::InstalledEditorApp;
 #[cfg(target_os = "windows")]
 use crate::utils::new_background_command;
+#[cfg(target_os = "windows")]
+use crate::utils::silence_command_output;
 
 const RESTART_SETTLE_MS: u64 = 220;
 
@@ -156,9 +159,10 @@ fn force_kill_processes(process_names: &[&str]) {
             } else {
                 format!("{name}.exe")
             };
-            let _ = new_background_command("taskkill")
-                .args(["/F", "/IM", &image_name, "/T"])
-                .status();
+            let mut command = new_background_command("taskkill");
+            command.args(["/F", "/IM", &image_name, "/T"]);
+            silence_command_output(&mut command);
+            let _ = command.status();
         }
     }
 

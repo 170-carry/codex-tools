@@ -505,7 +505,7 @@ export function useCodexController() {
         setRefreshing(true);
       }
       const data = await invoke<AccountSummary[]>("refresh_all_usage", {
-        forceAuthRefresh: !quiet,
+        forceAuthRefresh: false,
       });
       const promptedRelogin = applyAccounts(data);
       if (!quiet && !promptedRelogin) {

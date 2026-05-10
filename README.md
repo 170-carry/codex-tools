@@ -4,7 +4,7 @@
 - 查看账号用量和账号健康状态
 - 启用/停用账号，控制其是否参与刷新、智能切换和反代候选
 - 快速切换和启动 Codex
-- 本地 `/v1` 反代（含 GPT-5.5 responses 代理与图片接口）
+- 本地 `/v1` 反代（含 GPT-5.5 responses 代理、`gpt-image-2` 图片接口与运行仪表盘）
 - cloudflared 公网访问
 
 仓库地址：<https://github.com/170-carry/codex-tools>
@@ -99,10 +99,10 @@ npm run tauri dev
 
 - 本地提供 OpenAI 兼容的 `/v1` 接口
 - 使用已登录的 Codex 账号作为上游能力来源
-- 支持 GPT-5.5 `/v1/responses` 代理、Codex 账号图片生成/编辑/变体接口
+- 支持 GPT-5.5 `/v1/responses` 代理、`gpt-image-2` 等 Codex 账号图片生成/编辑/变体接口
 - 支持固定端口、自定义端口、固定 API Key 和手动刷新 API Key
-- 按账号余量、账号启用状态和健康状态自动挑选可用账号进行转发
-- 提供反代健康看板，展示请求耗时、候选账号与错误分布
+- 按顺序负载均衡、账号余量、账号启用状态和健康状态自动挑选可用账号进行转发
+- 提供 API 反代运行仪表盘，展示请求量、失败率、延迟、token、缓存命中、in-flight、模型/账号/端点排行和最近失败
 - 可配置 GPT-5.5 上下文窗口和自动 compact 阈值
 - 可设置应用启动时自动启动 API 反代
 - 可作为 CC Switch 的 Codex 自定义 provider 上游，按 `responses` 协议接入

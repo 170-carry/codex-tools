@@ -5,6 +5,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -18,6 +19,8 @@ use crate::auth::CodexOAuthTokens;
 #[cfg(target_os = "windows")]
 use crate::utils::new_background_command;
 use crate::utils::set_private_permissions;
+#[cfg(target_os = "windows")]
+use crate::utils::silence_command_output;
 
 const FALLBACK_EXPIRES_IN_MS: i64 = 55 * 60 * 1000;
 const OPENCODE_DESKTOP_RESTART_SETTLE_MS: u64 = 220;
@@ -595,9 +598,10 @@ fn force_kill_opencode_desktop_processes() {
     #[cfg(target_os = "windows")]
     {
         for name in OPENCODE_DESKTOP_WINDOWS_PROCESS_NAMES {
-            let _ = new_background_command("taskkill")
-                .args(["/F", "/IM", name, "/T"])
-                .status();
+            let mut command = new_background_command("taskkill");
+            command.args(["/F", "/IM", name, "/T"]);
+            silence_command_output(&mut command);
+            let _ = command.status();
         }
     }
 }

@@ -705,34 +705,58 @@
   align-items: end;
 }
 
+
+
 .dashboardPage {
-  width: min(1040px, 100%);
+  width: min(1360px, 100%);
   margin: 0 auto;
-  padding: 10px 0 32px;
+  padding: 10px 0 34px;
 }
 
 .dashboardShell {
   display: grid;
-  gap: 18px;
+  gap: 14px;
+  min-width: 0;
 }
 
 .dashboardHero,
 .dashboardSectionCard,
 .dashboardMiniCard {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--section-line);
-  border-radius: 24px;
+  border-radius: 22px;
   background: var(--section-card-surface);
   box-shadow: var(--section-shadow);
-  backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(108%);
 }
 
-.dashboardHero {
+.dashboardHero > *,
+.dashboardSectionCard > *,
+.dashboardMiniCard > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboardHeroPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  background: var(--section-card-primary-surface);
+}
+
+.dashboardHeroTop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 16px;
-  padding: 18px 20px;
-  background: var(--section-card-primary-surface);
+}
+
+.dashboardTitleBlock {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
 }
 
 .dashboardHero h2,
@@ -741,20 +765,150 @@
   margin: 0;
 }
 
+.dashboardHero h2 {
+  color: var(--ink);
+  font: 760 1.55rem/1.08 var(--font-ui);
+  letter-spacing: -0.045em;
+}
+
 .dashboardHero p,
 .dashboardSectionHeader p,
-.dashboardMuted {
-  margin: 4px 0 0;
+.dashboardEmptyState p {
+  margin: 0;
   color: var(--subtle);
-  font: 500 0.82rem/1.45 var(--font-ui);
+  font: 500 0.8rem/1.45 var(--font-ui);
 }
 
 .dashboardHeroActions {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.dashboardStatusPill,
+.dashboardSectionActions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--meta-bg) 62%, transparent);
+  color: var(--subtle);
+  font: 720 0.72rem/1 var(--font-ui);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.dashboardStatusPill.isRunning {
+  color: color-mix(in srgb, var(--brand-cool) 78%, var(--ink) 22%);
+  border-color: color-mix(in srgb, var(--stamp-current-border) 76%, var(--line) 24%);
+  background: color-mix(in srgb, var(--stamp-current-bg) 68%, transparent);
+}
+
+.dashboardHeaderMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.dashboardMetaItem {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  min-height: 58px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--meta-bg) 46%, transparent);
+  box-shadow: inset 0 1px var(--surface-highlight-faint);
+}
+
+.dashboardMetaItem.isWide {
+  grid-column: span 3;
+}
+
+.dashboardMetaItem span,
+.dashboardStatCard span {
+  color: var(--subtle);
+  font: 720 0.69rem/1.1 var(--font-ui);
+}
+
+.dashboardMetaItem strong {
+  min-width: 0;
   color: var(--ink);
-  font: 650 0.82rem/1 var(--font-ui);
+  font: 650 0.8rem/1.35 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.dashboardMetaItem.isWide strong {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.dashboardStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboardStatCard {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  align-content: space-between;
+  gap: 10px;
+  min-height: 118px;
+  padding: 15px 15px 13px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, var(--surface-tint) 20%);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--card) 76%, var(--surface-tint) 24%);
+  box-shadow:
+    0 8px 18px rgba(19, 34, 58, 0.04),
+    inset 0 1px var(--surface-highlight-soft);
+}
+
+.dashboardStatCard::after {
+  content: "";
+  position: absolute;
+  inset: auto 13px 0 13px;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.dashboardStatCard.isAccent::after {
+  background: linear-gradient(90deg, #2d8cff, #2fd2c8);
+}
+
+.dashboardStatCard.isWarm::after {
+  background: linear-gradient(90deg, #f59e0b, color-mix(in srgb, var(--brand-hot) 70%, transparent));
+}
+
+.dashboardStatCard.isLatency::after {
+  background: linear-gradient(90deg, #7c3aed, #f59e0b);
+}
+
+.dashboardStatCard.isDanger::after {
+  background: linear-gradient(90deg, var(--error-text), color-mix(in srgb, var(--error-text) 46%, transparent));
+}
+
+.dashboardStatCard strong {
+  color: var(--ink);
+  font: 780 1.48rem/1 var(--font-ui);
+  letter-spacing: -0.05em;
+}
+
+.dashboardStatCard small {
+  color: color-mix(in srgb, var(--subtle) 84%, transparent);
+  font: 620 0.68rem/1.25 var(--font-ui);
+}
+
+.dashboardStatCard.isDanger strong {
+  color: var(--error-text);
 }
 
 .dashboardSectionCard,
@@ -773,126 +927,22 @@
   font: 600 0.76rem/1.2 var(--font-ui);
 }
 
-.dashboardStatsGrid,
-.dashboardWindowGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.dashboardStatCard {
-  display: grid;
-  gap: 6px;
-  min-height: 74px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--surface-tint) 12%);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--meta-bg) 58%, transparent);
-  box-shadow: inset 0 1px var(--surface-highlight-soft);
-}
-
-.dashboardStatCard span,
-.dashboardPathGrid span {
-  color: var(--subtle);
-  font: 600 0.74rem/1.1 var(--font-ui);
-}
-
-.dashboardStatCard strong {
-  color: var(--ink);
-  font: 720 1.35rem/1 var(--font-ui);
-  letter-spacing: -0.04em;
-}
-
-.dashboardStatCard.isDanger strong {
-  color: var(--error-text);
-}
-
-.dashboardPathGrid {
-  display: grid;
-  gap: 10px;
-}
-
-.dashboardPathGrid div {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.dashboardPathGrid strong {
-  overflow-wrap: anywhere;
-  color: var(--ink);
-  font: 600 0.78rem/1.35 var(--font-mono);
-}
-
-.dashboardColumns {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.dashboardRankList {
-  display: grid;
-  gap: 8px;
-}
-
-.dashboardRankRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+.dashboardSectionActions {
+  display: inline-flex;
+  justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--meta-bg) 52%, transparent);
-  color: var(--subtle);
-  font: 600 0.76rem/1.2 var(--font-ui);
-}
-
-.dashboardRankRow span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink);
-}
-
-.dashboardRankRow small {
-  font: 600 0.72rem/1 var(--font-mono);
-}
-
-.dashboardTableWrap {
-  overflow-x: auto;
-}
-
-.dashboardTable {
-  width: 100%;
-  border-collapse: collapse;
-  font: 600 0.75rem/1.35 var(--font-ui);
-}
-
-.dashboardTable th,
-.dashboardTable td {
-  padding: 9px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
-  text-align: left;
-  white-space: nowrap;
-}
-
-.dashboardTable th {
-  color: var(--subtle);
-  font-size: 0.7rem;
-}
-
-.dashboardChartCard {
-  overflow: hidden;
 }
 
 .dashboardSegmented {
   display: inline-flex;
-  gap: 6px;
+  gap: 4px;
   padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--meta-bg) 52%, transparent);
+  background: color-mix(in srgb, var(--meta-bg) 54%, transparent);
+  box-shadow: inset 0 1px var(--surface-highlight-faint);
 }
 
 .dashboardSegmented button {
@@ -902,102 +952,96 @@
   padding: 0 12px;
   background: transparent;
   color: var(--subtle);
-  font: 700 0.74rem/1 var(--font-ui);
+  font: 760 0.72rem/1 var(--font-ui);
   cursor: pointer;
 }
 
 .dashboardSegmented button.isActive {
   background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  box-shadow: var(--button-primary-shadow);
+  color: var(--ink);
+  box-shadow: var(--button-primary-shadow, var(--button-shadow));
+}
+
+.dashboardChartCard {
+  overflow: hidden;
+  padding-bottom: 15px;
 }
 
 .dashboardChart {
-  position: relative;
-  height: 220px;
-  padding: 18px 8px 10px 54px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-radius: 20px;
-  background:
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--line) 34%, transparent) 1px,
-      transparent 1px
-    )
-    0 0 / 100% 25%,
-    color-mix(in srgb, var(--meta-bg) 45%, transparent);
-}
-
-.dashboardBars {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(24, minmax(0, 1fr));
-  align-items: end;
-  gap: 5px;
-  height: 100%;
-}
-
-.dashboardYAxis {
-  position: absolute;
-  inset: 18px auto 10px 10px;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  width: 40px;
-  color: var(--subtle);
-  font: 700 0.68rem/1 var(--font-mono);
-  text-align: right;
-}
-
-.dashboardBarSlot {
-  display: flex;
-  align-items: end;
-  height: 100%;
   min-width: 0;
-}
-
-.dashboardBar {
-  position: relative;
-  width: 100%;
-  min-height: 4px;
   overflow: hidden;
-  border-radius: 999px 999px 4px 4px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--stamp-current-color) 95%, white 5%),
-    color-mix(in srgb, var(--stamp-current-color) 48%, transparent)
-  );
-  box-shadow: 0 10px 28px rgba(47, 210, 200, 0.18);
+  display: grid;
+  min-height: 318px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--meta-bg) 30%, transparent), color-mix(in srgb, var(--card) 18%, transparent)),
+    color-mix(in srgb, var(--app-bg, var(--body-bg)) 76%, transparent);
+  box-shadow: inset 0 1px var(--surface-highlight-faint);
+  --dashboard-bar-start: #2d8cff;
+  --dashboard-bar-end: rgba(47, 210, 200, 0.34);
 }
 
-.dashboardBarFailure {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  border-radius: inherit;
-  background: color-mix(in srgb, var(--error-text) 82%, transparent);
+.dashboardChartSvg {
+  display: block;
+  width: 100%;
+  min-height: 318px;
 }
 
-.dashboardLine {
-  position: absolute;
-  inset: 14px 8px 10px 54px;
-  z-index: 2;
-  width: calc(100% - 62px);
-  height: calc(100% - 24px);
-  pointer-events: none;
-  filter: drop-shadow(0 6px 10px rgba(255, 143, 56, 0.2));
+.dashboardPlotArea {
+  fill: color-mix(in srgb, var(--card) 34%, transparent);
+  stroke: color-mix(in srgb, var(--line) 70%, transparent);
+  stroke-width: 1.2;
 }
 
-.dashboardLine polyline {
+.dashboardGridLine,
+.dashboardTickLine,
+.dashboardAxisLine {
+  stroke: color-mix(in srgb, var(--line) 72%, transparent);
+  stroke-width: 1;
+}
+
+.dashboardGridLine {
+  stroke-dasharray: 4 7;
+}
+
+.dashboardAxisText,
+.dashboardAxisTitle {
+  fill: var(--subtle);
+  font: 720 0.68rem/1 var(--font-mono);
+}
+
+.dashboardAxisTitle {
+  font-family: var(--font-ui);
+  font-size: 0.76rem;
+  letter-spacing: -0.01em;
+}
+
+.dashboardAxisTextLatency,
+.dashboardAxisTitleLatency {
+  fill: color-mix(in srgb, #7c3aed 70%, var(--subtle) 30%);
+}
+
+.dashboardSvgBar {
+  fill: url(#dashboardRequestBar);
+}
+
+.dashboardSvgBarFailure {
+  fill: color-mix(in srgb, var(--error-text) 86%, transparent);
+}
+
+.dashboardSvgLine {
   fill: none;
-  stroke: color-mix(in srgb, var(--button-primary-border) 85%, var(--ink) 15%);
-  stroke-width: 2.6;
-  vector-effect: non-scaling-stroke;
+  stroke: color-mix(in srgb, #7c3aed 76%, #f59e0b 24%);
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.dashboardSvgLinePoint {
+  fill: var(--section-card-surface);
+  stroke: color-mix(in srgb, #7c3aed 76%, #f59e0b 24%);
+  stroke-width: 2;
 }
 
 .dashboardChartLegend {
@@ -1006,7 +1050,7 @@
   flex-wrap: wrap;
   gap: 14px;
   color: var(--subtle);
-  font: 700 0.72rem/1 var(--font-ui);
+  font: 720 0.72rem/1 var(--font-ui);
 }
 
 .dashboardChartLegend span {
@@ -1023,7 +1067,7 @@
 }
 
 .legendBar {
-  background: var(--stamp-current-color);
+  background: linear-gradient(90deg, #2d8cff, #2fd2c8);
 }
 
 .legendFail {
@@ -1032,7 +1076,224 @@
 
 .legendLine {
   height: 3px !important;
-  background: color-mix(in srgb, var(--button-primary-border) 85%, var(--ink) 15%);
+  background: linear-gradient(90deg, #7c3aed, #f59e0b);
+}
+
+.dashboardColumns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboardMiniHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dashboardMiniHeader span {
+  color: var(--subtle);
+  font: 700 0.68rem/1 var(--font-ui);
+}
+
+.dashboardRankList {
+  display: grid;
+  gap: 9px;
+}
+
+.dashboardRankRow {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--meta-bg) 48%, transparent);
+  color: var(--subtle);
+  box-shadow: inset 0 1px var(--surface-highlight-faint);
+}
+
+.dashboardRankRowTop,
+.dashboardRankMeta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dashboardRankRowTop span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font: 700 0.76rem/1.2 var(--font-ui);
+}
+
+.dashboardRankRowTop strong {
+  color: var(--ink);
+  font: 760 0.78rem/1 var(--font-mono);
+}
+
+.dashboardRankTrack {
+  position: relative;
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 68%, transparent);
+}
+
+.dashboardRankTrack i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2d8cff, #2fd2c8);
+}
+
+.dashboardRankMeta small {
+  color: color-mix(in srgb, var(--subtle) 86%, transparent);
+  font: 620 0.68rem/1 var(--font-ui);
+}
+
+.dashboardBottomGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.42fr);
+  align-items: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dashboardDiagnosticsStack {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.dashboardTableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--meta-bg) 36%, transparent);
+}
+
+.dashboardTable {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font: 600 0.75rem/1.35 var(--font-ui);
+}
+
+.dashboardTable th,
+.dashboardTable td {
+  max-width: 210px;
+  padding: 10px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboardTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.dashboardTable th {
+  color: var(--subtle);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+}
+
+.dashboardDiagnosticList {
+  display: grid;
+  gap: 9px;
+}
+
+.dashboardDiagnosticItem {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--meta-bg) 46%, transparent);
+  box-shadow: inset 0 1px var(--surface-highlight-faint);
+}
+
+.dashboardDiagnosticItem strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font: 700 0.78rem/1.25 var(--font-ui);
+}
+
+.dashboardDiagnosticItem span,
+.dashboardDiagnosticItem p {
+  margin: 4px 0 0;
+  color: var(--subtle);
+  font: 560 0.7rem/1.35 var(--font-ui);
+}
+
+.dashboardDiagnosticItem small {
+  align-self: start;
+  max-width: 104px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--meta-bg) 70%, transparent);
+  color: var(--subtle);
+  font: 720 0.66rem/1 var(--font-ui);
+}
+
+.dashboardDiagnosticItem.isFailure small {
+  background: color-mix(in srgb, var(--error-bg, #fee2e2) 54%, transparent);
+  color: var(--error-text);
+}
+
+.dashboardDiagnosticItem p {
+  grid-column: 1 / -1;
+}
+
+.dashboardEmptyState {
+  min-height: 148px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 20px;
+  border-radius: 16px;
+  color: var(--subtle);
+  text-align: center;
+  background: color-mix(in srgb, var(--meta-bg) 30%, transparent);
+}
+
+.dashboardChart .dashboardEmptyState {
+  min-height: 316px;
+  background: transparent;
+}
+
+.dashboardEmptyState span {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  color: color-mix(in srgb, var(--subtle) 80%, transparent);
+  font: 760 1rem/1 var(--font-ui);
+}
+
+.dashboardEmptyState strong {
+  color: var(--ink);
+  font: 720 0.84rem/1.2 var(--font-ui);
 }
 
 .proxyCompactField {
@@ -2052,6 +2313,22 @@ button.bottomDockButton.isActive:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .dashboardStatsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboardHeaderMetaGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboardMetaItem.isWide {
+    grid-column: span 2;
+  }
+
+  .dashboardBottomGrid {
+    grid-template-columns: 1fr;
+  }
+
   .remoteHistoryPanel {
     order: 0;
   }
@@ -2103,6 +2380,26 @@ button.bottomDockButton.isActive:focus-visible {
   .proxySectionHeader {
     grid-template-columns: 1fr;
     justify-items: start;
+  }
+
+  .dashboardHeroTop,
+  .dashboardSectionHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboardHeroActions,
+  .dashboardSectionActions {
+    justify-content: flex-start;
+  }
+
+  .dashboardStatsGrid,
+  .dashboardHeaderMetaGrid,
+  .dashboardColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboardMetaItem.isWide {
+    grid-column: auto;
   }
 
   .proxyContextPanel .proxyContextSetting {

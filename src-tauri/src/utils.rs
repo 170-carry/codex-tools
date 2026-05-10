@@ -161,6 +161,22 @@ pub(crate) fn new_background_command<S: AsRef<OsStr>>(program: S) -> Command {
     command
 }
 
+#[cfg(windows)]
+pub(crate) fn silence_command_output(command: &mut Command) {
+    use std::fs::OpenOptions;
+    use std::process::Stdio;
+
+    if let Ok(null) = OpenOptions::new().write(true).open("NUL") {
+        command.stdout(Stdio::from(null));
+    }
+    if let Ok(null) = OpenOptions::new().write(true).open("NUL") {
+        command.stderr(Stdio::from(null));
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn silence_command_output(_command: &mut Command) {}
+
 pub(crate) fn new_resolved_command(command: &str) -> Command {
     let program = find_command_path(command).unwrap_or_else(|| PathBuf::from(command));
     let mut command = new_background_command(&program);
