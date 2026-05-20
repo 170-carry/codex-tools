@@ -91,6 +91,7 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.skipped_update_version {
             store.settings.skipped_update_version = value;
         }
+
         let settings = store.settings.clone();
         save_store(app, &store)?;
         settings

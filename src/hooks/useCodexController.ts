@@ -737,9 +737,6 @@ export function useCodexController() {
         await loadApiProxyUsageStats(DEFAULT_API_PROXY_USAGE_RANGE);
         await loadCloudflaredStatus();
         await refreshUsage(true);
-        if (AUTO_UPDATE_ENABLED) {
-          await checkForAppUpdate(true);
-        }
         await refreshTokenUsage(true);
         if (AUTO_UPDATE_ENABLED) {
           await checkForAppUpdate(true);

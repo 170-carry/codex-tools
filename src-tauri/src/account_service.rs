@@ -1,10 +1,11 @@
-use rfd::FileDialog;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+
+use rfd::FileDialog;
 use tauri::AppHandle;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
@@ -944,6 +945,7 @@ async fn persist_account_refresh_state(
     )?;
     Ok(())
 }
+
 fn should_retry_with_token_refresh(
     fetch_result: &Result<crate::models::UsageSnapshot, String>,
 ) -> bool {
