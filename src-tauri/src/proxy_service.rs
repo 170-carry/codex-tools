@@ -2,7 +2,9 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::fmt::Display;
 use std::fs;
+use std::future::Future;
 use std::io::Write;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -15,9 +17,11 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::time::Duration;
 use std::time::Instant;
 
 use async_stream::stream;
+use axum::body::to_bytes;
 use axum::body::Body;
 use axum::body::Bytes;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
@@ -97,14 +101,19 @@ const DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES: usize =
     DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB * 1024 * 1024;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS: u64 = 1_800;
 const DEFAULT_PROXY_CONNECT_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_PROXY_UPSTREAM_HEADERS_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_PROXY_FAST_UPSTREAM_HEADERS_TIMEOUT_SECS: u64 = 5;
 const MAX_PROXY_CONNECT_RESPONSE_BYTES: usize = 16 * 1024;
 const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_MIB";
+const RESPONSES_WEBSOCKET_EXPERIMENT_ENV_VAR: &str = "CODEX_TOOLS_RESPONSES_WEBSOCKET_EXPERIMENT";
 const CODEX_CLIENT_VERSION: &str = "0.125.0";
 const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
 const RESPONSES_EXPERIMENTAL_BETA: &str = "responses=experimental";
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const GPT_5_5_MODEL_ID: &str = "gpt-5.5";
+const GPT_5_4_MODEL_ID: &str = "gpt-5.4";
+const GPT_5_4_MINI_MODEL_ID: &str = "gpt-5.4-mini";
 const GPT_5_5_MAX_OUTPUT_TOKENS: u64 = 128_000;
 const GPT_5_5_EFFECTIVE_CONTEXT_PERCENT: u64 = 100;
 const CODEX_CATALOG_EFFECTIVE_CONTEXT_PERCENT: u64 = 100;
@@ -115,6 +124,7 @@ const MODELS: &[&str] = &[
     "gpt-5",
     "gpt-5.5",
     "gpt-5.4",
+    "gpt-5.4-mini",
     "gpt-5-mini",
     "gpt-5-codex",
     "gpt-5-codex-mini",
@@ -246,6 +256,7 @@ struct ProxyContext {
     storage: ProxyStorageContext,
     api_key: Arc<RwLock<String>>,
     upstream_base_url: String,
+    default_session_id: String,
     client: reqwest::Client,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
 }
@@ -267,11 +278,14 @@ struct ResponsesTrace {
     data_dir: PathBuf,
     started_at: Instant,
     request_bytes: usize,
+    downstream_stream: Arc<RwLock<Option<bool>>>,
     dashboard_id: String,
     model: Arc<RwLock<Option<String>>>,
     account_label: Arc<RwLock<Option<String>>>,
     upstream_headers_ms: Arc<RwLock<Option<u64>>>,
     first_chunk_ms: Arc<RwLock<Option<u64>>>,
+    failure_category: Arc<RwLock<Option<String>>>,
+    failure_brief: Arc<RwLock<Option<String>>>,
     tokens: Arc<RwLock<DashboardTokenUsage>>,
     last_sse_event_type: Arc<RwLock<Option<String>>>,
     terminal_sse_event_type: Arc<RwLock<Option<String>>>,
@@ -293,11 +307,14 @@ impl ResponsesTrace {
             data_dir: data_dir.to_path_buf(),
             started_at: Instant::now(),
             request_bytes,
+            downstream_stream: Arc::new(RwLock::new(None)),
             dashboard_id: dashboard_metrics::begin_in_flight_request("/v1/responses", None),
             model: Arc::new(RwLock::new(None)),
             account_label: Arc::new(RwLock::new(None)),
             upstream_headers_ms: Arc::new(RwLock::new(None)),
             first_chunk_ms: Arc::new(RwLock::new(None)),
+            failure_category: Arc::new(RwLock::new(None)),
+            failure_brief: Arc::new(RwLock::new(None)),
             tokens: Arc::new(RwLock::new(DashboardTokenUsage::default())),
             last_sse_event_type: Arc::new(RwLock::new(None)),
             terminal_sse_event_type: Arc::new(RwLock::new(None)),
@@ -315,7 +332,7 @@ impl ResponsesTrace {
 
     fn log(&self, phase: &str, details: impl AsRef<str>) {
         dashboard_metrics::update_in_flight_phase(&self.dashboard_id, phase);
-        let details = details.as_ref().replace('\r', " ").replace('\n', " ");
+        let details = scrub_trace_details(details.as_ref());
         let line = if details.is_empty() {
             format!(
                 "ts={} responses_trace id={} phase={} elapsed_ms={} request_bytes={}\n",
@@ -375,6 +392,21 @@ impl ResponsesTrace {
             *guard = model.clone();
         }
         dashboard_metrics::update_in_flight_model(&self.dashboard_id, model);
+    }
+
+    fn set_downstream_stream(&self, downstream_stream: bool) {
+        if let Ok(mut guard) = self.downstream_stream.write() {
+            *guard = Some(downstream_stream);
+        }
+    }
+
+    fn set_failure_context(&self, failure_category: Option<String>, failure_brief: Option<String>) {
+        if let Ok(mut guard) = self.failure_category.write() {
+            *guard = failure_category;
+        }
+        if let Ok(mut guard) = self.failure_brief.write() {
+            *guard = failure_brief;
+        }
     }
 
     fn set_account_label(&self, label: Option<String>) {
@@ -460,6 +492,18 @@ impl ResponsesTrace {
                 .and_then(|value| *value),
             first_chunk_ms,
             stream_ms: first_chunk_ms.map(|value| total_ms.saturating_sub(value)),
+            request_bytes: Some(self.request_bytes as u64),
+            downstream_stream: self.downstream_stream.read().ok().and_then(|value| *value),
+            failure_category: self
+                .failure_category
+                .read()
+                .ok()
+                .and_then(|value| value.clone()),
+            failure_brief: self
+                .failure_brief
+                .read()
+                .ok()
+                .and_then(|value| value.clone()),
             tokens: self
                 .tokens
                 .read()
@@ -511,8 +555,137 @@ impl Drop for ResponsesTrace {
         } else {
             "client_disconnected"
         };
+        self.set_failure_context(
+            Some(error_kind.to_string()),
+            Some("下游客户端在响应完成前断开连接".to_string()),
+        );
         self.finish_inner(None, Some(error_kind));
     }
+}
+
+fn service_tier_for_trace(value: &Value) -> String {
+    match value.get("service_tier") {
+        Some(Value::String(tier)) if !tier.trim().is_empty() => safe_trace_atom(tier),
+        Some(Value::String(_)) => "empty".to_string(),
+        Some(_) => "non_string".to_string(),
+        None => "missing".to_string(),
+    }
+}
+
+fn response_service_tier_for_trace(response: &Value) -> String {
+    service_tier_for_trace(response)
+}
+
+fn priority_service_tier_model(payload: &Value) -> Option<&str> {
+    let tier = payload.get("service_tier").and_then(Value::as_str)?;
+    if tier != "priority" {
+        return None;
+    }
+    payload
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|model| !model.trim().is_empty())
+}
+
+fn priority_service_tier_model_needing_catalog_check(payload: &Value) -> Option<&str> {
+    let model = priority_service_tier_model(payload)?;
+    if supports_fast_speed_tier(model) {
+        None
+    } else {
+        Some(model)
+    }
+}
+
+fn completed_event_service_tier_for_trace(event: &SseEvent) -> String {
+    let Ok(parsed) = serde_json::from_str::<Value>(&event.data) else {
+        return "unparsed".to_string();
+    };
+    parsed
+        .get("response")
+        .map(service_tier_for_trace)
+        .unwrap_or_else(|| service_tier_for_trace(&parsed))
+}
+
+fn format_service_tier_trace_details(
+    model: Option<&str>,
+    service_tier: &str,
+    upstream_url: Option<&str>,
+) -> String {
+    let mut details = format!(
+        "model={} service_tier={}",
+        model
+            .map(safe_trace_atom)
+            .unwrap_or_else(|| "missing".to_string()),
+        safe_trace_atom(service_tier),
+    );
+    if let Some(url) = upstream_url {
+        let (host, path) = split_trace_url_host_path(url);
+        details.push_str(&format!(
+            " host={} path={}",
+            safe_trace_atom(&host),
+            safe_trace_path(&path),
+        ));
+    }
+    details
+}
+
+fn scrub_trace_details(details: &str) -> String {
+    details
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .replace("Bearer ", "Bearer<redacted> ")
+}
+
+fn safe_trace_atom(value: &str) -> String {
+    let trimmed = value.trim();
+    let lowered = trimmed.to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return "empty".to_string();
+    }
+    if lowered.starts_with("sk-")
+        || lowered.contains("bearer")
+        || lowered.contains("authorization")
+        || lowered.contains("token")
+        || lowered.contains("account_id")
+    {
+        return "redacted".to_string();
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
+    {
+        return "invalid".to_string();
+    }
+    truncate_for_error(trimmed, 80)
+}
+
+fn safe_trace_path(value: &str) -> String {
+    if value.is_empty() {
+        return "/".to_string();
+    }
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-'))
+    {
+        return "invalid".to_string();
+    }
+    truncate_for_error(value, 120)
+}
+
+fn split_trace_url_host_path(url: &str) -> (String, String) {
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("wss://"))
+        .or_else(|| url.strip_prefix("ws://"))
+        .unwrap_or(url);
+    let mut parts = without_scheme.splitn(2, '/');
+    let host = parts.next().unwrap_or_default().to_string();
+    let path = parts
+        .next()
+        .map(|value| format!("/{value}"))
+        .unwrap_or_else(|| "/".to_string());
+    (host, path)
 }
 
 enum CodexUpstreamResponse {
@@ -805,6 +978,9 @@ pub(crate) async fn start_api_proxy_with_runtime(
 
     let client = reqwest::Client::builder()
         .user_agent("codex-tools-proxy/0.1")
+        .http1_only()
+        .no_gzip()
+        .pool_max_idle_per_host(0)
         .timeout(std::time::Duration::from_secs(
             DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS,
         ))
@@ -816,6 +992,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
         storage: storage.clone(),
         api_key: shared_api_key.clone(),
         upstream_base_url: resolve_codex_upstream_base_url(),
+        default_session_id: uuid::Uuid::new_v4().to_string(),
         client,
         shared: shared.clone(),
     });
@@ -1075,7 +1252,18 @@ fn build_codex_model_catalog_response(
         "visibility": "list",
         "supported_in_api": true,
         "priority": 0,
-        "additional_speed_tiers": if model == GPT_5_5_MODEL_ID { json!(["fast"]) } else { json!([]) },
+        "service_tiers": if supports_fast_speed_tier(model) {
+            json!([
+                {
+                    "id": "priority",
+                    "name": "Fast",
+                    "description": "1.5x speed, increased usage",
+                }
+            ])
+        } else {
+            json!([])
+        },
+        "additional_speed_tiers": if supports_fast_speed_tier(model) { json!(["fast"]) } else { json!([]) },
         "availability_nux": null,
         "upgrade": null,
         "base_instructions": "You are Codex, a coding agent based on GPT-5. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.",
@@ -1104,10 +1292,87 @@ fn build_codex_model_catalog_response(
     })
 }
 
+fn supports_fast_speed_tier(model: &str) -> bool {
+    matches!(
+        model,
+        GPT_5_5_MODEL_ID | GPT_5_4_MODEL_ID | GPT_5_4_MINI_MODEL_ID
+    )
+}
+
+fn codex_model_catalog_supports_priority(catalog: &Value, model: &str) -> bool {
+    ["models", "data"]
+        .iter()
+        .filter_map(|key| catalog.get(*key).and_then(Value::as_array))
+        .flatten()
+        .any(|entry| {
+            codex_catalog_model_matches(entry, model)
+                && codex_catalog_model_has_priority_tier(entry)
+        })
+}
+
+fn codex_catalog_model_matches(entry: &Value, model: &str) -> bool {
+    ["slug", "id", "model"].iter().any(|key| {
+        entry
+            .get(*key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value == model)
+    })
+}
+
+fn codex_catalog_model_has_priority_tier(entry: &Value) -> bool {
+    let has_priority_service_tier = entry
+        .get("service_tiers")
+        .and_then(Value::as_array)
+        .map(|tiers| {
+            tiers.iter().any(|tier| {
+                tier.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id == "priority")
+            })
+        })
+        .unwrap_or(false);
+    if has_priority_service_tier {
+        return true;
+    }
+
+    entry
+        .get("additional_speed_tiers")
+        .and_then(Value::as_array)
+        .map(|tiers| {
+            tiers.iter().any(|tier| {
+                tier.as_str()
+                    .is_some_and(|tier| tier.eq_ignore_ascii_case("fast"))
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn codex_model_catalog_url(upstream_base_url: &str) -> String {
+    let base = upstream_base_url.trim_end_matches('/');
+    match reqwest::Url::parse(base) {
+        Ok(mut url) => {
+            let path = format!("{}/models", url.path().trim_end_matches('/'));
+            url.set_path(&path);
+            url.query_pairs_mut()
+                .append_pair("client_version", CODEX_CLIENT_VERSION);
+            url.to_string()
+        }
+        Err(_) => {
+            let (path, query) = base.split_once('?').unwrap_or((base, ""));
+            if query.is_empty() {
+                format!("{path}/models?client_version={CODEX_CLIENT_VERSION}")
+            } else {
+                format!("{path}/models?{query}&client_version={CODEX_CLIENT_VERSION}")
+            }
+        }
+    }
+}
+
 fn codex_model_display_name(model: &str) -> &str {
     match model {
         "gpt-5.5" => "GPT-5.5",
         "gpt-5.4" => "GPT-5.4",
+        "gpt-5.4-mini" => "GPT-5.4-Mini",
         "gpt-5.3-codex" => "GPT-5.3 Codex",
         "gpt-5.2-codex" => "GPT-5.2 Codex",
         "gpt-5.1-codex-max" => "GPT-5.1 Codex Max",
@@ -1156,6 +1421,7 @@ async fn chat_completions_handler(
         "/v1/chat/completions",
         &headers,
         &upstream_payload,
+        None,
     )
     .await
     {
@@ -1214,6 +1480,10 @@ async fn responses_handler(
 
     if let Some(response) = ensure_authorized(&headers, &context.api_key) {
         trace.log("auth_failed", "");
+        trace.set_failure_context(
+            Some("auth_failed".to_string()),
+            Some("Invalid proxy api key.".to_string()),
+        );
         trace.finish(Some(StatusCode::UNAUTHORIZED.as_u16()), Some("auth_failed"));
         return response;
     }
@@ -1222,10 +1492,22 @@ async fn responses_handler(
         Ok(value) => value,
         Err(response) => {
             trace.log("parse_failed", "");
+            trace.set_failure_context(
+                Some("parse_failed".to_string()),
+                Some("请求体不是合法 JSON".to_string()),
+            );
             trace.finish(Some(StatusCode::BAD_REQUEST.as_u16()), Some("parse_failed"));
             return response;
         }
     };
+    trace.log(
+        "inbound_request",
+        format_service_tier_trace_details(
+            request_json.get("model").and_then(Value::as_str),
+            &service_tier_for_trace(&request_json),
+            None,
+        ),
+    );
 
     let (upstream_payload, downstream_stream) =
         match normalize_openai_responses_request(request_json) {
@@ -1237,15 +1519,28 @@ async fn responses_handler(
                     .unwrap_or("unknown");
                 trace.log(
                     "normalized",
-                    format!("model={model} downstream_stream={}", value.1),
+                    format!(
+                        "{} downstream_stream={}",
+                        format_service_tier_trace_details(
+                            Some(model),
+                            &service_tier_for_trace(&value.0),
+                            None,
+                        ),
+                        value.1
+                    ),
                 );
                 trace.set_model(Some(model.to_string()));
+                trace.set_downstream_stream(value.1);
                 value
             }
             Err(message) => {
                 trace.log(
                     "normalize_failed",
                     format!("error={}", truncate_for_error(&message, 200)),
+                );
+                trace.set_failure_context(
+                    Some("normalize_failed".to_string()),
+                    Some(truncate_for_error(&message, 200)),
                 );
                 trace.finish(
                     Some(StatusCode::BAD_REQUEST.as_u16()),
@@ -1256,23 +1551,33 @@ async fn responses_handler(
         };
 
     trace.log("upstream_request_start", "");
-    trace.log("upstream_request_start", "");
     let upstream = match send_codex_request_over_candidates(
         &context,
         "/v1/responses",
         &headers,
         &upstream_payload,
+        Some(&trace),
     )
     .await
     {
         Ok(value) => value,
         Err(response) => {
-            trace.log("upstream_request_failed", "");
-            trace.finish(
-                Some(response.status().as_u16()),
-                Some("upstream_request_failed"),
+            let status = response.status();
+            let (parts, body) = response.into_parts();
+            let body = to_bytes(body, DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES)
+                .await
+                .unwrap_or_default();
+            let failure = proxy_failure_details_from_upstream_response(status, &body);
+            trace.log(
+                "upstream_request_failed",
+                format_proxy_failure_details(&failure),
             );
-            return response;
+            trace.set_failure_context(
+                failure.failure_category.clone(),
+                Some(failure.failure_brief.clone()),
+            );
+            trace.finish(Some(status.as_u16()), Some(&failure.error_kind));
+            return Response::from_parts(parts, Body::from(body));
         }
     };
 
@@ -1307,6 +1612,10 @@ async fn responses_handler(
                     "non_stream_body_read_failed",
                     format!("error={}", truncate_for_error(&error, 200)),
                 );
+                trace.set_failure_context(
+                    Some("upstream_body_read_failed".to_string()),
+                    Some(truncate_for_error(&error, 200)),
+                );
                 trace.finish(
                     Some(StatusCode::BAD_GATEWAY.as_u16()),
                     Some("non_stream_body_read_failed"),
@@ -1328,6 +1637,10 @@ async fn responses_handler(
                     "non_stream_extract_failed",
                     format!("error={}", truncate_for_error(&message, 200)),
                 );
+                trace.set_failure_context(
+                    Some("upstream_body_extract_failed".to_string()),
+                    Some(truncate_for_error(&message, 200)),
+                );
                 trace.finish(
                     Some(StatusCode::BAD_GATEWAY.as_u16()),
                     Some("non_stream_extract_failed"),
@@ -1336,6 +1649,14 @@ async fn responses_handler(
                 return json_error_response(StatusCode::BAD_GATEWAY, &message);
             }
         };
+        trace.log(
+            "non_stream_actual_tier",
+            format_service_tier_trace_details(
+                completed.get("model").and_then(Value::as_str),
+                &response_service_tier_for_trace(&completed),
+                None,
+            ),
+        );
         record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &completed).await;
 
         let completed = rewrite_response_models_for_client(completed);
@@ -1345,6 +1666,10 @@ async fn responses_handler(
                 trace.log(
                     "non_stream_serialize_failed",
                     format!("error={}", truncate_for_error(&error.to_string(), 200)),
+                );
+                trace.set_failure_context(
+                    Some("proxy_serialize_failed".to_string()),
+                    Some(truncate_for_error(&error.to_string(), 200)),
                 );
                 trace.finish(
                     Some(StatusCode::BAD_GATEWAY.as_u16()),
@@ -1447,6 +1772,7 @@ async fn forward_image_request(
         route,
         &headers,
         &upstream_payload,
+        None,
     )
     .await
     {
@@ -1478,6 +1804,7 @@ async fn forward_image_request(
                     route,
                     &headers,
                     &upstream_payload,
+                    None,
                 )
                 .await
                 {
@@ -1585,6 +1912,7 @@ async fn handle_responses_websocket(
         "/v1/responses websocket",
         &headers,
         &upstream_payload,
+        None,
     )
     .await
     {
@@ -2015,6 +2343,12 @@ fn convert_openai_chat_request_to_codex(request: &Value) -> Result<(Value, bool)
     if let Some(tool_choice) = request_object.get("tool_choice") {
         root.insert("tool_choice".to_string(), tool_choice.clone());
     }
+    if let Some(service_tier) = request_object.get("service_tier") {
+        root.insert(
+            "service_tier".to_string(),
+            map_client_service_tier_to_upstream(service_tier),
+        );
+    }
 
     if let Some(response_format) = request_object.get("response_format") {
         map_response_format(&mut root, response_format);
@@ -2062,27 +2396,21 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
         }
     }
 
-    let include = object
-        .entry("include".to_string())
-        .or_insert_with(|| Value::Array(Vec::new()));
-    if !include.is_array() {
-        *include = Value::Array(Vec::new());
-    }
-    if let Some(items) = include.as_array_mut() {
-        let exists = items.iter().any(|value| {
-            value
-                .as_str()
-                .map(|value| value == "reasoning.encrypted_content")
-                .unwrap_or(false)
-        });
-        if !exists {
-            items.push(Value::String("reasoning.encrypted_content".to_string()));
+    if let Some(include) = object.get_mut("include") {
+        if !include.is_array() {
+            *include = Value::Array(Vec::new());
         }
     }
 
     // Cursor may attach OpenAI-compatible fields that Codex upstream rejects.
     for key in UNSUPPORTED_RESPONSES_REQUEST_FIELDS {
         object.remove(*key);
+    }
+    if let Some(service_tier) = object.get("service_tier").cloned() {
+        object.insert(
+            "service_tier".to_string(),
+            map_client_service_tier_to_upstream(&service_tier),
+        );
     }
 
     Ok((request, downstream_stream))
@@ -2466,9 +2794,30 @@ fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
     Ok(remap_model_name(model, REQUEST_MODEL_MAPPINGS).unwrap_or_else(|| model.to_string()))
 }
 
+fn map_client_service_tier_to_upstream(service_tier: &Value) -> Value {
+    match service_tier.as_str() {
+        Some("fast") => Value::String("priority".to_string()),
+        _ => service_tier.clone(),
+    }
+}
+
 fn should_use_responses_websocket(payload: &Value) -> bool {
-    let _ = payload;
-    false
+    should_use_responses_websocket_with_experiment(
+        payload,
+        env_flag_enabled(RESPONSES_WEBSOCKET_EXPERIMENT_ENV_VAR),
+    )
+}
+
+fn should_use_responses_websocket_with_experiment(
+    payload: &Value,
+    experiment_enabled: bool,
+) -> bool {
+    experiment_enabled
+        && payload
+            .get("service_tier")
+            .and_then(Value::as_str)
+            .is_some_and(|tier| tier == "priority")
+        && !has_image_generation_tool(payload)
 }
 
 fn has_image_generation_tool(payload: &Value) -> bool {
@@ -2483,6 +2832,19 @@ fn has_image_generation_tool(payload: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            let value = value.trim();
+            value == "1"
+                || value.eq_ignore_ascii_case("true")
+                || value.eq_ignore_ascii_case("yes")
+                || value.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
 fn websocket_response_create_payload(payload: &Value) -> Value {
     let mut payload = payload.clone();
     if let Some(object) = payload.as_object_mut() {
@@ -2492,6 +2854,30 @@ fn websocket_response_create_payload(payload: &Value) -> Value {
         );
     }
     payload
+}
+
+fn websocket_upstream_close_error(
+    saw_terminal_event: bool,
+    saw_any_event: bool,
+    close_detail: Option<&str>,
+) -> Option<String> {
+    if saw_terminal_event {
+        return None;
+    }
+
+    let stream_state = if saw_any_event {
+        "已返回部分事件"
+    } else {
+        "未返回任何事件"
+    };
+    let mut message = format!("Codex WebSocket 上游在 response.completed 前关闭（{stream_state}）");
+    if let Some(detail) = close_detail {
+        let detail = truncate_for_error(&scrub_trace_details(detail), 160);
+        if !detail.trim().is_empty() {
+            message.push_str(&format!(" close={detail}"));
+        }
+    }
+    Some(message)
 }
 
 fn websocket_url_from_http_url(url: &str) -> Result<String, String> {
@@ -3060,6 +3446,7 @@ async fn send_codex_request_over_candidates(
     route: &str,
     headers: &HeaderMap,
     payload: &Value,
+    responses_trace: Option<&ResponsesTrace>,
 ) -> Result<(ProxyCandidate, CodexUpstreamResponse), Response<Body>> {
     let selection = match load_proxy_candidate_selection(&context.storage).await {
         Ok(selection) if !selection.candidates.is_empty() => selection,
@@ -3083,6 +3470,19 @@ async fn send_codex_request_over_candidates(
         selection.load_balance,
         current_sequential_account_key.as_deref(),
     );
+    let candidates =
+        filter_proxy_candidates_for_usage(candidates, now_unix_seconds(), responses_trace);
+    if candidates.is_empty() {
+        let message =
+            "全部代理账号 5 小时用量已耗尽或暂不可用，等待用量刷新/重置后再放出。".to_string();
+        update_proxy_error(context, Some(message.clone())).await;
+        return Err(json_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            &message,
+        ));
+    }
+    let priority_model =
+        priority_service_tier_model_needing_catalog_check(payload).map(ToString::to_string);
 
     let mut attempt_errors = Vec::new();
     let mut retriable_failures = Vec::new();
@@ -3090,19 +3490,57 @@ async fn send_codex_request_over_candidates(
     for mut candidate in candidates {
         let mut did_refresh = false;
         let candidate_label = safe_candidate_label(&candidate.label);
+        if let Some(model) = priority_model.as_deref() {
+            match candidate_supports_priority_service_tier(context, &candidate, model).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    let message = format!(
+                        "{candidate_label}: 官方模型 catalog 未声明 {} 的 priority/fast 服务档位",
+                        safe_trace_atom(model),
+                    );
+                    if let Some(trace) = responses_trace {
+                        trace.log("fast_catalog_skip", &message);
+                    }
+                    attempt_errors.push(message);
+                    continue;
+                }
+                Err(error) => {
+                    let message = format!(
+                        "{candidate_label}: 读取官方模型 catalog 失败: {}",
+                        truncate_for_error(&error, 200),
+                    );
+                    if let Some(trace) = responses_trace {
+                        trace.log("fast_catalog_error", &message);
+                    }
+                    attempt_errors.push(message);
+                    continue;
+                }
+            }
+        }
 
         loop {
             log_proxy_request_route(route);
-            let upstream =
-                match forward_codex_request_with_candidate(context, &candidate, headers, payload)
-                    .await
-                {
-                    Ok(response) => response,
-                    Err(error) => {
-                        attempt_errors.push(format!("{candidate_label}: {error}"));
-                        break;
+            let upstream = match forward_codex_request_with_candidate(
+                context,
+                &candidate,
+                headers,
+                payload,
+                responses_trace,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    if let Some(trace) = responses_trace {
+                        trace.log(
+                            "upstream_attempt_failed",
+                            format!("{candidate_label}: {}", truncate_for_error(&error, 200)),
+                        );
                     }
-                };
+                    attempt_errors.push(format!("{candidate_label}: {error}"));
+                    break;
+                }
+            };
 
             let status = upstream.status();
             log_proxy_response_route(route, status);
@@ -3182,19 +3620,111 @@ async fn send_codex_request_over_candidates(
     Err(json_error_response(StatusCode::BAD_GATEWAY, &merged_error))
 }
 
+async fn candidate_supports_priority_service_tier(
+    context: &ProxyContext,
+    candidate: &ProxyCandidate,
+    model: &str,
+) -> Result<bool, String> {
+    let catalog = fetch_candidate_codex_model_catalog(context, candidate).await?;
+    Ok(codex_model_catalog_supports_priority(&catalog, model))
+}
+
+async fn fetch_candidate_codex_model_catalog(
+    context: &ProxyContext,
+    candidate: &ProxyCandidate,
+) -> Result<Value, String> {
+    let models_url = codex_model_catalog_url(&context.upstream_base_url);
+    let response = context
+        .client
+        .get(&models_url)
+        .timeout(std::time::Duration::from_secs(
+            DEFAULT_PROXY_CONNECT_TIMEOUT_SECS,
+        ))
+        .header(
+            "Authorization",
+            format!("Bearer {}", candidate.access_token),
+        )
+        .header("ChatGPT-Account-Id", &candidate.account_id)
+        .header("Accept", "application/json")
+        .header("Originator", "codex_cli_rs")
+        .header("Version", CODEX_CLIENT_VERSION)
+        .header("User-Agent", CODEX_USER_AGENT)
+        .send()
+        .await
+        .map_err(|error| format!("请求 Codex 模型 catalog 失败 {models_url}: {error}"))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取 Codex 模型 catalog 失败: {error}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "Codex 模型 catalog 返回 {}: {}",
+            status.as_u16(),
+            truncate_for_error(&body, 200)
+        ));
+    }
+
+    serde_json::from_str::<Value>(&body)
+        .map_err(|error| format!("解析 Codex 模型 catalog 失败: {error}"))
+}
+
+async fn wait_for_upstream_headers<F, T, E>(
+    future: F,
+    timeout: Duration,
+    upstream_url: &str,
+) -> Result<T, String>
+where
+    F: Future<Output = Result<T, E>>,
+    E: Display,
+{
+    tokio::time::timeout(timeout, future)
+        .await
+        .map_err(|_| format!("等待 Codex 上游响应头超时 {upstream_url}"))?
+        .map_err(|error| format!("请求 Codex 上游失败 {upstream_url}: {error}"))
+}
+
+fn upstream_headers_timeout_for_payload(payload: &Value) -> Duration {
+    if payload
+        .get("service_tier")
+        .and_then(Value::as_str)
+        .is_some_and(|tier| tier == "priority")
+    {
+        if payload
+            .get("reasoning")
+            .and_then(Value::as_object)
+            .and_then(|reasoning| reasoning.get("effort"))
+            .and_then(Value::as_str)
+            .is_some_and(|effort| effort == "xhigh")
+        {
+            Duration::from_secs(20)
+        } else {
+            Duration::from_secs(DEFAULT_PROXY_FAST_UPSTREAM_HEADERS_TIMEOUT_SECS)
+        }
+    } else {
+        Duration::from_secs(DEFAULT_PROXY_UPSTREAM_HEADERS_TIMEOUT_SECS)
+    }
+}
+
+fn upstream_session_id_for_request(headers: &HeaderMap, default_session_id: &str) -> String {
+    headers
+        .get("session_id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| default_session_id.to_string())
+}
+
 async fn forward_codex_request_with_candidate(
     context: &ProxyContext,
     candidate: &ProxyCandidate,
     headers: &HeaderMap,
     payload: &Value,
+    responses_trace: Option<&ResponsesTrace>,
 ) -> Result<CodexUpstreamResponse, String> {
     let upstream_url = format!("{}/responses", context.upstream_base_url);
-    let session_id = headers
-        .get("session_id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .map(ToString::to_string)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session_id = upstream_session_id_for_request(headers, &context.default_session_id);
 
     let version = headers
         .get("version")
@@ -3215,12 +3745,23 @@ async fn forward_codex_request_with_candidate(
             &session_id,
             version,
             user_agent,
+            responses_trace,
         )
         .await;
     }
 
     let serialized =
         serde_json::to_vec(payload).map_err(|error| format!("序列化上游请求失败: {error}"))?;
+    if let Some(trace) = responses_trace {
+        trace.log(
+            "outbound_payload",
+            format_service_tier_trace_details(
+                payload.get("model").and_then(Value::as_str),
+                &service_tier_for_trace(payload),
+                Some(&upstream_url),
+            ),
+        );
+    }
 
     let use_responses_experimental_beta = has_image_generation_tool(payload);
     let mut request = context
@@ -3232,6 +3773,7 @@ async fn forward_codex_request_with_candidate(
         )
         .header("ChatGPT-Account-Id", &candidate.account_id)
         .header("Accept", "text/event-stream")
+        .header("Accept-Encoding", "identity")
         .header("Content-Type", "application/json");
     if use_responses_experimental_beta {
         request = request.header("OpenAI-Beta", RESPONSES_EXPERIMENTAL_BETA);
@@ -3244,12 +3786,14 @@ async fn forward_codex_request_with_candidate(
             .header("Connection", "Keep-Alive");
     }
 
-    request
-        .body(serialized)
-        .send()
-        .await
-        .map(CodexUpstreamResponse::Http)
-        .map_err(|error| format!("请求 Codex 上游失败 {upstream_url}: {error}"))
+    let response = wait_for_upstream_headers(
+        request.body(serialized).send(),
+        upstream_headers_timeout_for_payload(payload),
+        &upstream_url,
+    )
+    .await?;
+
+    Ok(CodexUpstreamResponse::Http(response))
 }
 
 async fn forward_codex_websocket_request_with_candidate(
@@ -3259,6 +3803,7 @@ async fn forward_codex_websocket_request_with_candidate(
     session_id: &str,
     version: &str,
     user_agent: &str,
+    responses_trace: Option<&ResponsesTrace>,
 ) -> Result<CodexUpstreamResponse, String> {
     let upstream_url = format!("{}/responses", context.upstream_base_url);
     let websocket_url = websocket_url_from_http_url(&upstream_url)?;
@@ -3290,7 +3835,18 @@ async fn forward_codex_websocket_request_with_candidate(
 
     let (mut websocket, response) = connect_codex_websocket(request, &websocket_url).await?;
 
-    let request_text = serde_json::to_string(&websocket_response_create_payload(payload))
+    let create_payload = websocket_response_create_payload(payload);
+    if let Some(trace) = responses_trace {
+        trace.log(
+            "websocket_outbound_payload",
+            format_service_tier_trace_details(
+                create_payload.get("model").and_then(Value::as_str),
+                &service_tier_for_trace(&create_payload),
+                Some(&websocket_url),
+            ),
+        );
+    }
+    let request_text = serde_json::to_string(&create_payload)
         .map_err(|error| format!("序列化 Codex WebSocket 请求失败: {error}"))?;
     websocket
         .send(Message::Text(request_text.into()))
@@ -3299,6 +3855,7 @@ async fn forward_codex_websocket_request_with_candidate(
 
     let headers = response.headers().clone();
     let output = stream! {
+        let mut saw_websocket_event = false;
         loop {
             let message = match tokio::time::timeout(
                 std::time::Duration::from_secs(DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS),
@@ -3307,7 +3864,16 @@ async fn forward_codex_websocket_request_with_candidate(
             .await
             {
                 Ok(Some(message)) => message,
-                Ok(None) => break,
+                Ok(None) => {
+                    if let Some(error) = websocket_upstream_close_error(
+                        false,
+                        saw_websocket_event,
+                        None,
+                    ) {
+                        yield Err(error);
+                    }
+                    break;
+                }
                 Err(_) => {
                     yield Err("Codex WebSocket 上游读取超时".to_string());
                     break;
@@ -3316,10 +3882,12 @@ async fn forward_codex_websocket_request_with_candidate(
             match message {
                 Ok(Message::Text(text)) => {
                     let text = text.to_string();
+                    saw_websocket_event = true;
                     let event_name = websocket_event_type(&text);
+                    let terminal = websocket_event_is_terminal(&text);
                     let rewritten = rewrite_sse_event_data_models_for_client(&text);
                     yield Ok::<Bytes, String>(serialize_sse_event(event_name.as_deref(), &rewritten));
-                    if websocket_event_is_terminal(&text) {
+                    if terminal {
                         break;
                     }
                 }
@@ -3327,7 +3895,19 @@ async fn forward_codex_websocket_request_with_candidate(
                     yield Err("Codex WebSocket 上游返回了非预期的二进制消息".to_string());
                     break;
                 }
-                Ok(Message::Close(_)) => break,
+                Ok(Message::Close(frame)) => {
+                    let close_detail = frame.as_ref().map(|frame| {
+                        format!("code={} reason={}", frame.code, frame.reason)
+                    });
+                    if let Some(error) = websocket_upstream_close_error(
+                        false,
+                        saw_websocket_event,
+                        close_detail.as_deref(),
+                    ) {
+                        yield Err(error);
+                    }
+                    break;
+                }
                 Ok(Message::Ping(payload)) => {
                     let _ = websocket.send(Message::Pong(payload)).await;
                 }
@@ -3509,6 +4089,43 @@ fn is_under_sequential_limit(candidate: &ProxyCandidate, limit_percent: f64) -> 
     five_hour_used_percent(candidate)
         .map(|used_percent| used_percent < limit_percent)
         .unwrap_or(true)
+}
+
+fn filter_proxy_candidates_for_usage(
+    candidates: Vec<ProxyCandidate>,
+    now: i64,
+    responses_trace: Option<&ResponsesTrace>,
+) -> Vec<ProxyCandidate> {
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            if let Some(reason) = five_hour_usage_exhausted_reason(candidate, now) {
+                if let Some(trace) = responses_trace {
+                    trace.log(
+                        "usage_exhausted_skip",
+                        format!("{} {}", safe_candidate_label(&candidate.label), reason),
+                    );
+                }
+                false
+            } else {
+                true
+            }
+        })
+        .collect()
+}
+
+fn five_hour_usage_exhausted_reason(candidate: &ProxyCandidate, now: i64) -> Option<String> {
+    let window = candidate.usage.as_ref()?.five_hour.as_ref()?;
+    let used_percent = finite_used_percent(window)?;
+    if used_percent < 100.0 {
+        return None;
+    }
+
+    match window.reset_at {
+        Some(reset_at) if reset_at <= now => None,
+        Some(reset_at) => Some(format!("5h_used=100 reset_at={reset_at}")),
+        None => Some("5h_used=100 reset_at=missing".to_string()),
+    }
 }
 
 fn compare_proxy_candidates(left: &ProxyCandidate, right: &ProxyCandidate) -> Ordering {
@@ -3774,6 +4391,91 @@ fn classify_retriable_failure(status: StatusCode, body: &Bytes) -> Option<RetryF
     }
 
     None
+}
+
+struct ProxyFailureDetails {
+    status_code: StatusCode,
+    error_kind: String,
+    failure_category: Option<String>,
+    failure_brief: String,
+}
+
+fn proxy_failure_details_from_upstream_response(
+    status: StatusCode,
+    body: &Bytes,
+) -> ProxyFailureDetails {
+    if let Some(failure) = classify_retriable_failure(status, body) {
+        let (error_kind, failure_category) = match failure.category {
+            RetryFailureCategory::QuotaExceeded => {
+                ("upstream_quota_exceeded", Some("quota_exceeded"))
+            }
+            RetryFailureCategory::RateLimited => ("upstream_rate_limited", Some("rate_limited")),
+            RetryFailureCategory::ModelRestricted => {
+                ("upstream_model_restricted", Some("model_restricted"))
+            }
+            RetryFailureCategory::Authentication => ("upstream_auth_failed", Some("auth_failed")),
+            RetryFailureCategory::Permission => {
+                ("upstream_permission_denied", Some("permission_denied"))
+            }
+        };
+        return ProxyFailureDetails {
+            status_code: status,
+            error_kind: error_kind.to_string(),
+            failure_category: failure_category.map(ToString::to_string),
+            failure_brief: failure.detail,
+        };
+    }
+
+    let signals = extract_error_signals(body);
+    let (error_kind, failure_category): (String, Option<&str>) =
+        if status == StatusCode::BAD_REQUEST {
+            (
+                "upstream_invalid_request".to_string(),
+                Some("invalid_request"),
+            )
+        } else if status == StatusCode::UNAUTHORIZED {
+            ("upstream_auth_failed".to_string(), Some("auth_failed"))
+        } else if status == StatusCode::FORBIDDEN {
+            (
+                "upstream_permission_denied".to_string(),
+                Some("permission_denied"),
+            )
+        } else if status == StatusCode::TOO_MANY_REQUESTS {
+            ("upstream_rate_limited".to_string(), Some("rate_limited"))
+        } else if status == StatusCode::PAYMENT_REQUIRED {
+            (
+                "upstream_quota_exceeded".to_string(),
+                Some("quota_exceeded"),
+            )
+        } else if status == StatusCode::BAD_GATEWAY
+            && (signals.normalized.contains("全部代理账号均不可用")
+                || signals.normalized.contains("本次尝试的"))
+        {
+            (
+                "upstream_all_candidates_rejected".to_string(),
+                Some("all_candidates_rejected"),
+            )
+        } else {
+            (format!("upstream_http_{}", status.as_u16()), None)
+        };
+
+    ProxyFailureDetails {
+        status_code: status,
+        error_kind,
+        failure_category: failure_category.map(ToString::to_string),
+        failure_brief: signals.brief,
+    }
+}
+
+fn format_proxy_failure_details(details: &ProxyFailureDetails) -> String {
+    let category = details.failure_category.as_deref().unwrap_or("none");
+    format!(
+        "status={} error_kind={} failure_category={} brief={}",
+        details.status_code.as_u16(),
+        details.error_kind,
+        category,
+        truncate_for_error(&details.failure_brief, 160),
+    )
 }
 
 struct ErrorSignals {
@@ -4654,7 +5356,8 @@ fn build_passthrough_sse_response(
                             trace.log(
                                 "sse_terminal_event",
                                 format!(
-                                    "event={event_type} chunks={chunk_count} events={event_count} upstream_bytes={upstream_bytes}",
+                                    "event={event_type} actual_service_tier={} chunks={chunk_count} events={event_count} upstream_bytes={upstream_bytes}",
+                                    completed_event_service_tier_for_trace(&event),
                                 ),
                             );
                             match outcome {
@@ -4662,9 +5365,17 @@ fn build_passthrough_sse_response(
                                     trace.finish(Some(StatusCode::OK.as_u16()), None);
                                 }
                                 SseTerminalOutcome::Failed => {
+                                    trace.set_failure_context(
+                                        Some("upstream_response_failed".to_string()),
+                                        Some("上游返回 response.failed 终止事件".to_string()),
+                                    );
                                     trace.finish(None, Some("upstream_response_failed"));
                                 }
                                 SseTerminalOutcome::Incomplete => {
+                                    trace.set_failure_context(
+                                        Some("upstream_response_incomplete".to_string()),
+                                        Some("上游返回 response.incomplete 终止事件".to_string()),
+                                    );
                                     trace.finish(None, Some("upstream_response_incomplete"));
                                 }
                             }
@@ -4676,6 +5387,10 @@ fn build_passthrough_sse_response(
                     trace.log(
                         "upstream_stream_error",
                         format!("error={}", truncate_for_error(&error, 200)),
+                    );
+                    trace.set_failure_context(
+                        Some("upstream_stream_error".to_string()),
+                        Some(truncate_for_error(&error, 200)),
                     );
                     trace.finish(None, Some("upstream_stream_error"));
                     return;
@@ -4701,7 +5416,8 @@ fn build_passthrough_sse_response(
                 trace.log(
                     "sse_terminal_event",
                     format!(
-                        "event={event_type} chunks={chunk_count} events={event_count} upstream_bytes={upstream_bytes}",
+                        "event={event_type} actual_service_tier={} chunks={chunk_count} events={event_count} upstream_bytes={upstream_bytes}",
+                        completed_event_service_tier_for_trace(&event),
                     ),
                 );
                 match outcome {
@@ -4709,9 +5425,17 @@ fn build_passthrough_sse_response(
                         trace.finish(Some(StatusCode::OK.as_u16()), None);
                     }
                     SseTerminalOutcome::Failed => {
+                        trace.set_failure_context(
+                            Some("upstream_response_failed".to_string()),
+                            Some("上游返回 response.failed 终止事件".to_string()),
+                        );
                         trace.finish(None, Some("upstream_response_failed"));
                     }
                     SseTerminalOutcome::Incomplete => {
+                        trace.set_failure_context(
+                            Some("upstream_response_incomplete".to_string()),
+                            Some("上游返回 response.incomplete 终止事件".to_string()),
+                        );
                         trace.finish(None, Some("upstream_response_incomplete"));
                     }
                 }
@@ -5813,6 +6537,8 @@ mod tests {
     use super::build_api_proxy_usage_stats;
     use super::build_models_response;
     use super::classify_retriable_failure;
+    use super::codex_model_catalog_supports_priority;
+    use super::codex_model_catalog_url;
     use super::compare_proxy_candidates;
     use super::convert_completed_response_to_chat_completion;
     use super::convert_openai_chat_request_to_codex;
@@ -5820,7 +6546,9 @@ mod tests {
     use super::convert_openai_image_generation_request_to_codex;
     use super::convert_responses_image_output_to_images_response;
     use super::extract_completed_response_from_sse;
+    use super::filter_proxy_candidates_for_usage;
     use super::find_http_header_end;
+    use super::format_service_tier_trace_details;
     use super::host_matches_no_proxy;
     use super::is_responses_terminal_event;
     use super::normalize_openai_responses_request;
@@ -5829,17 +6557,27 @@ mod tests {
     use super::order_proxy_candidates_for_request;
     use super::parse_http_proxy_config;
     use super::parse_proxy_request_body_limit_mib;
+    use super::priority_service_tier_model;
+    use super::priority_service_tier_model_needing_catalog_check;
+    use super::proxy_failure_details_from_upstream_response;
     use super::prune_api_proxy_usage_events;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
+    use super::response_service_tier_for_trace;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
     use super::safe_candidate_label;
     use super::sequential_account_key_for_request;
+    use super::service_tier_for_trace;
     use super::should_use_responses_websocket;
+    use super::should_use_responses_websocket_with_experiment;
     use super::sse_terminal_outcome;
     use super::translate_sse_event_to_chat_chunk;
     use super::translate_sse_event_to_image_chunk;
+    use super::upstream_headers_timeout_for_payload;
+    use super::upstream_session_id_for_request;
+    use super::wait_for_upstream_headers;
     use super::websocket_target_host_port;
+    use super::websocket_upstream_close_error;
     use super::ApiProxyUsageEvent;
     use super::ChatStreamState;
     use super::ImageMultipartRequest;
@@ -5851,14 +6589,17 @@ mod tests {
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RETENTION_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
+    use super::DEFAULT_PROXY_UPSTREAM_HEADERS_TIMEOUT_SECS;
     use crate::models::ApiProxyLoadBalanceMode;
     use crate::models::AppSettings;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
     use axum::body::Bytes;
+    use axum::http::HeaderMap;
     use reqwest::StatusCode;
     use serde_json::json;
     use serde_json::Value;
+    use std::time::Duration;
 
     fn model_by_id<'a>(models: &'a Value, id: &str) -> &'a Value {
         models
@@ -5995,6 +6736,29 @@ mod tests {
             failure.category,
             RetryFailureCategory::ModelRestricted
         ));
+    }
+
+    #[test]
+    fn plain_invalid_request_is_not_retriable() {
+        let body = Bytes::from(
+            r#"{"error":{"message":"Unknown parameter: 'foo'.","type":"invalid_request_error","code":"unknown_parameter"}}"#,
+        );
+
+        assert!(classify_retriable_failure(StatusCode::BAD_REQUEST, &body).is_none());
+    }
+
+    #[test]
+    fn invalid_request_failure_details_keep_status_and_brief() {
+        let body = Bytes::from(
+            r#"{"error":{"message":"Unknown parameter: 'foo'.","type":"invalid_request_error","code":"unknown_parameter"}}"#,
+        );
+
+        let details = proxy_failure_details_from_upstream_response(StatusCode::BAD_REQUEST, &body);
+
+        assert_eq!(details.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(details.error_kind, "upstream_invalid_request");
+        assert_eq!(details.failure_category.as_deref(), Some("invalid_request"));
+        assert!(details.failure_brief.contains("Unknown parameter"));
     }
 
     #[test]
@@ -6185,6 +6949,107 @@ mod tests {
                 .get("auto_compact_token_limit")
                 .and_then(|value| value.as_u64()),
             Some(258_400)
+        );
+    }
+
+    #[test]
+    fn models_response_exposes_fast_speed_tier_for_gpt_5_4_family() {
+        let response = build_models_response(None);
+        let models = response
+            .get("models")
+            .and_then(|value| value.as_array())
+            .expect("codex model catalog should be present");
+
+        for model_id in ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"] {
+            let model = models
+                .iter()
+                .find(|model| {
+                    model
+                        .get("slug")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|slug| slug == model_id)
+                })
+                .expect("fast model should be present");
+
+            assert_eq!(
+                model
+                    .get("service_tiers")
+                    .and_then(|value| value.as_array())
+                    .map(|tiers| tiers.as_slice()),
+                Some(
+                    [json!({
+                        "id": "priority",
+                        "name": "Fast",
+                        "description": "1.5x speed, increased usage",
+                    })]
+                    .as_slice()
+                )
+            );
+
+            assert_eq!(
+                model
+                    .get("additional_speed_tiers")
+                    .and_then(|value| value.as_array())
+                    .map(|tiers| tiers.as_slice()),
+                Some([json!("fast")].as_slice())
+            );
+        }
+    }
+
+    #[test]
+    fn codex_model_catalog_detects_priority_support_from_service_tiers_or_fast_alias() {
+        let catalog = json!({
+            "models": [
+                {
+                    "slug": "gpt-5.5",
+                    "service_tiers": [{ "id": "priority" }],
+                    "additional_speed_tiers": []
+                },
+                {
+                    "slug": "gpt-5.4",
+                    "service_tiers": [],
+                    "additional_speed_tiers": ["fast"]
+                },
+                {
+                    "slug": "gpt-5",
+                    "service_tiers": [{ "id": "default" }],
+                    "additional_speed_tiers": []
+                }
+            ]
+        });
+
+        assert!(codex_model_catalog_supports_priority(&catalog, "gpt-5.5"));
+        assert!(codex_model_catalog_supports_priority(&catalog, "gpt-5.4"));
+        assert!(!codex_model_catalog_supports_priority(&catalog, "gpt-5"));
+        assert!(!codex_model_catalog_supports_priority(
+            &catalog,
+            "gpt-5.5-mini"
+        ));
+    }
+
+    #[test]
+    fn codex_model_catalog_accepts_openai_data_shape() {
+        let catalog = json!({
+            "data": [
+                {
+                    "id": "gpt-5.5",
+                    "additional_speed_tiers": ["fast"]
+                }
+            ]
+        });
+
+        assert!(codex_model_catalog_supports_priority(&catalog, "gpt-5.5"));
+    }
+
+    #[test]
+    fn codex_model_catalog_url_includes_client_version_query() {
+        assert_eq!(
+            codex_model_catalog_url("https://chatgpt.com/backend-api/codex"),
+            "https://chatgpt.com/backend-api/codex/models?client_version=0.125.0"
+        );
+        assert_eq!(
+            codex_model_catalog_url("https://example.test/backend-api/codex?region=test"),
+            "https://example.test/backend-api/codex/models?region=test&client_version=0.125.0"
         );
     }
 
@@ -6468,6 +7333,284 @@ mod tests {
     }
 
     #[test]
+    fn normalize_responses_request_preserves_service_tier() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "input": "hello",
+            "service_tier": "priority"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn normalize_responses_request_maps_fast_service_tier_to_priority() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "input": "hello",
+            "service_tier": "fast"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn normalize_responses_request_does_not_add_encrypted_reasoning_include_by_default() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "input": "hello"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert!(payload.get("include").is_none());
+    }
+
+    #[test]
+    fn normalize_responses_request_preserves_explicit_include() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "input": "hello",
+            "include": ["reasoning.encrypted_content"]
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert_eq!(
+            payload.get("include"),
+            Some(&json!(["reasoning.encrypted_content"]))
+        );
+    }
+
+    #[test]
+    fn convert_chat_request_maps_fast_service_tier_to_priority() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "hello"
+                }
+            ],
+            "service_tier": "fast"
+        });
+
+        let (payload, _) =
+            convert_openai_chat_request_to_codex(&request).expect("chat request should convert");
+
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn priority_service_tier_model_only_matches_priority_requests() {
+        assert_eq!(
+            priority_service_tier_model(&json!({
+                "model": "gpt-5.5",
+                "service_tier": "priority"
+            })),
+            Some("gpt-5.5")
+        );
+        assert_eq!(
+            priority_service_tier_model(&json!({
+                "model": "gpt-5.5",
+                "service_tier": "default"
+            })),
+            None
+        );
+        assert_eq!(
+            priority_service_tier_model(&json!({"model": "gpt-5.5"})),
+            None
+        );
+    }
+
+    #[test]
+    fn known_fast_models_skip_priority_catalog_preflight() {
+        assert_eq!(
+            priority_service_tier_model_needing_catalog_check(&json!({
+                "model": "gpt-5.5",
+                "service_tier": "priority"
+            })),
+            None
+        );
+        assert_eq!(
+            priority_service_tier_model_needing_catalog_check(&json!({
+                "model": "custom-priority-model",
+                "service_tier": "priority"
+            })),
+            Some("custom-priority-model")
+        );
+    }
+
+    #[tokio::test]
+    async fn upstream_header_wait_times_out_before_full_stream_timeout() {
+        let result = wait_for_upstream_headers(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Ok::<_, String>("late")
+            },
+            Duration::from_millis(1),
+            "https://example.test/backend-api/codex/responses",
+        )
+        .await;
+
+        let error = result.expect_err("headers wait should time out");
+        assert!(error.contains("等待 Codex 上游响应头超时"));
+    }
+
+    #[test]
+    fn priority_requests_without_xhigh_use_short_header_timeout() {
+        assert_eq!(
+            upstream_headers_timeout_for_payload(&json!({
+                "model": "gpt-5.5",
+                "service_tier": "priority"
+            })),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            upstream_headers_timeout_for_payload(&json!({
+                "model": "gpt-5.5",
+                "reasoning": { "effort": "low" },
+                "service_tier": "priority"
+            })),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            upstream_headers_timeout_for_payload(&json!({
+                "model": "gpt-5.5",
+                "service_tier": "default"
+            })),
+            Duration::from_secs(DEFAULT_PROXY_UPSTREAM_HEADERS_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn priority_xhigh_requests_use_longer_header_timeout() {
+        assert_eq!(
+            upstream_headers_timeout_for_payload(&json!({
+                "model": "gpt-5.5",
+                "reasoning": { "effort": "xhigh" },
+                "service_tier": "priority"
+            })),
+            Duration::from_secs(20)
+        );
+    }
+
+    #[test]
+    fn filters_out_five_hour_exhausted_candidates_until_reset() {
+        let mut exhausted =
+            proxy_candidate("exhausted", "exhausted", Some(5.0), Some(100.0), false);
+        exhausted
+            .usage
+            .as_mut()
+            .unwrap()
+            .five_hour
+            .as_mut()
+            .unwrap()
+            .reset_at = Some(now_unix_seconds() + 3_600);
+        let ready = proxy_candidate("ready", "ready", Some(5.0), Some(20.0), false);
+
+        let filtered = filter_proxy_candidates_for_usage(
+            vec![exhausted, ready.clone()],
+            now_unix_seconds(),
+            None,
+        );
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].account_key, ready.account_key);
+    }
+
+    #[test]
+    fn allows_five_hour_exhausted_candidates_after_reset_time() {
+        let mut exhausted =
+            proxy_candidate("exhausted", "exhausted", Some(5.0), Some(100.0), false);
+        exhausted
+            .usage
+            .as_mut()
+            .unwrap()
+            .five_hour
+            .as_mut()
+            .unwrap()
+            .reset_at = Some(now_unix_seconds() - 1);
+
+        let filtered =
+            filter_proxy_candidates_for_usage(vec![exhausted.clone()], now_unix_seconds(), None);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].account_key, exhausted.account_key);
+    }
+
+    #[test]
+    fn upstream_session_id_reuses_caller_header_when_present() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Session_id", "caller-session".parse().unwrap());
+
+        assert_eq!(
+            upstream_session_id_for_request(&headers, "default-session"),
+            "caller-session"
+        );
+    }
+
+    #[test]
+    fn upstream_session_id_uses_proxy_default_when_missing() {
+        let headers = HeaderMap::new();
+
+        assert_eq!(
+            upstream_session_id_for_request(&headers, "proxy-sticky-session"),
+            "proxy-sticky-session"
+        );
+    }
+
+    #[test]
+    fn service_tier_for_trace_reports_short_safe_values() {
+        assert_eq!(
+            service_tier_for_trace(&json!({"service_tier":"priority"})),
+            "priority"
+        );
+        assert_eq!(
+            service_tier_for_trace(&json!({"service_tier":"default"})),
+            "default"
+        );
+        assert_eq!(service_tier_for_trace(&json!({})), "missing");
+        assert_eq!(
+            service_tier_for_trace(&json!({"service_tier":true})),
+            "non_string"
+        );
+    }
+
+    #[test]
+    fn service_tier_trace_details_do_not_leak_sensitive_values() {
+        let details = format_service_tier_trace_details(
+            Some("Bearer secret-token"),
+            "priority",
+            Some("https://chatgpt.com/backend-api/codex/responses"),
+        );
+
+        assert!(details.contains("model=redacted"));
+        assert!(details.contains("service_tier=priority"));
+        assert!(details.contains("host=chatgpt.com"));
+        assert!(details.contains("path=/backend-api/codex/responses"));
+        assert!(!details.contains("secret-token"));
+        assert!(!details.to_ascii_lowercase().contains("bearer"));
+    }
+
+    #[test]
     fn strips_unsupported_fields_from_responses_style_requests() {
         let request = json!({
             "model": "gpt-5-4",
@@ -6598,6 +7741,37 @@ mod tests {
     }
 
     #[test]
+    fn uses_responses_websocket_for_priority_when_experiment_enabled() {
+        let payload = json!({
+            "model": "gpt-5.5",
+            "input": "hello",
+            "service_tier": "priority"
+        });
+
+        assert!(should_use_responses_websocket_with_experiment(
+            &payload, true
+        ));
+    }
+
+    #[test]
+    fn keeps_image_generation_tools_on_http_sse_even_when_websocket_experiment_enabled() {
+        let payload = json!({
+            "model": "gpt-5.5",
+            "service_tier": "priority",
+            "tools": [
+                {
+                    "type": "image_generation",
+                    "model": "gpt-image-2"
+                }
+            ]
+        });
+
+        assert!(!should_use_responses_websocket_with_experiment(
+            &payload, true
+        ));
+    }
+
+    #[test]
     fn does_not_use_responses_websocket_for_plain_text_requests() {
         let payload = json!({
             "model": "gpt-5.5",
@@ -6694,6 +7868,21 @@ mod tests {
             sse_terminal_outcome(&incomplete),
             Some(SseTerminalOutcome::Incomplete)
         );
+    }
+
+    #[test]
+    fn websocket_upstream_close_before_terminal_is_an_error() {
+        let error = websocket_upstream_close_error(false, false, Some("policy close"))
+            .expect("premature close should be surfaced");
+
+        assert!(error.contains("response.completed"));
+        assert!(error.contains("未返回任何事件"));
+        assert!(error.contains("policy"));
+    }
+
+    #[test]
+    fn websocket_upstream_close_after_terminal_is_not_an_error() {
+        assert!(websocket_upstream_close_error(true, true, None).is_none());
     }
 
     #[test]
@@ -7082,6 +8271,19 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
             response.get("output_text").and_then(Value::as_str),
             Some("2")
         );
+    }
+
+    #[test]
+    fn extracts_actual_service_tier_from_non_stream_completed_response() {
+        let body = br#"event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"model":"gpt-5.5","service_tier":"priority","status":"completed","output":[]}}
+
+"#;
+
+        let response =
+            extract_completed_response_from_sse(body).expect("response.completed expected");
+
+        assert_eq!(response_service_tier_for_trace(&response), "priority");
     }
 
     #[test]

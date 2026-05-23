@@ -31,7 +31,7 @@ pub(crate) struct DashboardTokenUsage {
     pub(crate) total_tokens: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DashboardMetricEvent {
     pub(crate) finished_at: i64,
@@ -44,6 +44,10 @@ pub(crate) struct DashboardMetricEvent {
     pub(crate) upstream_headers_ms: Option<u64>,
     pub(crate) first_chunk_ms: Option<u64>,
     pub(crate) stream_ms: Option<u64>,
+    pub(crate) request_bytes: Option<u64>,
+    pub(crate) downstream_stream: Option<bool>,
+    pub(crate) failure_category: Option<String>,
+    pub(crate) failure_brief: Option<String>,
     pub(crate) tokens: DashboardTokenUsage,
 }
 
@@ -581,6 +585,10 @@ mod tests {
                 upstream_headers_ms: Some(600),
                 first_chunk_ms: Some(650),
                 stream_ms: Some(350),
+                request_bytes: Some(123),
+                downstream_stream: Some(true),
+                failure_category: None,
+                failure_brief: None,
                 tokens: DashboardTokenUsage {
                     input_tokens: 100,
                     cached_input_tokens: 25,
@@ -600,6 +608,10 @@ mod tests {
                 upstream_headers_ms: None,
                 first_chunk_ms: None,
                 stream_ms: None,
+                request_bytes: Some(88),
+                downstream_stream: Some(false),
+                failure_category: Some("auth_failed".to_string()),
+                failure_brief: Some("invalid api key".to_string()),
                 tokens: DashboardTokenUsage::default(),
             },
         ];
@@ -626,6 +638,43 @@ mod tests {
                 .map(|bucket| bucket.request_count)
                 .sum::<usize>(),
             2
+        );
+    }
+
+    #[test]
+    fn metric_event_serializes_proxy_failure_context() {
+        let event = DashboardMetricEvent {
+            finished_at: 1,
+            endpoint: "/v1/responses".to_string(),
+            model: Some("gpt-5.5".to_string()),
+            account_label: None,
+            status_code: Some(400),
+            error_kind: Some("upstream_invalid_request".to_string()),
+            total_ms: 42,
+            upstream_headers_ms: None,
+            first_chunk_ms: None,
+            stream_ms: None,
+            request_bytes: Some(123),
+            downstream_stream: Some(false),
+            failure_category: Some("invalid_request".to_string()),
+            failure_brief: Some("Unknown parameter: 'foo'.".to_string()),
+            tokens: DashboardTokenUsage::default(),
+        };
+
+        let value = serde_json::to_value(&event).expect("metric event should serialize");
+
+        assert_eq!(value.get("requestBytes").and_then(Value::as_u64), Some(123));
+        assert_eq!(
+            value.get("downstreamStream").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            value.get("failureCategory").and_then(Value::as_str),
+            Some("invalid_request")
+        );
+        assert_eq!(
+            value.get("failureBrief").and_then(Value::as_str),
+            Some("Unknown parameter: 'foo'.")
         );
     }
 
@@ -669,6 +718,10 @@ mod tests {
                 upstream_headers_ms: Some(5),
                 first_chunk_ms: None,
                 stream_ms: None,
+                request_bytes: Some(42),
+                downstream_stream: Some(false),
+                failure_category: None,
+                failure_brief: None,
                 tokens: DashboardTokenUsage::default(),
             },
             DashboardMetricEvent {
@@ -682,6 +735,10 @@ mod tests {
                 upstream_headers_ms: Some(10),
                 first_chunk_ms: Some(12),
                 stream_ms: None,
+                request_bytes: Some(43),
+                downstream_stream: Some(true),
+                failure_category: None,
+                failure_brief: None,
                 tokens: DashboardTokenUsage::default(),
             },
         ];
@@ -713,6 +770,10 @@ mod tests {
                 upstream_headers_ms: Some(2_000),
                 first_chunk_ms: Some(2_100),
                 stream_ms: Some(7_900),
+                request_bytes: Some(200),
+                downstream_stream: Some(true),
+                failure_category: Some("client_disconnected".to_string()),
+                failure_brief: Some("client disconnected after first chunk".to_string()),
                 tokens: DashboardTokenUsage::default(),
             },
             DashboardMetricEvent {
@@ -726,6 +787,10 @@ mod tests {
                 upstream_headers_ms: None,
                 first_chunk_ms: None,
                 stream_ms: None,
+                request_bytes: Some(201),
+                downstream_stream: Some(true),
+                failure_category: Some("client_disconnected".to_string()),
+                failure_brief: Some("client disconnected".to_string()),
                 tokens: DashboardTokenUsage::default(),
             },
         ];

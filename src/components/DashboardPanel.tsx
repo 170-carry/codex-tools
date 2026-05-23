@@ -39,6 +39,26 @@ function formatCount(value: number | null | undefined): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function formatBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "--";
+  }
+  if (value < 1024) {
+    return `${value}B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)}KB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function formatStreamMode(value: boolean | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "--";
+  }
+  return value ? "流式" : "非流式";
+}
+
 function formatWindowLabel(window: "10m" | "1h" | "24h"): string {
   return window === "10m" ? "最近 10 分钟" : window === "1h" ? "最近 1 小时" : "最近 24 小时";
 }
@@ -265,6 +285,8 @@ function EventTable({
                 <th>模型</th>
                 <th>账号</th>
                 <th>状态</th>
+                <th>请求大小</th>
+                <th>流式</th>
                 <th>总耗时</th>
                 <th>首字节</th>
                 <th>令牌</th>
@@ -278,6 +300,8 @@ function EventTable({
                   <td title={event.model ?? ""}>{event.model ?? "--"}</td>
                   <td title={event.accountLabel ?? ""}>{event.accountLabel ?? "--"}</td>
                   <td>{event.statusCode ?? event.errorKind ?? "--"}</td>
+                  <td>{formatBytes(event.requestBytes)}</td>
+                  <td>{formatStreamMode(event.downstreamStream)}</td>
                   <td>{formatMs(event.totalMs)}</td>
                   <td>{formatMs(event.firstChunkMs)}</td>
                   <td>{formatTokenCount(event.tokens.totalTokens)}</td>
@@ -310,8 +334,15 @@ function FailureDiagnostics({ events }: { events: DashboardMetricEvent[] }) {
                 <strong title={event.endpoint}>{event.endpoint}</strong>
                 <span>{formatEventTime(event.finishedAt)} · {event.model ?? "未知模型"}</span>
               </div>
-              <small>{event.statusCode ?? event.errorKind ?? "失败"}</small>
-              <p>{event.accountLabel ?? "未标记账号"} · 总耗时 {formatMs(event.totalMs)}</p>
+              <small>
+                {event.statusCode ?? event.errorKind ?? "失败"}
+                {event.failureCategory ? ` · ${event.failureCategory}` : ""}
+              </small>
+              <p title={event.failureBrief ?? ""}>
+                {event.accountLabel ?? "未标记账号"} · 请求 {formatBytes(event.requestBytes)} ·{" "}
+                {formatStreamMode(event.downstreamStream)} · 总耗时 {formatMs(event.totalMs)}
+                {event.failureBrief ? ` · ${event.failureBrief}` : ""}
+              </p>
             </article>
           ))}
         </div>

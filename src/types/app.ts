@@ -182,6 +182,10 @@ export type DashboardMetricEvent = {
   upstreamHeadersMs: number | null;
   firstChunkMs: number | null;
   streamMs: number | null;
+  requestBytes: number | null;
+  downstreamStream: boolean | null;
+  failureCategory: string | null;
+  failureBrief: string | null;
   tokens: DashboardTokenUsage;
 };
 
