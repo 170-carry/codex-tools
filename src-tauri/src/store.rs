@@ -180,6 +180,8 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
         usage_error: None,
         auth_refresh_blocked: false,
         auth_refresh_error: None,
+        api_proxy_enabled: true,
+        codex_keepalive_last_at: None,
     };
     let mut stored = stored;
     let _ = profile_files::sync_account_profile_in_store_path(path, &mut stored);
@@ -635,6 +637,8 @@ mod tests {
                 usage_error: None,
                 auth_refresh_blocked: false,
                 auth_refresh_error: None,
+                api_proxy_enabled: true,
+                codex_keepalive_last_at: None,
             }],
             settings: Default::default(),
         }
@@ -726,6 +730,8 @@ mod tests {
                 usage_error: None,
                 auth_refresh_blocked: false,
                 auth_refresh_error: None,
+                api_proxy_enabled: true,
+                codex_keepalive_last_at: None,
             }],
             settings: Default::default(),
         };

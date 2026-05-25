@@ -140,6 +140,9 @@ export type MessageCatalog = {
     endpointLabel: string;
     modelLabel: string;
     balanceLabel: string;
+    apiProxyEnabled: string;
+    apiProxyDisabled: string;
+    apiProxyToggle: string;
     reauthorize: string;
     editAlias: string;
     aliasInputLabel: string;
@@ -452,6 +455,9 @@ export type MessageCatalog = {
     profileIntegrityWarning: (count: number) => string;
     accountAliasUpdated: (label: string) => string;
     accountAliasUpdateFailed: (error: string) => string;
+    accountApiProxyEnabled: (label: string) => string;
+    accountApiProxyDisabled: (label: string) => string;
+    accountApiProxyToggleFailed: (error: string) => string;
     accountsExported: string;
     accountsExportFailed: (error: string) => string;
     deleteConfirm: (label: string) => string;
@@ -590,6 +596,12 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       accountAliasUpdated: (label) => fillTemplate(raw.notices.accountAliasUpdated, { label }),
       accountAliasUpdateFailed: (error) =>
         fillTemplate(raw.notices.accountAliasUpdateFailed, { error }),
+      accountApiProxyEnabled: (label) =>
+        fillTemplate(raw.notices.accountApiProxyEnabled, { label }),
+      accountApiProxyDisabled: (label) =>
+        fillTemplate(raw.notices.accountApiProxyDisabled, { label }),
+      accountApiProxyToggleFailed: (error) =>
+        fillTemplate(raw.notices.accountApiProxyToggleFailed, { error }),
       accountsExportFailed: (error) =>
         fillTemplate(raw.notices.accountsExportFailed, { error }),
       deleteConfirm: (label) => fillTemplate(raw.notices.deleteConfirm, { label }),

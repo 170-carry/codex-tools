@@ -619,6 +619,39 @@ async fn update_account_label(
 }
 
 #[tauri::command]
+async fn update_account_api_proxy_enabled(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    account_key: String,
+    enabled: bool,
+) -> Result<bool, String> {
+    let resolved_enabled = account_service::update_account_api_proxy_enabled_internal(
+        &app,
+        state.inner(),
+        &account_key,
+        enabled,
+    )
+    .await?;
+
+    {
+        let api_proxy = state.api_proxy.lock().await;
+        if let Some(handle) = api_proxy.as_ref() {
+            let mut snapshot = handle.shared.lock().await;
+            if !resolved_enabled
+                && snapshot.active_account_key.as_deref() == Some(account_key.as_str())
+            {
+                snapshot.active_account_key = None;
+                snapshot.active_account_id = None;
+                snapshot.active_account_label = None;
+                snapshot.sequential_account_key = None;
+            }
+        }
+    }
+
+    Ok(resolved_enabled)
+}
+
+#[tauri::command]
 async fn refresh_all_usage(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1474,6 +1507,7 @@ pub fn run() {
             export_accounts_zip,
             delete_account,
             update_account_label,
+            update_account_api_proxy_enabled,
             refresh_all_usage,
             get_codex_token_usage,
             get_app_settings,

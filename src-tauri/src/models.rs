@@ -12,6 +12,10 @@ fn default_api_proxy_port() -> u16 {
     8787
 }
 
+pub(crate) fn default_api_proxy_enabled() -> bool {
+    true
+}
+
 pub(crate) fn default_api_proxy_sequential_five_hour_limit_percent() -> f64 {
     80.0
 }
@@ -104,6 +108,10 @@ pub(crate) struct StoredAccount {
     pub(crate) auth_refresh_blocked: bool,
     #[serde(default)]
     pub(crate) auth_refresh_error: Option<String>,
+    #[serde(default = "default_api_proxy_enabled")]
+    pub(crate) api_proxy_enabled: bool,
+    #[serde(default)]
+    pub(crate) codex_keepalive_last_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,6 +138,7 @@ pub(crate) struct AccountSummary {
     pub(crate) usage_error: Option<String>,
     pub(crate) auth_refresh_blocked: bool,
     pub(crate) auth_refresh_error: Option<String>,
+    pub(crate) api_proxy_enabled: bool,
     pub(crate) is_current: bool,
 }
 
@@ -584,6 +593,7 @@ impl StoredAccount {
             usage_error: self.usage_error.clone(),
             auth_refresh_blocked: self.auth_refresh_blocked,
             auth_refresh_error: self.auth_refresh_error.clone(),
+            api_proxy_enabled: self.api_proxy_enabled,
             is_current,
         }
     }
@@ -658,6 +668,15 @@ fn merge_duplicate_account_variant(left: StoredAccount, right: StoredAccount) ->
     if preferred.auth_refresh_error.is_none() {
         preferred.auth_refresh_error = alternate.auth_refresh_error.clone();
     }
+    preferred.api_proxy_enabled = preferred.api_proxy_enabled && alternate.api_proxy_enabled;
+    preferred.codex_keepalive_last_at = match (
+        preferred.codex_keepalive_last_at,
+        alternate.codex_keepalive_last_at,
+    ) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    };
     if preferred.auth_json.is_null() && !alternate.auth_json.is_null() {
         preferred.auth_json = alternate.auth_json.clone();
     }
@@ -782,6 +801,8 @@ mod tests {
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         }
     }
 
@@ -858,6 +879,8 @@ mod tests {
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         };
 
         assert_eq!(account.resolved_plan_type().as_deref(), Some("team"));
@@ -898,6 +921,8 @@ mod tests {
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         };
 
         assert_eq!(account.resolved_plan_type().as_deref(), Some("team"));
@@ -932,6 +957,8 @@ mod tests {
                 usage_error: None,
                 auth_refresh_blocked: false,
                 auth_refresh_error: None,
+                api_proxy_enabled: true,
+                codex_keepalive_last_at: None,
             },
             StoredAccount {
                 id: "second".to_string(),
@@ -959,6 +986,8 @@ mod tests {
                 usage_error: None,
                 auth_refresh_blocked: false,
                 auth_refresh_error: None,
+                api_proxy_enabled: true,
+                codex_keepalive_last_at: None,
             },
         ];
 

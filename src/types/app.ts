@@ -69,6 +69,7 @@ export type AccountSummary = {
   usageError: string | null;
   authRefreshBlocked: boolean;
   authRefreshError: string | null;
+  apiProxyEnabled: boolean;
   isCurrent: boolean;
 };
 

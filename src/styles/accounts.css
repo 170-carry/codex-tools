@@ -211,6 +211,12 @@
   flex: 0 0 auto;
 }
 
+.cardProxySwitch {
+  min-width: 34px;
+  min-height: 28px;
+  align-items: center;
+}
+
 .cardIdentity {
   min-width: 0;
   display: grid;

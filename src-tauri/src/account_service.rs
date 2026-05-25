@@ -4,8 +4,10 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use rfd::FileDialog;
+use serde_json::json;
 use tauri::AppHandle;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
@@ -39,9 +41,11 @@ use crate::store::load_store;
 use crate::store::save_store;
 use crate::store::update_account_group_refresh_state_in_path;
 use crate::usage::fetch_usage_snapshot;
+use crate::usage::resolve_chatgpt_base_origin;
 use crate::utils::now_unix_seconds;
 use crate::utils::set_private_permissions;
 use crate::utils::short_account;
+use crate::utils::truncate_for_error;
 
 const DEACTIVATED_WORKSPACE_NOTICE: &str = "该账号已被踢出 team 组织，请重新授权后再刷新。";
 const DEACTIVATED_ACCOUNT_NOTICE: &str = "账号被封禁，请检查邮箱";
@@ -49,6 +53,11 @@ const AUTH_EXPIRED_NOTICE: &str = "授权过期，请重新登录授权。";
 const EXPORT_ARCHIVE_ENTRY_NAME: &str = "accounts.json";
 const KEEPALIVE_REFRESH_WINDOW_SECS: i64 = 10 * 60;
 const KEEPALIVE_MAX_LAST_REFRESH_AGE_SECS: i64 = 6 * 60 * 60;
+const CODEX_KEEPALIVE_INTERVAL_SECS: i64 = 5 * 60 * 60;
+const CODEX_KEEPALIVE_TIMEOUT_SECS: u64 = 45;
+const CODEX_KEEPALIVE_MODEL: &str = "gpt-5.3-codex";
+const CODEX_KEEPALIVE_VERSION: &str = "0.125.0";
+const CODEX_KEEPALIVE_USER_AGENT: &str = "codex_cli_rs/0.125.0";
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -162,6 +171,8 @@ pub(crate) async fn create_api_account_internal(
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         };
         profile_files::sync_account_profile_in_store_path(
             &account_store_path_from_data_dir(&app_paths::app_data_dir(app)?),
@@ -383,6 +394,36 @@ pub(crate) async fn update_account_label_internal(
     Ok(resolved_label)
 }
 
+pub(crate) async fn update_account_api_proxy_enabled_internal(
+    app: &AppHandle,
+    state: &AppState,
+    account_key: &str,
+    enabled: bool,
+) -> Result<bool, String> {
+    let now = now_unix_seconds();
+
+    let _guard = state.store_lock.lock().await;
+    let mut store = load_store(app)?;
+    let mut updated = false;
+
+    for account in store
+        .accounts
+        .iter_mut()
+        .filter(|account| account.account_key() == account_key)
+    {
+        account.api_proxy_enabled = enabled;
+        account.updated_at = now;
+        updated = true;
+    }
+
+    if !updated {
+        return Err("未找到要设置反代状态的账号".to_string());
+    }
+
+    save_store(app, &store)?;
+    Ok(enabled)
+}
+
 /// 拉取并刷新所有账号用量，返回可直接用于前端/状态栏显示的摘要。
 ///
 /// 为避免“后台刷新覆盖新增账号”的竞态：
@@ -396,6 +437,7 @@ struct RefreshTarget {
     auth_refresh_blocked: bool,
     auth_refresh_error: Option<String>,
     updated_at: i64,
+    codex_keepalive_last_at: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -410,6 +452,7 @@ struct RefreshOutcome {
     auth_refreshed: bool,
     auth_refresh_blocked: bool,
     auth_refresh_error: Option<String>,
+    codex_keepalive_last_at: Option<i64>,
 }
 
 pub(crate) async fn refresh_all_usage_internal(
@@ -457,6 +500,7 @@ pub(crate) async fn refresh_all_usage_internal(
             account.auth_json = outcome.auth_json.clone();
             account.auth_refresh_blocked = outcome.auth_refresh_blocked;
             account.auth_refresh_error = outcome.auth_refresh_error.clone();
+            account.codex_keepalive_last_at = outcome.codex_keepalive_last_at;
             account.email = outcome.auth_email.clone().or(account.email.clone());
             let preferred_auth_plan_type = if outcome.auth_is_current || outcome.auth_refreshed {
                 outcome.auth_plan_type.clone()
@@ -538,6 +582,7 @@ fn build_refresh_targets(
             auth_refresh_blocked: account.auth_refresh_blocked,
             auth_refresh_error: account.auth_refresh_error.clone(),
             updated_at: account.updated_at,
+            codex_keepalive_last_at: account.codex_keepalive_last_at,
         };
 
         match targets_by_account_key.get_mut(&account_key) {
@@ -684,8 +729,15 @@ async fn refresh_usage_for_target(
         Err(_) => (None, None),
     };
 
-    let updated_at = now_unix_seconds();
     let usage = fetch_result.as_ref().ok().cloned();
+    let now = now_unix_seconds();
+    let codex_keepalive_last_at = maybe_run_codex_keepalive_ping(
+        target.account_key.as_str(),
+        &extracted,
+        target.codex_keepalive_last_at,
+        now,
+    )
+    .await;
     let usage_error = match fetch_result {
         Ok(_) => refresh_error.as_deref().map(normalize_usage_error_message),
         Err(err) => {
@@ -701,7 +753,7 @@ async fn refresh_usage_for_target(
     RefreshOutcome {
         usage,
         usage_error,
-        updated_at,
+        updated_at: now,
         auth_plan_type,
         auth_email,
         auth_json: working_auth_json,
@@ -709,7 +761,106 @@ async fn refresh_usage_for_target(
         auth_refreshed,
         auth_refresh_blocked,
         auth_refresh_error,
+        codex_keepalive_last_at,
     }
+}
+
+async fn maybe_run_codex_keepalive_ping(
+    account_key: &str,
+    extracted: &Result<crate::models::ExtractedAuth, String>,
+    last_at: Option<i64>,
+    now: i64,
+) -> Option<i64> {
+    if last_at
+        .map(|last_at| now.saturating_sub(last_at) < CODEX_KEEPALIVE_INTERVAL_SECS)
+        .unwrap_or(false)
+    {
+        return last_at;
+    }
+
+    let auth = match extracted {
+        Ok(auth) => auth,
+        Err(error) => {
+            log::warn!("跳过 Codex 账号保活请求 account_key={account_key}: {error}");
+            return last_at;
+        }
+    };
+
+    match send_codex_keepalive_ping(&auth.access_token, &auth.account_id).await {
+        Ok(()) => Some(now),
+        Err(error) => {
+            log::warn!("Codex 账号保活请求失败 account_key={account_key}: {error}");
+            last_at
+        }
+    }
+}
+
+async fn send_codex_keepalive_ping(access_token: &str, account_id: &str) -> Result<(), String> {
+    let upstream_url = format!(
+        "{}/backend-api/codex/responses",
+        resolve_chatgpt_base_origin().trim_end_matches('/')
+    );
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let payload = json!({
+        "model": CODEX_KEEPALIVE_MODEL,
+        "stream": true,
+        "store": false,
+        "instructions": "",
+        "parallel_tool_calls": true,
+        "reasoning": {
+            "effort": "medium",
+            "summary": "auto"
+        },
+        "include": ["reasoning.encrypted_content"],
+        "input": [{
+            "type": "message",
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "1+1"
+            }]
+        }]
+    });
+
+    let client = reqwest::Client::builder()
+        .user_agent(CODEX_KEEPALIVE_USER_AGENT)
+        .timeout(Duration::from_secs(CODEX_KEEPALIVE_TIMEOUT_SECS))
+        .build()
+        .map_err(|error| format!("创建 Codex 保活 HTTP 客户端失败: {error}"))?;
+
+    let response = client
+        .post(&upstream_url)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("ChatGPT-Account-Id", account_id)
+        .header("Accept", "text/event-stream")
+        .header("Content-Type", "application/json")
+        .header("Originator", "codex_cli_rs")
+        .header("Version", CODEX_KEEPALIVE_VERSION)
+        .header("Session_id", session_id)
+        .header("User-Agent", CODEX_KEEPALIVE_USER_AGENT)
+        .header("Connection", "Keep-Alive")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| format!("请求 Codex 保活接口失败 {upstream_url}: {error}"))?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "{upstream_url} -> {status}: {}",
+            truncate_for_error(&body, 180)
+        ));
+    }
+
+    if !body.contains("response.completed") && !body.contains("\"status\":\"completed\"") {
+        return Err(format!(
+            "{upstream_url} -> 未收到完成事件: {}",
+            truncate_for_error(&body, 180)
+        ));
+    }
+
+    Ok(())
 }
 
 async fn handle_refresh_failure(
@@ -1151,6 +1302,8 @@ fn upsert_prepared_import(
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         };
         let summary = stored.to_summary(current_account_key, current_variant_key);
         store.accounts.push(stored);
@@ -1182,6 +1335,8 @@ fn upsert_prepared_import(
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         };
         let summary = stored.to_summary(current_account_key, current_variant_key);
         store.accounts.push(stored);
@@ -1663,6 +1818,8 @@ mod tests {
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
         });
 
         let prepared = prepared_import(

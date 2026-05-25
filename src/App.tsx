@@ -105,6 +105,7 @@ function App() {
         onStartCloudflared,
         onStopCloudflared,
         onRenameAccountLabel,
+        onToggleAccountApiProxy,
         onDelete,
         onSwitch,
         onSmartSwitch,
@@ -207,6 +208,9 @@ function App() {
                                 onExport={(account) => void onExportAccounts(account)}
                                 onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}
+                                onToggleApiProxy={(account, enabled) =>
+                                    onToggleAccountApiProxy(account, enabled)
+                                }
                                 onSwitch={(account) => void onSwitch(account)}
                                 onDelete={(account) => void onDelete(account)}
                             />

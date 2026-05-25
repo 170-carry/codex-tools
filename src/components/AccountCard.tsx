@@ -18,6 +18,7 @@ type AccountCardProps = {
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
+  onToggleApiProxy: (account: AccountSummary, enabled: boolean) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
 };
@@ -163,6 +164,7 @@ export function AccountCard({
   onExport,
   onReauthorize,
   onRename,
+  onToggleApiProxy,
   onSwitch,
   onDelete,
 }: AccountCardProps) {
@@ -203,6 +205,9 @@ export function AccountCard({
   const fiveHourReset = formatResetValue(fiveHour?.resetAt, locale);
   const oneWeekReset = formatResetValue(oneWeek?.resetAt, locale);
   const normalizedDraftLabel = draftLabel.trim();
+  const proxyToggleLabel = selectedAccount.apiProxyEnabled
+    ? copy.accountCard.apiProxyEnabled
+    : copy.accountCard.apiProxyDisabled;
   const footerErrors = [
     selectedAccount.profileIntegrityError,
     selectedAccount.profileLastValidationError,
@@ -337,6 +342,23 @@ export function AccountCard({
           )}
         </div>
         <div className="cardActions">
+          <label
+            className="themeSwitch cardProxySwitch"
+            aria-label={copy.accountCard.apiProxyToggle}
+            title={proxyToggleLabel}
+          >
+            <input
+              type="checkbox"
+              checked={selectedAccount.apiProxyEnabled}
+              onChange={(event) => {
+                void onToggleApiProxy(selectedAccount, event.currentTarget.checked);
+              }}
+            />
+            <span className="themeSwitchTrack" aria-hidden="true">
+              <span className="themeSwitchThumb" />
+            </span>
+            <span className="themeSwitchText">{proxyToggleLabel}</span>
+          </label>
           <button
             type="button"
             className="cardExportIcon"

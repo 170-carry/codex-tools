@@ -48,6 +48,7 @@ type AccountsGridProps = {
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
+  onToggleApiProxy: (account: AccountSummary, enabled: boolean) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
 };
@@ -62,6 +63,7 @@ export function AccountsGrid({
   onExport,
   onReauthorize,
   onRename,
+  onToggleApiProxy,
   onSwitch,
   onDelete,
 }: AccountsGridProps) {
@@ -104,6 +106,7 @@ export function AccountsGrid({
           onExport={onExport}
           onReauthorize={onReauthorize}
           onRename={onRename}
+          onToggleApiProxy={onToggleApiProxy}
           onSwitch={onSwitch}
           onDelete={onDelete}
         />

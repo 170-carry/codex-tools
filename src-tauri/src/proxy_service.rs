@@ -2818,6 +2818,10 @@ async fn load_proxy_candidate_selection(
 }
 
 fn account_to_proxy_candidate(account: StoredAccount) -> Option<ProxyCandidate> {
+    if !account.api_proxy_enabled {
+        return None;
+    }
+
     let extracted = extract_auth(&account.auth_json).ok()?;
     let account_key = account.account_key();
     let variant_key = account.variant_key();
@@ -5093,6 +5097,7 @@ fn parse_proxy_request_body_limit_mib(value: Option<&str>) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use super::account_to_proxy_candidate;
     use super::api_proxy_usage_bucket_seconds;
     use super::api_proxy_usage_store_has_legacy_private_fields;
     use super::build_api_proxy_usage_stats;
@@ -5130,6 +5135,7 @@ mod tests {
     use super::API_PROXY_USAGE_RETENTION_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
     use crate::models::ApiProxyLoadBalanceMode;
+    use crate::models::StoredAccount;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
     use serde_json::json;
@@ -5214,6 +5220,41 @@ mod tests {
             calls,
             tokens,
         }
+    }
+
+    #[test]
+    fn disabled_account_is_not_proxy_candidate() {
+        let account = StoredAccount {
+            id: "disabled".to_string(),
+            label: "disabled".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("disabled@example.com".to_string()),
+            email: Some("disabled@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: Some("team".to_string()),
+            auth_json: json!({}),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 1,
+            usage: None,
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            api_proxy_enabled: false,
+            codex_keepalive_last_at: None,
+        };
+
+        assert!(account_to_proxy_candidate(account).is_none());
     }
 
     #[test]
