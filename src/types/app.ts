@@ -426,6 +426,7 @@ export type AppSettings = {
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;
   codexLaunchPath: string | null;
+  proxyUrl: string | null;
   syncOpencodeOpenaiAuth: boolean;
   restartOpencodeDesktopOnSwitch: boolean;
   restartEditorsOnSwitch: boolean;

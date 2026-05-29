@@ -71,6 +71,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   smartSwitchIncludeApi: false,
   launchCodexAsAdmin: false,
   codexLaunchPath: null,
+  proxyUrl: null,
   syncOpencodeOpenaiAuth: false,
   restartOpencodeDesktopOnSwitch: false,
   restartEditorsOnSwitch: false,
