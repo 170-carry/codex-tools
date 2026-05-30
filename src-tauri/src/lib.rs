@@ -1498,6 +1498,9 @@ pub fn run() {
             if let Err(err) = settings_service::sync_autostart_from_store(app.handle()) {
                 log::warn!("启动时同步开机启动状态失败: {err}");
             }
+            if let Err(err) = settings_service::sync_proxy_environment_from_store(app.handle()) {
+                log::warn!("启动时同步代理环境失败: {err}");
+            }
             // 启动阶段先同步当前本机登录账号，再初始化状态栏，保证首次展示即一致。
             store::sync_current_auth_account_on_startup(app.handle())?;
             tray::setup_system_tray(app.handle())?;

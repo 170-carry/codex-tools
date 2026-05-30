@@ -58,6 +58,7 @@ export function SettingsPanel({
   const { copy, locale, localeOptions, setLocale } = useI18n();
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
+  const [proxyUrlInput, setProxyUrlInput] = useState(settings.proxyUrl ?? "");
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
     id: item.code,
@@ -81,6 +82,10 @@ export function SettingsPanel({
     };
   }, []);
 
+  useEffect(() => {
+    setProxyUrlInput(settings.proxyUrl ?? "");
+  }, [settings.proxyUrl]);
+
   const pickCodexLaunchPath = async (kind: "file" | "directory") => {
     if (savingSettings || pickingCodexLaunchPathKind) {
       return;
@@ -99,6 +104,10 @@ export function SettingsPanel({
     } finally {
       setPickingCodexLaunchPathKind(null);
     }
+  };
+
+  const saveProxyUrl = () => {
+    onUpdateSettings({ proxyUrl: proxyUrlInput.trim() || null });
   };
 
   return (
@@ -226,6 +235,49 @@ export function SettingsPanel({
                   }}
                 >
                   {copy.addAccount.uploadChooseFolder}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="settingRow settingRowInput">
+            <div className="settingMeta">
+              <strong>{copy.settings.proxy.label}</strong>
+            </div>
+            <div className="settingFieldGroup settingUrlFieldGroup">
+              <input
+                className="settingTextInput"
+                type="url"
+                value={proxyUrlInput}
+                placeholder={copy.settings.proxy.placeholder}
+                aria-label={copy.settings.proxy.label}
+                disabled={savingSettings}
+                onChange={(event) => setProxyUrlInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    saveProxyUrl();
+                  }
+                }}
+              />
+              <div className="settingActionGroup">
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={savingSettings || proxyUrlInput.trim().length === 0}
+                  onClick={() => {
+                    setProxyUrlInput("");
+                    onUpdateSettings({ proxyUrl: null });
+                  }}
+                >
+                  {copy.common.clear}
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={savingSettings || proxyUrlInput.trim() === (settings.proxyUrl ?? "")}
+                  onClick={saveProxyUrl}
+                >
+                  {copy.common.save}
                 </button>
               </div>
             </div>

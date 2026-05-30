@@ -46,6 +46,7 @@ export type MessageCatalog = {
   common: {
     close: string;
     clear: string;
+    save: string;
   };
   topBar: {
     appTitle: string;
@@ -374,6 +375,10 @@ export type MessageCatalog = {
     };
     codexLaunchPath: {
       label: string;
+    };
+    proxy: {
+      label: string;
+      placeholder: string;
     };
     syncOpencode: {
       label: string;

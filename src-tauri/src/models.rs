@@ -434,6 +434,8 @@ pub(crate) struct AppSettings {
     pub(crate) smart_switch_include_api: bool,
     pub(crate) codex_launch_path: Option<String>,
     #[serde(default)]
+    pub(crate) proxy_url: Option<String>,
+    #[serde(default)]
     pub(crate) active_account_id: Option<String>,
     pub(crate) sync_opencode_openai_auth: bool,
     pub(crate) restart_opencode_desktop_on_switch: bool,
@@ -464,6 +466,7 @@ impl Default for AppSettings {
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
             codex_launch_path: None,
+            proxy_url: None,
             active_account_id: None,
             sync_opencode_openai_auth: false,
             restart_opencode_desktop_on_switch: false,
@@ -492,6 +495,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) codex_launch_path: Option<Option<String>>,
+    pub(crate) proxy_url: Option<Option<String>>,
     pub(crate) sync_opencode_openai_auth: Option<bool>,
     pub(crate) restart_opencode_desktop_on_switch: Option<bool>,
     pub(crate) restart_editors_on_switch: Option<bool>,
@@ -1001,4 +1005,25 @@ mod tests {
         assert_eq!(accounts.len(), 2);
         assert_ne!(accounts[0].account_key(), accounts[1].account_key());
     }
+
+    #[test]
+    fn app_settings_defaults_proxy_url_to_none() {
+        let settings = super::AppSettings::default();
+
+        assert_eq!(settings.proxy_url, None);
+    }
+
+    #[test]
+    fn app_settings_deserializes_proxy_url_from_camel_case() {
+        let settings: super::AppSettings = serde_json::from_value(json!({
+            "proxyUrl": "http://127.0.0.1:7890"
+        }))
+        .expect("deserialize settings");
+
+        assert_eq!(
+            settings.proxy_url.as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+    }
+
 }

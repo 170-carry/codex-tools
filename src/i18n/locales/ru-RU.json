@@ -1,7 +1,8 @@
 {
   "common": {
     "close": "Закрыть",
-    "clear": "Очистить"
+    "clear": "Очистить",
+    "save": "Сохранить"
   },
   "topBar": {
     "appTitle": "Codex Tools",
@@ -363,6 +364,10 @@
     },
     "codexLaunchPath": {
       "label": "Указать путь запуска Codex"
+    },
+    "proxy": {
+      "label": "URL прокси",
+      "placeholder": "Напр. http://127.0.0.1:7890 или socks5://127.0.0.1:1080"
     },
     "syncOpencode": {
       "label": "Синхронизировать Opencode OpenAI auth",

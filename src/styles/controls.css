@@ -552,6 +552,18 @@
   min-height: 50px;
 }
 
+.settingRowInput {
+  grid-template-columns: minmax(220px, 1fr) minmax(360px, 520px);
+  align-items: start;
+  min-height: 78px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.settingRowInput .settingMeta {
+  padding-top: 11px;
+}
+
 .settingRowNested {
   background: color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%);
 }
@@ -622,12 +634,53 @@
   justify-items: end;
 }
 
+.settingUrlFieldGroup {
+  width: min(520px, 100%);
+  gap: 8px;
+}
+
+.settingUrlFieldGroup .settingActionGroup {
+  gap: 8px;
+}
+
 .settingPathValue {
   width: 100%;
   color: var(--subtle);
   font: 500 0.74rem/1.35 var(--font-mono);
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.settingTextInput {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 88%, var(--surface-tint) 12%);
+  color: var(--ink);
+  padding: 0 11px;
+  font: 500 0.76rem/1.3 var(--font-mono);
+  text-align: right;
+  outline: none;
+}
+
+.settingUrlFieldGroup .settingTextInput {
+  text-align: left;
+}
+
+.settingTextInput::placeholder {
+  color: color-mix(in srgb, var(--subtle) 72%, transparent);
+}
+
+.settingTextInput:focus {
+  border-color: color-mix(in srgb, var(--brand-cool) 52%, var(--line) 48%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 16%, transparent);
+}
+
+.settingTextInput:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .settingPathClearButton {

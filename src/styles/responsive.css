@@ -103,6 +103,22 @@
     padding: 12px 14px;
   }
 
+  .settingRowInput {
+    min-height: 0;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .settingRowInput .settingMeta {
+    padding-top: 0;
+  }
+
+  .settingFieldGroup,
+  .settingUrlFieldGroup {
+    width: 100%;
+    justify-items: stretch;
+  }
+
   .editorPicker {
     width: 100%;
     max-width: none;
@@ -125,6 +141,10 @@
   }
 
   .settingPathValue {
+    text-align: left;
+  }
+
+  .settingTextInput {
     text-align: left;
   }
 

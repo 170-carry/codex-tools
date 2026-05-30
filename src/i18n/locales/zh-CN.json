@@ -1,7 +1,8 @@
 {
   "common": {
     "close": "关闭",
-    "clear": "清空"
+    "clear": "清空",
+    "save": "保存"
   },
   "topBar": {
     "appTitle": "Codex Tools",
@@ -363,6 +364,10 @@
     },
     "codexLaunchPath": {
       "label": "指定codex启动路径"
+    },
+    "proxy": {
+      "label": "代理链接",
+      "placeholder": "例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
     },
     "syncOpencode": {
       "label": "同步 Opencode",
