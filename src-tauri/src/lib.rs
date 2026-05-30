@@ -14,6 +14,7 @@ mod remote_service;
 mod settings_service;
 mod state;
 mod store;
+mod token_refresh_daemon;
 mod token_usage;
 mod tray;
 mod usage;
@@ -1551,9 +1552,13 @@ pub fn run() {
 
     app.run(|app_handle, event| match event {
         tauri::RunEvent::Ready => {
-            let app_handle = app_handle.clone();
+            let handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
-                auto_start_api_proxy_if_enabled(app_handle).await;
+                auto_start_api_proxy_if_enabled(handle).await;
+            });
+            let handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                token_refresh_daemon::run(handle).await;
             });
         }
         #[cfg(target_os = "macos")]
