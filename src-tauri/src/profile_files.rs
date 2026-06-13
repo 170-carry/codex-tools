@@ -1,10 +1,13 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use reqwest::StatusCode;
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
 use toml_edit::value;
 use toml_edit::DocumentMut;
@@ -14,6 +17,7 @@ use crate::app_paths;
 use crate::auth;
 use crate::models::AccountSourceKind;
 use crate::models::StoredAccount;
+use crate::utils;
 use crate::utils::set_private_permissions;
 
 const PROFILE_DIR_NAME: &str = "profiles";
@@ -21,7 +25,25 @@ const PROFILE_AUTH_FILE_NAME: &str = "auth.json";
 const PROFILE_CONFIG_FILE_NAME: &str = "config.toml";
 const PROFILE_INCOMPLETE_MESSAGE: &str = "配置不完整";
 const RELAY_INCOMPLETE_MESSAGE: &str = "API 条目资料不完整";
+const CODEX_PROXY_BACKUP_DIR_NAME: &str = "codex-tools-api-proxy-backup";
+const CODEX_PROXY_BACKUP_METADATA_FILE_NAME: &str = "metadata.json";
 const VALIDATE_TIMEOUT_SECS: u64 = 18;
+
+#[derive(Debug, Clone)]
+pub(crate) struct CodexProxyBindingState {
+    pub(crate) bound: bool,
+    pub(crate) restore_available: bool,
+    pub(crate) current_base_url: Option<String>,
+    pub(crate) config_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CodexProxyBindingBackupMetadata {
+    config_existed: bool,
+    auth_existed: bool,
+    bound_base_url: String,
+    bound_at: i64,
+}
 
 pub(crate) fn profile_dir_from_store_path(store_path: &Path, id: &str) -> PathBuf {
     store_path
@@ -178,6 +200,83 @@ pub(crate) fn apply_account_profile(account: &StoredAccount) -> Result<(), Strin
         .map_err(|error| format!("创建 Codex 配置目录失败 {}: {error}", parent.display()))?;
     write_file_atomically(&active_config_path, config_contents.as_bytes())?;
     Ok(())
+}
+
+pub(crate) fn codex_proxy_binding_state(
+    expected_base_url: Option<&str>,
+) -> Result<CodexProxyBindingState, String> {
+    let config_path = current_codex_config_path()?;
+    let current_base_url = read_optional_text(&config_path)?
+        .as_deref()
+        .and_then(codex_config_openai_base_url);
+    let expected_base_url = expected_base_url.and_then(normalize_codex_proxy_base_url);
+
+    Ok(CodexProxyBindingState {
+        bound: expected_base_url
+            .as_deref()
+            .is_some_and(|expected| current_base_url.as_deref() == Some(expected)),
+        restore_available: codex_proxy_backup_metadata_path()?.is_file(),
+        current_base_url,
+        config_path: Some(config_path.to_string_lossy().to_string()),
+    })
+}
+
+pub(crate) fn bind_codex_to_api_proxy(
+    base_url: &str,
+    api_key: &str,
+) -> Result<CodexProxyBindingState, String> {
+    let base_url = normalize_codex_proxy_base_url(base_url)
+        .ok_or_else(|| "本机反代 Base URL 为空。请先启动 API 反代。".to_string())?;
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return Err("本机反代 API Key 为空。请先启动 API 反代。".to_string());
+    }
+
+    let config_path = current_codex_config_path()?;
+    let auth_path = app_paths::codex_auth_path()?;
+    ensure_codex_proxy_backup(&config_path, &auth_path, &base_url)?;
+
+    let config_template = read_optional_text(&config_path)?;
+    let config_text = build_codex_proxy_config(config_template.as_deref(), &base_url);
+    let auth_json = build_api_auth_json(api_key);
+    let serialized_auth = serde_json::to_string_pretty(&auth_json)
+        .map_err(|error| format!("序列化本机反代 auth.json 失败: {error}"))?;
+
+    write_file_atomically(&config_path, config_text.as_bytes())?;
+    write_file_atomically(&auth_path, serialized_auth.as_bytes())?;
+    codex_proxy_binding_state(Some(&base_url))
+}
+
+pub(crate) fn restore_codex_proxy_binding() -> Result<CodexProxyBindingState, String> {
+    let metadata_path = codex_proxy_backup_metadata_path()?;
+    if !metadata_path.is_file() {
+        return Err("没有可恢复的 Codex 反代绑定备份。".to_string());
+    }
+
+    let metadata_text = fs::read_to_string(&metadata_path).map_err(|error| {
+        format!(
+            "读取 Codex 反代绑定备份失败 {}: {error}",
+            metadata_path.display()
+        )
+    })?;
+    let metadata: CodexProxyBindingBackupMetadata = serde_json::from_str(&metadata_text)
+        .map_err(|error| format!("Codex 反代绑定备份元数据无效: {error}"))?;
+
+    let config_path = current_codex_config_path()?;
+    let auth_path = app_paths::codex_auth_path()?;
+    restore_backup_file(
+        &codex_proxy_config_backup_path()?,
+        &config_path,
+        metadata.config_existed,
+    )?;
+    restore_backup_file(
+        &codex_proxy_auth_backup_path()?,
+        &auth_path,
+        metadata.auth_existed,
+    )?;
+
+    cleanup_codex_proxy_backup();
+    codex_proxy_binding_state(None)
 }
 
 pub(crate) fn build_api_auth_json(api_key: &str) -> Value {
@@ -363,6 +462,13 @@ fn build_relay_profile_config(
     document.to_string()
 }
 
+fn build_codex_proxy_config(current_config: Option<&str>, base_url: &str) -> String {
+    let mut document = parse_config_or_default(current_config);
+    document["openai_base_url"] = value(base_url);
+    document["model_provider"] = value("openai");
+    document.to_string()
+}
+
 fn parse_config_or_default(current_config: Option<&str>) -> DocumentMut {
     current_config
         .and_then(|raw| raw.parse::<DocumentMut>().ok())
@@ -376,6 +482,125 @@ fn read_current_codex_config_optional() -> Result<Option<String>, String> {
 
 fn current_codex_config_path() -> Result<PathBuf, String> {
     app_paths::codex_config_path()
+}
+
+fn codex_proxy_backup_dir() -> Result<PathBuf, String> {
+    Ok(app_paths::codex_dir()?.join(CODEX_PROXY_BACKUP_DIR_NAME))
+}
+
+fn codex_proxy_backup_metadata_path() -> Result<PathBuf, String> {
+    Ok(codex_proxy_backup_dir()?.join(CODEX_PROXY_BACKUP_METADATA_FILE_NAME))
+}
+
+fn codex_proxy_config_backup_path() -> Result<PathBuf, String> {
+    Ok(codex_proxy_backup_dir()?.join(PROFILE_CONFIG_FILE_NAME))
+}
+
+fn codex_proxy_auth_backup_path() -> Result<PathBuf, String> {
+    Ok(codex_proxy_backup_dir()?.join(PROFILE_AUTH_FILE_NAME))
+}
+
+fn normalize_codex_proxy_base_url(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn codex_config_openai_base_url(raw: &str) -> Option<String> {
+    raw.parse::<DocumentMut>()
+        .ok()?
+        .get("openai_base_url")?
+        .as_str()
+        .and_then(normalize_codex_proxy_base_url)
+}
+
+fn ensure_codex_proxy_backup(
+    config_path: &Path,
+    auth_path: &Path,
+    bound_base_url: &str,
+) -> Result<(), String> {
+    let metadata_path = codex_proxy_backup_metadata_path()?;
+    if metadata_path.is_file() {
+        return Ok(());
+    }
+
+    let backup_dir = codex_proxy_backup_dir()?;
+    fs::create_dir_all(&backup_dir).map_err(|error| {
+        format!(
+            "创建 Codex 反代备份目录失败 {}: {error}",
+            backup_dir.display()
+        )
+    })?;
+    set_private_permissions(&backup_dir);
+
+    let config_existed = config_path.is_file();
+    if config_existed {
+        fs::copy(config_path, codex_proxy_config_backup_path()?).map_err(|error| {
+            format!(
+                "备份 Codex config.toml 失败 {}: {error}",
+                config_path.display()
+            )
+        })?;
+        set_private_permissions(&codex_proxy_config_backup_path()?);
+    }
+
+    let auth_existed = auth_path.is_file();
+    if auth_existed {
+        fs::copy(auth_path, codex_proxy_auth_backup_path()?).map_err(|error| {
+            format!("备份 Codex auth.json 失败 {}: {error}", auth_path.display())
+        })?;
+        set_private_permissions(&codex_proxy_auth_backup_path()?);
+    }
+
+    let metadata = CodexProxyBindingBackupMetadata {
+        config_existed,
+        auth_existed,
+        bound_base_url: bound_base_url.to_string(),
+        bound_at: utils::now_unix_seconds(),
+    };
+    let metadata_text = serde_json::to_string_pretty(&metadata)
+        .map_err(|error| format!("序列化 Codex 反代备份元数据失败: {error}"))?;
+    write_file_atomically(&metadata_path, metadata_text.as_bytes())
+}
+
+fn restore_backup_file(
+    backup_path: &Path,
+    target_path: &Path,
+    existed: bool,
+) -> Result<(), String> {
+    if existed {
+        let backup = fs::read(backup_path).map_err(|error| {
+            format!("读取 Codex 备份文件失败 {}: {error}", backup_path.display())
+        })?;
+        write_file_atomically(target_path, &backup)
+    } else {
+        match fs::remove_file(target_path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "移除 Codex 临时绑定文件失败 {}: {error}",
+                target_path.display()
+            )),
+        }
+    }
+}
+
+fn cleanup_codex_proxy_backup() {
+    if let Ok(path) = codex_proxy_backup_metadata_path() {
+        let _ = fs::remove_file(path);
+    }
+    if let Ok(path) = codex_proxy_config_backup_path() {
+        let _ = fs::remove_file(path);
+    }
+    if let Ok(path) = codex_proxy_auth_backup_path() {
+        let _ = fs::remove_file(path);
+    }
+    if let Ok(path) = codex_proxy_backup_dir() {
+        let _ = fs::remove_dir(path);
+    }
 }
 
 fn truncate_message(message: &str) -> String {
@@ -468,4 +693,44 @@ fn write_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     }
 
     write_result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_codex_proxy_config;
+    use super::normalize_codex_proxy_base_url;
+    use toml_edit::DocumentMut;
+
+    #[test]
+    fn build_codex_proxy_config_points_builtin_openai_at_local_proxy() {
+        let config = build_codex_proxy_config(
+            Some(
+                r#"
+model = "gpt-5.4"
+model_provider = "other"
+openai_base_url = "https://api.openai.com/v1"
+"#,
+            ),
+            "http://127.0.0.1:8787/v1",
+        );
+        let document = config
+            .parse::<DocumentMut>()
+            .expect("proxy config should parse");
+
+        assert_eq!(
+            document["openai_base_url"].as_str(),
+            Some("http://127.0.0.1:8787/v1")
+        );
+        assert_eq!(document["model_provider"].as_str(), Some("openai"));
+        assert_eq!(document["model"].as_str(), Some("gpt-5.4"));
+    }
+
+    #[test]
+    fn normalize_codex_proxy_base_url_trims_trailing_slashes() {
+        assert_eq!(
+            normalize_codex_proxy_base_url(" http://127.0.0.1:8787/v1/// ").as_deref(),
+            Some("http://127.0.0.1:8787/v1")
+        );
+        assert_eq!(normalize_codex_proxy_base_url("   "), None);
+    }
 }

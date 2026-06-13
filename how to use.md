@@ -60,6 +60,9 @@
 注意：
 
 - 本机直连客户端可以直接使用本地 `Base URL`
+- Codex App/CLI 可以在反代面板点击“切到本机反代”，需要恢复时点击“恢复正常地址”
+- 如果 Codex App/CLI 通过 wrapper、app bind、CC Switch 或自定义 provider 指向这个 `Base URL`，运行中账号轮换在反代层完成，不需要关闭 Codex App/CLI
+- 负载均衡选择“逐个”时，带有稳定 session key 的同一会话会优先复用同一账号，额度或鉴权失败后再切到下一个账号
 - `Cursor` 这类可能由服务端代发请求的客户端，不一定允许访问 `127.0.0.1` 或私网地址
 - 如果 Cursor 报 `ssrf_blocked`，请改用 `cloudflared` 暴露出来的公网地址，或使用远程 Linux 反代
 
@@ -72,15 +75,74 @@
 - `API Key` 使用本工具生成的代理 `sk-...`
 - `wire_api` 选择 `responses`
 
+如果你要接 Anthropic Messages 兼容客户端，可以直接请求：
+
+- 地址：`http://127.0.0.1:8787/v1/messages`
+- Key：`x-api-key: sk-...`
+- 版本：`anthropic-version: 2023-06-01`
+
+这里的 `2023-06-01` 是 Anthropic API version，不是模型版本日期。
+
 更完整的配置示例见 [docs/api-proxy.md](docs/api-proxy.md) 里的“通过 CC Switch 接入 Codex”。
 
-## 6. 日常使用建议
+## 6. 可选：使用 CLI/TUI 管理账号
+
+如果你要在终端里管理账号，或想把账号切换、导入导出、诊断接进脚本，可以使用 `ctc`。
+
+安装：
+
+```bash
+npm i -g @170-carry/ctc
+```
+
+安装后执行：
+
+```bash
+ctc list --json
+```
+
+不想全局安装时，也可以直接运行：
+
+```bash
+npx @170-carry/ctc list --json
+```
+
+常用命令：
+
+| 命令 | 用途 |
+| --- | --- |
+| `ctc list --json` | 列出账号，输出 JSON |
+| `ctc list --refresh --json` | 刷新用量后列出账号 |
+| `ctc switch 1 --json` | 切换到第 1 个账号 |
+| `ctc switch --best --launch` | 自动选择余量更合适的账号，并启动 `codex app` |
+| `ctc login --label work` | 调用官方 `codex login`，登录后导入账号 |
+| `ctc import ./auth.json --json` | 导入账号 JSON |
+| `ctc import ./accounts-dir --json` | 导入目录里的账号 JSON |
+| `ctc import --current --json` | 导入当前 `~/.codex/auth.json` |
+| `ctc export ./accounts.json --json` | 导出账号库 |
+| `ctc export --json` | 直接把账号库 JSON 输出到终端 |
+| `ctc usage --cached --json` | 查看本地缓存用量 |
+| `ctc doctor --json` | 检查本地环境和账号库 |
+| `ctc report --json` | 输出完整诊断报告 |
+| `ctc tui` | 打开终端选择器，选择账号后切换 |
+| `ctc ui` | 打开已安装的 Codex Tools 桌面应用 |
+
+注意：
+
+- `switch` 会写入本机 `~/.codex/auth.json` 和 `~/.codex/config.toml`
+- `--json` 适合脚本读取，不需要解析普通文本
+- `--data-dir <目录>` 可以指定账号库位置，适合测试、备份和多环境切换
+- `login` 会直接运行官方 `codex login`，需要在可交互终端里使用
+- `tui` 也需要在可交互终端里使用
+- `ui` 需要本机已经安装 Codex Tools 桌面应用；npm 包负责打开应用，不负责安装 `.app` 或 `.exe`
+
+## 7. 日常使用建议
 
 - 新增账号后先刷新一次用量
 - 在调用失败或额度不足时，优先切换到余量更高的账号
 - 如果长期需要外部工具接入，可以保持 API 反代开启
 - 如果要暴露给外网使用，可以再配置 `cloudflared`
 
-## 7. 一句话总结
+## 8. 一句话总结
 
-打开应用 -> 导入账号 -> 刷新用量 -> 选择账号 -> 切换并启动 -> 按需开启 API 反代。
+打开应用 -> 导入账号 -> 刷新用量 -> 选择账号 -> 切换并启动 -> 按需开启 API 反代；需要脚本化时使用 CLI/TUI。

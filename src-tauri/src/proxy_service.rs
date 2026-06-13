@@ -64,17 +64,23 @@ use crate::app_paths;
 use crate::auth::extract_auth;
 use crate::auth::refresh_chatgpt_auth_tokens_serialized;
 use crate::models::normalize_api_proxy_sequential_five_hour_limit_percent;
+use crate::models::ApiProxyKey;
+use crate::models::ApiProxyKeyUsageLogEntry;
 use crate::models::ApiProxyLoadBalanceMode;
 use crate::models::ApiProxyStatus;
 use crate::models::ApiProxyUsagePoint;
 use crate::models::ApiProxyUsageSeries;
 use crate::models::ApiProxyUsageStats;
 use crate::models::AppSettings;
+use crate::models::CreateApiProxyKeyInput;
 use crate::models::StoredAccount;
+use crate::models::UpdateApiProxyKeyInput;
 use crate::models::UsageSnapshot;
 use crate::models::UsageWindow;
+use crate::profile_files;
 use crate::state::ApiProxyRuntimeHandle;
 use crate::state::ApiProxyRuntimeSnapshot;
+use crate::state::ApiProxySessionAffinity;
 #[cfg(feature = "desktop")]
 use crate::state::AppState;
 use crate::store::account_store_path_from_data_dir;
@@ -92,34 +98,19 @@ const DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES: usize =
     DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB * 1024 * 1024;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS: u64 = 1_800;
 const DEFAULT_PROXY_CONNECT_TIMEOUT_SECS: u64 = 30;
+#[cfg(feature = "desktop")]
+const DESKTOP_API_PROXY_BIND_HOST: &str = "0.0.0.0";
 const MAX_PROXY_CONNECT_RESPONSE_BYTES: usize = 16 * 1024;
 const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_MIB";
 const CODEX_CLIENT_VERSION: &str = "0.125.0";
 const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
+const ANTHROPIC_MESSAGES_REQUIRED_VERSION: &str = "2023-06-01";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
-const MODELS: &[&str] = &[
-    "gpt-5",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5-mini",
-    "gpt-5-codex",
-    "gpt-5-codex-mini",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-mini",
-    "gpt-5.1-codex-max",
-    "gpt-5.2-codex",
-    "gpt-5.3-codex",
-    "gpt-5.3-codex-spark",
-    "gpt-image-2",
-    "gpt-image-1.5",
-    "gpt-image-1",
-    "gpt-image-1-mini",
-    "chatgpt-image-latest",
-];
+const MODELS: &[&str] = &["gpt-5.4", "gpt-5.5", "gpt-image-2"];
 const REQUEST_MODEL_MAPPINGS: &[(&str, &str)] = &[
     ("gpt5.5", "gpt-5.5"),
     ("gpt-5-5", "gpt-5.5"),
@@ -135,6 +126,8 @@ const RESPONSE_MODEL_NORMALIZATIONS: &[(&str, &str)] = &[
 const UNSUPPORTED_RESPONSES_REQUEST_FIELDS: &[&str] = &["metadata", "prompt_cache_retention"];
 const API_PROXY_USAGE_FILE_NAME: &str = "api-proxy-usage.json";
 const API_PROXY_USAGE_STORE_VERSION: u8 = 1;
+const API_PROXY_KEYS_FILE_NAME: &str = "api-proxy-keys.json";
+const API_PROXY_KEYS_STORE_VERSION: u8 = 1;
 const API_PROXY_USAGE_RETENTION_SECONDS: i64 = 30 * 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_1H_SECONDS: i64 = 60 * 60;
 const API_PROXY_USAGE_RANGE_24H_SECONDS: i64 = 24 * 60 * 60;
@@ -142,6 +135,27 @@ const API_PROXY_USAGE_RANGE_7D_SECONDS: i64 = 7 * 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_14D_SECONDS: i64 = 14 * 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_30D_SECONDS: i64 = 30 * 24 * 60 * 60;
 const DEFAULT_API_PROXY_USAGE_RANGE_SECONDS: i64 = API_PROXY_USAGE_RANGE_24H_SECONDS;
+const API_PROXY_REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
+const API_PROXY_SERVICE_TIERS: &[&str] = &["auto", "fast", "flex"];
+const MAX_PROXY_SESSION_AFFINITY_ENTRIES: usize = 512;
+const SESSION_AFFINITY_HEADERS: &[&str] = &[
+    "x-codex-tools-session",
+    "x-codex-session-id",
+    "session_id",
+    "session-id",
+    "x-client-request-id",
+    "openai-conversation-id",
+];
+const SESSION_AFFINITY_PAYLOAD_KEYS: &[&str] = &[
+    "session_id",
+    "sessionId",
+    "conversation_id",
+    "conversationId",
+    "thread_id",
+    "threadId",
+    "previous_response_id",
+    "previousResponseId",
+];
 
 #[derive(Clone)]
 pub(crate) struct ProxyStorageContext {
@@ -176,15 +190,24 @@ struct ProxyCandidateSelection {
 
 #[derive(Clone, Debug)]
 struct ApiProxyUsageMetadata {
+    key_id: Option<String>,
+    key_label: Option<String>,
     model: String,
     route: String,
+    reasoning_effort: Option<String>,
+    service_tier: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct ApiProxyUsageEvent {
     timestamp: i64,
+    key_id: Option<String>,
+    key_label: Option<String>,
     model: String,
+    route: Option<String>,
+    reasoning_effort: Option<String>,
+    service_tier: Option<String>,
     calls: i64,
     tokens: i64,
 }
@@ -203,6 +226,24 @@ impl Default for ApiProxyUsageStore {
             version: API_PROXY_USAGE_STORE_VERSION,
             updated_at: 0,
             events: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ApiProxyKeyStore {
+    version: u8,
+    updated_at: i64,
+    keys: Vec<ApiProxyKey>,
+}
+
+impl Default for ApiProxyKeyStore {
+    fn default() -> Self {
+        Self {
+            version: API_PROXY_KEYS_STORE_VERSION,
+            updated_at: 0,
+            keys: Vec::new(),
         }
     }
 }
@@ -235,7 +276,7 @@ impl ProxyLoadBalanceConfig {
 #[derive(Clone)]
 struct ProxyContext {
     storage: ProxyStorageContext,
-    api_key: Arc<RwLock<String>>,
+    api_keys: Arc<RwLock<Vec<ApiProxyKey>>>,
     upstream_base_url: String,
     client: reqwest::Client,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
@@ -323,7 +364,7 @@ impl CodexUpstreamResponse {
 
 struct ApiProxyHandleState {
     port: u16,
-    api_key: Arc<RwLock<String>>,
+    api_keys: Arc<RwLock<Vec<ApiProxyKey>>>,
     task_finished: bool,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
 }
@@ -372,6 +413,31 @@ impl Default for ChatStreamState {
             function_call_index: -1,
             has_received_arguments_delta: false,
             has_tool_call_announced: false,
+        }
+    }
+}
+
+struct AnthropicStreamState {
+    response_id: String,
+    model: String,
+    content_index: i64,
+    open_text_index: Option<i64>,
+    open_tool_index: Option<i64>,
+    saw_tool_use: bool,
+    has_received_tool_arguments_delta: bool,
+}
+
+impl Default for AnthropicStreamState {
+    fn default() -> Self {
+        Self {
+            response_id: String::new(),
+            model: String::new(),
+            // Anthropic content block indices are zero-based.
+            content_index: -1,
+            open_text_index: None,
+            open_tool_index: None,
+            saw_tool_use: false,
+            has_received_tool_arguments_delta: false,
         }
     }
 }
@@ -428,6 +494,225 @@ pub(crate) async fn get_api_proxy_status_with_runtime(
             None,
         )),
     }
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn list_api_proxy_keys_internal(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    list_api_proxy_keys_with_storage(&storage).await
+}
+
+pub(crate) async fn list_api_proxy_keys_with_storage(
+    storage: &ProxyStorageContext,
+) -> Result<Vec<ApiProxyKey>, String> {
+    ensure_persisted_api_proxy_keys(storage).await
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn create_api_proxy_key_internal(
+    app: &AppHandle,
+    state: &AppState,
+    input: CreateApiProxyKeyInput,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    create_api_proxy_key_with_runtime(&storage, &state.api_proxy, input).await
+}
+
+pub(crate) async fn create_api_proxy_key_with_runtime(
+    storage: &ProxyStorageContext,
+    runtime_slot: &tokio::sync::Mutex<Option<ApiProxyRuntimeHandle>>,
+    input: CreateApiProxyKeyInput,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let now = now_unix_seconds();
+    let label = normalized_api_proxy_key_label(&input.label);
+    let key = normalized_custom_api_proxy_key(input.key.as_deref())?
+        .unwrap_or_else(generate_api_proxy_key);
+    let mut store = load_or_initialize_api_proxy_key_store(storage).await?;
+    if store.keys.iter().any(|item| item.key == key) {
+        return Err("平台 Key 已存在，请使用不同的 Key。".to_string());
+    }
+    store.keys.push(ApiProxyKey {
+        id: uuid::Uuid::new_v4().to_string(),
+        label,
+        key,
+        enabled: true,
+        allowed_models: sanitize_api_proxy_allowed_models(input.allowed_models),
+        allowed_reasoning_efforts: sanitize_api_proxy_reasoning_efforts(
+            input.allowed_reasoning_efforts,
+        ),
+        allowed_service_tiers: sanitize_api_proxy_service_tiers(input.allowed_service_tiers),
+        created_at: now,
+        updated_at: now,
+    });
+    store.updated_at = now;
+    save_api_proxy_key_store(storage, &store).await?;
+    refresh_runtime_api_proxy_keys(storage, runtime_slot).await?;
+    Ok(store.keys)
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn update_api_proxy_key_internal(
+    app: &AppHandle,
+    state: &AppState,
+    input: UpdateApiProxyKeyInput,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    update_api_proxy_key_with_runtime(&storage, &state.api_proxy, input).await
+}
+
+pub(crate) async fn update_api_proxy_key_with_runtime(
+    storage: &ProxyStorageContext,
+    runtime_slot: &tokio::sync::Mutex<Option<ApiProxyRuntimeHandle>>,
+    input: UpdateApiProxyKeyInput,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let mut store = load_or_initialize_api_proxy_key_store(storage).await?;
+    let key = store
+        .keys
+        .iter_mut()
+        .find(|item| item.id == input.id)
+        .ok_or_else(|| "平台 Key 不存在。".to_string())?;
+    if let Some(label) = input.label {
+        key.label = normalized_api_proxy_key_label(&label);
+    }
+    if let Some(enabled) = input.enabled {
+        key.enabled = enabled;
+    }
+    if let Some(models) = input.allowed_models {
+        key.allowed_models = sanitize_api_proxy_allowed_models(models);
+    }
+    if let Some(reasoning_efforts) = input.allowed_reasoning_efforts {
+        key.allowed_reasoning_efforts = sanitize_api_proxy_reasoning_efforts(reasoning_efforts);
+    }
+    if let Some(service_tiers) = input.allowed_service_tiers {
+        key.allowed_service_tiers = sanitize_api_proxy_service_tiers(service_tiers);
+    }
+    key.updated_at = now_unix_seconds();
+    store.updated_at = key.updated_at;
+    save_api_proxy_key_store(storage, &store).await?;
+    refresh_runtime_api_proxy_keys(storage, runtime_slot).await?;
+    Ok(store.keys)
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn delete_api_proxy_key_internal(
+    app: &AppHandle,
+    state: &AppState,
+    id: String,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    delete_api_proxy_key_with_runtime(&storage, &state.api_proxy, &id).await
+}
+
+pub(crate) async fn delete_api_proxy_key_with_runtime(
+    storage: &ProxyStorageContext,
+    runtime_slot: &tokio::sync::Mutex<Option<ApiProxyRuntimeHandle>>,
+    id: &str,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let mut store = load_or_initialize_api_proxy_key_store(storage).await?;
+    let before = store.keys.len();
+    store.keys.retain(|key| key.id != id);
+    if store.keys.len() == before {
+        return Err("平台 Key 不存在。".to_string());
+    }
+    if store.keys.is_empty() {
+        store
+            .keys
+            .push(default_api_proxy_key(now_unix_seconds(), None));
+    }
+    store.updated_at = now_unix_seconds();
+    save_api_proxy_key_store(storage, &store).await?;
+    refresh_runtime_api_proxy_keys(storage, runtime_slot).await?;
+    Ok(store.keys)
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn regenerate_api_proxy_key_internal(
+    app: &AppHandle,
+    state: &AppState,
+    id: String,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    regenerate_api_proxy_key_with_runtime(&storage, &state.api_proxy, Some(&id)).await
+}
+
+pub(crate) async fn regenerate_api_proxy_key_with_runtime(
+    storage: &ProxyStorageContext,
+    runtime_slot: &tokio::sync::Mutex<Option<ApiProxyRuntimeHandle>>,
+    id: Option<&str>,
+) -> Result<Vec<ApiProxyKey>, String> {
+    let mut store = load_or_initialize_api_proxy_key_store(storage).await?;
+    let target_index = match id {
+        Some(id) => store
+            .keys
+            .iter()
+            .position(|key| key.id == id)
+            .ok_or_else(|| "平台 Key 不存在。".to_string())?,
+        None => 0,
+    };
+    let mut new_key = generate_api_proxy_key();
+    while store.keys.iter().any(|item| item.key == new_key) {
+        new_key = generate_api_proxy_key();
+    }
+    let now = now_unix_seconds();
+    store.keys[target_index].key = new_key;
+    store.keys[target_index].updated_at = now;
+    store.updated_at = now;
+    save_api_proxy_key_store(storage, &store).await?;
+    refresh_runtime_api_proxy_keys(storage, runtime_slot).await?;
+    Ok(store.keys)
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn get_api_proxy_key_usage_logs_internal(
+    app: &AppHandle,
+    state: &AppState,
+    limit: Option<usize>,
+) -> Result<Vec<ApiProxyKeyUsageLogEntry>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    get_api_proxy_key_usage_logs_with_storage(&storage, limit).await
+}
+
+pub(crate) async fn get_api_proxy_key_usage_logs_with_storage(
+    storage: &ProxyStorageContext,
+    limit: Option<usize>,
+) -> Result<Vec<ApiProxyKeyUsageLogEntry>, String> {
+    let now = now_unix_seconds();
+    let limit = limit.unwrap_or(200).clamp(1, 1_000);
+    let _guard = storage.store_lock.lock().await;
+    let path = api_proxy_usage_path(storage)?;
+    let should_scrub_legacy_fields = api_proxy_usage_store_has_legacy_private_fields(&path);
+    let mut store = load_api_proxy_usage_store_from_path(&path)?;
+    if prune_api_proxy_usage_events(&mut store.events, now) || should_scrub_legacy_fields {
+        store.updated_at = now;
+        save_api_proxy_usage_store_to_path(&path, &store)?;
+    }
+
+    let mut entries = store
+        .events
+        .into_iter()
+        .filter(|event| event.key_id.is_some() || event.key_label.is_some())
+        .map(|event| ApiProxyKeyUsageLogEntry {
+            timestamp: event.timestamp,
+            key_id: event.key_id,
+            key_label: event.key_label,
+            model: if event.model.trim().is_empty() {
+                "unknown".to_string()
+            } else {
+                event.model
+            },
+            route: event.route,
+            reasoning_effort: event.reasoning_effort,
+            service_tier: event.service_tier,
+            calls: event.calls.max(0),
+            tokens: event.tokens.max(0),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
+    entries.truncate(limit);
+    Ok(entries)
 }
 
 #[cfg(feature = "desktop")]
@@ -491,7 +776,13 @@ pub(crate) async fn start_api_proxy_internal(
     preferred_port: Option<u16>,
 ) -> Result<ApiProxyStatus, String> {
     let storage = app_proxy_storage_context(app, state)?;
-    start_api_proxy_with_runtime(&storage, &state.api_proxy, preferred_port, "127.0.0.1").await
+    start_api_proxy_with_runtime(
+        &storage,
+        &state.api_proxy,
+        preferred_port,
+        DESKTOP_API_PROXY_BIND_HOST,
+    )
+    .await
 }
 
 pub(crate) async fn start_api_proxy_with_runtime(
@@ -536,8 +827,8 @@ pub(crate) async fn start_api_proxy_with_runtime(
         .local_addr()
         .map_err(|error| format!("读取代理端口失败: {error}"))?
         .port();
-    let api_key = ensure_persisted_api_proxy_key(storage).await?;
-    let shared_api_key = Arc::new(RwLock::new(api_key));
+    let api_keys = ensure_persisted_api_proxy_keys(storage).await?;
+    let shared_api_keys = Arc::new(RwLock::new(api_keys));
 
     let client = reqwest::Client::builder()
         .user_agent("codex-tools-proxy/0.1")
@@ -550,7 +841,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
     let shared = Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default()));
     let context = Arc::new(ProxyContext {
         storage: storage.clone(),
-        api_key: shared_api_key.clone(),
+        api_keys: shared_api_keys.clone(),
         upstream_base_url: resolve_codex_upstream_base_url(),
         client,
         shared: shared.clone(),
@@ -569,6 +860,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
             "/v1/responses",
             post(responses_handler).get(responses_websocket_handler),
         )
+        .route("/v1/messages", post(anthropic_messages_handler))
         .fallback(any(unsupported_proxy_handler))
         .layer(DefaultBodyLimit::max(request_body_limit))
         .with_state(context.clone());
@@ -586,7 +878,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
 
     let handle = ApiProxyRuntimeHandle {
         port,
-        api_key: shared_api_key,
+        api_keys: shared_api_keys,
         shutdown_tx: Some(shutdown_tx),
         task,
         shared,
@@ -631,7 +923,7 @@ pub(crate) async fn stop_api_proxy_with_runtime(
 
     let snapshot = handle.shared.lock().await.clone();
     Ok(stopped_status(
-        Some(read_current_api_key(&handle.api_key)),
+        read_current_api_key(&handle.api_keys),
         snapshot.last_error,
     ))
 }
@@ -645,27 +937,49 @@ pub(crate) async fn refresh_api_proxy_key_internal(
     refresh_api_proxy_key_with_runtime(&storage, &state.api_proxy).await
 }
 
+#[cfg(feature = "desktop")]
+pub(crate) async fn bind_codex_to_api_proxy_internal(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<ApiProxyStatus, String> {
+    let status = get_api_proxy_status_internal(app, state).await?;
+    let base_url = status
+        .base_url
+        .as_deref()
+        .ok_or_else(|| "请先启动 API 反代，再绑定 Codex App/CLI。".to_string())?;
+    let api_key = status
+        .api_key
+        .as_deref()
+        .ok_or_else(|| "请先生成 API 反代 API Key，再绑定 Codex App/CLI。".to_string())?;
+
+    profile_files::bind_codex_to_api_proxy(base_url, api_key)?;
+    get_api_proxy_status_internal(app, state).await
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn restore_codex_proxy_binding_internal(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<ApiProxyStatus, String> {
+    profile_files::restore_codex_proxy_binding()?;
+    get_api_proxy_status_internal(app, state).await
+}
+
 pub(crate) async fn refresh_api_proxy_key_with_runtime(
     storage: &ProxyStorageContext,
     runtime_slot: &tokio::sync::Mutex<Option<ApiProxyRuntimeHandle>>,
 ) -> Result<ApiProxyStatus, String> {
-    let new_api_key = regenerate_persisted_api_proxy_key(storage).await?;
+    let keys = regenerate_api_proxy_key_with_runtime(storage, runtime_slot, None).await?;
+    let new_api_key = primary_api_proxy_key_value(&keys);
 
     let handle_state = {
         let guard = runtime_slot.lock().await;
-        if let Some(handle) = guard.as_ref() {
-            if let Ok(mut key_guard) = handle.api_key.write() {
-                *key_guard = new_api_key.clone();
-            }
-            Some(snapshot_handle_state(handle))
-        } else {
-            None
-        }
+        guard.as_ref().map(snapshot_handle_state)
     };
 
     match handle_state {
         Some(handle_state) => Ok(status_from_handle_state(handle_state).await),
-        None => Ok(stopped_status(Some(new_api_key), None)),
+        None => Ok(stopped_status(new_api_key, None)),
     }
 }
 
@@ -695,9 +1009,10 @@ async fn models_handler(
     State(context): State<Arc<ProxyContext>>,
     headers: HeaderMap,
 ) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
 
     let settings = match load_api_proxy_settings(&context.storage).await {
         Ok(settings) => settings,
@@ -709,7 +1024,7 @@ async fn models_handler(
 
     Json(json!({
         "object": "list",
-        "data": api_proxy_visible_models(&settings)
+        "data": api_proxy_visible_models_for_key(&settings, &proxy_key)
             .iter()
             .map(|model| {
                 json!({
@@ -729,14 +1044,16 @@ async fn chat_completions_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
 
     let request_json = match parse_json_request(&body) {
         Ok(value) => value,
         Err(response) => return response,
     };
+    let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
         match convert_openai_chat_request_to_codex(&request_json) {
@@ -746,9 +1063,11 @@ async fn chat_completions_handler(
 
     let upstream = match send_codex_request_over_candidates(
         &context,
+        &proxy_key,
         "/v1/chat/completions",
         &headers,
         &upstream_payload,
+        session_affinity_key.as_deref(),
     )
     .await
     {
@@ -759,8 +1078,12 @@ async fn chat_completions_handler(
     let (candidate, upstream_response) = upstream;
     update_proxy_target(&context, &candidate).await;
     update_proxy_error(&context, None).await;
-    let usage_metadata =
-        api_proxy_usage_metadata(&candidate, "/v1/chat/completions", &upstream_payload);
+    let usage_metadata = api_proxy_usage_metadata(
+        &proxy_key,
+        &candidate,
+        "/v1/chat/completions",
+        &upstream_payload,
+    );
 
     if downstream_stream {
         build_chat_streaming_response(upstream_response, context.storage.clone(), usage_metadata)
@@ -802,14 +1125,16 @@ async fn responses_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
 
     let request_json = match parse_json_request(&body) {
         Ok(value) => value,
         Err(response) => return response,
     };
+    let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
         match normalize_openai_responses_request(request_json) {
@@ -819,9 +1144,11 @@ async fn responses_handler(
 
     let upstream = match send_codex_request_over_candidates(
         &context,
+        &proxy_key,
         "/v1/responses",
         &headers,
         &upstream_payload,
+        session_affinity_key.as_deref(),
     )
     .await
     {
@@ -832,7 +1159,8 @@ async fn responses_handler(
     let (candidate, upstream_response) = upstream;
     update_proxy_target(&context, &candidate).await;
     update_proxy_error(&context, None).await;
-    let usage_metadata = api_proxy_usage_metadata(&candidate, "/v1/responses", &upstream_payload);
+    let usage_metadata =
+        api_proxy_usage_metadata(&proxy_key, &candidate, "/v1/responses", &upstream_payload);
 
     if downstream_stream {
         build_passthrough_sse_response(upstream_response, context.storage.clone(), usage_metadata)
@@ -869,87 +1197,35 @@ async fn responses_handler(
     }
 }
 
-async fn image_generations_handler(
+async fn anthropic_messages_handler(
     State(context): State<Arc<ProxyContext>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
+    let proxy_key = match authorize_anthropic_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
 
     let request_json = match parse_json_request(&body) {
         Ok(value) => value,
         Err(response) => return response,
     };
+    let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
-    let image_request = match convert_openai_image_generation_request_to_codex(&request_json) {
-        Ok(value) => value,
-        Err(message) => return invalid_request_response(&message),
-    };
-
-    forward_image_request(context, "/v1/images/generations", headers, image_request).await
-}
-
-async fn image_edits_handler(
-    State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    multipart: Multipart,
-) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
-
-    let request = match parse_image_multipart_request(multipart).await {
-        Ok(value) => value,
-        Err(message) => return invalid_request_response(&message),
-    };
-    let image_request = match convert_openai_image_edit_request_to_codex(&request, false) {
-        Ok(value) => value,
-        Err(message) => return invalid_request_response(&message),
-    };
-
-    forward_image_request(context, "/v1/images/edits", headers, image_request).await
-}
-
-async fn image_variations_handler(
-    State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    multipart: Multipart,
-) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
-
-    let request = match parse_image_multipart_request(multipart).await {
-        Ok(value) => value,
-        Err(message) => return invalid_request_response(&message),
-    };
-    let image_request = match convert_openai_image_edit_request_to_codex(&request, true) {
-        Ok(value) => value,
-        Err(message) => return invalid_request_response(&message),
-    };
-
-    forward_image_request(context, "/v1/images/variations", headers, image_request).await
-}
-
-async fn forward_image_request(
-    context: Arc<ProxyContext>,
-    route: &'static str,
-    headers: HeaderMap,
-    image_request: ConvertedImageRequest,
-) -> Response<Body> {
-    let ConvertedImageRequest {
-        upstream_payload,
-        downstream_stream,
-        image_count,
-    } = image_request;
+    let (upstream_payload, downstream_stream) =
+        match convert_anthropic_messages_request_to_codex(&request_json) {
+            Ok(value) => value,
+            Err(message) => return invalid_request_response(&message),
+        };
 
     let upstream = match send_codex_request_over_candidates(
         &context,
-        route,
+        &proxy_key,
+        "/v1/messages",
         &headers,
         &upstream_payload,
+        session_affinity_key.as_deref(),
     )
     .await
     {
@@ -960,7 +1236,175 @@ async fn forward_image_request(
     let (candidate, upstream_response) = upstream;
     update_proxy_target(&context, &candidate).await;
     update_proxy_error(&context, None).await;
-    let usage_metadata = api_proxy_usage_metadata(&candidate, route, &upstream_payload);
+    let usage_metadata =
+        api_proxy_usage_metadata(&proxy_key, &candidate, "/v1/messages", &upstream_payload);
+
+    if downstream_stream {
+        build_anthropic_streaming_response(
+            upstream_response,
+            context.storage.clone(),
+            usage_metadata,
+        )
+    } else {
+        let (upstream_headers, upstream_body) = match upstream_response.into_bytes().await {
+            Ok(value) => value,
+            Err(error) => {
+                let message = format!("读取 Codex 上游响应失败: {error}");
+                update_proxy_error(&context, Some(message.clone())).await;
+                return json_error_response(StatusCode::BAD_GATEWAY, &message);
+            }
+        };
+
+        let completed = match extract_completed_response_from_sse(&upstream_body) {
+            Ok(value) => value,
+            Err(message) => {
+                update_proxy_error(&context, Some(message.clone())).await;
+                return json_error_response(StatusCode::BAD_GATEWAY, &message);
+            }
+        };
+        record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &completed).await;
+
+        let body = match serde_json::to_vec(&convert_completed_response_to_anthropic_message(
+            &completed,
+        )) {
+            Ok(bytes) => Bytes::from(bytes),
+            Err(error) => {
+                let message = format!("序列化 Anthropic Messages 响应失败: {error}");
+                update_proxy_error(&context, Some(message.clone())).await;
+                return json_error_response(StatusCode::BAD_GATEWAY, &message);
+            }
+        };
+
+        build_json_proxy_response(StatusCode::OK, &upstream_headers, body)
+    }
+}
+
+async fn image_generations_handler(
+    State(context): State<Arc<ProxyContext>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
+
+    let request_json = match parse_json_request(&body) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+
+    let image_request = match convert_openai_image_generation_request_to_codex(&request_json) {
+        Ok(value) => value,
+        Err(message) => return invalid_request_response(&message),
+    };
+
+    forward_image_request(
+        context,
+        proxy_key,
+        "/v1/images/generations",
+        headers,
+        image_request,
+        session_affinity_key.as_deref(),
+    )
+    .await
+}
+
+async fn image_edits_handler(
+    State(context): State<Arc<ProxyContext>>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Response<Body> {
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
+
+    let request = match parse_image_multipart_request(multipart).await {
+        Ok(value) => value,
+        Err(message) => return invalid_request_response(&message),
+    };
+    let session_affinity_key = request_session_affinity_key_from_map(&headers, &request.fields);
+    let image_request = match convert_openai_image_edit_request_to_codex(&request, false) {
+        Ok(value) => value,
+        Err(message) => return invalid_request_response(&message),
+    };
+
+    forward_image_request(
+        context,
+        proxy_key,
+        "/v1/images/edits",
+        headers,
+        image_request,
+        session_affinity_key.as_deref(),
+    )
+    .await
+}
+
+async fn image_variations_handler(
+    State(context): State<Arc<ProxyContext>>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Response<Body> {
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
+
+    let request = match parse_image_multipart_request(multipart).await {
+        Ok(value) => value,
+        Err(message) => return invalid_request_response(&message),
+    };
+    let session_affinity_key = request_session_affinity_key_from_map(&headers, &request.fields);
+    let image_request = match convert_openai_image_edit_request_to_codex(&request, true) {
+        Ok(value) => value,
+        Err(message) => return invalid_request_response(&message),
+    };
+
+    forward_image_request(
+        context,
+        proxy_key,
+        "/v1/images/variations",
+        headers,
+        image_request,
+        session_affinity_key.as_deref(),
+    )
+    .await
+}
+
+async fn forward_image_request(
+    context: Arc<ProxyContext>,
+    proxy_key: ApiProxyKey,
+    route: &'static str,
+    headers: HeaderMap,
+    image_request: ConvertedImageRequest,
+    session_affinity_key: Option<&str>,
+) -> Response<Body> {
+    let ConvertedImageRequest {
+        upstream_payload,
+        downstream_stream,
+        image_count,
+    } = image_request;
+
+    let upstream = match send_codex_request_over_candidates(
+        &context,
+        &proxy_key,
+        route,
+        &headers,
+        &upstream_payload,
+        session_affinity_key,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+
+    let (candidate, upstream_response) = upstream;
+    update_proxy_target(&context, &candidate).await;
+    update_proxy_error(&context, None).await;
+    let usage_metadata = api_proxy_usage_metadata(&proxy_key, &candidate, route, &upstream_payload);
 
     if downstream_stream {
         build_image_streaming_response(upstream_response, context.storage.clone(), usage_metadata)
@@ -978,9 +1422,11 @@ async fn forward_image_request(
             } else {
                 let upstream = match send_codex_request_over_candidates(
                     &context,
+                    &proxy_key,
                     route,
                     &headers,
                     &upstream_payload,
+                    session_affinity_key,
                 )
                 .await
                 {
@@ -1010,7 +1456,8 @@ async fn forward_image_request(
                     return json_error_response(StatusCode::BAD_GATEWAY, &message);
                 }
             };
-            let usage_metadata = api_proxy_usage_metadata(&candidate, route, &upstream_payload);
+            let usage_metadata =
+                api_proxy_usage_metadata(&proxy_key, &candidate, route, &upstream_payload);
             record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &completed)
                 .await;
             let converted = match convert_responses_image_output_to_images_response(&completed) {
@@ -1054,9 +1501,10 @@ async fn responses_websocket_handler(
     headers: HeaderMap,
     ws: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Response<Body> {
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
-        return response;
-    }
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
 
     let Ok(ws) = ws else {
         return json_error_response(
@@ -1065,15 +1513,17 @@ async fn responses_websocket_handler(
         );
     };
 
-    ws.on_upgrade(move |socket| handle_responses_websocket(socket, context, headers))
+    ws.on_upgrade(move |socket| handle_responses_websocket(socket, context, proxy_key, headers))
         .into_response()
 }
 
 async fn handle_responses_websocket(
     mut socket: AxumWebSocket,
     context: Arc<ProxyContext>,
+    proxy_key: ApiProxyKey,
     headers: HeaderMap,
 ) {
+    let session_affinity_key = request_session_affinity_key_from_headers(&headers);
     let upstream_payload = match receive_responses_websocket_create(&mut socket).await {
         Ok(value) => value,
         Err(message) => {
@@ -1082,12 +1532,16 @@ async fn handle_responses_websocket(
             return;
         }
     };
+    let session_affinity_key = session_affinity_key
+        .or_else(|| request_session_affinity_key_from_payload(&upstream_payload));
 
     let upstream = match send_codex_request_over_candidates(
         &context,
+        &proxy_key,
         "/v1/responses websocket",
         &headers,
         &upstream_payload,
+        session_affinity_key.as_deref(),
     )
     .await
     {
@@ -1106,8 +1560,12 @@ async fn handle_responses_websocket(
     let (candidate, upstream_response) = upstream;
     update_proxy_target(&context, &candidate).await;
     update_proxy_error(&context, None).await;
-    let usage_metadata =
-        api_proxy_usage_metadata(&candidate, "/v1/responses websocket", &upstream_payload);
+    let usage_metadata = api_proxy_usage_metadata(
+        &proxy_key,
+        &candidate,
+        "/v1/responses websocket",
+        &upstream_payload,
+    );
 
     if let Err(message) = relay_responses_sse_to_websocket(
         &mut socket,
@@ -1276,33 +1734,117 @@ async fn unsupported_proxy_handler(
         return health_handler().await.into_response();
     }
 
-    if let Some(response) = ensure_authorized(&headers, &context.api_key) {
+    if let Err(response) = authorize_proxy_request(&headers, &context.api_keys) {
         return response;
     }
 
     json_error_response(
         StatusCode::NOT_FOUND,
         &format!(
-            "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 {method} {}",
+            "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 {method} {}",
             uri.path()
         ),
     )
 }
 
-fn ensure_authorized(headers: &HeaderMap, api_key: &Arc<RwLock<String>>) -> Option<Response<Body>> {
-    if is_authorized(headers, &read_current_api_key(api_key)) {
-        None
-    } else {
-        Some(json_error_response(
+fn authorize_proxy_request(
+    headers: &HeaderMap,
+    api_keys: &Arc<RwLock<Vec<ApiProxyKey>>>,
+) -> Result<ApiProxyKey, Response<Body>> {
+    match read_authorized_api_proxy_key(headers, api_keys) {
+        Some(key) => Ok(key),
+        None => Err(json_error_response(
             StatusCode::UNAUTHORIZED,
             "Invalid proxy api key.",
-        ))
+        )),
+    }
+}
+
+fn authorize_anthropic_proxy_request(
+    headers: &HeaderMap,
+    api_keys: &Arc<RwLock<Vec<ApiProxyKey>>>,
+) -> Result<ApiProxyKey, Response<Body>> {
+    let version = headers
+        .get("anthropic-version")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            anthropic_error_response(StatusCode::BAD_REQUEST, "missing anthropic-version header")
+        })?;
+    if version != ANTHROPIC_MESSAGES_REQUIRED_VERSION {
+        return Err(anthropic_error_response(
+            StatusCode::BAD_REQUEST,
+            &format!("unsupported anthropic-version: {version}"),
+        ));
+    }
+
+    match read_authorized_api_proxy_key(headers, api_keys) {
+        Some(key) => Ok(key),
+        None => Err(anthropic_error_response(
+            StatusCode::UNAUTHORIZED,
+            "invalid API key",
+        )),
     }
 }
 
 fn parse_json_request(body: &Bytes) -> Result<Value, Response<Body>> {
     serde_json::from_slice::<Value>(body)
         .map_err(|error| invalid_request_response(&format!("请求体不是合法 JSON: {error}")))
+}
+
+fn anthropic_error_response(status: StatusCode, message: &str) -> Response<Body> {
+    let mut response = Json(json!({
+        "type": "error",
+        "error": {
+            "type": "invalid_request_error",
+            "message": message,
+        }
+    }))
+    .into_response();
+    *response.status_mut() = status;
+    response
+}
+
+fn request_session_affinity_key(headers: &HeaderMap, payload: &Value) -> Option<String> {
+    request_session_affinity_key_from_headers(headers)
+        .or_else(|| request_session_affinity_key_from_payload(payload))
+}
+
+fn request_session_affinity_key_from_headers(headers: &HeaderMap) -> Option<String> {
+    SESSION_AFFINITY_HEADERS.iter().find_map(|name| {
+        headers
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(normalize_session_affinity_value)
+            .map(|value| format!("header:{name}:{value}"))
+    })
+}
+
+fn request_session_affinity_key_from_payload(payload: &Value) -> Option<String> {
+    let object = payload.as_object()?;
+    SESSION_AFFINITY_PAYLOAD_KEYS.iter().find_map(|name| {
+        object
+            .get(*name)
+            .and_then(Value::as_str)
+            .and_then(normalize_session_affinity_value)
+            .map(|value| format!("payload:{name}:{value}"))
+    })
+}
+
+fn request_session_affinity_key_from_map(
+    headers: &HeaderMap,
+    payload: &Map<String, Value>,
+) -> Option<String> {
+    request_session_affinity_key_from_headers(headers)
+        .or_else(|| request_session_affinity_key_from_payload(&Value::Object(payload.clone())))
+}
+
+fn normalize_session_affinity_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.chars().take(160).collect())
+    }
 }
 
 fn invalid_request_response(message: &str) -> Response<Body> {
@@ -1513,6 +2055,13 @@ fn convert_openai_chat_request_to_codex(request: &Value) -> Result<(Value, bool)
     if let Some(text) = request_object.get("text") {
         map_text_settings(&mut root, text);
     }
+    if let Some(service_tier) = request_object
+        .get("service_tier")
+        .and_then(Value::as_str)
+        .and_then(normalize_api_proxy_service_tier_for_upstream)
+    {
+        root.insert("service_tier".to_string(), Value::String(service_tier));
+    }
 
     Ok((Value::Object(root), downstream_stream))
 }
@@ -1531,6 +2080,15 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
     object.insert("model".to_string(), Value::String(model));
     object.insert("stream".to_string(), Value::Bool(true));
     object.insert("store".to_string(), Value::Bool(false));
+    if let Some(service_tier) = object
+        .get("service_tier")
+        .and_then(Value::as_str)
+        .and_then(normalize_api_proxy_service_tier_for_upstream)
+    {
+        object.insert("service_tier".to_string(), Value::String(service_tier));
+    } else {
+        object.remove("service_tier");
+    }
     if !object.contains_key("instructions") {
         object.insert("instructions".to_string(), Value::String(String::new()));
     }
@@ -1577,6 +2135,296 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
     }
 
     Ok((request, downstream_stream))
+}
+
+fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value, bool), String> {
+    let request_object = request
+        .as_object()
+        .ok_or_else(|| "Anthropic Messages 请求必须是 JSON 对象".to_string())?;
+    let model = map_client_model_to_upstream(&required_string(request_object, "model")?)?;
+    let messages = request_object
+        .get("messages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Anthropic Messages 请求缺少 messages 数组".to_string())?;
+    let downstream_stream = bool_field(request_object, "stream", false);
+
+    let mut root = Map::new();
+    root.insert("model".to_string(), Value::String(model));
+    root.insert("stream".to_string(), Value::Bool(true));
+    root.insert("store".to_string(), Value::Bool(false));
+    root.insert(
+        "instructions".to_string(),
+        Value::String(anthropic_system_to_instructions(
+            request_object.get("system"),
+        )),
+    );
+    root.insert(
+        "parallel_tool_calls".to_string(),
+        Value::Bool(bool_field(request_object, "parallel_tool_calls", true)),
+    );
+    root.insert(
+        "include".to_string(),
+        Value::Array(vec![Value::String(
+            "reasoning.encrypted_content".to_string(),
+        )]),
+    );
+    root.insert(
+        "reasoning".to_string(),
+        json!({
+            "effort": anthropic_reasoning_effort(request_object),
+            "summary": "auto",
+        }),
+    );
+
+    if let Some(max_tokens) = request_object
+        .get("max_tokens")
+        .and_then(integer_field_value)
+    {
+        root.insert(
+            "max_output_tokens".to_string(),
+            Value::Number(serde_json::Number::from(max_tokens)),
+        );
+    }
+    copy_anthropic_passthrough_field(request_object, &mut root, "temperature", "temperature");
+    copy_anthropic_passthrough_field(request_object, &mut root, "top_p", "top_p");
+    copy_anthropic_passthrough_field(request_object, &mut root, "service_tier", "service_tier");
+    if let Some(stop_sequences) = request_object.get("stop_sequences") {
+        root.insert("stop".to_string(), stop_sequences.clone());
+    }
+
+    let mut input = Vec::new();
+    for message in messages {
+        let message_object = message
+            .as_object()
+            .ok_or_else(|| "Anthropic Messages 的 messages 数组每一项都必须是对象".to_string())?;
+        let role = required_string(message_object, "role")?;
+        let codex_role = if role == "assistant" {
+            "assistant"
+        } else {
+            "user"
+        };
+        let (content_parts, special_items) =
+            split_anthropic_content_for_codex(&role, message_object.get("content"));
+
+        // 普通文本和图片仍按 message 传给上游，工具结果和工具调用则拆成 Responses 专用 item。
+        if !content_parts.is_empty() || special_items.is_empty() {
+            input.push(json!({
+                "type": "message",
+                "role": codex_role,
+                "content": content_parts,
+            }));
+        }
+        input.extend(special_items);
+    }
+    root.insert("input".to_string(), Value::Array(input));
+
+    if let Some(tools) = request_object.get("tools").and_then(Value::as_array) {
+        let converted = convert_anthropic_tools_to_codex(tools);
+        if !converted.is_empty() {
+            root.insert("tools".to_string(), Value::Array(converted));
+        }
+    }
+    if let Some(tool_choice) = request_object.get("tool_choice") {
+        if let Some(converted) = convert_anthropic_tool_choice_to_codex(tool_choice) {
+            root.insert("tool_choice".to_string(), converted);
+        }
+    }
+
+    Ok((Value::Object(root), downstream_stream))
+}
+
+fn anthropic_system_to_instructions(system: Option<&Value>) -> String {
+    match system {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| {
+                item.as_object()
+                    .and_then(|object| object.get("text"))
+                    .and_then(Value::as_str)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn anthropic_reasoning_effort(request_object: &Map<String, Value>) -> &'static str {
+    if request_object
+        .get("thinking")
+        .and_then(Value::as_object)
+        .and_then(|thinking| thinking.get("type"))
+        .and_then(Value::as_str)
+        == Some("enabled")
+    {
+        "high"
+    } else {
+        "medium"
+    }
+}
+
+fn copy_anthropic_passthrough_field(
+    source: &Map<String, Value>,
+    target: &mut Map<String, Value>,
+    source_key: &str,
+    target_key: &str,
+) {
+    if let Some(value) = source.get(source_key) {
+        target.insert(target_key.to_string(), value.clone());
+    }
+}
+
+fn split_anthropic_content_for_codex(
+    role: &str,
+    content: Option<&Value>,
+) -> (Vec<Value>, Vec<Value>) {
+    let mut content_parts = Vec::new();
+    let mut special_items = Vec::new();
+    let text_type = if role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
+
+    match content {
+        Some(Value::String(text)) => {
+            if !text.is_empty() {
+                content_parts.push(json!({
+                    "type": text_type,
+                    "text": text,
+                }));
+            }
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                let Some(item_object) = item.as_object() else {
+                    continue;
+                };
+                match item_object
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                {
+                    "text" => {
+                        if let Some(text) = item_object.get("text").and_then(Value::as_str) {
+                            content_parts.push(json!({
+                                "type": text_type,
+                                "text": text,
+                            }));
+                        }
+                    }
+                    "image" if role == "user" => {
+                        if let Some(image_url) =
+                            anthropic_image_source_to_codex_url(item_object.get("source"))
+                        {
+                            content_parts.push(json!({
+                                "type": "input_image",
+                                "image_url": image_url,
+                            }));
+                        }
+                    }
+                    "tool_use" if role == "assistant" => {
+                        special_items.push(json!({
+                            "type": "function_call",
+                            "call_id": item_object.get("id").and_then(Value::as_str).unwrap_or_default(),
+                            "name": item_object.get("name").and_then(Value::as_str).unwrap_or_default(),
+                            "arguments": stringify_json_field(item_object.get("input")),
+                        }));
+                    }
+                    "tool_result" if role == "user" => {
+                        special_items.push(json!({
+                            "type": "function_call_output",
+                            "call_id": item_object.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
+                            "output": stringify_anthropic_tool_result_content(item_object.get("content")),
+                        }));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+
+    (content_parts, special_items)
+}
+
+fn anthropic_image_source_to_codex_url(source: Option<&Value>) -> Option<String> {
+    let source = source?.as_object()?;
+    match source.get("type").and_then(Value::as_str) {
+        Some("base64") => {
+            let media_type = source
+                .get("media_type")
+                .and_then(Value::as_str)
+                .unwrap_or("application/octet-stream");
+            let data = source.get("data").and_then(Value::as_str)?;
+            Some(format!("data:{media_type};base64,{data}"))
+        }
+        Some("url") => source
+            .get("url")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        _ => None,
+    }
+}
+
+fn stringify_anthropic_tool_result_content(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| {
+                item.as_object()
+                    .and_then(|object| object.get("text"))
+                    .and_then(Value::as_str)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(other) => serde_json::to_string(other).unwrap_or_default(),
+        None => String::new(),
+    }
+}
+
+fn convert_anthropic_tools_to_codex(tools: &[Value]) -> Vec<Value> {
+    let mut converted = Vec::new();
+    for tool in tools {
+        let Some(tool_object) = tool.as_object() else {
+            continue;
+        };
+        let Some(name) = tool_object.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let mut converted_tool = Map::new();
+        converted_tool.insert("type".to_string(), Value::String("function".to_string()));
+        converted_tool.insert("name".to_string(), Value::String(name.to_string()));
+        if let Some(description) = tool_object.get("description") {
+            converted_tool.insert("description".to_string(), description.clone());
+        }
+        converted_tool.insert(
+            "parameters".to_string(),
+            tool_object
+                .get("input_schema")
+                .cloned()
+                .unwrap_or_else(|| json!({ "type": "object" })),
+        );
+        converted.push(Value::Object(converted_tool));
+    }
+    converted
+}
+
+fn convert_anthropic_tool_choice_to_codex(tool_choice: &Value) -> Option<Value> {
+    let tool_choice = tool_choice.as_object()?;
+    match tool_choice.get("type").and_then(Value::as_str)? {
+        "auto" => Some(Value::String("auto".to_string())),
+        "any" => Some(Value::String("required".to_string())),
+        "none" => Some(Value::String("none".to_string())),
+        "tool" => tool_choice.get("name").and_then(Value::as_str).map(|name| {
+            json!({
+                "type": "function",
+                "name": name,
+            })
+        }),
+        _ => None,
+    }
 }
 
 #[derive(Default)]
@@ -1813,14 +2661,7 @@ fn convert_image_request_parts_to_codex(
 }
 
 fn is_supported_image_model(model: &str) -> bool {
-    matches!(
-        model,
-        "gpt-image-2"
-            | "gpt-image-1.5"
-            | "gpt-image-1"
-            | "gpt-image-1-mini"
-            | "chatgpt-image-latest"
-    )
+    model == DEFAULT_IMAGE_TOOL_MODEL
 }
 
 fn bool_field(object: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -2525,9 +3366,11 @@ fn map_text_settings(root: &mut Map<String, Value>, text: &Value) {
 
 async fn send_codex_request_over_candidates(
     context: &ProxyContext,
+    proxy_key: &ApiProxyKey,
     route: &str,
     headers: &HeaderMap,
     payload: &Value,
+    session_affinity_key: Option<&str>,
 ) -> Result<(ProxyCandidate, CodexUpstreamResponse), Response<Body>> {
     let selection = match load_proxy_candidate_selection(&context.storage).await {
         Ok(selection) => selection,
@@ -2540,19 +3383,24 @@ async fn send_codex_request_over_candidates(
         update_proxy_error(context, Some(message.clone())).await;
         return Err(json_error_response(StatusCode::BAD_REQUEST, &message));
     }
+    if let Err(message) = ensure_api_proxy_key_allows_payload(proxy_key, payload) {
+        update_proxy_error(context, Some(message.clone())).await;
+        return Err(json_error_response(StatusCode::FORBIDDEN, &message));
+    }
     if selection.candidates.is_empty() {
         return Err(json_error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "No authorized account is available for proxying.",
         ));
     }
+    let load_balance = selection.load_balance;
     let current_sequential_account_key = sequential_account_key_for_request(
-        current_sequential_proxy_account_key(context).await,
+        current_sequential_proxy_account_key(context, session_affinity_key).await,
         selection.persisted_sequential_account_key,
     );
     let candidates = order_proxy_candidates_for_request(
         selection.candidates,
-        selection.load_balance,
+        load_balance,
         current_sequential_account_key.as_deref(),
     );
 
@@ -2578,7 +3426,15 @@ async fn send_codex_request_over_candidates(
             let status = upstream.status();
             log_proxy_response_route(route, status);
             if status.is_success() {
-                record_api_proxy_call_success(context, &candidate, route, payload).await;
+                record_api_proxy_call_success(context, proxy_key, &candidate, route, payload).await;
+                if matches!(load_balance.mode, ApiProxyLoadBalanceMode::Sequential) {
+                    bind_sequential_session_proxy_account(
+                        context,
+                        session_affinity_key,
+                        &candidate.account_key,
+                    )
+                    .await;
+                }
                 return Ok((candidate, upstream));
             }
 
@@ -2884,6 +3740,26 @@ fn api_proxy_visible_models(settings: &AppSettings) -> Vec<&'static str> {
         .collect()
 }
 
+fn api_proxy_visible_models_for_key(
+    settings: &AppSettings,
+    key: &ApiProxyKey,
+) -> Vec<&'static str> {
+    let visible = api_proxy_visible_models(settings);
+    if key.allowed_models.is_empty() {
+        return visible;
+    }
+
+    let allowed = key
+        .allowed_models
+        .iter()
+        .filter_map(|model| normalize_api_proxy_config_model_name(model))
+        .collect::<HashSet<_>>();
+    visible
+        .into_iter()
+        .filter(|model| allowed.contains(*model))
+        .collect()
+}
+
 fn ensure_api_proxy_payload_models_enabled(
     payload: &Value,
     settings: &AppSettings,
@@ -2901,6 +3777,53 @@ fn ensure_api_proxy_payload_models_enabled(
         "请求模型已在反代控制面板中禁用: {}",
         blocked.join(", ")
     ))
+}
+
+fn ensure_api_proxy_key_allows_payload(key: &ApiProxyKey, payload: &Value) -> Result<(), String> {
+    let requested_models = api_proxy_requested_models_from_payload(payload);
+    if !key.allowed_models.is_empty() {
+        let allowed = key
+            .allowed_models
+            .iter()
+            .filter_map(|model| normalize_api_proxy_config_model_name(model))
+            .collect::<HashSet<_>>();
+        let blocked = requested_models
+            .iter()
+            .filter(|model| !allowed.contains(model.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !blocked.is_empty() {
+            return Err(format!(
+                "平台 Key {} 未绑定请求模型: {}",
+                key.label,
+                blocked.join(", ")
+            ));
+        }
+    }
+
+    if !key.allowed_reasoning_efforts.is_empty() {
+        let requested = api_proxy_reasoning_effort_from_payload(payload)
+            .unwrap_or_else(|| "medium".to_string());
+        if !key.allowed_reasoning_efforts.contains(&requested) {
+            return Err(format!(
+                "平台 Key {} 未绑定推理等级: {}",
+                key.label, requested
+            ));
+        }
+    }
+
+    if !key.allowed_service_tiers.is_empty() {
+        let requested =
+            api_proxy_service_tier_from_payload(payload).unwrap_or_else(|| "auto".to_string());
+        if !key.allowed_service_tiers.contains(&requested) {
+            return Err(format!(
+                "平台 Key {} 未绑定服务等级: {}",
+                key.label, requested
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn api_proxy_requested_models_from_payload(payload: &Value) -> Vec<String> {
@@ -2954,6 +3877,42 @@ fn push_unique_api_proxy_model(models: &mut Vec<String>, next: Option<String>) {
         return;
     }
     models.push(next);
+}
+
+fn api_proxy_reasoning_effort_from_payload(payload: &Value) -> Option<String> {
+    payload
+        .get("reasoning")
+        .and_then(|value| value.get("effort"))
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("reasoning_effort").and_then(Value::as_str))
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| API_PROXY_REASONING_EFFORTS.contains(&value.as_str()))
+}
+
+fn api_proxy_service_tier_from_payload(payload: &Value) -> Option<String> {
+    payload
+        .get("service_tier")
+        .and_then(Value::as_str)
+        .and_then(normalize_api_proxy_service_tier_for_log)
+}
+
+fn normalize_api_proxy_service_tier_for_log(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "auto" => Some("auto".to_string()),
+        "fast" | "priority" => Some("fast".to_string()),
+        "flex" => Some("flex".to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_api_proxy_service_tier_for_upstream(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" => None,
+        "auto" => Some("auto".to_string()),
+        "fast" | "priority" => Some("priority".to_string()),
+        "flex" => Some("flex".to_string()),
+        _ => None,
+    }
 }
 
 fn account_to_proxy_candidate(account: StoredAccount) -> Option<ProxyCandidate> {
@@ -3507,48 +4466,12 @@ fn build_retriable_failure_summary(failures: &[RetryFailureInfo]) -> String {
     message
 }
 
-fn is_authorized(headers: &HeaderMap, api_key: &str) -> bool {
-    if let Some(value) = headers
-        .get("x-api-key")
-        .and_then(|value| value.to_str().ok())
-    {
-        if value == api_key {
-            return true;
-        }
-    }
-
-    if let Some(value) = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-    {
-        if let Some(token) = value.strip_prefix("Bearer ") {
-            return token == api_key;
-        }
-    }
-
-    false
-}
-
 async fn read_persisted_api_proxy_key(
     storage: &ProxyStorageContext,
 ) -> Result<Option<String>, String> {
-    if let Some(value) = read_api_proxy_key_file(storage)? {
-        return Ok(Some(value));
-    }
-
-    let _guard = storage.store_lock.lock().await;
-    let store = load_store_from_path(&account_store_path_from_data_dir(&storage.data_dir))?;
-    let legacy_value = store
-        .settings
-        .api_proxy_api_key
-        .clone()
-        .filter(|value| !value.trim().is_empty());
-
-    if let Some(value) = legacy_value.clone() {
-        write_api_proxy_key_file(storage, &value)?;
-    }
-
-    Ok(legacy_value)
+    ensure_persisted_api_proxy_keys(storage)
+        .await
+        .map(|keys| primary_api_proxy_key_value(&keys))
 }
 
 async fn read_persisted_api_proxy_port(storage: &ProxyStorageContext) -> Result<u16, String> {
@@ -3561,45 +4484,72 @@ async fn read_persisted_api_proxy_port(storage: &ProxyStorageContext) -> Result<
     })
 }
 
-async fn ensure_persisted_api_proxy_key(storage: &ProxyStorageContext) -> Result<String, String> {
-    if let Some(existing) = read_api_proxy_key_file(storage)? {
-        return Ok(existing);
-    }
-
-    let _guard = storage.store_lock.lock().await;
-    let store_path = account_store_path_from_data_dir(&storage.data_dir);
-    let mut store = load_store_from_path(&store_path)?;
-
-    if let Some(existing) = store
-        .settings
-        .api_proxy_api_key
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-    {
-        write_api_proxy_key_file(storage, &existing)?;
-        return Ok(existing);
-    }
-
-    let new_key = generate_api_proxy_key();
-    store.settings.api_proxy_api_key = Some(new_key.clone());
-    save_store_to_path(&store_path, &store)?;
-    write_api_proxy_key_file(storage, &new_key)?;
-    Ok(new_key)
+async fn ensure_persisted_api_proxy_keys(
+    storage: &ProxyStorageContext,
+) -> Result<Vec<ApiProxyKey>, String> {
+    load_or_initialize_api_proxy_key_store(storage)
+        .await
+        .map(|store| store.keys)
 }
 
-async fn regenerate_persisted_api_proxy_key(
+async fn load_or_initialize_api_proxy_key_store(
     storage: &ProxyStorageContext,
-) -> Result<String, String> {
-    let new_key = generate_api_proxy_key();
-    write_api_proxy_key_file(storage, &new_key)?;
-
+) -> Result<ApiProxyKeyStore, String> {
     let _guard = storage.store_lock.lock().await;
-    let store_path = account_store_path_from_data_dir(&storage.data_dir);
-    let mut store = load_store_from_path(&store_path)?;
-    store.settings.api_proxy_api_key = Some(new_key.clone());
-    save_store_to_path(&store_path, &store)?;
+    let path = api_proxy_keys_path(storage)?;
+    let mut key_store = load_api_proxy_key_store_from_path(&path)?;
+    if !key_store.keys.is_empty() {
+        normalize_api_proxy_key_store(&mut key_store);
+        return Ok(key_store);
+    }
 
-    Ok(new_key)
+    let store_path = account_store_path_from_data_dir(&storage.data_dir);
+    let account_store = load_store_from_path(&store_path)?;
+    let legacy_key = read_api_proxy_key_file(storage)?.or_else(|| {
+        account_store
+            .settings
+            .api_proxy_api_key
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+    });
+    let now = now_unix_seconds();
+    key_store.keys.push(default_api_proxy_key(now, legacy_key));
+    key_store.updated_at = now;
+    normalize_api_proxy_key_store(&mut key_store);
+    save_api_proxy_key_store_to_path(&path, &key_store)?;
+
+    if let Some(primary) = primary_api_proxy_key_value(&key_store.keys) {
+        write_api_proxy_key_file(storage, &primary)?;
+    }
+
+    Ok(key_store)
+}
+
+async fn save_api_proxy_key_store(
+    storage: &ProxyStorageContext,
+    store: &ApiProxyKeyStore,
+) -> Result<(), String> {
+    let _guard = storage.store_lock.lock().await;
+    let path = api_proxy_keys_path(storage)?;
+    save_api_proxy_key_store_to_path(&path, store)?;
+    if let Some(primary) = primary_api_proxy_key_value(&store.keys) {
+        write_api_proxy_key_file(storage, &primary)?;
+    }
+    Ok(())
+}
+
+async fn refresh_runtime_api_proxy_keys(
+    storage: &ProxyStorageContext,
+    runtime_slot: &tokio::sync::Mutex<Option<ApiProxyRuntimeHandle>>,
+) -> Result<(), String> {
+    let keys = ensure_persisted_api_proxy_keys(storage).await?;
+    let guard = runtime_slot.lock().await;
+    if let Some(handle) = guard.as_ref() {
+        if let Ok(mut key_guard) = handle.api_keys.write() {
+            *key_guard = keys;
+        }
+    }
+    Ok(())
 }
 
 fn generate_api_proxy_key() -> String {
@@ -3631,17 +4581,210 @@ fn api_proxy_key_path(storage: &ProxyStorageContext) -> Result<PathBuf, String> 
     Ok(storage.data_dir.join("api-proxy.key"))
 }
 
+fn api_proxy_keys_path(storage: &ProxyStorageContext) -> Result<PathBuf, String> {
+    Ok(storage.data_dir.join(API_PROXY_KEYS_FILE_NAME))
+}
+
+fn load_api_proxy_key_store_from_path(path: &Path) -> Result<ApiProxyKeyStore, String> {
+    if !path.exists() {
+        return Ok(ApiProxyKeyStore::default());
+    }
+
+    let raw = fs::read_to_string(path)
+        .map_err(|error| format!("读取平台 Key 存储失败 {}: {error}", path.display()))?;
+    if raw.trim().is_empty() {
+        return Ok(ApiProxyKeyStore::default());
+    }
+
+    match serde_json::from_str::<ApiProxyKeyStore>(&raw) {
+        Ok(mut store) => {
+            store.version = API_PROXY_KEYS_STORE_VERSION;
+            Ok(store)
+        }
+        Err(error) => {
+            log::warn!(
+                "平台 Key 存储格式无效，已重新初始化 {}: {}",
+                path.display(),
+                error
+            );
+            Ok(ApiProxyKeyStore::default())
+        }
+    }
+}
+
+fn save_api_proxy_key_store_to_path(path: &Path, store: &ApiProxyKeyStore) -> Result<(), String> {
+    let serialized = serde_json::to_string_pretty(store)
+        .map_err(|error| format!("序列化平台 Key 失败: {error}"))?;
+    write_private_named_file_atomically(path, serialized.as_bytes(), "平台 Key")
+}
+
+fn normalize_api_proxy_key_store(store: &mut ApiProxyKeyStore) {
+    let now = now_unix_seconds();
+    let mut seen_ids = HashSet::new();
+    let mut seen_keys = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for mut key in std::mem::take(&mut store.keys) {
+        if key.key.trim().is_empty() || seen_keys.contains(&key.key) {
+            continue;
+        }
+        if key.id.trim().is_empty() || seen_ids.contains(&key.id) {
+            key.id = uuid::Uuid::new_v4().to_string();
+        }
+        if key.label.trim().is_empty() {
+            key.label = "Default".to_string();
+        }
+        if key.created_at <= 0 {
+            key.created_at = now;
+        }
+        if key.updated_at <= 0 {
+            key.updated_at = key.created_at;
+        }
+        key.allowed_models = sanitize_api_proxy_allowed_models(key.allowed_models);
+        key.allowed_reasoning_efforts =
+            sanitize_api_proxy_reasoning_efforts(key.allowed_reasoning_efforts);
+        key.allowed_service_tiers = sanitize_api_proxy_service_tiers(key.allowed_service_tiers);
+
+        seen_ids.insert(key.id.clone());
+        seen_keys.insert(key.key.clone());
+        normalized.push(key);
+    }
+
+    if normalized.is_empty() {
+        normalized.push(default_api_proxy_key(now, None));
+    }
+    store.version = API_PROXY_KEYS_STORE_VERSION;
+    store.keys = normalized;
+}
+
+fn default_api_proxy_key(now: i64, key: Option<String>) -> ApiProxyKey {
+    ApiProxyKey {
+        id: uuid::Uuid::new_v4().to_string(),
+        label: "Default".to_string(),
+        key: key.unwrap_or_else(generate_api_proxy_key),
+        enabled: true,
+        allowed_models: Vec::new(),
+        allowed_reasoning_efforts: Vec::new(),
+        allowed_service_tiers: Vec::new(),
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+fn normalized_api_proxy_key_label(label: &str) -> String {
+    let value = label.trim();
+    if value.is_empty() {
+        "New key".to_string()
+    } else {
+        value.chars().take(80).collect()
+    }
+}
+
+fn normalized_custom_api_proxy_key(value: Option<&str>) -> Result<Option<String>, String> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if value.len() < 12 {
+        return Err("平台 Key 至少需要 12 个字符。".to_string());
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn primary_api_proxy_key_value(keys: &[ApiProxyKey]) -> Option<String> {
+    keys.iter()
+        .find(|key| key.enabled)
+        .or_else(|| keys.first())
+        .map(|key| key.key.clone())
+}
+
+fn read_authorized_api_proxy_key(
+    headers: &HeaderMap,
+    api_keys: &Arc<RwLock<Vec<ApiProxyKey>>>,
+) -> Option<ApiProxyKey> {
+    let token = api_proxy_request_token(headers)?;
+    let keys = api_keys.read().ok()?;
+    keys.iter()
+        .find(|key| key.enabled && key.key == token)
+        .cloned()
+}
+
+fn api_proxy_request_token(headers: &HeaderMap) -> Option<String> {
+    if let Some(value) = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(value.to_string());
+    }
+
+    headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn sanitize_api_proxy_allowed_models(models: Vec<String>) -> Vec<String> {
+    let selected = models
+        .into_iter()
+        .filter_map(|model| normalize_api_proxy_config_model_name(&model))
+        .filter(|model| MODELS.contains(&model.as_str()))
+        .collect::<HashSet<_>>();
+
+    MODELS
+        .iter()
+        .filter(|model| selected.contains(**model))
+        .map(|model| (*model).to_string())
+        .collect()
+}
+
+fn sanitize_api_proxy_reasoning_efforts(values: Vec<String>) -> Vec<String> {
+    sanitize_api_proxy_named_options(values, API_PROXY_REASONING_EFFORTS)
+}
+
+fn sanitize_api_proxy_service_tiers(values: Vec<String>) -> Vec<String> {
+    let selected = values
+        .into_iter()
+        .filter_map(|value| normalize_api_proxy_service_tier_for_log(&value))
+        .filter(|value| API_PROXY_SERVICE_TIERS.contains(&value.as_str()))
+        .collect::<HashSet<_>>();
+
+    API_PROXY_SERVICE_TIERS
+        .iter()
+        .filter(|value| selected.contains(**value))
+        .map(|value| (*value).to_string())
+        .collect()
+}
+
+fn sanitize_api_proxy_named_options(values: Vec<String>, allowed: &[&str]) -> Vec<String> {
+    let selected = values
+        .into_iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| allowed.contains(&value.as_str()))
+        .collect::<HashSet<_>>();
+
+    allowed
+        .iter()
+        .filter(|value| selected.contains(**value))
+        .map(|value| (*value).to_string())
+        .collect()
+}
+
 fn api_proxy_usage_path(storage: &ProxyStorageContext) -> Result<PathBuf, String> {
     Ok(storage.data_dir.join(API_PROXY_USAGE_FILE_NAME))
 }
 
 async fn record_api_proxy_call_success(
     context: &ProxyContext,
+    proxy_key: &ApiProxyKey,
     candidate: &ProxyCandidate,
     route: &str,
     payload: &Value,
 ) {
-    let metadata = api_proxy_usage_metadata(candidate, route, payload);
+    let metadata = api_proxy_usage_metadata(proxy_key, candidate, route, payload);
     if let Err(error) = append_api_proxy_usage_event(
         &context.storage,
         api_proxy_usage_event(&metadata, 1, 0, now_unix_seconds()),
@@ -3710,13 +4853,18 @@ fn maybe_record_stream_usage_tokens(
 }
 
 fn api_proxy_usage_metadata(
+    proxy_key: &ApiProxyKey,
     _candidate: &ProxyCandidate,
     route: &str,
     payload: &Value,
 ) -> ApiProxyUsageMetadata {
     ApiProxyUsageMetadata {
+        key_id: Some(proxy_key.id.clone()),
+        key_label: Some(proxy_key.label.clone()),
         model: api_proxy_usage_model_from_payload(payload),
         route: route.to_string(),
+        reasoning_effort: api_proxy_reasoning_effort_from_payload(payload),
+        service_tier: api_proxy_service_tier_from_payload(payload),
     }
 }
 
@@ -3762,7 +4910,12 @@ fn api_proxy_usage_event(
 ) -> ApiProxyUsageEvent {
     ApiProxyUsageEvent {
         timestamp,
+        key_id: metadata.key_id.clone(),
+        key_label: metadata.key_label.clone(),
         model: metadata.model.clone(),
+        route: Some(metadata.route.clone()),
+        reasoning_effort: metadata.reasoning_effort.clone(),
+        service_tier: metadata.service_tier.clone(),
         calls,
         tokens,
     }
@@ -3827,10 +4980,7 @@ fn api_proxy_usage_store_has_legacy_private_fields(path: &Path) -> bool {
     }
 
     fs::read_to_string(path).is_ok_and(|raw| {
-        raw.contains("accountKey")
-            || raw.contains("accountId")
-            || raw.contains("accountLabel")
-            || raw.contains("route")
+        raw.contains("accountKey") || raw.contains("accountId") || raw.contains("accountLabel")
     })
 }
 
@@ -4133,8 +5283,11 @@ fn write_private_named_file_atomically(
     write_result
 }
 
-fn read_current_api_key(shared: &Arc<RwLock<String>>) -> String {
-    shared.read().map(|value| value.clone()).unwrap_or_default()
+fn read_current_api_key(shared: &Arc<RwLock<Vec<ApiProxyKey>>>) -> Option<String> {
+    shared
+        .read()
+        .ok()
+        .and_then(|keys| primary_api_proxy_key_value(&keys))
 }
 
 fn should_forward_response_header(name: &str) -> bool {
@@ -4294,6 +5447,74 @@ fn build_chat_streaming_response(
         .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建聊天流式响应失败"))
 }
 
+fn build_anthropic_streaming_response(
+    upstream: CodexUpstreamResponse,
+    usage_storage: ProxyStorageContext,
+    usage_metadata: ApiProxyUsageMetadata,
+) -> Response<Body> {
+    let (upstream_headers, mut upstream_stream) = upstream.into_stream();
+    let output = stream! {
+        let mut decoder = SseDecoder::default();
+        let mut state = AnthropicStreamState::default();
+        let mut recorded_usage = false;
+
+        while let Some(chunk) = upstream_stream.next().await {
+            match chunk {
+                Ok(chunk) => {
+                    for event in decoder.push(&chunk) {
+                        maybe_record_stream_usage_tokens(
+                            &usage_storage,
+                            &usage_metadata,
+                            &event,
+                            &mut recorded_usage,
+                        );
+                        for value in translate_sse_event_to_anthropic_event(&event, &mut state) {
+                            yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&value));
+                        }
+                    }
+                }
+                Err(error) => {
+                    yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&json!({
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": format!("上游 Anthropic 流式响应中断: {error}")
+                        }
+                    })));
+                    return;
+                }
+            }
+        }
+
+        for event in decoder.finish() {
+            maybe_record_stream_usage_tokens(
+                &usage_storage,
+                &usage_metadata,
+                &event,
+                &mut recorded_usage,
+            );
+            for value in translate_sse_event_to_anthropic_event(&event, &mut state) {
+                yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&value));
+            }
+        }
+    };
+
+    let mut response = Response::builder().status(StatusCode::OK);
+    for (name, value) in &upstream_headers {
+        if should_forward_response_header(name.as_str()) {
+            response = response.header(name, value);
+        }
+    }
+
+    response
+        .header("content-type", "text/event-stream; charset=utf-8")
+        .header("cache-control", "no-cache")
+        .body(Body::from_stream(output))
+        .unwrap_or_else(|_| {
+            json_error_response(StatusCode::BAD_GATEWAY, "构建 Anthropic 流式响应失败")
+        })
+}
+
 fn build_image_streaming_response(
     upstream: CodexUpstreamResponse,
     usage_storage: ProxyStorageContext,
@@ -4415,6 +5636,14 @@ fn sse_data_chunk(value: &Value) -> Bytes {
         "{\"error\":{\"message\":\"stream serialization failed\"}}".to_string()
     });
     Bytes::from(format!("data: {serialized}\n\n"))
+}
+
+fn anthropic_sse_chunk(value: &Value) -> Bytes {
+    let event_type = value.get("type").and_then(Value::as_str);
+    let serialized = serde_json::to_string(value).unwrap_or_else(|_| {
+        "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"stream serialization failed\"}}".to_string()
+    });
+    serialize_sse_event(event_type, &serialized)
 }
 
 fn rewrite_sse_event_data_models_for_client(data: &str) -> String {
@@ -4776,6 +6005,363 @@ fn build_openai_usage(usage: &Value) -> Value {
     Value::Object(root)
 }
 
+fn convert_completed_response_to_anthropic_message(response: &Value) -> Value {
+    let response_object = response.as_object().cloned().unwrap_or_default();
+    let mut content = Vec::new();
+    let mut saw_tool_use = false;
+
+    if let Some(output) = response_object.get("output").and_then(Value::as_array) {
+        for item in output {
+            let Some(item_object) = item.as_object() else {
+                continue;
+            };
+            match item_object
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
+                "message" => {
+                    if let Some(parts) = item_object.get("content").and_then(Value::as_array) {
+                        for part in parts {
+                            let Some(part_object) = part.as_object() else {
+                                continue;
+                            };
+                            if part_object.get("type").and_then(Value::as_str)
+                                != Some("output_text")
+                            {
+                                continue;
+                            }
+                            if let Some(text) = part_object.get("text").and_then(Value::as_str) {
+                                if !text.is_empty() {
+                                    content.push(json!({
+                                        "type": "text",
+                                        "text": text,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+                "function_call" => {
+                    saw_tool_use = true;
+                    content.push(json!({
+                        "type": "tool_use",
+                        "id": item_object.get("call_id").and_then(Value::as_str).unwrap_or_default(),
+                        "name": item_object.get("name").and_then(Value::as_str).unwrap_or_default(),
+                        "input": parse_tool_arguments_json(
+                            item_object
+                                .get("arguments")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        ),
+                    }));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    json!({
+        "id": response_object
+            .get("id")
+            .cloned()
+            .unwrap_or(Value::String(String::new())),
+        "type": "message",
+        "role": "assistant",
+        "model": response_object
+            .get("model")
+            .and_then(Value::as_str)
+            .map(normalize_model_for_client)
+            .unwrap_or_default(),
+        "content": content,
+        "stop_reason": anthropic_stop_reason_from_response(response, saw_tool_use),
+        "stop_sequence": Value::Null,
+        "usage": build_anthropic_usage(response_object.get("usage")),
+    })
+}
+
+fn parse_tool_arguments_json(arguments: &str) -> Value {
+    if arguments.trim().is_empty() {
+        return json!({});
+    }
+    serde_json::from_str::<Value>(arguments).unwrap_or_else(|_| json!({}))
+}
+
+fn anthropic_stop_reason_from_response(response: &Value, saw_tool_use: bool) -> &'static str {
+    if saw_tool_use {
+        return "tool_use";
+    }
+    let is_max_tokens = response
+        .get("incomplete_details")
+        .and_then(|value| value.get("reason"))
+        .and_then(Value::as_str)
+        == Some("max_output_tokens");
+    if is_max_tokens || response.get("status").and_then(Value::as_str) == Some("incomplete") {
+        "max_tokens"
+    } else {
+        "end_turn"
+    }
+}
+
+fn build_anthropic_usage(usage: Option<&Value>) -> Value {
+    let mut root = Map::new();
+    let input_tokens = usage
+        .and_then(|value| value.get("input_tokens"))
+        .and_then(integer_field_value)
+        .unwrap_or(0);
+    let output_tokens = usage
+        .and_then(|value| value.get("output_tokens"))
+        .and_then(integer_field_value)
+        .unwrap_or(0);
+    root.insert(
+        "input_tokens".to_string(),
+        Value::Number(serde_json::Number::from(input_tokens)),
+    );
+    root.insert(
+        "output_tokens".to_string(),
+        Value::Number(serde_json::Number::from(output_tokens)),
+    );
+
+    if let Some(cached_tokens) = usage
+        .and_then(|value| value.get("input_tokens_details"))
+        .and_then(|value| value.get("cached_tokens"))
+        .and_then(integer_field_value)
+    {
+        root.insert(
+            "cache_read_input_tokens".to_string(),
+            Value::Number(serde_json::Number::from(cached_tokens)),
+        );
+    }
+    Value::Object(root)
+}
+
+fn translate_sse_event_to_anthropic_event(
+    event: &SseEvent,
+    state: &mut AnthropicStreamState,
+) -> Vec<Value> {
+    let Ok(parsed) = serde_json::from_str::<Value>(&event.data) else {
+        return Vec::new();
+    };
+    let Some(kind) = parsed.get("type").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+
+    match kind {
+        "response.created" => {
+            let response = parsed.get("response");
+            state.response_id = response
+                .and_then(|value| value.get("id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            state.model = response
+                .and_then(|value| value.get("model"))
+                .and_then(Value::as_str)
+                .map(normalize_model_for_client)
+                .unwrap_or_default();
+            vec![json!({
+                "type": "message_start",
+                "message": {
+                    "id": state.response_id,
+                    "type": "message",
+                    "role": "assistant",
+                    "model": state.model,
+                    "content": [],
+                    "stop_reason": Value::Null,
+                    "stop_sequence": Value::Null,
+                    "usage": build_anthropic_usage(response.and_then(|value| value.get("usage"))),
+                }
+            })]
+        }
+        "response.output_text.delta" => {
+            let Some(delta) = parsed.get("delta").and_then(Value::as_str) else {
+                return Vec::new();
+            };
+            let mut events = ensure_anthropic_text_block(state);
+            if let Some(index) = state.open_text_index {
+                events.push(json!({
+                    "type": "content_block_delta",
+                    "index": index,
+                    "delta": {
+                        "type": "text_delta",
+                        "text": delta,
+                    }
+                }));
+            }
+            events
+        }
+        "response.output_text.done" => stop_anthropic_text_block(state),
+        "response.output_item.added" => {
+            let Some(item) = parsed.get("item").and_then(Value::as_object) else {
+                return Vec::new();
+            };
+            if item.get("type").and_then(Value::as_str) != Some("function_call") {
+                return Vec::new();
+            }
+            let mut events = stop_anthropic_text_block(state);
+            events.extend(start_anthropic_tool_block(state, item, None));
+            events
+        }
+        "response.function_call_arguments.delta" => {
+            state.has_received_tool_arguments_delta = true;
+            state
+                .open_tool_index
+                .map(|index| {
+                    vec![json!({
+                        "type": "content_block_delta",
+                        "index": index,
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": parsed.get("delta").and_then(Value::as_str).unwrap_or_default(),
+                        }
+                    })]
+                })
+                .unwrap_or_default()
+        }
+        "response.function_call_arguments.done" => {
+            let mut events = Vec::new();
+            if !state.has_received_tool_arguments_delta {
+                if let Some(index) = state.open_tool_index {
+                    events.push(json!({
+                        "type": "content_block_delta",
+                        "index": index,
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": parsed.get("arguments").and_then(Value::as_str).unwrap_or_default(),
+                        }
+                    }));
+                }
+            }
+            events.extend(stop_anthropic_tool_block(state));
+            events
+        }
+        "response.output_item.done" => {
+            let Some(item) = parsed.get("item").and_then(Value::as_object) else {
+                return Vec::new();
+            };
+            if item.get("type").and_then(Value::as_str) != Some("function_call") {
+                return Vec::new();
+            }
+            if state.open_tool_index.is_some() {
+                return stop_anthropic_tool_block(state);
+            }
+            let mut events = stop_anthropic_text_block(state);
+            let arguments = item
+                .get("arguments")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            events.extend(start_anthropic_tool_block(
+                state,
+                item,
+                Some(parse_tool_arguments_json(arguments)),
+            ));
+            events.extend(stop_anthropic_tool_block(state));
+            events
+        }
+        "response.completed" => {
+            let response = parsed.get("response");
+            let mut events = stop_anthropic_text_block(state);
+            events.extend(stop_anthropic_tool_block(state));
+            events.push(json!({
+                "type": "message_delta",
+                "delta": {
+                    "stop_reason": anthropic_stop_reason_from_response(
+                        response.unwrap_or(&Value::Null),
+                        state.saw_tool_use,
+                    ),
+                    "stop_sequence": Value::Null,
+                },
+                "usage": build_anthropic_usage(response.and_then(|value| value.get("usage"))),
+            }));
+            events.push(json!({
+                "type": "message_stop",
+            }));
+            events
+        }
+        "response.failed" => vec![json!({
+            "type": "error",
+            "error": {
+                "type": "api_error",
+                "message": response_error_message_from_value(&parsed)
+                    .unwrap_or_else(|| "Anthropic Messages 请求失败".to_string()),
+            }
+        })],
+        _ => {
+            let _ = &event.event;
+            Vec::new()
+        }
+    }
+}
+
+fn ensure_anthropic_text_block(state: &mut AnthropicStreamState) -> Vec<Value> {
+    if state.open_text_index.is_some() {
+        return Vec::new();
+    }
+    let mut events = stop_anthropic_tool_block(state);
+    state.content_index += 1;
+    let index = state.content_index;
+    state.open_text_index = Some(index);
+    events.push(json!({
+        "type": "content_block_start",
+        "index": index,
+        "content_block": {
+            "type": "text",
+            "text": "",
+        }
+    }));
+    events
+}
+
+fn stop_anthropic_text_block(state: &mut AnthropicStreamState) -> Vec<Value> {
+    state
+        .open_text_index
+        .take()
+        .map(|index| {
+            vec![json!({
+                "type": "content_block_stop",
+                "index": index,
+            })]
+        })
+        .unwrap_or_default()
+}
+
+fn start_anthropic_tool_block(
+    state: &mut AnthropicStreamState,
+    item: &Map<String, Value>,
+    complete_input: Option<Value>,
+) -> Vec<Value> {
+    let mut events = stop_anthropic_tool_block(state);
+    state.content_index += 1;
+    let index = state.content_index;
+    state.open_tool_index = Some(index);
+    state.saw_tool_use = true;
+    state.has_received_tool_arguments_delta = false;
+    events.push(json!({
+        "type": "content_block_start",
+        "index": index,
+        "content_block": {
+            "type": "tool_use",
+            "id": item.get("call_id").and_then(Value::as_str).unwrap_or_default(),
+            "name": item.get("name").and_then(Value::as_str).unwrap_or_default(),
+            "input": complete_input.unwrap_or_else(|| json!({})),
+        }
+    }));
+    events
+}
+
+fn stop_anthropic_tool_block(state: &mut AnthropicStreamState) -> Vec<Value> {
+    state
+        .open_tool_index
+        .take()
+        .map(|index| {
+            vec![json!({
+                "type": "content_block_stop",
+                "index": index,
+            })]
+        })
+        .unwrap_or_default()
+}
+
 fn translate_sse_event_to_chat_chunk(event: &SseEvent, state: &mut ChatStreamState) -> Vec<Value> {
     let Ok(parsed) = serde_json::from_str::<Value>(&event.data) else {
         return Vec::new();
@@ -5124,8 +6710,65 @@ async fn persist_sequential_proxy_account_key_if_enabled(
     save_store_to_path(&path, &store)
 }
 
-async fn current_sequential_proxy_account_key(context: &ProxyContext) -> Option<String> {
-    context.shared.lock().await.sequential_account_key.clone()
+async fn current_sequential_proxy_account_key(
+    context: &ProxyContext,
+    session_affinity_key: Option<&str>,
+) -> Option<String> {
+    let snapshot = context.shared.lock().await;
+    sequential_runtime_account_key(&snapshot, session_affinity_key)
+}
+
+fn sequential_runtime_account_key(
+    snapshot: &ApiProxyRuntimeSnapshot,
+    session_affinity_key: Option<&str>,
+) -> Option<String> {
+    match session_affinity_key {
+        Some(key) => snapshot
+            .sequential_session_affinity
+            .get(key)
+            .map(|entry| entry.account_key.clone()),
+        None => snapshot.sequential_account_key.clone(),
+    }
+}
+
+async fn bind_sequential_session_proxy_account(
+    context: &ProxyContext,
+    session_affinity_key: Option<&str>,
+    account_key: &str,
+) {
+    let Some(session_key) = session_affinity_key else {
+        return;
+    };
+
+    let mut snapshot = context.shared.lock().await;
+    if !snapshot
+        .sequential_session_affinity
+        .contains_key(session_key)
+    {
+        prune_proxy_session_affinity_if_needed(&mut snapshot);
+    }
+    snapshot.sequential_session_affinity.insert(
+        session_key.to_string(),
+        ApiProxySessionAffinity {
+            account_key: account_key.to_string(),
+            updated_at: now_unix_seconds(),
+        },
+    );
+}
+
+fn prune_proxy_session_affinity_if_needed(snapshot: &mut ApiProxyRuntimeSnapshot) {
+    if snapshot.sequential_session_affinity.len() < MAX_PROXY_SESSION_AFFINITY_ENTRIES {
+        return;
+    }
+
+    if let Some(oldest_key) = snapshot
+        .sequential_session_affinity
+        .iter()
+        .min_by_key(|(_, entry)| entry.updated_at)
+        .map(|(key, _)| key.clone())
+    {
+        snapshot.sequential_session_affinity.remove(&oldest_key);
+    }
 }
 
 async fn update_proxy_error(context: &ProxyContext, error: Option<String>) {
@@ -5136,7 +6779,7 @@ async fn update_proxy_error(context: &ProxyContext, error: Option<String>) {
 fn snapshot_handle_state(handle: &ApiProxyRuntimeHandle) -> ApiProxyHandleState {
     ApiProxyHandleState {
         port: handle.port,
-        api_key: handle.api_key.clone(),
+        api_keys: handle.api_keys.clone(),
         task_finished: handle.task.is_finished(),
         shared: handle.shared.clone(),
     }
@@ -5145,44 +6788,66 @@ fn snapshot_handle_state(handle: &ApiProxyRuntimeHandle) -> ApiProxyHandleState 
 async fn status_from_handle_state(handle: ApiProxyHandleState) -> ApiProxyStatus {
     let snapshot = handle.shared.lock().await.clone();
     if handle.task_finished {
-        ApiProxyStatus {
+        enrich_codex_proxy_status(ApiProxyStatus {
             running: false,
             port: None,
-            api_key: Some(read_current_api_key(&handle.api_key)),
+            api_key: read_current_api_key(&handle.api_keys),
             base_url: None,
             lan_base_url: None,
+            codex_proxy_bound: false,
+            codex_proxy_restore_available: false,
+            codex_proxy_base_url: None,
+            codex_proxy_config_path: None,
             active_account_key: snapshot.active_account_key,
             active_account_id: snapshot.active_account_id,
             active_account_label: snapshot.active_account_label,
             last_error: snapshot.last_error,
-        }
+        })
     } else {
-        ApiProxyStatus {
+        enrich_codex_proxy_status(ApiProxyStatus {
             running: true,
             port: Some(handle.port),
-            api_key: Some(read_current_api_key(&handle.api_key)),
+            api_key: read_current_api_key(&handle.api_keys),
             base_url: Some(proxy_base_url(handle.port)),
             lan_base_url: proxy_lan_base_url(handle.port),
+            codex_proxy_bound: false,
+            codex_proxy_restore_available: false,
+            codex_proxy_base_url: None,
+            codex_proxy_config_path: None,
             active_account_key: snapshot.active_account_key,
             active_account_id: snapshot.active_account_id,
             active_account_label: snapshot.active_account_label,
             last_error: snapshot.last_error,
-        }
+        })
     }
 }
 
 fn stopped_status(api_key: Option<String>, last_error: Option<String>) -> ApiProxyStatus {
-    ApiProxyStatus {
+    enrich_codex_proxy_status(ApiProxyStatus {
         running: false,
         port: None,
         api_key,
         base_url: None,
         lan_base_url: None,
+        codex_proxy_bound: false,
+        codex_proxy_restore_available: false,
+        codex_proxy_base_url: None,
+        codex_proxy_config_path: None,
         active_account_key: None,
         active_account_id: None,
         active_account_label: None,
         last_error,
+    })
+}
+
+fn enrich_codex_proxy_status(mut status: ApiProxyStatus) -> ApiProxyStatus {
+    if let Ok(binding) = profile_files::codex_proxy_binding_state(status.base_url.as_deref()) {
+        status.codex_proxy_bound = binding.bound;
+        status.codex_proxy_restore_available = binding.restore_available;
+        status.codex_proxy_base_url = binding.current_base_url;
+        status.codex_proxy_config_path = binding.config_path;
     }
+    status
 }
 
 fn resolve_codex_upstream_base_url() -> String {
@@ -5267,17 +6932,26 @@ mod tests {
     use super::api_proxy_usage_model_from_payload;
     use super::api_proxy_usage_store_has_legacy_private_fields;
     use super::api_proxy_visible_models;
+    use super::api_proxy_visible_models_for_key;
+    use super::append_api_proxy_usage_event;
     use super::build_api_proxy_usage_stats;
+    use super::convert_anthropic_messages_request_to_codex;
+    use super::convert_completed_response_to_anthropic_message;
     use super::convert_completed_response_to_chat_completion;
     use super::convert_openai_chat_request_to_codex;
     use super::convert_openai_image_edit_request_to_codex;
     use super::convert_openai_image_generation_request_to_codex;
     use super::convert_responses_image_output_to_images_response;
+    use super::create_api_proxy_key_with_runtime;
+    use super::delete_api_proxy_key_with_runtime;
+    use super::ensure_api_proxy_key_allows_payload;
     use super::ensure_api_proxy_payload_models_enabled;
     use super::extract_completed_response_from_sse;
     use super::find_http_header_end;
+    use super::get_api_proxy_key_usage_logs_with_storage;
     use super::host_matches_no_proxy;
     use super::is_responses_terminal_event;
+    use super::list_api_proxy_keys_with_storage;
     use super::normalize_openai_responses_request;
     use super::normalize_responses_websocket_create;
     use super::now_unix_seconds;
@@ -5285,31 +6959,49 @@ mod tests {
     use super::parse_http_proxy_config;
     use super::parse_proxy_request_body_limit_mib;
     use super::prune_api_proxy_usage_events;
+    use super::regenerate_api_proxy_key_with_runtime;
+    use super::request_session_affinity_key;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
     use super::sanitize_api_proxy_disabled_models_for_settings;
     use super::sequential_account_key_for_request;
+    use super::sequential_runtime_account_key;
     use super::should_use_responses_websocket;
+    use super::translate_sse_event_to_anthropic_event;
     use super::translate_sse_event_to_chat_chunk;
     use super::translate_sse_event_to_image_chunk;
+    use super::update_api_proxy_key_with_runtime;
     use super::websocket_target_host_port;
+    use super::AnthropicStreamState;
     use super::ApiProxyUsageEvent;
     use super::ChatStreamState;
     use super::ImageMultipartRequest;
     use super::ProxyCandidate;
     use super::ProxyLoadBalanceConfig;
+    use super::ProxyStorageContext;
     use super::SseEvent;
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RETENTION_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
+    use crate::models::ApiProxyKey;
     use crate::models::ApiProxyLoadBalanceMode;
     use crate::models::AppSettings;
+    use crate::models::CreateApiProxyKeyInput;
     use crate::models::StoredAccount;
+    use crate::models::UpdateApiProxyKeyInput;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
+    use crate::state::ApiProxyRuntimeSnapshot;
+    use crate::state::ApiProxySessionAffinity;
+    use axum::http::HeaderMap;
+    use axum::http::HeaderValue;
     use serde_json::json;
     use serde_json::Value;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::SystemTime;
+    use std::time::UNIX_EPOCH;
 
     fn proxy_candidate(
         label: &str,
@@ -5386,10 +7078,58 @@ mod tests {
     fn usage_event(timestamp: i64, model: &str, calls: i64, tokens: i64) -> ApiProxyUsageEvent {
         ApiProxyUsageEvent {
             timestamp,
+            key_id: None,
+            key_label: None,
             model: model.to_string(),
+            route: None,
+            reasoning_effort: None,
+            service_tier: None,
             calls,
             tokens,
         }
+    }
+
+    fn api_proxy_key(
+        allowed_models: Vec<&str>,
+        reasoning: Vec<&str>,
+        service_tiers: Vec<&str>,
+    ) -> ApiProxyKey {
+        ApiProxyKey {
+            id: "key-1".to_string(),
+            label: "tenant".to_string(),
+            key: "sk-test".to_string(),
+            enabled: true,
+            allowed_models: allowed_models.into_iter().map(str::to_string).collect(),
+            allowed_reasoning_efforts: reasoning.into_iter().map(str::to_string).collect(),
+            allowed_service_tiers: service_tiers.into_iter().map(str::to_string).collect(),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn temp_proxy_storage_context(test_name: &str) -> (ProxyStorageContext, PathBuf) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after Unix epoch")
+            .as_nanos();
+        let data_dir = std::env::temp_dir().join(format!("codex-tools-{test_name}-{nonce}"));
+        std::fs::create_dir_all(&data_dir).expect("temporary proxy storage should be writable");
+        (
+            ProxyStorageContext {
+                data_dir: data_dir.clone(),
+                store_lock: Arc::new(tokio::sync::Mutex::new(())),
+                auth_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+                sync_active_auth_on_refresh: false,
+            },
+            data_dir,
+        )
+    }
+
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn desktop_proxy_binds_lan_interfaces_but_keeps_loopback_base_url() {
+        assert_eq!(super::DESKTOP_API_PROXY_BIND_HOST, "0.0.0.0");
+        assert_eq!(super::proxy_base_url(8787), "http://127.0.0.1:8787/v1");
     }
 
     #[test]
@@ -5434,9 +7174,9 @@ mod tests {
         let call_bucket = now - 120;
         let token_bucket = now - 60;
         let events = vec![
-            usage_event(call_bucket, "gpt-5", 1, 0),
-            usage_event(token_bucket, "gpt-5", 0, 42),
-            usage_event(now - API_PROXY_USAGE_RANGE_1H_SECONDS - 1, "gpt-5", 1, 99),
+            usage_event(call_bucket, "gpt-5.4", 1, 0),
+            usage_event(token_bucket, "gpt-5.4", 0, 42),
+            usage_event(now - API_PROXY_USAGE_RANGE_1H_SECONDS - 1, "gpt-5.4", 1, 99),
             usage_event(now - 30, "gpt-5.5", 1, 12),
         ];
 
@@ -5449,8 +7189,8 @@ mod tests {
         let gpt5 = stats
             .series
             .iter()
-            .find(|series| series.model == "gpt-5")
-            .expect("gpt-5 series");
+            .find(|series| series.model == "gpt-5.4")
+            .expect("gpt-5.4 series");
         assert_eq!(gpt5.total_calls, 1);
         assert_eq!(gpt5.total_tokens, 42);
         assert!(gpt5
@@ -5483,13 +7223,13 @@ mod tests {
             "model": "gpt-5.5",
             "tools": [{
                 "type": "image_generation",
-                "model": "gpt-image-1"
+                "model": "gpt-image-2"
             }]
         });
 
         let model = api_proxy_usage_model_from_payload(&payload);
 
-        assert_eq!(model, "gpt-image-1");
+        assert_eq!(model, "gpt-image-2");
     }
 
     #[test]
@@ -5505,9 +7245,17 @@ mod tests {
     }
 
     #[test]
+    fn api_proxy_supported_models_only_exposes_current_allowlist() {
+        assert_eq!(
+            super::get_api_proxy_supported_models_internal(),
+            vec!["gpt-5.4", "gpt-5.5", "gpt-image-2"]
+        );
+    }
+
+    #[test]
     fn api_proxy_visible_models_hide_disabled_entries() {
         let settings = AppSettings {
-            api_proxy_disabled_models: vec!["gpt-5.4".to_string(), "gpt-image-1".to_string()],
+            api_proxy_disabled_models: vec!["gpt-5.4".to_string(), "gpt-image-2".to_string()],
             ..AppSettings::default()
         };
 
@@ -5515,9 +7263,156 @@ mod tests {
         let disabled = api_proxy_disabled_model_set(&settings);
 
         assert!(disabled.contains("gpt-5.4"));
+        assert!(disabled.contains("gpt-image-2"));
         assert!(!visible.contains(&"gpt-5.4"));
-        assert!(!visible.contains(&"gpt-image-1"));
+        assert!(!visible.contains(&"gpt-image-2"));
         assert!(visible.contains(&"gpt-5.5"));
+    }
+
+    #[test]
+    fn api_proxy_visible_models_are_intersected_with_key_binding() {
+        let settings = AppSettings {
+            api_proxy_disabled_models: vec!["gpt-5.4".to_string()],
+            ..AppSettings::default()
+        };
+        let key = api_proxy_key(vec!["gpt-5.4", "gpt-5.5"], vec![], vec![]);
+
+        let visible = api_proxy_visible_models_for_key(&settings, &key);
+
+        assert_eq!(visible, vec!["gpt-5.5"]);
+    }
+
+    #[tokio::test]
+    async fn api_proxy_key_store_creates_updates_regenerates_and_deletes_keys() {
+        let (storage, data_dir) = temp_proxy_storage_context("api-key-store-crud");
+        let runtime_slot = tokio::sync::Mutex::new(None);
+
+        let initial = list_api_proxy_keys_with_storage(&storage)
+            .await
+            .expect("default platform key should be initialized");
+        assert_eq!(initial.len(), 1);
+        assert!(initial[0].enabled);
+
+        let created = create_api_proxy_key_with_runtime(
+            &storage,
+            &runtime_slot,
+            CreateApiProxyKeyInput {
+                label: "Tenant A".to_string(),
+                key: Some("sk-tenant-a-fixed".to_string()),
+                allowed_models: vec!["gpt-5.5".to_string(), "unknown-model".to_string()],
+                allowed_reasoning_efforts: vec!["high".to_string(), "invalid".to_string()],
+                allowed_service_tiers: vec!["priority".to_string(), "invalid".to_string()],
+            },
+        )
+        .await
+        .expect("custom platform key should be created");
+        assert_eq!(created.len(), 2);
+
+        let tenant_id = created
+            .iter()
+            .find(|key| key.key == "sk-tenant-a-fixed")
+            .expect("created tenant key should be returned")
+            .id
+            .clone();
+        let tenant = created
+            .iter()
+            .find(|key| key.id == tenant_id)
+            .expect("created tenant key should be found by id");
+        assert_eq!(tenant.allowed_models, vec!["gpt-5.5"]);
+        assert_eq!(tenant.allowed_reasoning_efforts, vec!["high"]);
+        assert_eq!(tenant.allowed_service_tiers, vec!["fast"]);
+
+        let updated = update_api_proxy_key_with_runtime(
+            &storage,
+            &runtime_slot,
+            UpdateApiProxyKeyInput {
+                id: tenant_id.clone(),
+                label: Some("Tenant A disabled".to_string()),
+                enabled: Some(false),
+                allowed_models: Some(vec!["gpt-5.4".to_string()]),
+                allowed_reasoning_efforts: Some(vec!["low".to_string()]),
+                allowed_service_tiers: Some(vec!["flex".to_string()]),
+            },
+        )
+        .await
+        .expect("created tenant key should be updateable");
+        let updated_tenant = updated
+            .iter()
+            .find(|key| key.id == tenant_id)
+            .expect("updated tenant key should still exist");
+        assert_eq!(updated_tenant.label, "Tenant A disabled");
+        assert!(!updated_tenant.enabled);
+        assert_eq!(updated_tenant.allowed_models, vec!["gpt-5.4"]);
+        assert_eq!(updated_tenant.allowed_reasoning_efforts, vec!["low"]);
+        assert_eq!(updated_tenant.allowed_service_tiers, vec!["flex"]);
+
+        let previous_key_value = updated_tenant.key.clone();
+        let regenerated =
+            regenerate_api_proxy_key_with_runtime(&storage, &runtime_slot, Some(&tenant_id))
+                .await
+                .expect("created tenant key should be regeneratable");
+        let regenerated_tenant = regenerated
+            .iter()
+            .find(|key| key.id == tenant_id)
+            .expect("regenerated tenant key should still exist");
+        assert_ne!(regenerated_tenant.key, previous_key_value);
+
+        let after_delete = delete_api_proxy_key_with_runtime(&storage, &runtime_slot, &tenant_id)
+            .await
+            .expect("created tenant key should be deleteable");
+        assert_eq!(after_delete.len(), 1);
+        assert_ne!(after_delete[0].id, tenant_id);
+
+        let fallback =
+            delete_api_proxy_key_with_runtime(&storage, &runtime_slot, after_delete[0].id.as_str())
+                .await
+                .expect("deleting the last key should create a fallback key");
+        assert_eq!(fallback.len(), 1);
+        assert!(fallback[0].enabled);
+        assert_ne!(fallback[0].id, after_delete[0].id);
+
+        std::fs::remove_dir_all(data_dir).expect("temporary proxy storage should be removable");
+    }
+
+    #[tokio::test]
+    async fn api_proxy_key_usage_logs_preserve_key_route_reasoning_and_service_tier() {
+        let (storage, data_dir) = temp_proxy_storage_context("api-key-usage-logs");
+        let now = now_unix_seconds();
+        append_api_proxy_usage_event(
+            &storage,
+            ApiProxyUsageEvent {
+                timestamp: now,
+                key_id: Some("key-a".to_string()),
+                key_label: Some("Tenant A".to_string()),
+                model: "gpt-5.5".to_string(),
+                route: Some("/v1/responses".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                service_tier: Some("fast".to_string()),
+                calls: 1,
+                tokens: 99,
+            },
+        )
+        .await
+        .expect("usage event should be appended");
+        append_api_proxy_usage_event(&storage, usage_event(now - 1, "gpt-5.4", 1, 12))
+            .await
+            .expect("legacy usage event should be appended");
+
+        let logs = get_api_proxy_key_usage_logs_with_storage(&storage, Some(10))
+            .await
+            .expect("per-key usage logs should be readable");
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].key_id.as_deref(), Some("key-a"));
+        assert_eq!(logs[0].key_label.as_deref(), Some("Tenant A"));
+        assert_eq!(logs[0].model, "gpt-5.5");
+        assert_eq!(logs[0].route.as_deref(), Some("/v1/responses"));
+        assert_eq!(logs[0].reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(logs[0].service_tier.as_deref(), Some("fast"));
+        assert_eq!(logs[0].calls, 1);
+        assert_eq!(logs[0].tokens, 99);
+
+        std::fs::remove_dir_all(data_dir).expect("temporary proxy storage should be removable");
     }
 
     #[test]
@@ -5557,12 +7452,49 @@ mod tests {
     }
 
     #[test]
+    fn api_proxy_key_validation_rejects_unbound_model() {
+        let key = api_proxy_key(vec!["gpt-5.5"], vec![], vec![]);
+        let payload = json!({ "model": "gpt-5.4" });
+
+        let error = ensure_api_proxy_key_allows_payload(&key, &payload)
+            .expect_err("unbound model should be rejected");
+
+        assert!(error.contains("gpt-5.4"));
+    }
+
+    #[test]
+    fn api_proxy_key_validation_accepts_fast_service_tier_alias() {
+        let key = api_proxy_key(vec![], vec![], vec!["fast"]);
+        let payload = json!({
+            "model": "gpt-5.5",
+            "reasoning": { "effort": "medium" },
+            "service_tier": "priority"
+        });
+
+        assert!(ensure_api_proxy_key_allows_payload(&key, &payload).is_ok());
+    }
+
+    #[test]
+    fn api_proxy_key_validation_rejects_unbound_reasoning_effort() {
+        let key = api_proxy_key(vec![], vec!["low"], vec![]);
+        let payload = json!({
+            "model": "gpt-5.5",
+            "reasoning": { "effort": "high" }
+        });
+
+        let error = ensure_api_proxy_key_allows_payload(&key, &payload)
+            .expect_err("unbound reasoning effort should be rejected");
+
+        assert!(error.contains("high"));
+    }
+
+    #[test]
     fn api_proxy_usage_pruning_removes_events_older_than_retention() {
         let now = 10_000_000;
         let cutoff = now - API_PROXY_USAGE_RETENTION_SECONDS;
         let mut events = vec![
-            usage_event(cutoff - 1, "gpt-5", 1, 0),
-            usage_event(cutoff, "gpt-5", 1, 0),
+            usage_event(cutoff - 1, "gpt-5.4", 1, 0),
+            usage_event(cutoff, "gpt-5.4", 1, 0),
             usage_event(now, "gpt-5.5", 0, 20),
         ];
 
@@ -5592,7 +7524,7 @@ mod tests {
 
         std::fs::write(
             &path,
-            r#"{"version":1,"events":[{"timestamp":1,"model":"gpt-5","calls":1,"tokens":0}]}"#,
+            r#"{"version":1,"events":[{"timestamp":1,"model":"gpt-5.4","calls":1,"tokens":0}]}"#,
         )
         .expect("write sanitized usage store");
 
@@ -5675,6 +7607,87 @@ mod tests {
     }
 
     #[test]
+    fn sequential_runtime_affinity_keeps_sessions_independent() {
+        let mut snapshot = ApiProxyRuntimeSnapshot {
+            sequential_account_key: Some("global".to_string()),
+            ..ApiProxyRuntimeSnapshot::default()
+        };
+        snapshot.sequential_session_affinity.insert(
+            "header:x-codex-tools-session:session-a".to_string(),
+            ApiProxySessionAffinity {
+                account_key: "account-a".to_string(),
+                updated_at: 10,
+            },
+        );
+        snapshot.sequential_session_affinity.insert(
+            "header:x-codex-tools-session:session-b".to_string(),
+            ApiProxySessionAffinity {
+                account_key: "account-b".to_string(),
+                updated_at: 11,
+            },
+        );
+
+        assert_eq!(
+            sequential_runtime_account_key(
+                &snapshot,
+                Some("header:x-codex-tools-session:session-a")
+            )
+            .as_deref(),
+            Some("account-a")
+        );
+        assert_eq!(
+            sequential_runtime_account_key(
+                &snapshot,
+                Some("header:x-codex-tools-session:session-b")
+            )
+            .as_deref(),
+            Some("account-b")
+        );
+        assert_eq!(
+            sequential_runtime_account_key(&snapshot, Some("missing-session")),
+            None
+        );
+        assert_eq!(
+            sequential_runtime_account_key(&snapshot, None).as_deref(),
+            Some("global")
+        );
+    }
+
+    #[test]
+    fn request_session_affinity_key_prefers_header_over_payload() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-tools-session",
+            HeaderValue::from_static(" header-session "),
+        );
+        let payload = json!({
+            "sessionId": "payload-session",
+        });
+
+        let key = request_session_affinity_key(&headers, &payload);
+
+        assert_eq!(
+            key.as_deref(),
+            Some("header:x-codex-tools-session:header-session")
+        );
+    }
+
+    #[test]
+    fn request_session_affinity_key_uses_payload_when_header_is_missing() {
+        let headers = HeaderMap::new();
+        let payload = json!({
+            "conversationId": "conversation-1",
+        });
+
+        let key = request_session_affinity_key(&headers, &payload);
+
+        assert_eq!(
+            key.as_deref(),
+            Some("payload:conversationId:conversation-1")
+        );
+    }
+
+    #[test]
     fn sequential_load_balance_reuses_current_candidate_with_missing_five_hour_usage() {
         let candidates = vec![
             proxy_candidate("smart best", "a", Some(5.0), Some(10.0), false),
@@ -5733,7 +7746,7 @@ mod tests {
     #[test]
     fn converts_chat_request_to_codex_payload() {
         let request = json!({
-            "model": "gpt-5",
+            "model": "gpt-5.4",
             "stream": false,
             "messages": [
                 { "role": "system", "content": "You are terse." },
@@ -5747,7 +7760,7 @@ mod tests {
         assert!(!downstream_stream);
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
-            Some("gpt-5")
+            Some("gpt-5.4")
         );
         assert_eq!(
             payload.get("stream").and_then(|value| value.as_bool()),
@@ -5789,6 +7802,119 @@ mod tests {
         assert_eq!(
             payload.get("model").and_then(|value| value.as_str()),
             Some("gpt-5.4")
+        );
+    }
+
+    #[test]
+    fn converts_anthropic_messages_request_to_codex_payload() {
+        let request = json!({
+            "model": "gpt-5-4",
+            "system": "You are terse.",
+            "max_tokens": 128,
+            "stream": false,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": "look" },
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "aGVsbG8="
+                            }
+                        }
+                    ]
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_123",
+                            "name": "lookup",
+                            "input": { "q": "codex" }
+                        }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_123",
+                            "content": "ok"
+                        }
+                    ]
+                }
+            ],
+            "tools": [
+                {
+                    "name": "lookup",
+                    "description": "search",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "q": { "type": "string" }
+                        }
+                    }
+                }
+            ],
+            "tool_choice": { "type": "tool", "name": "lookup" }
+        });
+
+        let (payload, downstream_stream) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+
+        assert!(!downstream_stream);
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            payload.get("instructions").and_then(Value::as_str),
+            Some("You are terse.")
+        );
+        assert_eq!(
+            payload.get("max_output_tokens").and_then(Value::as_i64),
+            Some(128)
+        );
+        assert_eq!(
+            payload.get("input").and_then(Value::as_array).map(Vec::len),
+            Some(3)
+        );
+        assert_eq!(
+            payload
+                .get("input")
+                .and_then(|value| value.get(1))
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str),
+            Some("function_call")
+        );
+        assert_eq!(
+            payload
+                .get("input")
+                .and_then(|value| value.get(2))
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str),
+            Some("function_call_output")
+        );
+        assert_eq!(
+            payload
+                .get("tools")
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("parameters"))
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str),
+            Some("object")
+        );
+        assert_eq!(
+            payload
+                .get("tool_choice")
+                .and_then(|value| value.get("name"))
+                .and_then(Value::as_str),
+            Some("lookup")
         );
     }
 
@@ -6355,7 +8481,7 @@ mod tests {
     #[test]
     fn extracts_completed_response_from_sse_body() {
         let body = br#"event: response.completed
-data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"model":"gpt-5","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"2"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}
+data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"model":"gpt-5.4","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"2"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}
 
 "#;
 
@@ -6478,6 +8604,75 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
     }
 
     #[test]
+    fn converts_completed_response_to_anthropic_message() {
+        let response = json!({
+            "id": "resp_123",
+            "created_at": 1772966030i64,
+            "model": "gpt5.4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        { "type": "output_text", "text": "done" }
+                    ]
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_123",
+                    "name": "lookup",
+                    "arguments": "{\"q\":\"codex\"}"
+                }
+            ],
+            "usage": {
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "input_tokens_details": { "cached_tokens": 3 }
+            }
+        });
+
+        let converted = convert_completed_response_to_anthropic_message(&response);
+
+        assert_eq!(
+            converted.get("type").and_then(Value::as_str),
+            Some("message")
+        );
+        assert_eq!(
+            converted.get("model").and_then(Value::as_str),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            converted.get("stop_reason").and_then(Value::as_str),
+            Some("tool_use")
+        );
+        assert_eq!(
+            converted
+                .get("content")
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("text"))
+                .and_then(Value::as_str),
+            Some("done")
+        );
+        assert_eq!(
+            converted
+                .get("content")
+                .and_then(|value| value.get(1))
+                .and_then(|value| value.get("input"))
+                .and_then(|value| value.get("q"))
+                .and_then(Value::as_str),
+            Some("codex")
+        );
+        assert_eq!(
+            converted
+                .get("usage")
+                .and_then(|value| value.get("cache_read_input_tokens"))
+                .and_then(Value::as_i64),
+            Some(3)
+        );
+    }
+
+    #[test]
     fn rewrites_responses_payload_models_for_client() {
         let response = json!({
             "type": "response.completed",
@@ -6517,6 +8712,84 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
     }
 
     #[test]
+    fn anthropic_streaming_text_events_use_named_sse_shape() {
+        let mut state = AnthropicStreamState::default();
+        let created = SseEvent {
+            event: Some("response.created".to_string()),
+            data: json!({
+                "type": "response.created",
+                "response": {
+                    "id": "resp_123",
+                    "created_at": 1,
+                    "model": "gpt5.4",
+                    "usage": {
+                        "input_tokens": 5,
+                        "output_tokens": 0
+                    }
+                }
+            })
+            .to_string(),
+        };
+        let delta = SseEvent {
+            event: Some("response.output_text.delta".to_string()),
+            data: json!({
+                "type": "response.output_text.delta",
+                "delta": "hi"
+            })
+            .to_string(),
+        };
+        let completed = SseEvent {
+            event: Some("response.completed".to_string()),
+            data: json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_123",
+                    "model": "gpt5.4",
+                    "status": "completed",
+                    "usage": {
+                        "input_tokens": 5,
+                        "output_tokens": 2
+                    }
+                }
+            })
+            .to_string(),
+        };
+
+        let start = translate_sse_event_to_anthropic_event(&created, &mut state);
+        let text = translate_sse_event_to_anthropic_event(&delta, &mut state);
+        let stop = translate_sse_event_to_anthropic_event(&completed, &mut state);
+
+        assert_eq!(
+            start[0].get("type").and_then(Value::as_str),
+            Some("message_start")
+        );
+        assert_eq!(
+            start[0]
+                .get("message")
+                .and_then(|value| value.get("model"))
+                .and_then(Value::as_str),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            text[0].get("type").and_then(Value::as_str),
+            Some("content_block_start")
+        );
+        assert_eq!(
+            text[1]
+                .get("delta")
+                .and_then(|value| value.get("text"))
+                .and_then(Value::as_str),
+            Some("hi")
+        );
+        assert_eq!(
+            stop.last()
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str),
+            Some("message_stop")
+        );
+    }
+
+    #[test]
     fn streaming_completed_without_tool_calls_finishes_with_stop() {
         let mut state = ChatStreamState::default();
         let created = SseEvent {
@@ -6526,7 +8799,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 "response": {
                     "id": "resp_123",
                     "created_at": 1,
-                    "model": "gpt-5"
+                    "model": "gpt-5.4"
                 }
             })
             .to_string(),
@@ -6538,7 +8811,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 "response": {
                     "id": "resp_123",
                     "created_at": 1,
-                    "model": "gpt-5",
+                    "model": "gpt-5.4",
                     "status": "completed"
                 }
             })

@@ -1,20 +1,64 @@
+@media (max-width: 1180px) {
+  .accountsWorkspace {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .accountListPanel {
+    min-height: 540px;
+  }
+
+  .accountDetailPanel {
+    min-height: 0;
+    overflow: visible;
+  }
+}
+
 @media (max-width: 900px) {
   .shell {
     height: 100dvh;
-    padding: 12px 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
+    padding: 0;
   }
 
   .panel {
-    height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
-    min-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+    height: 100dvh;
+    min-height: 100vh;
     padding: 0;
     border-radius: 0;
   }
 
   .topbar {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 14px 4px 18px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    min-height: 0;
+    padding: 10px 14px;
+  }
+
+  .brandLine {
+    min-width: 0;
+  }
+
+  .brandLine h1 {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topDragRegion {
+    display: none;
+  }
+
+  .topSegmentedNav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .topActions {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .topActions {
@@ -44,7 +88,35 @@
   .updateDialog {
     max-height: calc(100vh - 24px);
     border-radius: 14px;
+  }
+
+  .updateDialogHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .updateDialogIcon {
+    display: none;
+  }
+
+  .updateDialogContent {
     padding: 12px;
+  }
+
+  .updateDialogActions {
+    padding: 12px;
+  }
+
+  .updateDialogActions > button {
+    flex: 1 1 100%;
+  }
+
+  .debugFloatingTool {
+    top: auto;
+    right: 12px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
+    width: min(220px, calc(100vw - 24px));
   }
 
   .settingsHeader {
@@ -57,6 +129,7 @@
   }
 
   .addAccountWorkspace {
+    grid-template-columns: 1fr;
     gap: 12px;
   }
 
@@ -66,11 +139,12 @@
 
   .addAccountPanel {
     padding: 16px;
-    border-radius: 20px;
+    border-radius: 16px;
   }
 
   .addAccountTab {
     min-height: 0;
+    grid-template-columns: 38px minmax(0, 1fr);
   }
 
   .addAccountPrimaryAction {
@@ -142,22 +216,145 @@
   }
 
   .metaStrip {
-    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .metaExportButton {
-    width: 100%;
+    display: none;
   }
 
   .importBar {
-    flex-direction: column;
-    align-items: stretch;
+    justify-content: stretch;
   }
 
   .importSmartSwitch,
   .importPrimary {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .accountsPage {
+    padding: 12px;
+  }
+
+  .analyticsPage {
+    padding: 12px;
+  }
+
+  .analyticsHeader,
+  .analyticsBudget,
+  .analyticsGrid,
+  .analyticsStats {
+    grid-template-columns: 1fr;
+  }
+
+  .analyticsActions,
+  .analyticsBudgetActions {
+    justify-content: stretch;
+  }
+
+  .analyticsActions > button,
+  .analyticsBudgetActions > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .analyticsBlockSessions,
+  .analyticsBlockPrompts {
+    grid-column: auto;
+  }
+
+  .analyticsBlockHead {
+    display: grid;
+  }
+
+  .analyticsSearch {
+    max-width: none;
+  }
+
+  .analyticsHeatmapHeader,
+  .analyticsHeatmapRow {
+    grid-template-columns: 34px repeat(24, minmax(7px, 1fr));
+    gap: 3px;
+  }
+
+  .accountToolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .accountTokenUsageStrip {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .accountTokenUsageItems {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accountTokenUsageActions {
     width: 100%;
+    justify-content: stretch;
+  }
+
+  button.accountTokenExportButton {
+    width: 100%;
+  }
+
+  .accountFilters {
+    justify-content: stretch;
+  }
+
+  .accountFilters select {
+    flex: 1 1 130px;
+  }
+
+  .accountListHeader {
+    display: none;
+  }
+
+  .accountRows {
+    padding: 10px;
+  }
+
+  .accountRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "identity actions"
+      "five five"
+      "week week"
+      "reset proxy";
+    align-items: start;
+    gap: 12px;
+  }
+
+  .accountRow .accountIdentityCell {
+    grid-area: identity;
+  }
+
+  .accountUsageFive {
+    grid-area: five;
+  }
+
+  .accountUsageWeek {
+    grid-area: week;
+  }
+
+  .accountRow .resetCell {
+    grid-area: reset;
+  }
+
+  .accountRow .rowToggle {
+    grid-area: proxy;
+    justify-self: end;
+  }
+
+  .accountRow .rowActions {
+    grid-area: actions;
+  }
+
+  .quickActionGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .proxySectionHeader,
@@ -254,5 +451,43 @@
     bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
     right: 14px;
     width: calc(100vw - 28px);
+  }
+}
+
+@media (max-width: 620px) {
+  .topSegmentedNav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .topSegmentedButton {
+    padding: 0 10px;
+    font-size: 0.76rem;
+  }
+
+  .metaStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .importBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quickActionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .detailMetaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .detailMetaGrid div:nth-child(odd),
+  .detailMetaGrid div:nth-child(n + 3) {
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .detailMetaGrid div:first-child {
+    border-top: 0;
   }
 }

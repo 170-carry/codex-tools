@@ -104,40 +104,151 @@
 }
 
 .updateText {
-  margin-top: 8px;
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
   font: 500 0.83rem/1.3 var(--font-ui);
 }
 
-.updateText strong {
-  font: 700 0.92rem/1.2 var(--font-ui);
-  color: var(--update-strong);
+.updateMetaItem {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--update-subtle);
+  background: var(--update-meta-bg);
+  font: 650 0.78rem/1.3 var(--font-ui);
 }
 
-.updateText span {
+.updateChangelog {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  border-radius: 14px;
+  background: var(--update-log-bg);
+}
+
+.updateChangelogHeader {
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, var(--surface-tint) 24%);
+  background: color-mix(in srgb, var(--update-meta-bg) 76%, var(--surface-tint) 24%);
+}
+
+.updateChangelogHeader strong {
+  color: var(--update-strong);
+  font: 750 0.9rem/1.2 var(--font-ui);
+}
+
+.updateChangelogList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: update-log-item;
+}
+
+.updateChangelogItem {
+  min-height: 44px;
+  position: relative;
+  counter-increment: update-log-item;
+  padding: 12px 14px 12px 46px;
+  color: var(--update-body);
+  font: 500 0.84rem/1.48 var(--font-ui);
+  word-break: break-word;
+}
+
+.updateChangelogItem + .updateChangelogItem {
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.updateChangelogItem::before {
+  content: counter(update-log-item);
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--update-log-marker-color);
+  background: var(--update-log-marker-bg);
+  font: 800 0.72rem/1 var(--font-mono);
+}
+
+.updateChangelogEmpty {
+  margin: 0;
+  padding: 16px 14px;
   color: var(--update-subtle);
-  font: 500 0.78rem/1.2 var(--font-ui);
+  font: 500 0.82rem/1.4 var(--font-ui);
 }
 
 .updateDialogActions {
-  margin-top: 12px;
+  padding: 14px 18px 18px;
   display: flex;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.updateBody {
-  margin: 10px 0 0;
-  color: var(--update-body);
-  font: 400 0.78rem/1.4 var(--font-ui);
-  white-space: pre-wrap;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+  background: color-mix(in srgb, var(--update-header-bg) 72%, var(--update-bg) 28%);
 }
 
 .updateProgress {
-  margin: 8px 0 0;
+  margin: 12px 0 0;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line) 76%);
+  border-radius: 999px;
+  padding: 8px 10px;
   color: var(--update-progress);
-  font: 600 0.76rem/1.2 var(--font-mono);
+  background: color-mix(in srgb, var(--brand-soft) 72%, var(--surface-tint) 28%);
+  font: 700 0.76rem/1.2 var(--font-ui);
+  word-break: break-word;
+}
+
+.debugFloatingTool {
+  position: fixed;
+  right: 18px;
+  top: 76px;
+  z-index: 45;
+  width: min(220px, calc(100vw - 36px));
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--line) 58%);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--card) 92%, var(--warning) 8%);
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.16),
+    inset 0 1px var(--surface-highlight-strong);
+}
+
+.debugFloatingHeader {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.debugFloatingHeader span {
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--warning) 48%, var(--line) 52%);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: color-mix(in srgb, var(--warning) 78%, var(--ink) 22%);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-tint) 88%);
+  font: 850 0.66rem/1 var(--font-mono);
+}
+
+.debugFloatingHeader strong {
+  color: var(--ink);
+  font: 850 0.86rem/1.2 var(--font-ui);
+}
+
+.debugFloatingTool button {
+  width: 100%;
+  min-height: 34px;
+  justify-content: center;
+  font-size: 0.76rem;
 }

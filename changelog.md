@@ -1,7 +1,18 @@
 ## 更新日志
+- v2.0.0
+  1. 优化了整体UI
+  2. 增加CLI
+  3. 增加运行热切换
+  4. 增加Anthropic Message 兼容
+  5. 增加TUI,CLI
+  6. API 反代面板增加一键切换 Codex App/CLI 到本机反代地址，并支持恢复原配置
+  7. 恢复账号列表全部导出按钮
+  8. 桌面端 API 反代改为监听内网地址，内网 Base URL 可被其他设备访问
+  9. API 反代模型范围收窄为 gpt-5.4、gpt-5.5、gpt-image-2
 
 - v1.9.5
   1. 修复重新登录问题
+  2. API 反代逐个模式增加 session affinity，支持 wrapper/app bind 场景下不关闭 Codex App/CLI 的运行中轮换
 - v1.8.9
   1. 同步版本号并发布补丁更新
 - v1.8.8

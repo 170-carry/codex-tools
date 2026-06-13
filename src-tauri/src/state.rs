@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::mpsc::Sender;
@@ -10,7 +11,14 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::auth::PendingOauthLogin;
+use crate::models::ApiProxyKey;
 use crate::models::CloudflaredTunnelMode;
+
+#[derive(Debug, Clone)]
+pub(crate) struct ApiProxySessionAffinity {
+    pub(crate) account_key: String,
+    pub(crate) updated_at: i64,
+}
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct ApiProxyRuntimeSnapshot {
@@ -18,12 +26,13 @@ pub(crate) struct ApiProxyRuntimeSnapshot {
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_account_label: Option<String>,
     pub(crate) sequential_account_key: Option<String>,
+    pub(crate) sequential_session_affinity: HashMap<String, ApiProxySessionAffinity>,
     pub(crate) last_error: Option<String>,
 }
 
 pub(crate) struct ApiProxyRuntimeHandle {
     pub(crate) port: u16,
-    pub(crate) api_key: Arc<RwLock<String>>,
+    pub(crate) api_keys: Arc<RwLock<Vec<ApiProxyKey>>>,
     pub(crate) shutdown_tx: Option<oneshot::Sender<()>>,
     pub(crate) task: JoinHandle<()>,
     pub(crate) shared: Arc<Mutex<ApiProxyRuntimeSnapshot>>,

@@ -1,0 +1,480 @@
+.analyticsPage {
+  width: min(var(--page-shell-width, 1520px), 100%);
+  margin: 0 auto;
+  padding: 14px 24px 22px;
+}
+
+.analyticsShell {
+  display: grid;
+  gap: 14px;
+}
+
+.analyticsHeader,
+.analyticsBudget,
+.analyticsNotice,
+.analyticsEmpty,
+.analyticsBlock,
+.analyticsFoot {
+  border: 1px solid var(--section-line);
+  background: var(--section-surface);
+  box-shadow: var(--section-shadow);
+}
+
+.analyticsHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.analyticsKicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: var(--brand);
+  font: 800 0.72rem/1 var(--font-ui);
+  text-transform: uppercase;
+}
+
+.analyticsHeader h2,
+.analyticsBlock h3 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.analyticsHeader h2 {
+  font: 800 1.28rem/1.2 var(--font-ui);
+}
+
+.analyticsHeader p,
+.analyticsBlock p,
+.analyticsBudget p {
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font: 600 0.82rem/1.45 var(--font-ui);
+}
+
+.analyticsProgress {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 420px) auto;
+  gap: 10px 14px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--section-line));
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--section-surface) 82%, var(--brand) 18%);
+  box-shadow: var(--section-shadow);
+}
+
+.analyticsProgress > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.analyticsProgress strong {
+  color: var(--ink);
+  font: 850 0.9rem/1.15 var(--font-ui);
+}
+
+.analyticsProgress span,
+.analyticsProgress code {
+  color: var(--subtle);
+  font: 650 0.74rem/1.35 var(--font-ui);
+}
+
+.analyticsProgress b {
+  color: var(--brand);
+  font: 850 0.9rem/1 var(--font-ui);
+}
+
+.analyticsProgress code {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analyticsProgressMeter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bar-track);
+}
+
+.analyticsProgressMeter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), var(--ok));
+  transition: width 160ms ease;
+}
+
+.analyticsActions,
+.analyticsBudgetActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.analyticsStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analyticsStatCard {
+  min-height: 104px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  border: 1px solid var(--section-line);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--section-surface);
+  box-shadow: var(--section-shadow);
+}
+
+.analyticsStatCard span,
+.analyticsBudget > div > span,
+.analyticsProjectRow small,
+.analyticsPromptBody span,
+.analyticsFoot {
+  color: var(--subtle);
+  font: 700 0.74rem/1.35 var(--font-ui);
+}
+
+.analyticsStatCard strong {
+  color: var(--ink);
+  font: 850 1.45rem/1 var(--font-ui);
+}
+
+.analyticsStatCard small {
+  color: var(--muted);
+  font: 650 0.74rem/1.3 var(--font-ui);
+}
+
+.analyticsBudget {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 280px) minmax(160px, 220px) auto;
+  gap: 14px;
+  align-items: center;
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+
+.analyticsBudget strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font: 850 1rem/1.2 var(--font-ui);
+}
+
+.analyticsBudget.tone-warning strong {
+  color: var(--warning);
+}
+
+.analyticsBudget.tone-danger strong {
+  color: var(--danger);
+}
+
+.analyticsBudgetMeter {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bar-track);
+}
+
+.analyticsBudgetMeter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ok), var(--warning), var(--danger));
+}
+
+.analyticsBudget label {
+  display: grid;
+  gap: 6px;
+}
+
+.analyticsBudget label span {
+  color: var(--subtle);
+  font: 700 0.72rem/1 var(--font-ui);
+}
+
+.analyticsBudget input,
+.analyticsSearch {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-0);
+  color: var(--ink);
+  font: 700 0.84rem/1 var(--font-ui);
+}
+
+.analyticsNotice {
+  display: grid;
+  gap: 4px;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.analyticsNotice.tone-danger {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--section-line));
+}
+
+.analyticsNotice strong {
+  color: var(--danger);
+}
+
+.analyticsNotice span {
+  color: var(--subtle);
+  font: 650 0.84rem/1.45 var(--font-ui);
+}
+
+.analyticsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 14px;
+}
+
+.analyticsBlock {
+  min-width: 0;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.analyticsBlockSessions,
+.analyticsBlockPrompts {
+  grid-column: 1 / -1;
+}
+
+.analyticsBlockHead {
+  min-height: 58px;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.analyticsBlock h3 {
+  font: 850 1rem/1.2 var(--font-ui);
+}
+
+.analyticsSearch {
+  max-width: 240px;
+}
+
+.analyticsProjectList,
+.analyticsPromptList {
+  display: grid;
+  gap: 10px;
+}
+
+.analyticsProjectRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg-0) 78%, var(--surface-tint) 22%);
+}
+
+.analyticsProjectRow strong,
+.analyticsPromptBody strong,
+.analyticsTable strong {
+  color: var(--ink);
+}
+
+.analyticsProjectRow span {
+  display: block;
+  margin-top: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 650 0.74rem/1.3 var(--font-ui);
+}
+
+.analyticsProjectMetrics {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.analyticsProjectMetrics b {
+  color: var(--brand);
+}
+
+.analyticsProjectBar {
+  grid-column: 1 / -1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bar-track);
+}
+
+.analyticsProjectBar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), var(--ok));
+}
+
+.analyticsProjectRow > small {
+  grid-column: 1 / -1;
+}
+
+.analyticsHeatmap {
+  display: grid;
+  gap: 5px;
+}
+
+.analyticsHeatmapHeader,
+.analyticsHeatmapRow {
+  display: grid;
+  grid-template-columns: 40px repeat(24, minmax(8px, 1fr));
+  gap: 4px;
+  align-items: center;
+}
+
+.analyticsHeatmapHeader b,
+.analyticsHeatmapRow span {
+  color: var(--muted);
+  font: 750 0.66rem/1 var(--font-ui);
+}
+
+.analyticsHeatmapRow i {
+  aspect-ratio: 1;
+  min-height: 10px;
+  border-radius: 3px;
+  background: var(--brand);
+}
+
+.analyticsTableWrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.analyticsTable {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+
+.analyticsTable th,
+.analyticsTable td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  font: 700 0.78rem/1.35 var(--font-ui);
+}
+
+.analyticsTable th {
+  color: var(--subtle);
+  background: color-mix(in srgb, var(--bg-1) 76%, transparent);
+}
+
+.analyticsTable td {
+  color: var(--ink);
+}
+
+.analyticsTable td small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.analyticsPromptRow {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg-0) 78%, var(--surface-tint) 22%);
+}
+
+.analyticsPromptRank {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font: 850 0.86rem/1 var(--font-ui);
+}
+
+.analyticsPromptBody {
+  min-width: 0;
+}
+
+.analyticsPromptBody p {
+  margin: 5px 0 6px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  font: 650 0.84rem/1.45 var(--font-ui);
+}
+
+.analyticsEmpty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  border-radius: 16px;
+  padding: 28px;
+  text-align: center;
+}
+
+.analyticsEmpty strong {
+  color: var(--ink);
+  font: 850 1rem/1.2 var(--font-ui);
+}
+
+.analyticsEmpty span {
+  color: var(--subtle);
+  font: 650 0.84rem/1.4 var(--font-ui);
+}
+
+.analyticsFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+@media (max-width: 860px) {
+  .analyticsProgress {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .analyticsProgressMeter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .analyticsProgress {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analyticsProgress b,
+  .analyticsProgressMeter,
+  .analyticsProgress code {
+    grid-column: 1;
+  }
+}

@@ -69,3 +69,93 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish-npm-native:
+    name: Publish npm native package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: "macos-latest"
+            target: "aarch64-apple-darwin"
+            package_dir: "ctc-darwin-arm64"
+            binary_name: "codex-tools-cli"
+          - runner: "macos-15-intel"
+            target: "x86_64-apple-darwin"
+            package_dir: "ctc-darwin-x64"
+            binary_name: "codex-tools-cli"
+          - runner: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            package_dir: "ctc-win32-x64"
+            binary_name: "codex-tools-cli.exe"
+    runs-on: ${{ matrix.runner }}
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Sync npm package versions
+        run: node scripts/sync-npm-package-version.mjs
+
+      - name: Build native CLI
+        run: cargo build --release --bin codex-tools-cli --target ${{ matrix.target }}
+        working-directory: src-tauri
+
+      - name: Prepare npm native package
+        run: node scripts/prepare-npm-native-package.mjs "npm/${{ matrix.package_dir }}" "src-tauri/target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "${{ matrix.binary_name }}"
+
+      - name: Publish npm native package
+        if: ${{ env.NPM_TOKEN != '' }}
+        run: npm publish "npm/${{ matrix.package_dir }}" --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+
+      - name: Skip npm native publish
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: echo "NPM_TOKEN is not configured; skipping npm native package publish."
+
+  publish-npm-wrapper:
+    name: Publish npm wrapper package
+    needs: publish-npm-native
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync npm package versions
+        run: node scripts/sync-npm-package-version.mjs
+
+      - name: Publish npm wrapper package
+        if: ${{ env.NPM_TOKEN != '' }}
+        run: npm publish npm/ctc --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+
+      - name: Skip npm wrapper publish
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: echo "NPM_TOKEN is not configured; skipping npm wrapper package publish."

@@ -116,13 +116,14 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
-    source: "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses，收到的是 ",
+    source:
+      "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 ",
     target: phrases(
-      "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses，收到的是 ",
-      "This proxy only supports GET /v1/models, POST /v1/chat/completions, and POST /v1/responses. Received ",
-      "このプロキシは GET /v1/models、POST /v1/chat/completions、POST /v1/responses のみをサポートしています。受信したのは ",
-      "이 프록시는 GET /v1/models, POST /v1/chat/completions, POST /v1/responses만 지원합니다. 받은 요청은 ",
-      "Этот прокси поддерживает только GET /v1/models, POST /v1/chat/completions и POST /v1/responses. Получено: "
+      "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 ",
+      "This proxy only supports GET /v1/models, POST /v1/chat/completions, POST /v1/responses, POST /v1/messages, POST /v1/images/generations, POST /v1/images/edits, and POST /v1/images/variations. Received ",
+      "このプロキシは GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations のみをサポートしています。受信したのは ",
+      "이 프록시는 GET /v1/models, POST /v1/chat/completions, POST /v1/responses, POST /v1/messages, POST /v1/images/generations, POST /v1/images/edits, POST /v1/images/variations만 지원합니다. 받은 요청은 ",
+      "Этот прокси поддерживает только GET /v1/models, POST /v1/chat/completions, POST /v1/responses, POST /v1/messages, POST /v1/images/generations, POST /v1/images/edits и POST /v1/images/variations. Получено: "
     ),
   },
   {

@@ -15,6 +15,8 @@ import type { MessageCatalog } from "../i18n/catalog";
 import { EditorMultiSelect, type MultiSelectOption } from "./EditorMultiSelect";
 import type {
   ApiProxyStatus,
+  ApiProxyKey,
+  ApiProxyKeyUsageLogEntry,
   ApiProxyUsageMetric,
   ApiProxyUsageRange,
   ApiProxyUsageStats,
@@ -24,6 +26,8 @@ import type {
   RemoteAuthMode,
   RemoteProxyStatus,
   RemoteServerConfig,
+  CreateApiProxyKeyInput,
+  UpdateApiProxyKeyInput,
   StartCloudflaredTunnelInput,
 } from "../types/app";
 
@@ -34,7 +38,8 @@ const REMOTE_DRAFTS_CACHE_KEY = "codex-tools:proxy-remote-drafts";
 const REMOTE_EXPANDED_CACHE_KEY = "codex-tools:proxy-remote-expanded-id";
 const REMOTE_SELECTED_CACHE_KEY = "codex-tools:proxy-remote-selected-id";
 const REMOTE_HISTORY_CACHE_KEY = "codex-tools:proxy-remote-history";
-
+const API_PROXY_REASONING_OPTION_IDS = ["minimal", "low", "medium", "high"] as const;
+const API_PROXY_SERVICE_TIER_OPTION_IDS = ["auto", "fast", "flex"] as const;
 type RemoteServerDraft = {
   id: string;
   label: string;
@@ -51,6 +56,9 @@ type RemoteServerDraft = {
 
 type ApiProxyPanelProps = {
   status: ApiProxyStatus;
+  apiProxyKeys: ApiProxyKey[];
+  apiProxyKeyLogs: ApiProxyKeyUsageLogEntry[];
+  apiProxyKeysLoading: boolean;
   apiProxyUsageStats: ApiProxyUsageStats | null;
   apiProxyUsageRange: ApiProxyUsageRange;
   apiProxyUsageMetric: ApiProxyUsageMetric;
@@ -71,6 +79,9 @@ type ApiProxyPanelProps = {
   starting: boolean;
   stopping: boolean;
   refreshingApiKey: boolean;
+  bindingCodexProxy: boolean;
+  restoringCodexProxy: boolean;
+  savingApiProxyKey: boolean;
   refreshingRemoteId: string | null;
   deployingRemoteId: string | null;
   startingRemoteId: string | null;
@@ -83,10 +94,16 @@ type ApiProxyPanelProps = {
   stoppingCloudflared: boolean;
   onStart: (port: number | null) => Promise<void> | void;
   onStop: () => void;
+  onCreateApiProxyKey: (input: CreateApiProxyKeyInput) => Promise<void> | void;
+  onUpdateApiProxyKey: (input: UpdateApiProxyKeyInput) => Promise<void> | void;
+  onDeleteApiProxyKey: (id: string) => Promise<void> | void;
+  onRegenerateApiProxyKey: (id: string) => Promise<void> | void;
   onSelectApiProxyUsageRange: (range: ApiProxyUsageRange) => void;
   onSelectApiProxyUsageMetric: (metric: ApiProxyUsageMetric) => void;
   onClearApiProxyUsageStats: () => void;
   onRefreshApiKey: () => void;
+  onBindCodexProxy: () => void;
+  onRestoreCodexProxy: () => void;
   onRefresh: () => void;
   onToggleAutoStart: (enabled: boolean) => void;
   onPersistPort: (port: number) => Promise<void> | void;
@@ -111,6 +128,19 @@ function copyText(value: string | null) {
     return;
   }
   void navigator.clipboard?.writeText(value).catch(() => {});
+}
+
+function ProxyHelpTip({ label, children }: { label: string; children: string }) {
+  return (
+    <span className="proxyHelpTip">
+      <button type="button" className="proxyHelpButton" aria-label={label} title={children}>
+        ?
+      </button>
+      <span className="proxyHelpBubble" role="tooltip">
+        {children}
+      </span>
+    </span>
+  );
 }
 
 function createRemoteServerId() {
@@ -336,6 +366,50 @@ function formatRemoteHistoryTime(locale: string, timestamp: number) {
   } catch {
     return new Date(timestamp).toLocaleString();
   }
+}
+
+function formatApiProxyKeyLogTime(locale: string, timestamp: number | null) {
+  if (timestamp === null || timestamp <= 0) {
+    return "--";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(timestamp);
+  } catch {
+    return new Date(timestamp).toLocaleString();
+  }
+}
+
+function summarizeApiProxyKeyLogs(logs: ApiProxyKeyUsageLogEntry[], keyId: string) {
+  return logs.reduce(
+    (summary, log) => {
+      if (log.keyId !== keyId) {
+        return summary;
+      }
+
+      return {
+        calls: summary.calls + log.calls,
+        tokens: summary.tokens + log.tokens,
+        lastUsedAt:
+          summary.lastUsedAt === null || log.timestamp > summary.lastUsedAt
+            ? log.timestamp
+            : summary.lastUsedAt,
+      };
+    },
+    { calls: 0, tokens: 0, lastUsedAt: null as number | null },
+  );
+}
+
+function toggleStringValue(values: string[], value: string, enabled: boolean) {
+  if (enabled) {
+    return values.includes(value) ? values : [...values, value];
+  }
+  return values.filter((item) => item !== value);
 }
 
 const REMOTE_AUTH_OPTIONS: MultiSelectOption<RemoteAuthMode>[] = [
@@ -1357,7 +1431,6 @@ function ApiProxyUsageChart({
         <div className="proxyUsageHeading">
           <span className="proxyLabel">{copy.chartKicker}</span>
           <h3>{copy.chartTitle}</h3>
-          <p>{copy.chartDescription}</p>
         </div>
         <div className="proxyUsageHeaderMeta">
           <span className={`proxyHeaderStat proxyUsageStatus${proxyRunning ? " isRunning" : ""}`}>
@@ -1594,6 +1667,9 @@ function ApiProxyUsageChart({
 
 export function ApiProxyPanel({
   status,
+  apiProxyKeys,
+  apiProxyKeyLogs,
+  apiProxyKeysLoading,
   apiProxyUsageStats,
   apiProxyUsageRange,
   apiProxyUsageMetric,
@@ -1614,6 +1690,9 @@ export function ApiProxyPanel({
   starting,
   stopping,
   refreshingApiKey,
+  bindingCodexProxy,
+  restoringCodexProxy,
+  savingApiProxyKey,
   refreshingRemoteId,
   deployingRemoteId,
   startingRemoteId,
@@ -1626,10 +1705,16 @@ export function ApiProxyPanel({
   stoppingCloudflared,
   onStart,
   onStop,
+  onCreateApiProxyKey,
+  onUpdateApiProxyKey,
+  onDeleteApiProxyKey,
+  onRegenerateApiProxyKey,
   onSelectApiProxyUsageRange,
   onSelectApiProxyUsageMetric,
   onClearApiProxyUsageStats,
   onRefreshApiKey,
+  onBindCodexProxy,
+  onRestoreCodexProxy,
   onRefresh,
   onToggleAutoStart,
   onPersistPort,
@@ -1662,7 +1747,30 @@ export function ApiProxyPanel({
             : proxyCopy.remoteAuthPassword,
   }));
   const busy = starting || stopping;
+  const codexProxyBindingBusy = bindingCodexProxy || restoringCodexProxy;
   const cloudflaredBusy = installingCloudflared || startingCloudflared || stoppingCloudflared;
+  const apiProxyReasoningOptions = useMemo(
+    () => [
+      { id: "minimal", label: proxyCopy.reasoningMinimal },
+      { id: "low", label: proxyCopy.reasoningLow },
+      { id: "medium", label: proxyCopy.reasoningMedium },
+      { id: "high", label: proxyCopy.reasoningHigh },
+    ],
+    [
+      proxyCopy.reasoningHigh,
+      proxyCopy.reasoningLow,
+      proxyCopy.reasoningMedium,
+      proxyCopy.reasoningMinimal,
+    ],
+  );
+  const apiProxyServiceTierOptions = useMemo(
+    () => [
+      { id: "auto", label: proxyCopy.serviceTierAuto },
+      { id: "fast", label: proxyCopy.serviceTierFast },
+      { id: "flex", label: proxyCopy.serviceTierFlex },
+    ],
+    [proxyCopy.serviceTierAuto, proxyCopy.serviceTierFast, proxyCopy.serviceTierFlex],
+  );
   const [portDraft, setPortDraft] = useState<string | null>(null);
   const [sequentialLimitDraft, setSequentialLimitDraft] = useState<number | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -1671,6 +1779,9 @@ export function ApiProxyPanel({
     normalizeDisabledProxyModels(apiProxyDisabledModels, apiProxySupportedModels),
   );
   const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [newApiProxyKeyLabel, setNewApiProxyKeyLabel] = useState("");
+  const [newApiProxyKeyValue, setNewApiProxyKeyValue] = useState("");
+  const [apiProxyKeyLabelDrafts, setApiProxyKeyLabelDrafts] = useState<Record<string, string>>({});
   const [publicAccessEnabled, setPublicAccessEnabled] = useState(cloudflaredStatus.running);
   const [tunnelMode, setTunnelMode] = useState<CloudflaredTunnelMode>(
     cloudflaredStatus.tunnelMode ?? "quick",
@@ -1706,6 +1817,17 @@ export function ApiProxyPanel({
     [proxyCopy.loadBalanceAverage, proxyCopy.loadBalanceSequential],
   );
   const portInput = portDraft ?? String(status.port ?? savedPort ?? DEFAULT_PROXY_PORT);
+  const codexBindTitle = status.codexProxyBound
+    ? proxyCopy.codexBindBoundTitle
+    : proxyCopy.codexBindNormalTitle;
+  const canBindCodexProxy =
+    status.running &&
+    Boolean(status.baseUrl) &&
+    Boolean(status.apiKey) &&
+    !busy &&
+    !codexProxyBindingBusy;
+  const canRestoreCodexProxy =
+    status.codexProxyRestoreAvailable && !busy && !codexProxyBindingBusy;
   const effectiveSequentialLimit = sequentialLimitDraft ?? sequentialFiveHourLimitPercent;
   const effectiveDisabledModels = useMemo(
     () => normalizeDisabledProxyModels(apiProxyDisabledModels, apiProxySupportedModels),
@@ -1780,6 +1902,73 @@ export function ApiProxyPanel({
       setModelMenuSaving(false);
     }
   }, [effectiveModelMenuDraft, modelMenuSaving, onUpdateApiProxyDisabledModels]);
+
+  const handleCreateApiProxyKey = useCallback(async () => {
+    await onCreateApiProxyKey({
+      label: newApiProxyKeyLabel.trim() || proxyCopy.keyCreateDefaultLabel,
+      key: newApiProxyKeyValue.trim() || null,
+      allowedModels: [],
+      allowedReasoningEfforts: [],
+      allowedServiceTiers: [],
+    });
+    setNewApiProxyKeyLabel("");
+    setNewApiProxyKeyValue("");
+  }, [
+    newApiProxyKeyLabel,
+    newApiProxyKeyValue,
+    onCreateApiProxyKey,
+    proxyCopy.keyCreateDefaultLabel,
+  ]);
+
+  const updateApiProxyKeyModels = useCallback(
+    (key: ApiProxyKey, model: string, enabled: boolean) => {
+      const currentModels =
+        key.allowedModels.length === 0 ? apiProxySupportedModels : key.allowedModels;
+      const nextModels = toggleStringValue(currentModels, model, enabled);
+      void onUpdateApiProxyKey({ id: key.id, allowedModels: nextModels });
+    },
+    [apiProxySupportedModels, onUpdateApiProxyKey],
+  );
+
+  const updateApiProxyKeyReasoning = useCallback(
+    (key: ApiProxyKey, effort: string, enabled: boolean) => {
+      const current =
+        key.allowedReasoningEfforts.length === 0
+          ? [...API_PROXY_REASONING_OPTION_IDS]
+          : key.allowedReasoningEfforts;
+      const next = toggleStringValue(current, effort, enabled);
+      void onUpdateApiProxyKey({ id: key.id, allowedReasoningEfforts: next });
+    },
+    [onUpdateApiProxyKey],
+  );
+
+  const updateApiProxyKeyServiceTier = useCallback(
+    (key: ApiProxyKey, tier: string, enabled: boolean) => {
+      const current =
+        key.allowedServiceTiers.length === 0
+          ? [...API_PROXY_SERVICE_TIER_OPTION_IDS]
+          : key.allowedServiceTiers;
+      const next = toggleStringValue(current, tier, enabled);
+      void onUpdateApiProxyKey({ id: key.id, allowedServiceTiers: next });
+    },
+    [onUpdateApiProxyKey],
+  );
+
+  const commitApiProxyKeyLabel = useCallback(
+    (key: ApiProxyKey) => {
+      const nextLabel = (apiProxyKeyLabelDrafts[key.id] ?? key.label).trim();
+      if (!nextLabel) {
+        setApiProxyKeyLabelDrafts((drafts) => ({ ...drafts, [key.id]: key.label }));
+        return;
+      }
+
+      setApiProxyKeyLabelDrafts((drafts) => ({ ...drafts, [key.id]: nextLabel }));
+      if (nextLabel !== key.label) {
+        void onUpdateApiProxyKey({ id: key.id, label: nextLabel });
+      }
+    },
+    [apiProxyKeyLabelDrafts, onUpdateApiProxyKey],
+  );
 
   const effectiveRemoteDrafts =
     remoteDrafts.length === 0 && remoteServers.length > 0
@@ -2079,21 +2268,7 @@ export function ApiProxyPanel({
   return (
     <section className="proxyPage">
       <div className="proxyShell">
-        <ApiProxyUsageChart
-          copy={proxyCopy}
-          locale={locale}
-          stats={apiProxyUsageStats}
-          range={apiProxyUsageRange}
-          metric={apiProxyUsageMetric}
-          loading={apiProxyUsageLoading}
-          clearing={apiProxyUsageClearing}
-          proxyRunning={status.running}
-          onSelectRange={onSelectApiProxyUsageRange}
-          onSelectMetric={onSelectApiProxyUsageMetric}
-          onClear={onClearApiProxyUsageStats}
-        />
-
-        <section className="proxySectionCard proxySectionCardPrimary">
+        <section className="proxySectionCard proxySectionCardPrimary proxyLocalControlCard">
           <div className="proxyHeaderStats">
             <span className="proxyHeaderStat">
               <span className={`proxyStatusDot${status.running ? " isRunning" : ""}`} aria-hidden="true" />
@@ -2216,6 +2391,66 @@ export function ApiProxyPanel({
             </div>
           </article>
 
+          <article className={`proxyDetailCard proxyCodexBindCard${status.codexProxyBound ? " isBound" : ""}`}>
+            <div className="proxyDetailHeader">
+              <div className="proxyCodexBindMeta">
+                <span className="proxyLabel">{proxyCopy.codexBindLabel}</span>
+                <strong>{codexBindTitle}</strong>
+              </div>
+              <div className="proxyDetailActions">
+                <button
+                  type="button"
+                  className="ghost proxyCopyButton"
+                  disabled={!canRestoreCodexProxy}
+                  onClick={onRestoreCodexProxy}
+                >
+                  {restoringCodexProxy
+                    ? proxyCopy.codexRestoreActionBusy
+                    : proxyCopy.codexRestoreAction}
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={!canBindCodexProxy || status.codexProxyBound}
+                  onClick={onBindCodexProxy}
+                >
+                  {bindingCodexProxy ? proxyCopy.codexBindActionBusy : proxyCopy.codexBindAction}
+                </button>
+              </div>
+            </div>
+            <div className="proxyEndpointList">
+              <div className="proxyEndpointRow">
+                <div className="proxyEndpointMeta">
+                  <span>{proxyCopy.codexBindCurrentBaseUrlLabel}</span>
+                  <code>{status.codexProxyBaseUrl ?? proxyCopy.none}</code>
+                </div>
+                <button
+                  className="ghost proxyCopyButton"
+                  onClick={() => copyText(status.codexProxyBaseUrl)}
+                  disabled={!status.codexProxyBaseUrl}
+                >
+                  {proxyCopy.copy}
+                </button>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <ApiProxyUsageChart
+          copy={proxyCopy}
+          locale={locale}
+          stats={apiProxyUsageStats}
+          range={apiProxyUsageRange}
+          metric={apiProxyUsageMetric}
+          loading={apiProxyUsageLoading}
+          clearing={apiProxyUsageClearing}
+          proxyRunning={status.running}
+          onSelectRange={onSelectApiProxyUsageRange}
+          onSelectMetric={onSelectApiProxyUsageMetric}
+          onClear={onClearApiProxyUsageStats}
+        />
+
+        <section className="proxySectionCard proxyProxySettingsCard">
           <article className="proxyDetailCard proxyBalanceCard">
             <div className="proxyBalanceHeader">
               <span className="proxyLabel">{proxyCopy.loadBalanceLabel}</span>
@@ -2317,6 +2552,259 @@ export function ApiProxyPanel({
               <p className="proxyErrorText">{status.lastError ?? proxyCopy.none}</p>
             </article>
           </div>
+
+          <article className="proxyDetailCard proxyKeyManagerCard">
+            <div className="proxyKeyManagerHeader">
+              <div className="proxyKeyManagerIntro">
+                <div className="proxyKeyTitleRow">
+                  <span className="proxyLabel">{proxyCopy.keyManagerTitle}</span>
+                  <ProxyHelpTip label={proxyCopy.keyManagerHelpLabel}>
+                    {proxyCopy.keyManagerHelp}
+                  </ProxyHelpTip>
+                </div>
+                <strong>{apiProxyKeys.length}</strong>
+                <p>{proxyCopy.keyManagerDescription}</p>
+              </div>
+              <div className="proxyKeyCreateRow">
+                <input
+                  className="proxyKeyInput"
+                  value={newApiProxyKeyLabel}
+                  onChange={(event) => setNewApiProxyKeyLabel(event.currentTarget.value)}
+                  placeholder={proxyCopy.keyCreateNamePlaceholder}
+                  disabled={savingApiProxyKey}
+                />
+                <input
+                  className="proxyKeyInput proxyKeySecretInput"
+                  value={newApiProxyKeyValue}
+                  onChange={(event) => setNewApiProxyKeyValue(event.currentTarget.value)}
+                  placeholder={proxyCopy.keyCreateSecretPlaceholder}
+                  disabled={savingApiProxyKey}
+                />
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={savingApiProxyKey}
+                  onClick={() => void handleCreateApiProxyKey()}
+                >
+                  {proxyCopy.keyCreateAction}
+                </button>
+              </div>
+            </div>
+
+            {apiProxyKeysLoading ? (
+              <div className="proxyModelEmptyState">{proxyCopy.keyLoading}</div>
+            ) : apiProxyKeys.length === 0 ? (
+              <div className="proxyModelEmptyState">{proxyCopy.keyEmpty}</div>
+            ) : (
+              <div className="proxyKeyList">
+                {apiProxyKeys.map((key) => {
+                  const summary = summarizeApiProxyKeyLogs(apiProxyKeyLogs, key.id);
+                  const recentLogs = apiProxyKeyLogs
+                    .filter((log) => log.keyId === key.id)
+                    .slice(0, 4);
+                  const boundModels =
+                    key.allowedModels.length === 0 ? apiProxySupportedModels : key.allowedModels;
+                  return (
+                    <section key={key.id} className="proxyKeyItem">
+                      <div className="proxyKeyItemHeader">
+                        <label className="proxyKeyNameField">
+                          <span>{proxyCopy.keyNameLabel}</span>
+                          <input
+                            className="proxyKeyInput"
+                            value={apiProxyKeyLabelDrafts[key.id] ?? key.label}
+                            disabled={savingApiProxyKey}
+                            onChange={(event) => {
+                              const value = event.currentTarget.value;
+                              setApiProxyKeyLabelDrafts((drafts) => ({
+                                ...drafts,
+                                [key.id]: value,
+                              }));
+                            }}
+                            onBlur={() => commitApiProxyKeyLabel(key)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.currentTarget.blur();
+                              }
+                              if (event.key === "Escape") {
+                                setApiProxyKeyLabelDrafts((drafts) => ({
+                                  ...drafts,
+                                  [key.id]: key.label,
+                                }));
+                                event.currentTarget.blur();
+                              }
+                            }}
+                          />
+                        </label>
+                        <label className="themeSwitch" aria-label={proxyCopy.keyToggleAria}>
+                          <input
+                            type="checkbox"
+                            checked={key.enabled}
+                            disabled={savingApiProxyKey}
+                            onChange={(event) =>
+                              void onUpdateApiProxyKey({
+                                id: key.id,
+                                enabled: event.currentTarget.checked,
+                              })
+                            }
+                          />
+                          <span className="themeSwitchTrack" aria-hidden="true">
+                            <span className="themeSwitchThumb" />
+                          </span>
+                          <span className="themeSwitchText">
+                            {key.enabled ? proxyCopy.keyEnabled : proxyCopy.keyDisabled}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="ghost proxyCopyButton"
+                          disabled={savingApiProxyKey}
+                          onClick={() => void onRegenerateApiProxyKey(key.id)}
+                        >
+                          {proxyCopy.keyRegenerate}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={savingApiProxyKey || apiProxyKeys.length <= 1}
+                          onClick={() => void onDeleteApiProxyKey(key.id)}
+                        >
+                          {proxyCopy.keyDelete}
+                        </button>
+                      </div>
+
+                      <div className="proxyKeySecretRow">
+                        <span className="proxyInlineLabel">{proxyCopy.keySecretLabel}</span>
+                        <code>{key.key}</code>
+                        <button
+                          type="button"
+                          className="ghost proxyCopyButton"
+                          onClick={() => copyText(key.key)}
+                        >
+                          {proxyCopy.copy}
+                        </button>
+                      </div>
+
+                      <div className="proxyKeySummaryGrid">
+                        <span><strong>{summary.calls}</strong>{proxyCopy.keyCallsLabel}</span>
+                        <span><strong>{summary.tokens}</strong>{proxyCopy.keyTokensLabel}</span>
+                        <span>
+                          <strong>{formatApiProxyKeyLogTime(locale, summary.lastUsedAt)}</strong>
+                          {proxyCopy.keyLastUsedLabel}
+                        </span>
+                      </div>
+
+                      <div className="proxyKeyBindingBlock">
+                        <div className="proxySectionTitleWithHelp">
+                          <span className="proxyInlineLabel">{proxyCopy.keyModelsLabel}</span>
+                          <ProxyHelpTip label={proxyCopy.keyModelsHelpLabel}>
+                            {proxyCopy.keyModelsHelp}
+                          </ProxyHelpTip>
+                        </div>
+                        <div className="proxyKeyChipList">
+                          {apiProxySupportedModels.map((model) => (
+                            <label key={model} className="proxyKeyChip">
+                              <input
+                                type="checkbox"
+                                checked={boundModels.includes(model)}
+                                disabled={savingApiProxyKey}
+                                onChange={(event) =>
+                                  updateApiProxyKeyModels(key, model, event.currentTarget.checked)
+                                }
+                              />
+                              <span>{model}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="proxyKeyBindingColumns">
+                        <div className="proxyKeyBindingBlock">
+                          <div className="proxySectionTitleWithHelp">
+                            <span className="proxyInlineLabel">{proxyCopy.keyReasoningLabel}</span>
+                            <ProxyHelpTip label={proxyCopy.keyReasoningHelpLabel}>
+                              {proxyCopy.keyReasoningHelp}
+                            </ProxyHelpTip>
+                          </div>
+                          <div className="proxyKeyChipList">
+                            {apiProxyReasoningOptions.map((option) => (
+                              <label key={option.id} className="proxyKeyChip">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    key.allowedReasoningEfforts.length === 0 ||
+                                    key.allowedReasoningEfforts.includes(option.id)
+                                  }
+                                  disabled={savingApiProxyKey}
+                                  onChange={(event) =>
+                                    updateApiProxyKeyReasoning(
+                                      key,
+                                      option.id,
+                                      event.currentTarget.checked,
+                                    )
+                                  }
+                                />
+                                <span>{option.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="proxyKeyBindingBlock">
+                          <div className="proxySectionTitleWithHelp">
+                            <span className="proxyInlineLabel">{proxyCopy.keyServiceTierLabel}</span>
+                            <ProxyHelpTip label={proxyCopy.keyServiceTierHelpLabel}>
+                              {proxyCopy.keyServiceTierHelp}
+                            </ProxyHelpTip>
+                          </div>
+                          <div className="proxyKeyChipList">
+                            {apiProxyServiceTierOptions.map((option) => (
+                              <label key={option.id} className="proxyKeyChip">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    key.allowedServiceTiers.length === 0 ||
+                                    key.allowedServiceTiers.includes(option.id)
+                                  }
+                                  disabled={savingApiProxyKey}
+                                  onChange={(event) =>
+                                    updateApiProxyKeyServiceTier(
+                                      key,
+                                      option.id,
+                                      event.currentTarget.checked,
+                                    )
+                                  }
+                                />
+                                <span>{option.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="proxyKeyLogs">
+                        <span className="proxyInlineLabel">{proxyCopy.keyLogsLabel}</span>
+                        {recentLogs.length === 0 ? (
+                          <p>{proxyCopy.keyNoLogs}</p>
+                        ) : (
+                          recentLogs.map((log) => (
+                            <div key={`${log.timestamp}-${log.route}-${log.model}-${log.calls}-${log.tokens}`} className="proxyKeyLogRow">
+                              <span>{formatApiProxyKeyLogTime(locale, log.timestamp)}</span>
+                              <strong>{log.model}</strong>
+                              <span>{log.route ?? "--"}</span>
+                              <span>{log.reasoningEffort ?? "medium"} / {log.serviceTier ?? "auto"}</span>
+                              <span>
+                                {log.calls} {proxyCopy.keyCallsLabel}, {log.tokens}{" "}
+                                {proxyCopy.keyTokensLabel}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+          </article>
 
           {modelMenuOpen
             ? createPortal(

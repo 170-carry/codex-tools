@@ -16,7 +16,7 @@ import type {
   PreparedOauthLogin,
 } from "../types/app";
 
-type AddAccountRoute = "oauth" | "current" | "upload" | "api";
+type AddAccountRoute = "oauth" | "current" | "session" | "upload" | "api";
 
 type AddAccountDialogProps = {
   open: boolean;
@@ -70,6 +70,16 @@ function AddAccountRouteIcon({ route }: { route: AddAccountRoute }) {
     );
   }
 
+  if (route === "session") {
+    return (
+      <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M9 3h6" />
+        <path d="M10 3v4.5L5.8 17a3 3 0 0 0 2.7 4.2h7a3 3 0 0 0 2.7-4.2L14 7.5V3" />
+        <path d="M8 14h8" />
+      </svg>
+    );
+  }
+
   return (
     <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M12 16V4" />
@@ -96,6 +106,7 @@ export function AddAccountDialog({
   const { copy } = useI18n();
   const [activeRoute, setActiveRoute] = useState<AddAccountRoute>("oauth");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [sessionJsonText, setSessionJsonText] = useState("");
   const [readingFiles, setReadingFiles] = useState(false);
   const [pendingRoute, setPendingRoute] = useState<AddAccountRoute | null>(null);
   const [preparingOauth, setPreparingOauth] = useState(false);
@@ -138,6 +149,7 @@ export function AddAccountDialog({
     if (!open) {
       setActiveRoute("oauth");
       setSelectedFiles([]);
+      setSessionJsonText("");
       setReadingFiles(false);
       setPendingRoute(null);
       setApiForm({
@@ -182,6 +194,11 @@ export function AddAccountDialog({
           id: "current" as const,
           label: copy.addAccount.currentTab,
           description: copy.addAccount.currentDescription,
+        },
+        {
+          id: "session" as const,
+          label: copy.addAccount.sessionTab,
+          description: copy.addAccount.sessionDescription,
         },
         {
           id: "upload" as const,
@@ -377,6 +394,26 @@ export function AddAccountDialog({
       await onImportFiles(items);
     } finally {
       setReadingFiles(false);
+      setPendingRoute(null);
+    }
+  };
+
+  const handleImportSessionJson = async () => {
+    const content = sessionJsonText.trim();
+    if (actionLocked || content === "") {
+      return;
+    }
+
+    setPendingRoute("session");
+    try {
+      await onImportFiles([
+        {
+          source: "pasted-session.json",
+          content,
+          label: null,
+        },
+      ]);
+    } finally {
       setPendingRoute(null);
     }
   };
@@ -623,6 +660,33 @@ export function AddAccountDialog({
                   {pendingRoute === "upload" || importingAccounts || readingFiles
                     ? copy.addAccount.uploadImporting
                     : copy.addAccount.uploadStartImport}
+                </button>
+              </div>
+            ) : null}
+
+            {activeRoute === "session" ? (
+              <div className="addAccountPanelBody addSessionSection">
+                <label className="addOauthField">
+                  <span className="addOauthFieldLabel">{copy.addAccount.sessionJsonLabel}</span>
+                  <textarea
+                    className="addOauthTextarea addSessionTextarea"
+                    value={sessionJsonText}
+                    onChange={(event) => setSessionJsonText(event.target.value)}
+                    placeholder={copy.addAccount.sessionJsonPlaceholder}
+                    rows={10}
+                    spellCheck={false}
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  className="primary addAccountPrimaryAction"
+                  onClick={() => void handleImportSessionJson()}
+                  disabled={actionLocked || sessionJsonText.trim() === ""}
+                >
+                  {pendingRoute === "session" || importingAccounts
+                    ? copy.addAccount.sessionImporting
+                    : copy.addAccount.sessionStartImport}
                 </button>
               </div>
             ) : null}

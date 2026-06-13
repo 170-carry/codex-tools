@@ -99,6 +99,12 @@ export type MessageCatalog = {
     currentDescription: string;
     currentStart: string;
     currentImporting: string;
+    sessionTab: string;
+    sessionDescription: string;
+    sessionJsonLabel: string;
+    sessionJsonPlaceholder: string;
+    sessionStartImport: string;
+    sessionImporting: string;
     uploadTab: string;
     uploadDescription: string;
     apiTab: string;
@@ -167,8 +173,62 @@ export type MessageCatalog = {
   bottomDock: {
     ariaLabel: string;
     accounts: string;
+    analytics: string;
     proxy: string;
     settings: string;
+  };
+  analytics: {
+    kicker: string;
+    title: string;
+    description: string;
+    refresh: string;
+    exportCsv: string;
+    exportJson: string;
+    exporting: string;
+    loadingTitle: string;
+    loadingDescription: string;
+    progressScanning: string;
+    progressCaching: string;
+    progressComplete: string;
+    emptyTitle: string;
+    emptyDescription: string;
+    errorTitle: string;
+    totalCost: string;
+    last7dCost: string;
+    totalTokens: string;
+    sessions: string;
+    projectsTitle: string;
+    projectsDescription: string;
+    sessionsTitle: string;
+    sessionsDescription: string;
+    heatmapTitle: string;
+    heatmapDescription: string;
+    topPromptsTitle: string;
+    topPromptsDescription: string;
+    budgetTitle: string;
+    budgetDescription: string;
+    budgetInputLabel: string;
+    budgetPlaceholder: string;
+    budgetSave: string;
+    budgetClear: string;
+    budgetUnset: string;
+    budgetOk: string;
+    budgetWarning: string;
+    budgetDanger: string;
+    pricingEstimate: string;
+    sourceFiles: string;
+    tokenEvents: string;
+    failedSources: string;
+    project: string;
+    cost: string;
+    prompts: string;
+    events: string;
+    updated: string;
+    model: string;
+    started: string;
+    duration: string;
+    promptPreview: string;
+    promptChars: string;
   };
   apiProxy: {
     kicker: string;
@@ -221,6 +281,17 @@ export type MessageCatalog = {
     baseUrlLabel: string;
     localBaseUrlLabel: string;
     lanBaseUrlLabel: string;
+    codexBindLabel: string;
+    codexBindBoundTitle: string;
+    codexBindNormalTitle: string;
+    codexBindDescription: string;
+    codexBindBoundDescription: string;
+    codexBindRestoreAvailableDescription: string;
+    codexBindCurrentBaseUrlLabel: string;
+    codexBindAction: string;
+    codexBindActionBusy: string;
+    codexRestoreAction: string;
+    codexRestoreActionBusy: string;
     copy: string;
     baseUrlPlaceholder: string;
     apiKeyLabel: string;
@@ -232,6 +303,44 @@ export type MessageCatalog = {
     activeAccountEmptyDescription: string;
     lastErrorLabel: string;
     none: string;
+    keyManagerTitle: string;
+    keyManagerDescription: string;
+    keyManagerHelpLabel: string;
+    keyManagerHelp: string;
+    keyCreateNamePlaceholder: string;
+    keyCreateSecretPlaceholder: string;
+    keyCreateAction: string;
+    keyCreateDefaultLabel: string;
+    keyLoading: string;
+    keyEmpty: string;
+    keyNameLabel: string;
+    keyToggleAria: string;
+    keyEnabled: string;
+    keyDisabled: string;
+    keyRegenerate: string;
+    keyDelete: string;
+    keySecretLabel: string;
+    keyCallsLabel: string;
+    keyTokensLabel: string;
+    keyLastUsedLabel: string;
+    keyModelsLabel: string;
+    keyModelsHelpLabel: string;
+    keyModelsHelp: string;
+    keyReasoningLabel: string;
+    keyReasoningHelpLabel: string;
+    keyReasoningHelp: string;
+    keyServiceTierLabel: string;
+    keyServiceTierHelpLabel: string;
+    keyServiceTierHelp: string;
+    keyLogsLabel: string;
+    keyNoLogs: string;
+    reasoningMinimal: string;
+    reasoningLow: string;
+    reasoningMedium: string;
+    reasoningHigh: string;
+    serviceTierAuto: string;
+    serviceTierFast: string;
+    serviceTierFlex: string;
     remoteKicker: string;
     remoteTitle: string;
     remoteDescription: string;
@@ -372,6 +481,11 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    launchCodexAsAdmin: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+    };
     codexLaunchPath: {
       label: string;
     };
@@ -439,6 +553,8 @@ export type MessageCatalog = {
     skipThisVersion: string;
     installNow: string;
     installingNow: string;
+    changelogTitle: string;
+    changelogEmpty: string;
   };
   notices: {
     settingsUpdated: string;
@@ -505,8 +621,14 @@ export type MessageCatalog = {
     proxyStopFailed: (error: string) => string;
     proxyKeyRefreshed: string;
     proxyKeyRefreshFailed: (error: string) => string;
+    codexProxyBound: string;
+    codexProxyBindFailed: (error: string) => string;
+    codexProxyRestored: string;
+    codexProxyRestoreFailed: (error: string) => string;
     apiProxyUsageCleared: string;
     apiProxyUsageClearFailed: (error: string) => string;
+    codexAnalyticsExported: string;
+    codexAnalyticsExportFailed: (error: string) => string;
     installingDependency: (name: string) => string;
     dependencyInstalled: (name: string) => string;
     dependencyInstallFailed: (name: string, error: string) => string;
@@ -567,6 +689,7 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
     accountCard: raw.accountCard,
     accountsGrid: raw.accountsGrid,
     bottomDock: raw.bottomDock,
+    analytics: raw.analytics,
     apiProxy: {
       ...raw.apiProxy,
       remoteDeployProgressTitle: (label) =>
@@ -649,8 +772,14 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       proxyStopFailed: (error) => fillTemplate(raw.notices.proxyStopFailed, { error }),
       proxyKeyRefreshFailed: (error) =>
         fillTemplate(raw.notices.proxyKeyRefreshFailed, { error }),
+      codexProxyBindFailed: (error) =>
+        fillTemplate(raw.notices.codexProxyBindFailed, { error }),
+      codexProxyRestoreFailed: (error) =>
+        fillTemplate(raw.notices.codexProxyRestoreFailed, { error }),
       apiProxyUsageClearFailed: (error) =>
         fillTemplate(raw.notices.apiProxyUsageClearFailed, { error }),
+      codexAnalyticsExportFailed: (error) =>
+        fillTemplate(raw.notices.codexAnalyticsExportFailed, { error }),
       installingDependency: (name) =>
         fillTemplate(raw.notices.installingDependency, { name }),
       dependencyInstalled: (name) =>

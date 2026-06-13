@@ -40,9 +40,87 @@ export type CodexTokenUsageSnapshot = {
   failedPathCount: number;
   eventCount: number;
   last24h: CodexTokenTotals;
+  last3d: CodexTokenTotals;
   last7d: CodexTokenTotals;
   last30d: CodexTokenTotals;
   latestSession: CodexTokenSessionUsage | null;
+};
+
+export type CodexBudgetAlert = "none" | "ok" | "warning" | "danger";
+
+export type CodexProjectCostBreakdown = {
+  projectPath: string;
+  projectName: string;
+  sessionCount: number;
+  promptCount: number;
+  eventCount: number;
+  total: CodexTokenTotals;
+  costUsd: number;
+  lastAt: number | null;
+};
+
+export type CodexSessionCostBreakdown = {
+  sessionId: string;
+  parentSessionId: string | null;
+  projectPath: string;
+  projectName: string;
+  startedAt: number | null;
+  updatedAt: number | null;
+  durationSeconds: number | null;
+  promptCount: number;
+  eventCount: number;
+  model: string;
+  total: CodexTokenTotals;
+  costUsd: number;
+  sourcePath: string;
+};
+
+export type CodexHourlyCostBucket = {
+  weekday: number;
+  hour: number;
+  calls: number;
+  tokens: number;
+  costUsd: number;
+};
+
+export type CodexPromptCostBreakdown = {
+  sessionId: string;
+  projectPath: string;
+  projectName: string;
+  timestamp: number;
+  model: string;
+  promptPreview: string;
+  promptChars: number;
+  total: CodexTokenTotals;
+  costUsd: number;
+  sourcePath: string;
+};
+
+export type CodexCostAnalyticsSnapshot = {
+  updatedAt: number;
+  pricingSource: string;
+  sourcePathCount: number;
+  failedPathCount: number;
+  eventCount: number;
+  total: CodexTokenTotals;
+  totalCostUsd: number;
+  last7d: CodexTokenTotals;
+  last7dCostUsd: number;
+  weeklyBudgetUsd: number | null;
+  weeklyBudgetPercent: number | null;
+  weeklyBudgetAlert: CodexBudgetAlert;
+  projects: CodexProjectCostBreakdown[];
+  sessions: CodexSessionCostBreakdown[];
+  heatmap: CodexHourlyCostBucket[];
+  topPrompts: CodexPromptCostBreakdown[];
+};
+
+export type CodexCostAnalyticsProgress = {
+  stage: "scanning" | "caching" | "complete" | string;
+  processedFiles: number;
+  totalFiles: number;
+  percent: number;
+  currentPath: string | null;
 };
 
 export type AccountSourceKind = "chatgpt" | "relay";
@@ -127,10 +205,55 @@ export type ApiProxyStatus = {
   apiKey: string | null;
   baseUrl: string | null;
   lanBaseUrl: string | null;
+  codexProxyBound: boolean;
+  codexProxyRestoreAvailable: boolean;
+  codexProxyBaseUrl: string | null;
+  codexProxyConfigPath: string | null;
   activeAccountKey: string | null;
   activeAccountId: string | null;
   activeAccountLabel: string | null;
   lastError: string | null;
+};
+
+export type ApiProxyKey = {
+  id: string;
+  label: string;
+  key: string;
+  enabled: boolean;
+  allowedModels: string[];
+  allowedReasoningEfforts: string[];
+  allowedServiceTiers: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type CreateApiProxyKeyInput = {
+  label: string;
+  key: string | null;
+  allowedModels: string[];
+  allowedReasoningEfforts: string[];
+  allowedServiceTiers: string[];
+};
+
+export type UpdateApiProxyKeyInput = {
+  id: string;
+  label?: string;
+  enabled?: boolean;
+  allowedModels?: string[];
+  allowedReasoningEfforts?: string[];
+  allowedServiceTiers?: string[];
+};
+
+export type ApiProxyKeyUsageLogEntry = {
+  timestamp: number;
+  keyId: string | null;
+  keyLabel: string | null;
+  model: string;
+  route: string | null;
+  reasoningEffort: string | null;
+  serviceTier: string | null;
+  calls: number;
+  tokens: number;
 };
 
 export type ApiProxyUsageRange = "1h" | "24h" | "7d" | "14d" | "30d";
@@ -242,6 +365,7 @@ export type PendingUpdateInfo = {
   version: string;
   body?: string;
   date?: string;
+  debugPreview?: boolean;
 };
 
 export type ThemeMode = "light" | "dark";
@@ -269,6 +393,7 @@ export type AppSettings = {
   trayUsageDisplayMode: TrayUsageDisplayMode;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
+  launchCodexAsAdmin: boolean;
   codexLaunchPath: string | null;
   syncOpencodeOpenaiAuth: boolean;
   restartOpencodeDesktopOnSwitch: boolean;
@@ -279,6 +404,7 @@ export type AppSettings = {
   apiProxyLoadBalanceMode: ApiProxyLoadBalanceMode;
   apiProxySequentialFiveHourLimitPercent: number;
   apiProxyDisabledModels: string[];
+  codexAnalyticsWeeklyBudgetUsd: number | null;
   remoteServers: RemoteServerConfig[];
   locale: AppLocale;
   skippedUpdateVersion: string | null;

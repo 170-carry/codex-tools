@@ -1,7 +1,7 @@
 {
   "name": "codex-tools",
   "private": true,
-  "version": "1.9.5",
+  "version": "2.0.0",
   "license": "MIT",
   "homepage": "https://github.com/170-carry/codex-tools",
   "bugs": {
@@ -17,6 +17,7 @@
     "dev:desktop": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-preview.ps1",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "npm:sync-packages": "node scripts/sync-npm-package-version.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

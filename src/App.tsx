@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import "./App.css";
+import { AnalyticsPanel } from "./components/AnalyticsPanel";
 import { ApiProxyPanel } from "./components/ApiProxyPanel";
 import { AddAccountSection } from "./components/AddAccountSection";
 import { AddAccountDialog } from "./components/AddAccountDialog";
 import { AccountsGrid } from "./components/AccountsGrid";
 import { AppTopBar } from "./components/AppTopBar";
-import { BottomDock } from "./components/BottomDock";
+import { DebugFloatingTool } from "./components/DebugFloatingTool";
 import { MetaStrip } from "./components/MetaStrip";
 import { NoticeBanner } from "./components/NoticeBanner";
 import { RemoteDeployProgressToast } from "./components/RemoteDeployProgressToast";
@@ -14,7 +16,9 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useCodexController } from "./hooks/useCodexController";
 import { useThemeMode } from "./hooks/useThemeMode";
 
-type AppTab = "accounts" | "proxy" | "settings";
+type AppTab = "accounts" | "analytics" | "proxy" | "settings";
+const APP_MENU_OPEN_SETTINGS_EVENT = "app-menu-open-settings";
+const APP_MENU_CHECK_UPDATE_EVENT = "app-menu-check-update";
 
 function App() {
     const [activeTab, setActiveTab] = useState<AppTab>("accounts");
@@ -23,6 +27,8 @@ function App() {
         accounts,
         tokenUsage,
         tokenUsageError,
+        costAnalytics,
+        costAnalyticsError,
         loading,
         refreshing,
         refreshingTokenUsage,
@@ -48,11 +54,17 @@ function App() {
         savingSettings,
         apiProxySupportedModels,
         apiProxyStatus,
+        apiProxyKeys,
+        apiProxyKeyLogs,
+        apiProxyKeysLoading,
         apiProxyUsageStats,
         apiProxyUsageRange,
         apiProxyUsageMetric,
         apiProxyUsageLoading,
         apiProxyUsageClearing,
+        costAnalyticsLoading,
+        costAnalyticsExporting,
+        costAnalyticsProgress,
         cloudflaredStatus,
         remoteProxyStatuses,
         remoteProxyLogs,
@@ -60,6 +72,9 @@ function App() {
         startingApiProxy,
         stoppingApiProxy,
         refreshingApiProxyKey,
+        bindingCodexProxy,
+        restoringCodexProxy,
+        savingApiProxyKey,
         refreshingRemoteProxyId,
         deployingRemoteProxyId,
         startingRemoteProxyId,
@@ -72,8 +87,12 @@ function App() {
         stoppingCloudflared,
         refreshUsage,
         refreshTokenUsage,
+        loadCostAnalytics,
+        refreshCostAnalytics,
+        exportCostAnalytics,
         checkForAppUpdate,
         installPendingUpdate,
+        openDebugUpdateDialog,
         openManualDownloadPage,
         closeUpdateDialog,
         updateSettings,
@@ -95,6 +114,12 @@ function App() {
         onStartApiProxy,
         onStopApiProxy,
         onRefreshApiProxyKey,
+        onBindCodexToApiProxy,
+        onRestoreCodexProxyBinding,
+        onCreateApiProxyKey,
+        onUpdateApiProxyKey,
+        onDeleteApiProxyKey,
+        onRegenerateApiProxyKey,
         onRefreshRemoteProxyStatus,
         onDeployRemoteProxy,
         onStartRemoteProxy,
@@ -138,9 +163,49 @@ function App() {
         };
     }, [refreshTokenUsage, refreshUsage]);
 
+    useEffect(() => {
+        let disposed = false;
+        const unlistenFns: UnlistenFn[] = [];
+
+        const registerAppMenuListeners = async () => {
+            try {
+                const openSettingsUnlisten = await listen<void>(APP_MENU_OPEN_SETTINGS_EVENT, () => {
+                    setActiveTab("settings");
+                });
+                const checkUpdateUnlisten = await listen<void>(APP_MENU_CHECK_UPDATE_EVENT, () => {
+                    void checkForAppUpdate(false);
+                });
+
+                if (disposed) {
+                    void openSettingsUnlisten();
+                    void checkUpdateUnlisten();
+                    return;
+                }
+
+                unlistenFns.push(openSettingsUnlisten, checkUpdateUnlisten);
+            } catch {
+                // The app can still run in a browser-only preview where Tauri events are unavailable.
+            }
+        };
+
+        void registerAppMenuListeners();
+
+        return () => {
+            disposed = true;
+            for (const unlisten of unlistenFns) {
+                void unlisten();
+            }
+        };
+    }, [checkForAppUpdate]);
+
     const refreshAccountsView = () => {
+        if (activeTab === "analytics") {
+            void refreshCostAnalytics(false);
+            return;
+        }
         void refreshUsage(false);
         void refreshTokenUsage(false);
+        void loadCostAnalytics(true);
     };
 
     return (
@@ -148,10 +213,14 @@ function App() {
             <div className="ambient" />
             <main className="panel">
                 <AppTopBar
+                    activeTab={activeTab}
+                    onSelectTab={setActiveTab}
+                    themeMode={themeMode}
+                    onToggleTheme={toggleTheme}
                     onRefresh={refreshAccountsView}
-                    refreshing={refreshing || refreshingTokenUsage}
+                    refreshing={activeTab === "analytics" ? costAnalyticsLoading : refreshing || refreshingTokenUsage}
                     onGoHome={() => setActiveTab("accounts")}
-                    showRefresh={activeTab === "accounts"}
+                    showRefresh={activeTab === "accounts" || activeTab === "analytics"}
                 />
 
                 <AddAccountDialog
@@ -171,6 +240,7 @@ function App() {
 
                 <NoticeBanner notice={notice} />
                 <RemoteDeployProgressToast progress={remoteDeployProgress} />
+                <DebugFloatingTool onOpenUpdateDialog={openDebugUpdateDialog} />
                 <UpdateBanner
                     open={updateDialogOpen}
                     pendingUpdate={pendingUpdate}
@@ -185,27 +255,30 @@ function App() {
                 <section className="viewStage">
                     {activeTab === "accounts" ? (
                         <div className="accountsPage">
-                            <div className="accountsHero">
-                                <MetaStrip
-                                    accountCount={accounts.length}
-                                    tokenUsage={tokenUsage}
-                                    tokenUsageError={tokenUsageError}
-                                    exportingAccounts={exportingAccounts}
-                                    onExportAccounts={() => void onExportAccounts()}
-                                />
-                                <AddAccountSection
-                                    onOpenAddDialog={onOpenAddDialog}
-                                    onSmartSwitch={() => void onSmartSwitch()}
-                                    smartSwitching={smartSwitching}
-                                />
-                            </div>
                             <AccountsGrid
+                                leadingContent={
+                                    <MetaStrip
+                                        accounts={accounts}
+                                        exportingAccounts={exportingAccounts}
+                                        onExportAccounts={() => void onExportAccounts()}
+                                    />
+                                }
+                                toolbarActions={
+                                    <AddAccountSection
+                                        onOpenAddDialog={onOpenAddDialog}
+                                        onSmartSwitch={() => void onSmartSwitch()}
+                                        smartSwitching={smartSwitching}
+                                    />
+                                }
                                 accounts={accounts}
+                                tokenUsage={tokenUsage}
+                                tokenUsageError={tokenUsageError}
                                 loading={loading}
                                 exportingAccounts={exportingAccounts}
                                 switchingId={switchingId}
                                 renamingAccountId={renamingAccountId}
                                 pendingDeleteId={pendingDeleteId}
+                                onExportAll={() => void onExportAccounts()}
                                 onExport={(account) => void onExportAccounts(account)}
                                 onReauthorize={(account) => void onReauthorizeAccount(account)}
                                 onRename={(account, label) => onRenameAccountLabel(account, label)}
@@ -216,9 +289,32 @@ function App() {
                                 onDelete={(account) => void onDelete(account)}
                             />
                         </div>
+                    ) : activeTab === "analytics" ? (
+                        <AnalyticsPanel
+                            analytics={costAnalytics}
+                            error={costAnalyticsError}
+                            loading={costAnalyticsLoading}
+                            exporting={costAnalyticsExporting}
+                            progress={costAnalyticsProgress}
+                            weeklyBudgetUsd={settings.codexAnalyticsWeeklyBudgetUsd}
+                            savingSettings={savingSettings}
+                            onRefresh={() => void refreshCostAnalytics(false)}
+                            onExport={(format) => void exportCostAnalytics(format)}
+                            onUpdateWeeklyBudget={(value) =>
+                                updateSettings(
+                                    { codexAnalyticsWeeklyBudgetUsd: value },
+                                    { silent: true, keepInteractive: true },
+                                ).then(async () => {
+                                    await loadCostAnalytics(true);
+                                })
+                            }
+                        />
                     ) : activeTab === "proxy" ? (
                         <ApiProxyPanel
                             status={apiProxyStatus}
+                            apiProxyKeys={apiProxyKeys}
+                            apiProxyKeyLogs={apiProxyKeyLogs}
+                            apiProxyKeysLoading={apiProxyKeysLoading}
                             apiProxyUsageStats={apiProxyUsageStats}
                             apiProxyUsageRange={apiProxyUsageRange}
                             apiProxyUsageMetric={apiProxyUsageMetric}
@@ -239,6 +335,9 @@ function App() {
                             starting={startingApiProxy}
                             stopping={stoppingApiProxy}
                             refreshingApiKey={refreshingApiProxyKey}
+                            bindingCodexProxy={bindingCodexProxy}
+                            restoringCodexProxy={restoringCodexProxy}
+                            savingApiProxyKey={savingApiProxyKey}
                             refreshingRemoteId={refreshingRemoteProxyId}
                             deployingRemoteId={deployingRemoteProxyId}
                             startingRemoteId={startingRemoteProxyId}
@@ -251,10 +350,16 @@ function App() {
                             stoppingCloudflared={stoppingCloudflared}
                             onStart={onStartApiProxy}
                             onStop={() => void onStopApiProxy()}
+                            onCreateApiProxyKey={onCreateApiProxyKey}
+                            onUpdateApiProxyKey={onUpdateApiProxyKey}
+                            onDeleteApiProxyKey={onDeleteApiProxyKey}
+                            onRegenerateApiProxyKey={onRegenerateApiProxyKey}
                             onSelectApiProxyUsageRange={onSelectApiProxyUsageRange}
                             onSelectApiProxyUsageMetric={onSelectApiProxyUsageMetric}
                             onClearApiProxyUsageStats={onClearApiProxyUsageStats}
                             onRefreshApiKey={() => void onRefreshApiProxyKey()}
+                            onBindCodexProxy={() => void onBindCodexToApiProxy()}
+                            onRestoreCodexProxy={() => void onRestoreCodexProxyBinding()}
                             onRefresh={() => void loadApiProxyStatus()}
                             onToggleAutoStart={(enabled) =>
                                 void updateSettings(
@@ -308,10 +413,6 @@ function App() {
                         />
                     )}
                 </section>
-                <BottomDock
-                    activeTab={activeTab}
-                    onSelectTab={setActiveTab}
-                />
             </main>
         </div>
     );

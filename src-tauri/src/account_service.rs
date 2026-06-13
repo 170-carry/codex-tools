@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use futures_util::stream;
+use futures_util::StreamExt;
 use rfd::FileDialog;
 use serde_json::json;
 use tauri::AppHandle;
@@ -38,7 +41,9 @@ use crate::profile_files;
 use crate::state::AppState;
 use crate::store::account_store_path_from_data_dir;
 use crate::store::load_store;
+use crate::store::load_store_from_path;
 use crate::store::save_store;
+use crate::store::save_store_to_path;
 use crate::store::update_account_group_refresh_state_in_path;
 use crate::usage::fetch_usage_snapshot;
 use crate::usage::resolve_chatgpt_base_origin;
@@ -58,9 +63,12 @@ const KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS: i64 = 7 * 24 * 60 * 60;
 const KEEPALIVE_LAST_REFRESH_JITTER_SECS: i64 = 24 * 60 * 60;
 const CODEX_KEEPALIVE_INTERVAL_SECS: i64 = 5 * 60 * 60;
 const CODEX_KEEPALIVE_TIMEOUT_SECS: u64 = 45;
-const CODEX_KEEPALIVE_MODEL: &str = "gpt-5.3-codex";
+const CODEX_KEEPALIVE_MODEL: &str = "gpt-5.5";
 const CODEX_KEEPALIVE_VERSION: &str = "0.125.0";
 const CODEX_KEEPALIVE_USER_AGENT: &str = "codex_cli_rs/0.125.0";
+// 账号刷新主要等待外部 HTTP 响应，因此按 CPU 给 2 倍并发；同时用可用内存做下限保护。
+const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
+const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -228,6 +236,15 @@ pub(crate) async fn import_auth_json_accounts_internal(
     state: &AppState,
     items: Vec<AuthJsonImportInput>,
 ) -> Result<ImportAccountsResult, String> {
+    let _guard = state.store_lock.lock().await;
+    let store_path = account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
+    import_auth_json_accounts_into_store_path(&store_path, items).await
+}
+
+pub(crate) async fn import_auth_json_accounts_into_store_path(
+    store_path: &Path,
+    items: Vec<AuthJsonImportInput>,
+) -> Result<ImportAccountsResult, String> {
     if items.is_empty() {
         return Err("请至少提供一个 JSON 文件或 JSON 文本".to_string());
     }
@@ -271,12 +288,10 @@ pub(crate) async fn import_auth_json_accounts_internal(
     let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let (imported_count, updated_count) = {
-        let mut _guard = state.store_lock.lock().await;
-        let mut store = load_store(app)?;
+        let mut store = load_store_from_path(store_path)?;
         let mut imported_count = 0usize;
         let mut updated_count = 0usize;
         let mut touched_ids = HashSet::new();
-        let store_path = account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
 
         for prepared in prepared_imports {
             let (summary, updated_existing) = upsert_prepared_import(
@@ -301,7 +316,7 @@ pub(crate) async fn import_auth_json_accounts_internal(
             profile_files::sync_account_profile_in_store_path(&store_path, account)?;
         }
 
-        save_store(app, &store)?;
+        save_store_to_path(store_path, &store)?;
         (imported_count, updated_count)
     };
 
@@ -482,13 +497,8 @@ pub(crate) async fn refresh_all_usage_internal(
         build_refresh_targets(store.accounts, current_auth_override.as_ref())
     };
 
-    let mut outcomes: HashMap<String, RefreshOutcome> =
-        HashMap::with_capacity(refresh_targets.len());
-    for target in refresh_targets {
-        let account_key = target.account_key.clone();
-        let outcome = refresh_usage_for_target(app, state, &target, force_auth_refresh).await;
-        outcomes.insert(account_key, outcome);
-    }
+    let outcomes =
+        refresh_usage_targets_with_workers(app, state, refresh_targets, force_auth_refresh).await;
 
     let store = {
         let _guard = state.store_lock.lock().await;
@@ -557,6 +567,70 @@ pub(crate) async fn refresh_all_usage_internal(
     }
 
     Ok(summaries)
+}
+
+async fn refresh_usage_targets_with_workers(
+    app: &AppHandle,
+    state: &AppState,
+    refresh_targets: Vec<RefreshTarget>,
+    force_auth_refresh: bool,
+) -> HashMap<String, RefreshOutcome> {
+    let worker_count = refresh_usage_worker_count(refresh_targets.len());
+    stream::iter(refresh_targets)
+        .map(|target| async move {
+            let account_key = target.account_key.clone();
+            let outcome = refresh_usage_for_target(app, state, &target, force_auth_refresh).await;
+            (account_key, outcome)
+        })
+        .buffer_unordered(worker_count)
+        .collect::<HashMap<_, _>>()
+        .await
+}
+
+fn refresh_usage_worker_count(target_count: usize) -> usize {
+    let cpu_count = std::thread::available_parallelism()
+        .map(NonZeroUsize::get)
+        .unwrap_or(1);
+    let available_memory_mib = available_system_memory_mib();
+    let worker_count =
+        refresh_usage_worker_count_from_resources(target_count, cpu_count, available_memory_mib);
+    log::info!(
+        "账号刷新 worker_count={worker_count} target_count={target_count} cpu_count={cpu_count} available_memory_mib={available_memory_mib:?}"
+    );
+    worker_count
+}
+
+fn refresh_usage_worker_count_from_resources(
+    target_count: usize,
+    cpu_count: usize,
+    available_memory_mib: Option<u64>,
+) -> usize {
+    let target_limit = target_count.max(1);
+    let cpu_limit = cpu_count
+        .max(1)
+        .saturating_mul(REFRESH_USAGE_WORKERS_PER_CPU)
+        .max(1);
+    let memory_limit = available_memory_mib
+        .map(|memory_mib| {
+            (memory_mib / REFRESH_USAGE_MEMORY_PER_WORKER_MIB)
+                .try_into()
+                .unwrap_or(usize::MAX)
+        })
+        .unwrap_or(usize::MAX)
+        .max(1);
+
+    target_limit.min(cpu_limit).min(memory_limit).max(1)
+}
+
+fn available_system_memory_mib() -> Option<u64> {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    let available_memory_bytes = system.available_memory();
+    if available_memory_bytes == 0 {
+        return None;
+    }
+
+    Some(available_memory_bytes / 1024 / 1024)
 }
 
 fn build_refresh_targets(
@@ -1791,6 +1865,7 @@ mod tests {
     use super::is_stale_refresh_snapshot_error;
     use super::keepalive_max_last_refresh_age_secs;
     use super::normalize_usage_error_message;
+    use super::refresh_usage_worker_count_from_resources;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
     use super::PreparedImport;
@@ -1952,6 +2027,46 @@ mod tests {
     }
 
     #[test]
+    fn expand_import_json_content_normalizes_chatgpt_session_json() {
+        let raw = json!({
+            "WARNING_BANNER": "do not share",
+            "user": {
+                "id": "user-1",
+                "name": "Session User",
+                "email": "session@example.com"
+            },
+            "account": {
+                "id": "account-1",
+                "planType": "pro"
+            },
+            "accessToken": "header.eyJleHAiOjQxMDI0NDQ4MDB9.signature",
+            "authProvider": "openai",
+            "sessionToken": "session-1"
+        })
+        .to_string();
+
+        let candidates = expand_import_json_content(&raw, "session.json", None).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].source, "session.json");
+        let tokens = candidates[0]
+            .auth_json
+            .get("tokens")
+            .and_then(serde_json::Value::as_object)
+            .expect("session import should produce token object");
+        assert_eq!(
+            tokens.get("account_id").and_then(serde_json::Value::as_str),
+            Some("account-1")
+        );
+        assert_eq!(
+            tokens
+                .get("session_token")
+                .and_then(serde_json::Value::as_str),
+            Some("session-1")
+        );
+    }
+
+    #[test]
     fn upsert_prepared_import_reuses_unknown_variant_placeholder() {
         let mut store = AccountsStore::default();
         store.accounts.push(StoredAccount {
@@ -2080,6 +2195,34 @@ mod tests {
         assert!(first < KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS + KEEPALIVE_LAST_REFRESH_JITTER_SECS);
         assert!(second >= KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS);
         assert!(second < KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS + KEEPALIVE_LAST_REFRESH_JITTER_SECS);
+    }
+
+    #[test]
+    fn refresh_usage_worker_count_uses_target_cpu_and_memory_limits() {
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(0, 8, Some(4096)),
+            1
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(1, 8, Some(4096)),
+            1
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(100, 4, Some(4096)),
+            8
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(100, 16, Some(300)),
+            1
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(1000, 64, Some(1024 * 1024)),
+            128
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(10, 64, Some(1024 * 1024)),
+            10
+        );
     }
 
     #[test]

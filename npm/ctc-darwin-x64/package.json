@@ -1,0 +1,23 @@
+{
+  "name": "@170-carry/ctc-darwin-x64",
+  "version": "2.0.0",
+  "description": "Codex Tools native CLI for macOS Intel",
+  "license": "MIT",
+  "homepage": "https://github.com/170-carry/codex-tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/170-carry/codex-tools.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/codex-tools-cli"
+  ]
+}

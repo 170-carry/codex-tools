@@ -1,602 +1,1053 @@
-.cards {
-  margin-top: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 356px);
-  grid-auto-rows: 312px;
-  gap: 18px;
-  justify-content: center;
-  align-content: start;
+.accountsWorkspace {
   min-height: 0;
-  overflow: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.cards::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
-
-.emptyState {
-  border: 1px dashed var(--empty-border);
-  border-radius: 18px;
-  padding: 34px;
-  text-align: left;
-  color: var(--subtle);
-  width: 356px;
-  min-height: 240px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--card) 94%, var(--surface-tint) 6%),
-    color-mix(in srgb, var(--card) 88%, transparent)
-  );
-}
-
-.emptyState h3 {
-  margin: 0;
-  color: var(--ink);
-  font: 650 1.2rem/1.2 var(--font-ui);
-  letter-spacing: -0.02em;
-}
-
-.emptyState p {
-  margin: 10px 0 0;
-  max-width: 34ch;
-  font: 500 0.86rem/1.6 var(--font-ui);
-}
-
-.accountCard {
-  --tone-a: rgba(129, 158, 201, 0.62);
-  border: 1px solid color-mix(in srgb, var(--line) 92%, var(--surface-tint) 8%);
-  border-radius: 18px;
-  width: 356px;
-  height: 312px;
-  padding: 18px 18px 16px;
-  background: color-mix(in srgb, var(--account-card-bg-start) 98%, var(--surface-tint) 2%);
-  box-shadow:
-    0 1px 2px rgba(28, 43, 68, 0.05),
-    0 10px 18px rgba(28, 43, 68, 0.04);
-  animation: riseIn 320ms ease both;
-  position: relative;
-  overflow: clip;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  height: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) clamp(470px, 32vw, 500px);
   gap: 16px;
+  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--line) 78%, var(--subtle) 22%) transparent;
 }
 
-.accountCard::before {
-  content: none;
+.accountsWorkspace::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-.accountCard.isCurrent {
-  border-color: color-mix(in srgb, var(--stamp-current-border) 56%, var(--line) 44%);
-  box-shadow:
-    0 14px 28px rgba(28, 43, 68, 0.08),
-    0 0 0 1px color-mix(in srgb, var(--stamp-current-border) 28%, transparent);
+.accountsWorkspace::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 78%, var(--subtle) 22%);
 }
 
-.accountCard.isCurrent::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--tone-a) 20%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--stamp-current-bg) 12%, transparent), transparent 36%);
-}
-
-.accountCard:hover,
-.accountCard:focus-within,
-.accountCard.isSwitching {
-  transform: translateY(-1px);
-  box-shadow:
-    0 10px 18px rgba(28, 43, 68, 0.06),
-    0 1px 3px rgba(28, 43, 68, 0.06);
-  border-color: color-mix(in srgb, var(--line) 86%, var(--tone-a) 14%);
-}
-
-.accountCard.tone-team {
-  --tone-a: rgba(49, 206, 192, 0.84);
-  --stamp-plan-color: #0f6f68;
-  --stamp-plan-border: rgba(56, 190, 178, 0.3);
-  --stamp-plan-bg: rgba(118, 231, 221, 0.14);
-}
-
-.accountCard.tone-pro {
-  --tone-a: rgba(255, 134, 66, 0.88);
-  --stamp-plan-color: #7d3f13;
-  --stamp-plan-border: rgba(226, 131, 60, 0.28);
-  --stamp-plan-bg: rgba(255, 164, 95, 0.12);
-}
-
-.accountCard.tone-plus {
-  --tone-a: rgba(160, 128, 255, 0.86);
-  --stamp-plan-color: #5f4294;
-  --stamp-plan-border: rgba(158, 122, 242, 0.28);
-  --stamp-plan-bg: rgba(191, 151, 255, 0.12);
-}
-
-.accountCard.tone-api {
-  --tone-a: rgba(88, 152, 255, 0.84);
-  --stamp-plan-color: #305e9f;
-  --stamp-plan-border: rgba(88, 152, 255, 0.28);
-  --stamp-plan-bg: rgba(88, 152, 255, 0.12);
-}
-
-.accountCard.tone-enterprise {
-  --tone-a: rgba(255, 210, 116, 0.86);
-}
-
-.accountCard.tone-business {
-  --tone-a: rgba(118, 184, 255, 0.84);
-}
-
-.accountCard.tone-free {
-  --tone-a: rgba(166, 172, 192, 0.78);
-  --stamp-plan-color: #4f5f7c;
-  --stamp-plan-border: rgba(135, 147, 174, 0.28);
-  --stamp-plan-bg: rgba(187, 197, 219, 0.12);
-}
-
-.accountCard.tone-unknown {
-  --tone-a: rgba(178, 183, 202, 0.72);
-  --stamp-plan-color: #5b6582;
-  --stamp-plan-border: rgba(154, 165, 191, 0.24);
-  --stamp-plan-bg: rgba(196, 205, 223, 0.12);
-}
-
-:root[data-theme="dark"] .accountCard.tone-team {
-  --tone-a: rgba(73, 224, 209, 0.9);
-  --stamp-plan-color: #c5fff8;
-  --stamp-plan-border: rgba(89, 226, 212, 0.66);
-  --stamp-plan-bg: rgba(55, 193, 178, 0.24);
-}
-
-:root[data-theme="dark"] .accountCard.tone-pro {
-  --tone-a: rgba(255, 152, 89, 0.92);
-  --stamp-plan-color: #ffe0c7;
-  --stamp-plan-border: rgba(255, 170, 115, 0.68);
-  --stamp-plan-bg: rgba(219, 118, 54, 0.26);
-}
-
-:root[data-theme="dark"] .accountCard.tone-plus {
-  --tone-a: rgba(184, 145, 255, 0.92);
-  --stamp-plan-color: #f0e0ff;
-  --stamp-plan-border: rgba(181, 146, 255, 0.7);
-  --stamp-plan-bg: rgba(130, 95, 219, 0.26);
-}
-
-:root[data-theme="dark"] .accountCard.tone-api {
-  --tone-a: rgba(118, 178, 255, 0.94);
-  --stamp-plan-color: #e6f1ff;
-  --stamp-plan-border: rgba(118, 178, 255, 0.68);
-  --stamp-plan-bg: rgba(73, 125, 214, 0.26);
-}
-
-:root[data-theme="dark"] .accountCard.tone-free {
-  --tone-a: rgba(176, 188, 214, 0.84);
-  --stamp-plan-color: #e4ebff;
-  --stamp-plan-border: rgba(168, 182, 220, 0.64);
-  --stamp-plan-bg: rgba(120, 133, 168, 0.26);
-}
-
-:root[data-theme="dark"] .accountCard.tone-enterprise {
-  --tone-a: rgba(255, 214, 121, 0.92);
-}
-
-:root[data-theme="dark"] .accountCard.tone-business {
-  --tone-a: rgba(132, 191, 255, 0.92);
-}
-
-:root[data-theme="dark"] .accountCard.tone-unknown {
-  --tone-a: rgba(186, 196, 223, 0.88);
-  --stamp-plan-color: #eef2ff;
-  --stamp-plan-border: rgba(172, 184, 220, 0.66);
-  --stamp-plan-bg: rgba(112, 126, 163, 0.28);
-}
-
-.cardHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.cardActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.cardProxySwitch {
-  min-width: 34px;
-  min-height: 28px;
-  align-items: center;
-}
-
-.cardIdentity {
+.accountListStack,
+.accountListPanel,
+.accountDetailPanel {
   min-width: 0;
+  min-height: 0;
+}
+
+.accountListStack {
+  height: 100%;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.accountListLeading {
+  min-width: 0;
+}
+
+.accountListPanel,
+.accountDetailPanel {
+  border: 1px solid var(--section-line);
+  border-radius: 16px;
+  background: var(--section-card-surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.accountListPanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.accountToolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) auto minmax(0, 1fr) auto;
   gap: 10px;
-}
-
-.cardBadges {
-  display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--section-line);
+  background: color-mix(in srgb, var(--surface-tint) 72%, transparent);
 }
 
-.cardBadge {
+.accountSearch {
+  min-width: 0;
+  height: 40px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 14px;
+  background: var(--bg-0);
+  box-shadow: inset 0 1px var(--surface-highlight-strong);
+}
+
+.searchIcon {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.accountSearch input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  color: var(--ink);
+  background: transparent;
+  font: 600 0.86rem/1 var(--font-ui);
+}
+
+.accountSearch input::placeholder {
+  color: var(--muted);
+}
+
+.accountFilters {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.accountFilters select {
+  height: 40px;
+  min-width: 104px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 34px 0 14px;
+  color: color-mix(in srgb, var(--ink) 78%, var(--subtle) 22%);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--subtle) 50%) right 15px center / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--subtle) 50%, transparent 50%) right 10px center / 6px 6px no-repeat,
+    var(--bg-0);
+  box-shadow: inset 0 1px var(--surface-highlight-strong);
+  font: 700 0.82rem/1 var(--font-ui);
+  appearance: none;
+}
+
+.accountToolbarActions {
+  min-width: 0;
+}
+
+.accountToolbarActions .importBar {
+  align-self: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.accountToolbarActions .importSmartSwitch,
+.accountToolbarActions .importPrimary {
+  min-width: 112px;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 0.78rem;
+}
+
+.accountListFrame {
+  --account-row-columns: minmax(260px, 1.5fr) minmax(108px, 0.66fr) minmax(108px, 0.66fr) minmax(96px, 0.56fr) 50px minmax(106px, auto);
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.accountTokenUsageStrip {
+  min-width: 0;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--section-line);
+  background: color-mix(in srgb, var(--bg-0) 82%, var(--surface-tint) 18%);
+}
+
+.accountTokenUsageStrip > strong {
+  color: var(--ink);
+  font: 850 0.76rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.accountTokenUsageItems {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.accountTokenUsageItem {
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 25px;
-  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line) 82%);
+  border-radius: 8px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--brand) 6%, var(--surface-tint) 94%);
+}
+
+.accountTokenUsageItem em {
+  color: var(--subtle);
+  font: 800 0.62rem/1 var(--font-ui);
+  font-style: normal;
+}
+
+.accountTokenUsageItem b {
+  color: var(--ink);
+  font: 850 0.68rem/1 var(--font-mono);
+}
+
+.accountTokenUsageError {
+  color: var(--danger);
+  font: 750 0.66rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.accountTokenUsageActions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+button.accountTokenExportButton {
+  min-width: 112px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font: 850 0.72rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.accountTokenExportButton .actionIconGlyph {
+  width: 15px;
+  height: 15px;
+}
+
+.accountRows {
+  min-height: 0;
+  padding: 8px 12px 12px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--line) 80%, var(--subtle) 20%) transparent;
+}
+
+.accountRows::-webkit-scrollbar {
+  width: 8px;
+}
+
+.accountRows::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  border: 1px solid transparent;
-  font: 700 0.65rem/1 var(--font-ui);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  background: color-mix(in srgb, var(--line) 76%, var(--subtle) 24%);
 }
 
-.planBadge {
-  color: var(--stamp-plan-color);
-  border-color: var(--stamp-plan-border);
-  background: var(--stamp-plan-bg);
+.accountListHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: none;
+  grid-template-columns: var(--account-row-columns);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 20px 6px;
+  color: var(--subtle);
+  background: var(--section-card-surface);
+  font: 750 0.66rem/1 var(--font-ui);
+  white-space: nowrap;
 }
 
-.apiBadge,
-.stateBadge {
-  min-height: 25px;
-  padding: 0 10px;
+.accountListHeader span:nth-child(5) {
+  text-align: center;
 }
 
-.stateBadge {
-  color: color-mix(in srgb, var(--ink) 72%, var(--subtle) 28%);
-  border-color: color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
-  background: color-mix(in srgb, var(--surface-hover-bg) 62%, transparent);
+.accountListHeader span:last-child {
+  text-align: right;
 }
 
-.planBadgeButton {
-  min-height: 25px;
-  padding: 0 10px;
-  box-shadow: none;
+.accountRow {
+  position: relative;
+  min-width: 0;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: var(--account-row-columns);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 7px 10px 7px 12px;
+  background: var(--card);
+  cursor: pointer;
+  outline: none;
+  animation: riseIn 200ms ease both;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.accountRow:hover {
+  border-color: color-mix(in srgb, var(--line) 78%, var(--brand) 22%);
+  background: color-mix(in srgb, var(--card) 94%, var(--surface-tint) 6%);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+}
+
+.accountRow:focus-visible {
+  border-color: var(--brand);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent),
+    0 10px 20px rgba(37, 99, 235, 0.08);
+}
+
+.accountRow.isSelected {
+  border-color: color-mix(in srgb, var(--brand) 68%, var(--line) 32%);
+  background: color-mix(in srgb, var(--card) 90%, var(--brand-soft) 10%);
+  box-shadow:
+    inset 2px 0 0 var(--brand),
+    0 8px 18px rgba(37, 99, 235, 0.06);
+}
+
+.accountRow.isMenuOpen {
+  z-index: 20;
+}
+
+.accountIdentityCell {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.accountAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font: 800 1rem/1 var(--font-ui);
 }
 
-.planBadgeButton:hover {
+.accountAvatar.tone-team {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.accountAvatar.tone-pro {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.accountAvatar.tone-plus {
+  color: #7c3aed;
+  background: #ede9fe;
+}
+
+.accountAvatar.tone-api {
+  color: #0369a1;
+  background: #e0f2fe;
+}
+
+.accountAvatar.tone-enterprise {
+  color: #b45309;
+  background: #fef3c7;
+}
+
+.accountAvatar.tone-business {
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.accountAvatar.tone-free,
+.accountAvatar.tone-unknown {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+:root[data-theme="dark"] .accountAvatar {
+  background: rgba(96, 165, 250, 0.16);
+  color: #bfdbfe;
+}
+
+:root[data-theme="dark"] .accountAvatar.tone-team {
+  color: #bbf7d0;
+  background: rgba(74, 222, 128, 0.16);
+}
+
+:root[data-theme="dark"] .accountAvatar.tone-plus {
+  color: #ddd6fe;
+  background: rgba(167, 139, 250, 0.16);
+}
+
+:root[data-theme="dark"] .accountAvatar.tone-enterprise {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.16);
+}
+
+.detailAvatar {
+  width: 54px;
+  height: 54px;
+  font-size: 1.08rem;
+}
+
+.accountIdentityText {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.accountTitleLine {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.accountNameButton {
+  min-width: 0;
+  width: 100%;
+  min-height: 24px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  justify-content: start;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font: 800 0.9rem/1.15 var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.accountNameButton:hover,
+.accountNameButton:focus-visible {
+  transform: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--brand);
+}
+
+.planChip {
+  min-height: 24px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 7px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.1);
+  box-shadow: none;
+  font: 800 0.64rem/1 var(--font-ui);
+}
+
+.planChip:hover,
+.planChip:focus-visible {
   transform: none;
   box-shadow: none;
 }
 
-.planBadgeButton.isSelected {
-  border-color: color-mix(in srgb, var(--stamp-plan-color) 42%, var(--stamp-plan-border) 58%);
-  background: color-mix(in srgb, var(--stamp-plan-bg) 72%, var(--surface-highlight) 28%);
-  color: color-mix(in srgb, var(--stamp-plan-color) 92%, var(--ink) 8%);
+.planChip.tone-pro {
+  border-color: rgba(245, 158, 11, 0.58);
+  color: #f8d36b;
+  background: linear-gradient(135deg, #111827 0%, #020617 58%, #3b2f11 100%);
 }
 
-.planBadgeButton.isCurrent {
-  border-color: color-mix(in srgb, var(--stamp-current-border) 52%, var(--stamp-plan-border) 48%);
+.planChip.tone-plus {
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.24);
+  background: rgba(124, 58, 237, 0.08);
 }
 
-.planCurrentGlass {
+.planChip.tone-team {
+  color: #0f766e;
+  border-color: rgba(20, 184, 166, 0.28);
+  background: rgba(20, 184, 166, 0.1);
+}
+
+.planChip.tone-free,
+.planChip.tone-unknown {
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.24);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.planChip.tone-api {
+  color: #0369a1;
+  border-color: rgba(14, 165, 233, 0.26);
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.planChip.tone-enterprise {
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.planChip.tone-business {
+  color: #0f766e;
+  border-color: rgba(45, 212, 191, 0.26);
+  background: rgba(45, 212, 191, 0.1);
+}
+
+.planChip.isSelected,
+.planChip.isStatic {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.statusText {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-height: 18px;
-  padding: 0 8px;
+  gap: 6px;
+  min-width: 0;
+  color: var(--subtle);
+  font: 700 0.76rem/1 var(--font-ui);
+}
+
+.statusLabel {
+  flex: 0 0 auto;
+}
+
+.statusReason {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: currentColor;
+  opacity: 0.78;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.statusText.status-using .statusDot {
+  background: var(--brand);
+}
+
+.statusText.status-available .statusDot {
+  background: var(--ok);
+}
+
+.statusText.status-low .statusDot {
+  background: var(--warning);
+}
+
+.statusText.status-exhausted .statusDot {
+  background: #b91c1c;
+}
+
+.statusText.status-issue .statusDot {
+  background: #e11d48;
+}
+
+.statusDot.status-using {
+  background: var(--brand);
+}
+
+.statusDot.status-available {
+  background: var(--ok);
+}
+
+.statusDot.status-low {
+  background: var(--warning);
+}
+
+.statusDot.status-exhausted {
+  background: #b91c1c;
+}
+
+.statusDot.status-issue {
+  background: #e11d48;
+}
+
+.statusText.status-using {
+  color: color-mix(in srgb, var(--brand) 78%, var(--ink) 22%);
+}
+
+.statusText.status-available {
+  color: color-mix(in srgb, var(--ok) 72%, var(--ink) 28%);
+}
+
+.statusText.status-low {
+  color: color-mix(in srgb, var(--warning) 74%, var(--ink) 26%);
+}
+
+.statusText.status-exhausted {
+  color: #b91c1c;
+}
+
+.statusText.status-issue {
+  color: #e11d48;
+}
+
+.usageMeter {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.usageMeterHead,
+.usageMeterFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.usageMeterHead span {
+  color: var(--subtle);
+  font: 700 0.68rem/1 var(--font-ui);
+}
+
+.usageMeterHead strong {
+  color: var(--ink);
+  font: 800 0.78rem/1 var(--font-mono);
+}
+
+.usageBar {
+  height: 6px;
   border-radius: 999px;
-  border: 1px solid rgba(212, 165, 36, 0.28);
-  background:
-    linear-gradient(135deg, rgba(255, 246, 191, 0.56), rgba(255, 216, 97, 0.24)),
-    rgba(255, 237, 148, 0.18);
-  color: #7d5600;
-  font: 800 0.52rem/1 var(--font-ui);
-  letter-spacing: 0.02em;
-  text-transform: none;
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.68),
-    0 8px 18px rgba(220, 175, 49, 0.14);
-  backdrop-filter: blur(12px) saturate(135%);
-  -webkit-backdrop-filter: blur(12px) saturate(135%);
+  overflow: hidden;
+  background: var(--bar-track);
 }
 
-:root[data-theme="dark"] .planCurrentGlass {
-  border-color: rgba(255, 221, 120, 0.34);
-  background:
-    linear-gradient(135deg, rgba(255, 241, 168, 0.3), rgba(255, 196, 56, 0.18)),
-    rgba(255, 218, 92, 0.12);
-  color: #ffe69a;
-  box-shadow:
-    inset 0 1px rgba(255, 250, 220, 0.18),
-    0 10px 22px rgba(194, 142, 12, 0.22);
+.usageBar span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 220ms ease;
 }
 
-.cardIdentity h3 {
+.usageMeter.tone-warning .usageBar span {
+  background: var(--warning);
+}
+
+.usageMeter.tone-danger .usageBar span {
+  background: var(--danger);
+}
+
+.usageMeterFoot span {
+  color: var(--subtle);
+  font: 650 0.62rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.resetCell {
+  display: grid;
+  gap: 6px;
+}
+
+.resetCell span,
+.resetCell strong {
+  color: var(--ink);
+  font: 750 0.76rem/1.1 var(--font-mono);
+  white-space: nowrap;
+}
+
+.resetCell strong {
+  color: var(--subtle);
+  font-weight: 650;
+}
+
+.rowToggle {
+  width: 42px;
+  height: 24px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  cursor: pointer;
+}
+
+.rowToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rowToggle span {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface-switch-track);
+  transition: background 140ms ease;
+}
+
+.rowToggle span::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  transition: transform 140ms ease;
+}
+
+.rowToggle input:checked + span {
+  background: var(--surface-switch-track-active);
+}
+
+.rowToggle input:checked + span::before {
+  transform: translateX(18px);
+}
+
+.rowActions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  gap: 6px;
+}
+
+.rowSwitchButton {
+  min-width: 58px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+}
+
+.rowMoreButton {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.rowMoreButton.isPending {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--line) 64%);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-tint) 90%);
+}
+
+.rowActionMenu {
+  position: absolute;
+  top: 50%;
+  right: 38px;
+  z-index: 40;
+  width: 138px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  background: var(--card);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
+  transform: translateY(-50%);
+}
+
+.rowActionMenu button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 9px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  justify-content: start;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  font: 750 0.72rem/1 var(--font-ui);
+  text-align: left;
+}
+
+.rowActionMenu button:hover,
+.rowActionMenu button:focus-visible {
+  transform: none;
+  background: color-mix(in srgb, var(--brand-soft) 54%, transparent);
+}
+
+.rowActionMenu .dangerMenuItem {
+  color: var(--danger);
+}
+
+.rowIcon {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.accountDetailPanel {
+  padding: 16px;
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  overflow: auto;
+}
+
+.detailHeader {
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.detailIdentity {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.detailTitleBlock {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.detailTitleBlock h2 {
+  max-width: 220px;
   margin: 0;
-  font: 650 1.02rem/1.22 var(--font-ui);
-  letter-spacing: -0.02em;
+  color: var(--ink);
+  font: 850 0.96rem/1.25 var(--font-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.cardIdentity h3.nameCurrent {
-  color: color-mix(in srgb, var(--ink) 92%, var(--tone-a) 8%);
-}
-
-.cardAliasEditor {
-  display: block;
-}
-
-.cardAliasEditor input {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
-  border-radius: 10px;
-  padding: 0 12px;
-  background: color-mix(in srgb, var(--card) 90%, var(--surface-tint) 10%);
+.detailEditButton {
+  flex: 0 0 auto;
+  min-width: 84px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  border-radius: 999px;
   color: var(--ink);
-  font: 600 0.8rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.detailAliasEditor {
+  width: min(300px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.detailAliasEditor input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: var(--bg-0);
+  color: var(--ink);
   outline: none;
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    background 160ms ease;
+  font: 700 0.78rem/1 var(--font-ui);
 }
 
-.cardAliasEditor input:focus {
-  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent);
+.detailAliasEditor button {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 0.72rem;
 }
 
-.usageGrid {
+.detailCard,
+.detailMetaGrid {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 94%, var(--bg-1) 6%);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.detailCard {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.detailCard h3,
+.detailSectionTitle h3 {
+  margin: 0;
+  color: var(--ink);
+  font: 850 0.9rem/1.15 var(--font-ui);
+}
+
+.detailMetaGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  min-height: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--surface-tint) 10%);
-  border-radius: 15px;
-  padding: 14px 12px;
-  background: color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%);
-}
-
-.usageGrid.isFreePlan {
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: center;
-}
-
-.relayInfoPanel {
-  min-height: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--surface-tint) 10%);
-  border-radius: 15px;
-  padding: 14px 15px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%),
-      color-mix(in srgb, var(--meta-bg) 46%, transparent)
-    );
-  display: grid;
-  align-content: start;
-  gap: 12px;
 }
 
-.relayInfoRow {
-  display: grid;
-  gap: 4px;
+.detailMetaGrid div {
   min-width: 0;
+  min-height: 64px;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
 }
 
-.relayInfoRow span {
-  min-width: 0;
+.detailMetaGrid div:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.detailMetaGrid div:nth-child(n + 3) {
+  border-top: 1px solid var(--line);
+}
+
+.recentSwitchCard {
+  min-height: 168px;
+}
+
+.detailMetaGrid span {
   color: var(--subtle);
-  font: 700 0.67rem/1.2 var(--font-ui);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font: 750 0.68rem/1 var(--font-ui);
 }
 
-.relayInfoRow strong {
+.detailMetaGrid strong {
   min-width: 0;
-  max-width: 100%;
   color: var(--ink);
-  font: 650 0.82rem/1.4 var(--font-mono);
-  letter-spacing: 0;
-  white-space: normal;
-  word-break: break-word;
+  font: 750 0.76rem/1.25 var(--font-ui);
   overflow-wrap: anywhere;
 }
 
-.usageDial {
-  display: grid;
-  justify-items: center;
-  grid-template-rows: auto auto 1fr;
-  align-content: start;
-  gap: 9px;
-  padding: 0 8px;
-  min-width: 0;
-  background: transparent;
+.detailSectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.usageDialLabel {
-  font: 650 0.74rem/1 var(--font-ui);
-  color: color-mix(in srgb, var(--ink) 92%, var(--surface-tint) 8%);
-  text-align: center;
+.recentSwitchList {
   margin: 0;
-}
-
-.usageDialChart {
-  position: relative;
-  width: 78px;
-  height: 78px;
-}
-
-.usageDialSvg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.usageDialTrack,
-.usageDialProgress {
-  fill: none;
-  stroke-width: 8;
-}
-
-.usageDialTrack {
-  stroke: color-mix(in srgb, var(--bar-track) 84%, var(--surface-tint) 16%);
-}
-
-.usageDialProgress {
-  stroke-linecap: round;
-  transition: stroke-dashoffset 280ms ease;
-}
-
-.usageDial-hot .usageDialProgress {
-  stroke: rgba(242, 156, 86, 0.92);
-}
-
-.usageDial-cool .usageDialProgress {
-  stroke: rgba(84, 199, 191, 0.92);
-}
-
-.usageDialCenter {
-  position: absolute;
-  inset: 0;
+  padding: 0;
+  list-style: none;
   display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 2px;
-  text-align: center;
+  gap: 8px;
 }
 
-.usageDialCenter strong {
-  font: 700 0.84rem/1 var(--font-mono);
-  color: color-mix(in srgb, var(--ink) 92%, var(--surface-tint) 8%);
-}
-
-.usageDialCenter span {
-  color: var(--subtle);
-  font: 600 0.52rem/1 var(--font-ui);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.usageDialReset {
+.recentSwitchList li {
+  min-width: 0;
   display: grid;
-  gap: 2px;
-  width: 100%;
-  text-align: center;
-  align-content: start;
-  min-height: 40px;
-}
-
-.usageDialReset span {
+  grid-template-columns: auto minmax(82px, auto) minmax(90px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
   color: var(--subtle);
-  font: 600 0.58rem/1.1 var(--font-ui);
+  font: 650 0.72rem/1.25 var(--font-ui);
 }
 
-.usageDialReset strong {
+.recentSwitchEmpty {
+  margin: 0;
+  min-height: 48px;
+  display: grid;
+  align-items: center;
+  color: var(--subtle);
+  font: 700 0.76rem/1.4 var(--font-ui);
+}
+
+.recentSwitchList strong {
   color: color-mix(in srgb, var(--ink) 72%, var(--subtle) 28%);
-  font: 600 0.6rem/1.2 var(--font-ui);
-  letter-spacing: -0.01em;
-  display: block;
+  font: 700 0.72rem/1.25 var(--font-mono);
+  white-space: nowrap;
+}
+
+.recentSwitchList em {
+  min-width: 0;
+  color: var(--subtle);
+  font-style: normal;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.errorText {
-  margin: 0;
-  color: var(--error-text);
-  font: 500 0.72rem/1.3 var(--font-ui);
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.cardFooter {
+.quickActionGrid {
   display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  margin-top: auto;
-  padding-top: 0;
-  border-top: 0;
 }
 
-.cardLaunchButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
+.quickActionGrid button {
   min-width: 0;
-  min-height: 36px;
-  padding-inline: 14px;
-  white-space: nowrap;
-  font-size: 0.78rem;
+  min-height: 64px;
+  border-radius: 12px;
+  padding: 9px 7px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 7px;
+  color: var(--subtle);
+  font: 750 0.68rem/1.15 var(--font-ui);
+  text-align: center;
 }
 
-.cardLaunchButton .iconGlyph {
-  width: 14px;
-  height: 14px;
+.quickActionGrid button span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
-.cardEditIcon,
-.cardDeleteIcon,
-.cardReauthorizeIcon,
-.cardExportIcon {
-  position: static;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  padding: 0;
-  flex: 0 0 auto;
-  border-color: color-mix(in srgb, var(--line) 88%, var(--surface-tint) 12%);
-  background: var(--surface-hover-bg);
-  color: color-mix(in srgb, var(--subtle) 84%, var(--ink) 16%);
+.quickActionGrid .dangerAction {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 18%, var(--line) 82%);
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface-tint) 94%);
 }
 
-.cardExportIcon .iconGlyph,
-.cardReauthorizeIcon .iconGlyph,
-.cardEditIcon .iconGlyph,
-.cardDeleteIcon .iconGlyph {
-  width: 16px;
-  height: 16px;
+.actionIconGlyph {
+  width: 19px;
+  height: 19px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.cardEditIcon:hover:not(:disabled),
-.cardEditIcon:focus-visible,
-.cardReauthorizeIcon:hover:not(:disabled),
-.cardReauthorizeIcon:focus-visible,
-.cardExportIcon:hover:not(:disabled),
-.cardExportIcon:focus-visible,
-.cardDeleteIcon:hover:not(:disabled),
-.cardDeleteIcon:focus-visible {
-  border-color: color-mix(in srgb, var(--tone-a) 30%, var(--line) 70%);
-  background: color-mix(in srgb, var(--surface-hover-bg) 78%, var(--tone-a) 22%);
-  color: color-mix(in srgb, var(--ink) 86%, var(--tone-a) 14%);
-  box-shadow:
-    0 6px 14px rgba(28, 43, 68, 0.08),
-    inset 0 1px var(--surface-highlight-soft);
+.detailEmpty,
+.accountEmptyState {
+  min-height: 260px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px;
+  text-align: center;
+  color: var(--subtle);
 }
 
-.cardDeleteIcon.isPending {
-  border-color: color-mix(in srgb, var(--danger) 34%, var(--line) 66%);
-  background: rgba(242, 106, 119, 0.08);
-  color: var(--error-text);
+.detailEmpty h3,
+.accountEmptyState h3 {
+  margin: 0;
+  color: var(--ink);
+  font: 850 1rem/1.2 var(--font-ui);
 }
 
-.cardDeleteIcon.isPending:hover:not(:disabled),
-.cardDeleteIcon.isPending:focus-visible {
-  border-color: color-mix(in srgb, var(--danger) 42%, var(--line) 58%);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--error-text);
+.detailEmpty p,
+.accountEmptyState p {
+  margin: 0;
+  max-width: 32ch;
+  font: 600 0.84rem/1.55 var(--font-ui);
 }

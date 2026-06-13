@@ -3,6 +3,7 @@ mod app_paths;
 mod auth;
 mod cli;
 mod cloudflared_service;
+mod command_line;
 mod editor_apps;
 mod i18n;
 mod models;
@@ -38,6 +39,8 @@ use tauri::State;
 use tauri::WindowEvent;
 
 use models::AccountSummary;
+use models::ApiProxyKey;
+use models::ApiProxyKeyUsageLogEntry;
 use models::ApiProxyStatus;
 use models::ApiProxyUsageStats;
 use models::AppSettings;
@@ -45,6 +48,7 @@ use models::AppSettingsPatch;
 use models::AuthJsonImportInput;
 use models::CloudflaredStatus;
 use models::CreateApiAccountInput;
+use models::CreateApiProxyKeyInput;
 use models::DeployRemoteProxyInput;
 use models::EditorAppId;
 use models::ImportAccountsResult;
@@ -55,13 +59,23 @@ use models::RemoteProxyStatus;
 use models::RemoteServerConfig;
 use models::StartCloudflaredTunnelInput;
 use models::SwitchAccountResult;
+use models::UpdateApiProxyKeyInput;
 use state::AppState;
 use state::OauthCallbackListenerHandle;
 #[cfg(target_os = "windows")]
 use utils::new_background_command;
 
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
+const APP_MENU_OPEN_SETTINGS_EVENT: &str = "app-menu-open-settings";
+const APP_MENU_CHECK_UPDATE_EVENT: &str = "app-menu-check-update";
+const CODEX_COST_ANALYTICS_PROGRESS_EVENT: &str = "codex-cost-analytics-progress";
+const CODEX_COST_ANALYTICS_CACHE_FILE: &str = "codex-cost-analytics-cache.json";
+const APP_MENU_SETTINGS_ID: &str = "app_menu_settings";
+const APP_MENU_CHECK_UPDATES_ID: &str = "app_menu_check_updates";
 const AUTH_KEEPALIVE_INTERVAL_SECS: u64 = 300;
+
+#[cfg(target_os = "macos")]
+const APP_MENU_ABOUT_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/icon.png");
 
 fn escape_html(input: &str) -> String {
     input
@@ -675,6 +689,224 @@ async fn get_codex_token_usage() -> Result<token_usage::CodexTokenUsageSnapshot,
 }
 
 #[tauri::command]
+async fn get_codex_cost_analytics(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
+    let budget = settings_service::get_app_settings_internal(&app, state.inner())
+        .await?
+        .codex_analytics_weekly_budget_usd;
+    let cache_path = codex_cost_analytics_cache_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        load_or_refresh_codex_cost_analytics_cache(&cache_path, budget)
+    })
+    .await
+    .map_err(|error| format!("统计 Codex 成本分析失败: {error}"))?
+}
+
+#[tauri::command]
+async fn get_cached_codex_cost_analytics(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<token_usage::CodexCostAnalyticsSnapshot>, String> {
+    let budget = settings_service::get_app_settings_internal(&app, state.inner())
+        .await?
+        .codex_analytics_weekly_budget_usd;
+    let cache_path = codex_cost_analytics_cache_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        load_cached_codex_cost_analytics_from_path(&cache_path, budget)
+    })
+    .await
+    .map_err(|error| format!("读取 Codex 成本分析缓存失败: {error}"))?
+}
+
+#[tauri::command]
+async fn refresh_codex_cost_analytics(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
+    let budget = settings_service::get_app_settings_internal(&app, state.inner())
+        .await?
+        .codex_analytics_weekly_budget_usd;
+    let cache_path = codex_cost_analytics_cache_path(&app)?;
+    let progress_app = app.clone();
+
+    tauri::async_runtime::spawn_blocking(
+        move || -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
+            let snapshot = token_usage::collect_codex_cost_analytics_snapshot_with_progress(
+                budget,
+                |progress| {
+                    let _ = progress_app.emit(CODEX_COST_ANALYTICS_PROGRESS_EVENT, progress);
+                },
+            )?;
+
+            let _ = progress_app.emit(
+                CODEX_COST_ANALYTICS_PROGRESS_EVENT,
+                token_usage::CodexCostAnalyticsProgress {
+                    stage: "caching".to_string(),
+                    processed_files: snapshot.source_path_count,
+                    total_files: snapshot.source_path_count,
+                    percent: 100,
+                    current_path: Some(cache_path.to_string_lossy().to_string()),
+                },
+            );
+            write_codex_cost_analytics_cache_to_path(&cache_path, &snapshot)?;
+
+            let cached = load_cached_codex_cost_analytics_from_path(&cache_path, budget)?
+                .unwrap_or(snapshot);
+            let _ = progress_app.emit(
+                CODEX_COST_ANALYTICS_PROGRESS_EVENT,
+                token_usage::CodexCostAnalyticsProgress {
+                    stage: "complete".to_string(),
+                    processed_files: cached.source_path_count,
+                    total_files: cached.source_path_count,
+                    percent: 100,
+                    current_path: None,
+                },
+            );
+            Ok(cached)
+        },
+    )
+    .await
+    .map_err(|error| format!("刷新 Codex 成本分析失败: {error}"))?
+}
+
+#[tauri::command]
+async fn export_codex_cost_analytics(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    format: String,
+) -> Result<Option<String>, String> {
+    let normalized_format = match format.as_str() {
+        "csv" | "json" => format,
+        other => return Err(format!("不支持的导出格式: {other}")),
+    };
+    let budget = settings_service::get_app_settings_internal(&app, state.inner())
+        .await?
+        .codex_analytics_weekly_budget_usd;
+    let cache_path = codex_cost_analytics_cache_path(&app)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let snapshot = load_or_refresh_codex_cost_analytics_cache(&cache_path, budget)?;
+        let bytes =
+            token_usage::serialize_codex_cost_analytics_export(&snapshot, &normalized_format)?;
+        export_codex_cost_analytics_file(&normalized_format, &bytes)
+    })
+    .await
+    .map_err(|error| format!("导出 Codex 成本分析失败: {error}"))?
+}
+
+fn codex_cost_analytics_cache_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app_paths::app_data_dir(app)?.join(CODEX_COST_ANALYTICS_CACHE_FILE))
+}
+
+fn load_cached_codex_cost_analytics_from_path(
+    cache_path: &std::path::Path,
+    budget: Option<f64>,
+) -> Result<Option<token_usage::CodexCostAnalyticsSnapshot>, String> {
+    match std::fs::read_to_string(cache_path) {
+        Ok(raw) => token_usage::parse_codex_cost_analytics_cache(&raw, budget),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!(
+            "读取成本分析缓存失败 {}: {error}",
+            cache_path.display()
+        )),
+    }
+}
+
+fn load_or_refresh_codex_cost_analytics_cache(
+    cache_path: &std::path::Path,
+    budget: Option<f64>,
+) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
+    if let Some(snapshot) = load_cached_codex_cost_analytics_from_path(cache_path, budget)? {
+        return Ok(snapshot);
+    }
+
+    let snapshot = token_usage::collect_codex_cost_analytics_snapshot(budget)?;
+    write_codex_cost_analytics_cache_to_path(cache_path, &snapshot)?;
+    Ok(load_cached_codex_cost_analytics_from_path(cache_path, budget)?.unwrap_or(snapshot))
+}
+
+fn write_codex_cost_analytics_cache_to_path(
+    cache_path: &std::path::Path,
+    snapshot: &token_usage::CodexCostAnalyticsSnapshot,
+) -> Result<(), String> {
+    let bytes = token_usage::serialize_codex_cost_analytics_cache(snapshot)?;
+    write_private_file(cache_path, &bytes, "成本分析缓存")
+}
+
+fn export_codex_cost_analytics_file(
+    format: &str,
+    export_payload: &[u8],
+) -> Result<Option<String>, String> {
+    let (label, extension) = match format {
+        "json" => ("JSON", "json"),
+        "csv" => ("CSV", "csv"),
+        other => return Err(format!("不支持的导出格式: {other}")),
+    };
+    let default_file_name = format!(
+        "codex-cost-analytics-{}.{}",
+        utils::now_unix_seconds(),
+        extension
+    );
+
+    let Some(selected_path) = FileDialog::new()
+        .set_title("导出 Codex 成本分析")
+        .add_filter(label, &[extension])
+        .set_file_name(&default_file_name)
+        .save_file()
+    else {
+        return Ok(None);
+    };
+
+    let export_path = ensure_extension(selected_path, extension);
+    write_private_export_file(&export_path, export_payload)?;
+    Ok(Some(export_path.to_string_lossy().to_string()))
+}
+
+fn ensure_extension(path: std::path::PathBuf, extension: &str) -> std::path::PathBuf {
+    if path.extension().and_then(|value| value.to_str()) == Some(extension) {
+        path
+    } else {
+        path.with_extension(extension)
+    }
+}
+
+fn write_private_export_file(path: &std::path::Path, export_payload: &[u8]) -> Result<(), String> {
+    write_private_file(path, export_payload, "导出")
+}
+
+fn write_private_file(path: &std::path::Path, payload: &[u8], label: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("无法解析{label}目录 {}", path.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("创建{label}目录失败 {}: {error}", parent.display()))?;
+    let temp_path = parent.join(format!(
+        ".{}.tmp-{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("codex-cost-analytics"),
+        uuid::Uuid::new_v4()
+    ));
+
+    let write_result = (|| -> Result<(), String> {
+        std::fs::write(&temp_path, payload)
+            .map_err(|error| format!("写入{label}临时文件失败 {}: {error}", temp_path.display()))?;
+        utils::set_private_permissions(&temp_path);
+        std::fs::rename(&temp_path, path)
+            .map_err(|error| format!("保存{label}文件失败 {}: {error}", path.display()))?;
+        utils::set_private_permissions(path);
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
+#[tauri::command]
 async fn get_app_settings(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1000,6 +1232,7 @@ async fn switch_account_and_launch(
     let effective_restart_targets =
         restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
     let configured_codex_launch_path = store.settings.codex_launch_path.clone();
+    let launch_codex_as_admin = store.settings.launch_codex_as_admin;
     {
         let _guard = state.store_lock.lock().await;
         let mut latest_store = store::load_store(&app)?;
@@ -1079,7 +1312,7 @@ async fn switch_account_and_launch(
     if let Some(path) = cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
         .or_else(cli::find_codex_app_path)
     {
-        match launch_codex_app(&path, workspace_path.as_deref()) {
+        match launch_codex_app(&path, workspace_path.as_deref(), launch_codex_as_admin) {
             Ok(()) => {
                 return Ok(SwitchAccountResult {
                     account_id: account.account_id,
@@ -1102,46 +1335,98 @@ async fn switch_account_and_launch(
 
     #[cfg(target_os = "windows")]
     if cli::has_windows_store_codex_app() {
-        match cli::launch_windows_store_codex() {
-            Ok(()) => {
-                return Ok(SwitchAccountResult {
-                    account_id: account.account_id,
-                    launched_app_path: None,
-                    used_fallback_cli: false,
-                    opencode_synced,
-                    opencode_sync_error,
-                    opencode_desktop_restarted,
-                    opencode_desktop_restart_error,
-                    restarted_editor_apps,
-                    editor_restart_error,
-                });
-            }
-            Err(error) => {
-                log::warn!("通过 Windows Store AUMID 启动 Codex 失败: {error}");
-                app_launch_error = Some(match app_launch_error {
-                    Some(previous_error) => {
-                        format!("{previous_error}；且通过 Windows Store AUMID 启动失败: {error}")
-                    }
-                    None => format!("通过 Windows Store AUMID 启动失败: {error}"),
-                });
+        if launch_codex_as_admin {
+            let error =
+                "微软商店版 Codex 不支持以管理员身份启动，请在设置里指定桌面版 Codex.exe 或安装 Codex CLI。"
+                    .to_string();
+            log::warn!("{error}");
+            app_launch_error = Some(match app_launch_error {
+                Some(previous_error) => format!("{previous_error}；且{error}"),
+                None => error,
+            });
+        } else {
+            match cli::launch_windows_store_codex() {
+                Ok(()) => {
+                    return Ok(SwitchAccountResult {
+                        account_id: account.account_id,
+                        launched_app_path: None,
+                        used_fallback_cli: false,
+                        opencode_synced,
+                        opencode_sync_error,
+                        opencode_desktop_restarted,
+                        opencode_desktop_restart_error,
+                        restarted_editor_apps,
+                        editor_restart_error,
+                    });
+                }
+                Err(error) => {
+                    log::warn!("通过 Windows Store AUMID 启动 Codex 失败: {error}");
+                    app_launch_error = Some(match app_launch_error {
+                        Some(previous_error) => {
+                            format!(
+                                "{previous_error}；且通过 Windows Store AUMID 启动失败: {error}"
+                            )
+                        }
+                        None => format!("通过 Windows Store AUMID 启动失败: {error}"),
+                    });
+                }
             }
         }
     }
 
-    let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
-    cmd.arg("app");
-    if let Some(workspace) = workspace_path.as_deref() {
-        cmd.arg(workspace);
-    }
-    cmd.spawn().map_err(|e| {
-        if let Some(app_launch_error) = app_launch_error.as_ref() {
-            format!(
-                "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
-            )
+    #[cfg(target_os = "windows")]
+    {
+        if launch_codex_as_admin {
+            let mut args = vec!["app".to_string()];
+            if let Some(workspace) = workspace_path.as_deref() {
+                args.push(workspace.to_string());
+            }
+            cli::launch_codex_command_elevated(configured_codex_launch_path.as_deref(), &args)
+                .map_err(|e| {
+                    if let Some(app_launch_error) = app_launch_error.as_ref() {
+                        format!(
+                            "通过 Codex 应用路径启动失败: {app_launch_error}；且通过管理员 codex app 启动失败: {e}"
+                        )
+                    } else {
+                        format!("未检测到本地 Codex 应用，且通过管理员 codex app 启动失败: {e}")
+                    }
+                })?;
         } else {
-            format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
+            let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
+            cmd.arg("app");
+            if let Some(workspace) = workspace_path.as_deref() {
+                cmd.arg(workspace);
+            }
+            cmd.spawn().map_err(|e| {
+                if let Some(app_launch_error) = app_launch_error.as_ref() {
+                    format!(
+                        "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
+                    )
+                } else {
+                    format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
+                }
+            })?;
         }
-    })?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = launch_codex_as_admin;
+        let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
+        cmd.arg("app");
+        if let Some(workspace) = workspace_path.as_deref() {
+            cmd.arg(workspace);
+        }
+        cmd.spawn().map_err(|e| {
+            if let Some(app_launch_error) = app_launch_error.as_ref() {
+                format!(
+                    "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
+                )
+            } else {
+                format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
+            }
+        })?;
+    }
 
     Ok(SwitchAccountResult {
         account_id: account.account_id,
@@ -1156,9 +1441,14 @@ async fn switch_account_and_launch(
     })
 }
 
-fn launch_codex_app(path: &std::path::Path, workspace_path: Option<&str>) -> Result<(), String> {
+fn launch_codex_app(
+    path: &std::path::Path,
+    workspace_path: Option<&str>,
+    launch_as_admin: bool,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        let _ = launch_as_admin;
         let mut cmd = Command::new("open");
         cmd.arg("-na").arg(path);
         if let Some(workspace) = workspace_path {
@@ -1177,7 +1467,21 @@ fn launch_codex_app(path: &std::path::Path, workspace_path: Option<&str>) -> Res
     {
         if cli::is_windows_store_codex_path(path) {
             let _ = workspace_path;
+            if launch_as_admin {
+                return Err(
+                    "微软商店版 Codex 不支持以管理员身份启动，请在设置里指定桌面版 Codex.exe 或安装 Codex CLI。"
+                        .to_string(),
+                );
+            }
             return cli::launch_windows_store_codex();
+        }
+
+        if launch_as_admin {
+            let args = workspace_path
+                .map(|workspace| vec![workspace.to_string()])
+                .unwrap_or_default();
+            return cli::launch_elevated_process(path, &args)
+                .map_err(|error| format!("启动 Codex 应用失败: {error}"));
         }
 
         let mut cmd = new_background_command(path);
@@ -1191,6 +1495,7 @@ fn launch_codex_app(path: &std::path::Path, workspace_path: Option<&str>) -> Res
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
+        let _ = launch_as_admin;
         let mut cmd = Command::new(path);
         if let Some(workspace) = workspace_path {
             cmd.arg(workspace);
@@ -1204,6 +1509,7 @@ fn launch_codex_app(path: &std::path::Path, workspace_path: Option<&str>) -> Res
     {
         let _ = path;
         let _ = workspace_path;
+        let _ = launch_as_admin;
         Err("当前平台暂不支持直接启动 Codex 应用".to_string())
     }
 }
@@ -1273,6 +1579,75 @@ async fn refresh_api_proxy_key(
     state: State<'_, AppState>,
 ) -> Result<ApiProxyStatus, String> {
     proxy_service::refresh_api_proxy_key_internal(&app, state.inner()).await
+}
+
+#[tauri::command]
+async fn bind_codex_to_api_proxy(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApiProxyStatus, String> {
+    proxy_service::bind_codex_to_api_proxy_internal(&app, state.inner()).await
+}
+
+#[tauri::command]
+async fn restore_codex_proxy_binding(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApiProxyStatus, String> {
+    proxy_service::restore_codex_proxy_binding_internal(&app, state.inner()).await
+}
+
+#[tauri::command]
+async fn list_api_proxy_keys(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<ApiProxyKey>, String> {
+    proxy_service::list_api_proxy_keys_internal(&app, state.inner()).await
+}
+
+#[tauri::command]
+async fn create_api_proxy_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: CreateApiProxyKeyInput,
+) -> Result<Vec<ApiProxyKey>, String> {
+    proxy_service::create_api_proxy_key_internal(&app, state.inner(), input).await
+}
+
+#[tauri::command]
+async fn update_api_proxy_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: UpdateApiProxyKeyInput,
+) -> Result<Vec<ApiProxyKey>, String> {
+    proxy_service::update_api_proxy_key_internal(&app, state.inner(), input).await
+}
+
+#[tauri::command]
+async fn delete_api_proxy_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<ApiProxyKey>, String> {
+    proxy_service::delete_api_proxy_key_internal(&app, state.inner(), id).await
+}
+
+#[tauri::command]
+async fn regenerate_api_proxy_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<ApiProxyKey>, String> {
+    proxy_service::regenerate_api_proxy_key_internal(&app, state.inner(), id).await
+}
+
+#[tauri::command]
+async fn get_api_proxy_key_usage_logs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<ApiProxyKeyUsageLogEntry>, String> {
+    proxy_service::get_api_proxy_key_usage_logs_internal(&app, state.inner(), limit).await
 }
 
 #[tauri::command]
@@ -1466,6 +1841,172 @@ fn start_auth_keepalive_loop(app: AppHandle) {
     });
 }
 
+#[cfg(target_os = "macos")]
+fn setup_macos_app_menu(app: &AppHandle) -> Result<(), String> {
+    use tauri::menu::AboutMetadata;
+    use tauri::menu::Menu;
+    use tauri::menu::MenuItem;
+    use tauri::menu::PredefinedMenuItem;
+    use tauri::menu::Submenu;
+    use tauri::menu::HELP_SUBMENU_ID;
+    use tauri::menu::WINDOW_SUBMENU_ID;
+
+    let locale = i18n::app_locale(app);
+    let package_info = app.package_info();
+    let app_name = package_info.name.clone();
+    let app_version = package_info.version.to_string();
+    let about_label = i18n::app_menu_about(locale, &app_name);
+    let settings_label = i18n::app_menu_settings(locale);
+    let check_updates_label = i18n::app_menu_check_updates(locale);
+    let about_metadata = AboutMetadata {
+        name: Some(app_name.clone()),
+        version: Some(app_version.clone()),
+        short_version: Some(app_version),
+        copyright: app.config().bundle.copyright.clone(),
+        authors: app
+            .config()
+            .bundle
+            .publisher
+            .clone()
+            .map(|publisher| vec![publisher]),
+        icon: Some(APP_MENU_ABOUT_ICON),
+        ..Default::default()
+    };
+
+    let app_menu = Submenu::with_items(
+        app,
+        app_name,
+        true,
+        &[
+            &PredefinedMenuItem::about(app, Some(&about_label), Some(about_metadata))
+                .map_err(|e| format!("创建关于菜单失败: {e}"))?,
+            &PredefinedMenuItem::separator(app).map_err(|e| format!("创建菜单分隔符失败: {e}"))?,
+            &MenuItem::with_id(
+                app,
+                APP_MENU_SETTINGS_ID,
+                settings_label,
+                true,
+                Some("CmdOrCtrl+,"),
+            )
+            .map_err(|e| format!("创建设置菜单失败: {e}"))?,
+            &MenuItem::with_id(
+                app,
+                APP_MENU_CHECK_UPDATES_ID,
+                check_updates_label,
+                true,
+                None::<&str>,
+            )
+            .map_err(|e| format!("创建更新菜单失败: {e}"))?,
+            &PredefinedMenuItem::separator(app).map_err(|e| format!("创建菜单分隔符失败: {e}"))?,
+            &PredefinedMenuItem::services(app, None)
+                .map_err(|e| format!("创建服务菜单失败: {e}"))?,
+            &PredefinedMenuItem::separator(app).map_err(|e| format!("创建菜单分隔符失败: {e}"))?,
+            &PredefinedMenuItem::hide(app, None).map_err(|e| format!("创建隐藏菜单失败: {e}"))?,
+            &PredefinedMenuItem::hide_others(app, None)
+                .map_err(|e| format!("创建隐藏其他菜单失败: {e}"))?,
+            &PredefinedMenuItem::show_all(app, None)
+                .map_err(|e| format!("创建全部显示菜单失败: {e}"))?,
+            &PredefinedMenuItem::separator(app).map_err(|e| format!("创建菜单分隔符失败: {e}"))?,
+            &PredefinedMenuItem::quit(app, None).map_err(|e| format!("创建退出菜单失败: {e}"))?,
+        ],
+    )
+    .map_err(|e| format!("创建应用菜单失败: {e}"))?;
+
+    let file_menu = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[&PredefinedMenuItem::close_window(app, None)
+            .map_err(|e| format!("创建关闭窗口菜单失败: {e}"))?],
+    )
+    .map_err(|e| format!("创建文件菜单失败: {e}"))?;
+
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None).map_err(|e| format!("创建撤销菜单失败: {e}"))?,
+            &PredefinedMenuItem::redo(app, None).map_err(|e| format!("创建重做菜单失败: {e}"))?,
+            &PredefinedMenuItem::separator(app).map_err(|e| format!("创建菜单分隔符失败: {e}"))?,
+            &PredefinedMenuItem::cut(app, None).map_err(|e| format!("创建剪切菜单失败: {e}"))?,
+            &PredefinedMenuItem::copy(app, None).map_err(|e| format!("创建复制菜单失败: {e}"))?,
+            &PredefinedMenuItem::paste(app, None).map_err(|e| format!("创建粘贴菜单失败: {e}"))?,
+            &PredefinedMenuItem::select_all(app, None)
+                .map_err(|e| format!("创建全选菜单失败: {e}"))?,
+        ],
+    )
+    .map_err(|e| format!("创建编辑菜单失败: {e}"))?;
+
+    let view_menu = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[&PredefinedMenuItem::fullscreen(app, None)
+            .map_err(|e| format!("创建全屏菜单失败: {e}"))?],
+    )
+    .map_err(|e| format!("创建视图菜单失败: {e}"))?;
+
+    let window_menu = Submenu::with_id_and_items(
+        app,
+        WINDOW_SUBMENU_ID,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)
+                .map_err(|e| format!("创建最小化菜单失败: {e}"))?,
+            &PredefinedMenuItem::maximize(app, None)
+                .map_err(|e| format!("创建缩放菜单失败: {e}"))?,
+            &PredefinedMenuItem::separator(app).map_err(|e| format!("创建菜单分隔符失败: {e}"))?,
+            &PredefinedMenuItem::close_window(app, None)
+                .map_err(|e| format!("创建关闭窗口菜单失败: {e}"))?,
+        ],
+    )
+    .map_err(|e| format!("创建窗口菜单失败: {e}"))?;
+
+    let help_menu = Submenu::with_id_and_items(app, HELP_SUBMENU_ID, "Help", true, &[])
+        .map_err(|e| format!("创建帮助菜单失败: {e}"))?;
+
+    let menu = Menu::with_items(
+        app,
+        &[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ],
+    )
+    .map_err(|e| format!("创建顶部菜单失败: {e}"))?;
+
+    app.set_menu(menu)
+        .map(|_| ())
+        .map_err(|e| format!("安装顶部菜单失败: {e}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn setup_macos_app_menu(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    let id = event.id().as_ref();
+    if id == APP_MENU_SETTINGS_ID {
+        restore_main_window(app);
+        let _ = app.emit(APP_MENU_OPEN_SETTINGS_EVENT, ());
+        return;
+    }
+
+    if id == APP_MENU_CHECK_UPDATES_ID {
+        restore_main_window(app);
+        let _ = app.emit(APP_MENU_CHECK_UPDATE_EVENT, ());
+        return;
+    }
+
+    tray::handle_status_bar_menu_event(app, event);
+}
+
 // ===== App Bootstrap =====
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1482,7 +2023,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .on_menu_event(tray::handle_status_bar_menu_event)
+        .on_menu_event(handle_menu_event)
         .on_window_event(handle_window_close_to_background)
         .setup(|app| {
             utils::prepare_process_path();
@@ -1500,6 +2041,7 @@ pub fn run() {
             }
             // 启动阶段先同步当前本机登录账号，再初始化状态栏，保证首次展示即一致。
             store::sync_current_auth_account_on_startup(app.handle())?;
+            setup_macos_app_menu(app.handle())?;
             tray::setup_system_tray(app.handle())?;
             start_auth_keepalive_loop(app.handle().clone());
             Ok(())
@@ -1515,6 +2057,10 @@ pub fn run() {
             update_account_api_proxy_enabled,
             refresh_all_usage,
             get_codex_token_usage,
+            get_codex_cost_analytics,
+            get_cached_codex_cost_analytics,
+            refresh_codex_cost_analytics,
+            export_codex_cost_analytics,
             get_app_settings,
             update_app_settings,
             detect_codex_app,
@@ -1530,6 +2076,14 @@ pub fn run() {
             start_api_proxy,
             stop_api_proxy,
             refresh_api_proxy_key,
+            bind_codex_to_api_proxy,
+            restore_codex_proxy_binding,
+            list_api_proxy_keys,
+            create_api_proxy_key,
+            update_api_proxy_key,
+            delete_api_proxy_key,
+            regenerate_api_proxy_key,
+            get_api_proxy_key_usage_logs,
             get_api_proxy_usage_stats,
             clear_api_proxy_usage_stats,
             get_api_proxy_supported_models,
@@ -1562,4 +2116,12 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+pub fn try_run_cli_from_env() -> bool {
+    command_line::try_run_from_env()
+}
+
+pub fn run_cli_from_env() -> ! {
+    command_line::run_from_env_or_exit()
 }
