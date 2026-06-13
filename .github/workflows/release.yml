@@ -122,7 +122,7 @@ jobs:
 
       - name: Publish npm native package
         if: ${{ env.NPM_TOKEN != '' }}
-        run: npm publish "npm/${{ matrix.package_dir }}" --access public
+        run: npm publish "./npm/${{ matrix.package_dir }}" --access public
         env:
           NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
 
@@ -152,7 +152,7 @@ jobs:
 
       - name: Publish npm wrapper package
         if: ${{ env.NPM_TOKEN != '' }}
-        run: npm publish npm/ctc --access public
+        run: npm publish ./npm/ctc --access public
         env:
           NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
 

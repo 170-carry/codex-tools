@@ -6,7 +6,7 @@
   "homepage": "https://github.com/170-carry/codex-tools",
   "repository": {
     "type": "git",
-    "url": "https://github.com/170-carry/codex-tools.git"
+    "url": "git+https://github.com/170-carry/codex-tools.git"
   },
   "publishConfig": {
     "access": "public"
