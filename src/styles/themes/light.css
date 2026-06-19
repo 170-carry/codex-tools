@@ -3,170 +3,140 @@
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
   --font-mono:
     "SFMono-Regular", "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  --ink: #182230;
-  --subtle: #58657a;
-  --bg-0: #f8fbff;
-  --bg-1: #eef4ff;
-  --bg-2: #e4edfa;
-  --line: rgba(36, 62, 98, 0.18);
-  --brand-hot: #dd741f;
-  --brand-cool: #0f7f77;
-  --brand: #dd741f;
-  --brand-soft: rgba(255, 186, 136, 0.26);
-  --brand-strong: #0f7f77;
-  --card: rgba(255, 255, 255, 0.84);
-  --panel-bg: rgba(255, 255, 255, 0.82);
+  --ink: #0f172a;
+  --subtle: #64748b;
+  --muted: #94a3b8;
+  --bg-0: #ffffff;
+  --bg-1: #f8fafc;
+  --bg-2: #eef2f7;
+  --line: rgba(15, 23, 42, 0.12);
+  --line-strong: rgba(15, 23, 42, 0.18);
+  --brand: #2563eb;
+  --brand-hot: #f59e0b;
+  --brand-cool: #2563eb;
+  --brand-soft: rgba(37, 99, 235, 0.1);
+  --brand-strong: #1d4ed8;
+  --ok: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --card: #ffffff;
+  --panel-bg: #ffffff;
   --panel-shadow:
-    0 14px 34px rgba(53, 80, 118, 0.12),
-    inset 0 1px rgba(255, 255, 255, 0.92);
-  --ambient-line: rgba(34, 60, 96, 0.08);
-  --meta-bg: rgba(255, 255, 255, 0.74);
-  --import-bg: rgba(255, 255, 255, 0.78);
-  --button-primary-bg: linear-gradient(120deg, rgba(255, 143, 56, 0.2), rgba(255, 143, 56, 0.08));
-  --button-primary-border: rgba(224, 137, 57, 0.45);
-  --button-ghost-bg: rgba(47, 210, 200, 0.1);
-  --button-ghost-border: rgba(15, 127, 119, 0.35);
-  --button-danger-bg: rgba(242, 106, 119, 0.11);
-  --button-danger-border: rgba(181, 66, 78, 0.35);
+    0 18px 40px rgba(15, 23, 42, 0.08),
+    0 1px 1px rgba(15, 23, 42, 0.04);
+  --ambient-line: rgba(15, 23, 42, 0.04);
+  --meta-bg: #ffffff;
+  --import-bg: #ffffff;
+  --button-primary-bg: linear-gradient(180deg, #3b82f6, #2563eb);
+  --button-primary-border: rgba(37, 99, 235, 0.58);
+  --button-ghost-bg: #ffffff;
+  --button-ghost-border: rgba(37, 99, 235, 0.2);
+  --button-danger-bg: rgba(239, 68, 68, 0.08);
+  --button-danger-border: rgba(239, 68, 68, 0.22);
   --surface-tint: #ffffff;
-  --surface-highlight-strong: rgba(255, 255, 255, 0.72);
-  --surface-highlight: rgba(255, 255, 255, 0.58);
-  --surface-highlight-soft: rgba(255, 255, 255, 0.42);
-  --surface-highlight-faint: rgba(255, 255, 255, 0.22);
-  --surface-overlay: rgba(255, 255, 255, 0.16);
-  --surface-hover-bg: rgba(255, 255, 255, 0.28);
-  --surface-selected-bg: rgba(47, 210, 200, 0.12);
-  --surface-switch-track: rgba(96, 126, 164, 0.34);
-  --surface-switch-track-active: rgba(47, 210, 200, 0.42);
-  --overlay-scrim: rgba(8, 18, 34, 0.35);
-  --overlay-scrim-strong: rgba(7, 16, 31, 0.44);
-  --shell-glow-a: rgba(255, 226, 194, 0.46);
-  --shell-glow-b: rgba(171, 225, 238, 0.36);
-  --shell-glow-c: rgba(255, 255, 255, 0.28);
-  --tab-surface: linear-gradient(145deg, var(--meta-bg), rgba(255, 255, 255, 0.18));
-  --tab-active-surface:
-    radial-gradient(120% 130% at 0% 0%, rgba(255, 167, 98, 0.18), transparent 48%),
-    radial-gradient(130% 130% at 100% 100%, rgba(78, 214, 203, 0.16), transparent 44%),
-    linear-gradient(140deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08));
-  --feature-card-surface:
-    radial-gradient(130% 160% at 0% 0%, rgba(255, 162, 91, 0.16), transparent 50%),
-    radial-gradient(140% 150% at 100% 100%, rgba(57, 211, 200, 0.14), transparent 44%),
-    linear-gradient(150deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
-  --section-card-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--section-surface) 84%, var(--surface-tint) 16%),
-      transparent 100%
-    ),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 62%);
-  --section-card-primary-surface:
-    radial-gradient(120% 120% at 0% 0%, rgba(255, 176, 112, 0.12), transparent 48%),
-    radial-gradient(110% 120% at 100% 0%, rgba(142, 230, 220, 0.12), transparent 46%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--section-surface) 88%, var(--surface-tint) 12%),
-      transparent 100%
-    );
-  --button-bg:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--card) 94%, var(--surface-tint) 6%),
-      color-mix(in srgb, var(--card) 90%, transparent)
-    );
+  --surface-highlight-strong: rgba(255, 255, 255, 0.92);
+  --surface-highlight: rgba(255, 255, 255, 0.76);
+  --surface-highlight-soft: rgba(255, 255, 255, 0.58);
+  --surface-highlight-faint: rgba(255, 255, 255, 0.32);
+  --surface-overlay: rgba(248, 250, 252, 0.82);
+  --surface-hover-bg: #f8fafc;
+  --surface-selected-bg: rgba(37, 99, 235, 0.08);
+  --surface-switch-track: #cbd5e1;
+  --surface-switch-track-active: #3b82f6;
+  --overlay-scrim: rgba(15, 23, 42, 0.36);
+  --overlay-scrim-strong: rgba(15, 23, 42, 0.48);
+  --shell-glow-a: transparent;
+  --shell-glow-b: transparent;
+  --shell-glow-c: transparent;
+  --tab-surface: #ffffff;
+  --tab-active-surface: #f8fafc;
+  --feature-card-surface: #ffffff;
+  --section-card-surface: #ffffff;
+  --section-card-primary-surface: #ffffff;
+  --button-bg: #ffffff;
   --button-shadow:
-    0 1px 2px rgba(18, 36, 62, 0.06),
-    inset 0 1px var(--surface-highlight-strong);
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.9);
   --button-hover-shadow:
-    0 6px 14px rgba(18, 36, 62, 0.08),
-    inset 0 1px var(--surface-highlight-strong);
+    0 8px 18px rgba(15, 23, 42, 0.09),
+    inset 0 1px rgba(255, 255, 255, 0.92);
   --button-disabled-shadow:
-    0 1px 2px rgba(18, 36, 62, 0.04),
-    inset 0 1px rgba(255, 255, 255, 0.5);
-  --task-toast-surface:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--card) 84%, var(--surface-tint) 16%),
-      color-mix(in srgb, var(--brand-soft) 34%, var(--surface-tint) 66%)
-    );
-  --dock-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--panel-bg) 92%, var(--surface-tint) 8%),
-      color-mix(in srgb, var(--panel-bg) 98%, transparent)
-    );
-  --dock-active-surface: linear-gradient(180deg, rgba(255, 203, 159, 0.52), rgba(151, 230, 221, 0.2));
-  --mode-card-active-surface: linear-gradient(150deg, rgba(255, 164, 95, 0.12), rgba(47, 210, 200, 0.1));
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 1px rgba(255, 255, 255, 0.64);
+  --task-toast-surface: #ffffff;
+  --dock-surface: #ffffff;
+  --dock-active-surface: #eff6ff;
+  --mode-card-active-surface: #eff6ff;
   --button-flow: linear-gradient(
     110deg,
-    rgba(255, 151, 76, 0) 10%,
-    rgba(255, 170, 120, 0.45) 35%,
-    rgba(132, 235, 220, 0.56) 55%,
-    rgba(255, 151, 76, 0) 85%
+    rgba(37, 99, 235, 0) 10%,
+    rgba(37, 99, 235, 0.22) 42%,
+    rgba(34, 197, 94, 0.16) 58%,
+    rgba(37, 99, 235, 0) 86%
   );
-  --update-border: rgba(93, 141, 196, 0.42);
-  --update-bg: linear-gradient(120deg, rgba(224, 237, 255, 0.82), rgba(242, 248, 255, 0.92));
-  --update-strong: #244566;
-  --update-subtle: #4f6785;
-  --update-body: #365172;
-  --update-progress: #1b6cae;
-  --empty-border: rgba(123, 146, 176, 0.5);
-  --card-shine: rgba(66, 94, 128, 0.22);
-  --card-shadow: inset 0 1px rgba(255, 255, 255, 0.74);
-  --stamp-plan-color: #7a3c12;
-  --stamp-plan-border: rgba(216, 128, 58, 0.6);
-  --stamp-plan-bg: rgba(255, 157, 78, 0.24);
-  --stamp-current-color: #0e6760;
-  --stamp-current-border: rgba(81, 195, 185, 0.56);
-  --stamp-current-bg: rgba(123, 226, 217, 0.28);
-  --name-current: #d06a21;
-  --name-current-glow: rgba(255, 164, 95, 0.24);
-  --usage-remain: #5f6f87;
-  --bar-track: rgba(120, 143, 175, 0.26);
-  --credits: #2b79b8;
-  --error-text: #b64a58;
-  --glow-hot: rgba(255, 145, 56, 0.14);
-  --glow-cool: rgba(47, 210, 200, 0.12);
-  --glow-neutral: rgba(255, 255, 255, 0.46);
-  --body-bg: #eef4ff;
-  --shell-top: #f8f5f1;
-  --shell-mid: #edf2fa;
-  --shell-bottom: #e3eaf6;
-  --stage-glass: rgba(255, 255, 255, 0.16);
-  --stage-line: rgba(98, 120, 151, 0.12);
-  --section-surface: rgba(255, 255, 255, 0.42);
-  --section-line: rgba(99, 120, 150, 0.14);
+  --update-border: rgba(37, 99, 235, 0.22);
+  --update-bg: #ffffff;
+  --update-strong: #0f172a;
+  --update-subtle: #64748b;
+  --update-body: #334155;
+  --update-progress: #2563eb;
+  --update-header-bg: #f8fafc;
+  --update-meta-bg: #f8fafc;
+  --update-log-bg: #ffffff;
+  --update-log-marker-bg: rgba(37, 99, 235, 0.1);
+  --update-log-marker-color: #1d4ed8;
+  --empty-border: rgba(100, 116, 139, 0.36);
+  --card-shine: rgba(148, 163, 184, 0.24);
+  --card-shadow: inset 0 1px rgba(255, 255, 255, 0.84);
+  --stamp-plan-color: #1d4ed8;
+  --stamp-plan-border: rgba(37, 99, 235, 0.26);
+  --stamp-plan-bg: rgba(37, 99, 235, 0.08);
+  --stamp-current-color: #16a34a;
+  --stamp-current-border: rgba(34, 197, 94, 0.34);
+  --stamp-current-bg: rgba(34, 197, 94, 0.1);
+  --name-current: #1d4ed8;
+  --name-current-glow: rgba(37, 99, 235, 0.14);
+  --usage-remain: #64748b;
+  --bar-track: #e2e8f0;
+  --credits: #2563eb;
+  --error-text: #dc2626;
+  --glow-hot: transparent;
+  --glow-cool: transparent;
+  --glow-neutral: transparent;
+  --body-bg: #f6f8fb;
+  --shell-top: #ffffff;
+  --shell-mid: #f8fafc;
+  --shell-bottom: #eef2f7;
+  --stage-glass: rgba(255, 255, 255, 0.78);
+  --stage-line: rgba(15, 23, 42, 0.08);
+  --section-surface: #ffffff;
+  --section-line: rgba(15, 23, 42, 0.1);
   --section-shadow:
-    0 14px 34px rgba(32, 50, 79, 0.06),
-    inset 0 1px rgba(255, 255, 255, 0.62);
-  --account-card-bg-start: rgba(255, 255, 255, 0.97);
-  --account-card-bg-end: rgba(255, 255, 255, 0.9);
+    0 16px 32px rgba(15, 23, 42, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.92);
+  --account-card-bg-start: #ffffff;
+  --account-card-bg-end: #ffffff;
   --account-card-shadow:
-    0 8px 18px rgba(32, 51, 80, 0.06),
-    inset 0 1px rgba(255, 255, 255, 0.88);
+    0 10px 22px rgba(15, 23, 42, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.92);
   --account-card-hover-shadow:
-    0 16px 30px rgba(24, 42, 68, 0.14),
-    0 0 0 1px color-mix(in srgb, var(--tone-a) 26%, var(--line) 74%),
-    inset 0 1px rgba(255, 255, 255, 0.84);
-  --account-overlay-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.2), rgba(218, 231, 255, 0.14));
-  --account-overlay-bg-touch: linear-gradient(
-    160deg,
-    rgba(255, 255, 255, 0.16),
-    rgba(217, 230, 255, 0.12)
-  );
-  --account-launch-color: rgba(255, 255, 255, 0.94);
-  --account-launch-shadow: drop-shadow(0 8px 20px rgba(9, 18, 34, 0.3));
-  --proxy-usage-series-1: color-mix(in srgb, var(--brand-cool) 92%, var(--surface-tint) 8%);
-  --proxy-usage-series-2: color-mix(in srgb, var(--brand-hot) 92%, var(--ink) 8%);
-  --proxy-usage-series-3: color-mix(in srgb, var(--credits) 82%, var(--brand-cool) 18%);
-  --proxy-usage-series-4: color-mix(in srgb, var(--ok) 78%, var(--brand-cool) 22%);
-  --proxy-usage-series-5: color-mix(in srgb, var(--danger) 78%, var(--brand-hot) 22%);
-  --proxy-usage-series-6: color-mix(in srgb, var(--stamp-current-color) 78%, var(--brand-cool) 22%);
-  --proxy-usage-series-7: color-mix(in srgb, var(--stamp-plan-color) 72%, var(--brand-hot) 28%);
-  --proxy-usage-series-8: color-mix(in srgb, var(--name-current) 76%, var(--brand-hot) 24%);
-  --proxy-usage-series-9: color-mix(in srgb, var(--brand-cool) 64%, var(--ink) 36%);
-  --proxy-usage-series-10: color-mix(in srgb, var(--brand-hot) 58%, var(--subtle) 42%);
-  --proxy-usage-series-11: color-mix(in srgb, var(--credits) 62%, var(--ink) 38%);
-  --proxy-usage-series-12: color-mix(in srgb, var(--ok) 58%, var(--brand-hot) 42%);
-  --ok: #38d49f;
-  --danger: #f26a77;
+    0 14px 28px rgba(37, 99, 235, 0.12),
+    0 0 0 1px rgba(37, 99, 235, 0.24);
+  --account-overlay-bg: #ffffff;
+  --account-overlay-bg-touch: #ffffff;
+  --account-launch-color: #ffffff;
+  --account-launch-shadow: drop-shadow(0 8px 18px rgba(37, 99, 235, 0.26));
+  --proxy-usage-series-1: #2563eb;
+  --proxy-usage-series-2: #22c55e;
+  --proxy-usage-series-3: #f59e0b;
+  --proxy-usage-series-4: #ef4444;
+  --proxy-usage-series-5: #06b6d4;
+  --proxy-usage-series-6: #8b5cf6;
+  --proxy-usage-series-7: #14b8a6;
+  --proxy-usage-series-8: #f97316;
+  --proxy-usage-series-9: #0ea5e9;
+  --proxy-usage-series-10: #84cc16;
+  --proxy-usage-series-11: #64748b;
+  --proxy-usage-series-12: #db2777;
 }

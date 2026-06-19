@@ -214,3 +214,25 @@ pub(crate) fn tray_open_app(locale: AppLocale) -> &'static str {
 pub(crate) fn tray_quit(locale: AppLocale) -> &'static str {
     text(locale, &["tray", "quit"])
 }
+
+pub(crate) fn app_menu_about(locale: AppLocale, app_name: &str) -> String {
+    match locale {
+        AppLocale::ZhCn => format!("关于 {app_name}"),
+        AppLocale::JaJp => format!("{app_name} について"),
+        AppLocale::KoKr => format!("{app_name} 정보"),
+        AppLocale::RuRu => format!("О приложении {app_name}"),
+        AppLocale::EnUs => format!("About {app_name}"),
+    }
+}
+
+pub(crate) fn app_menu_settings(locale: AppLocale) -> String {
+    format!("{}...", text(locale, &["settings", "title"]))
+}
+
+pub(crate) fn app_menu_check_updates(locale: AppLocale) -> String {
+    let label = match locale {
+        AppLocale::EnUs => "Check for Updates",
+        _ => text(locale, &["topBar", "checkUpdate"]),
+    };
+    format!("{label}...")
+}

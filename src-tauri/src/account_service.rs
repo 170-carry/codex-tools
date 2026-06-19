@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use futures_util::stream;
+use futures_util::StreamExt;
 use rfd::FileDialog;
 use serde_json::json;
 use tauri::AppHandle;
@@ -33,12 +36,16 @@ use crate::models::CreateApiAccountInput;
 use crate::models::ImportAccountFailure;
 use crate::models::ImportAccountsResult;
 use crate::models::StoredAccount;
+use crate::models::TestApiAccountConnectionInput;
+use crate::models::TestApiAccountConnectionResult;
 use crate::models::UsageSnapshot;
 use crate::profile_files;
 use crate::state::AppState;
 use crate::store::account_store_path_from_data_dir;
 use crate::store::load_store;
+use crate::store::load_store_from_path;
 use crate::store::save_store;
+use crate::store::save_store_to_path;
 use crate::store::update_account_group_refresh_state_in_path;
 use crate::usage::fetch_usage_snapshot;
 use crate::usage::resolve_chatgpt_base_origin;
@@ -49,15 +56,23 @@ use crate::utils::truncate_for_error;
 
 const DEACTIVATED_WORKSPACE_NOTICE: &str = "该账号已被踢出 team 组织，请重新授权后再刷新。";
 const DEACTIVATED_ACCOUNT_NOTICE: &str = "账号被封禁，请检查邮箱";
-const AUTH_EXPIRED_NOTICE: &str = "授权过期，请重新登录授权。";
+const AUTH_EXPIRED_NOTICE: &str = "工具保存的授权快照已失效，请重新登录授权。";
+const USAGE_AUTH_TOKEN_EXPIRED_NOTICE: &str =
+    "用量刷新失败：登录令牌已过期，请刷新用量或切换账号重新校验。";
 const EXPORT_ARCHIVE_ENTRY_NAME: &str = "accounts.json";
 const KEEPALIVE_REFRESH_WINDOW_SECS: i64 = 10 * 60;
-const KEEPALIVE_MAX_LAST_REFRESH_AGE_SECS: i64 = 6 * 60 * 60;
+// 对齐 Codex 官方客户端的刷新模型：不要每隔几小时刷新一次 refresh_token。
+// 不同账号按稳定 hash 分布在 7-8 天窗口内刷新，避免同一批导入账号集中打到刷新端点。
+const KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS: i64 = 7 * 24 * 60 * 60;
+const KEEPALIVE_LAST_REFRESH_JITTER_SECS: i64 = 24 * 60 * 60;
 const CODEX_KEEPALIVE_INTERVAL_SECS: i64 = 5 * 60 * 60;
 const CODEX_KEEPALIVE_TIMEOUT_SECS: u64 = 45;
-const CODEX_KEEPALIVE_MODEL: &str = "gpt-5.3-codex";
+const CODEX_KEEPALIVE_MODEL: &str = "gpt-5.5";
 const CODEX_KEEPALIVE_VERSION: &str = "0.125.0";
 const CODEX_KEEPALIVE_USER_AGENT: &str = "codex_cli_rs/0.125.0";
+// 账号刷新主要等待外部 HTTP 响应，因此按 CPU 给 2 倍并发；同时用可用内存做下限保护。
+const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
+const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -77,6 +92,14 @@ struct PreparedImport {
     plan_type: Option<String>,
     usage: Option<UsageSnapshot>,
     label: Option<String>,
+}
+
+#[derive(Debug)]
+struct NormalizedApiAccountConnectionInput {
+    _label: String,
+    base_url: String,
+    api_key: String,
+    model_name: String,
 }
 
 pub(crate) async fn list_accounts_internal(
@@ -191,6 +214,35 @@ pub(crate) async fn create_api_account_internal(
     Ok(summary)
 }
 
+pub(crate) async fn test_api_account_connection_internal(
+    input: TestApiAccountConnectionInput,
+) -> Result<TestApiAccountConnectionResult, String> {
+    let normalized = normalize_api_account_connection_input(&input)?;
+    let balance_text = profile_files::validate_relay_target(
+        &normalized.base_url,
+        &normalized.api_key,
+        &normalized.model_name,
+    )
+    .await?;
+
+    Ok(TestApiAccountConnectionResult {
+        ok: true,
+        balance_text,
+        message: "连接成功".to_string(),
+    })
+}
+
+fn normalize_api_account_connection_input(
+    input: &TestApiAccountConnectionInput,
+) -> Result<NormalizedApiAccountConnectionInput, String> {
+    Ok(NormalizedApiAccountConnectionInput {
+        _label: profile_files::normalize_relay_label(&input.label)?,
+        base_url: profile_files::normalize_relay_base_url(&input.base_url)?,
+        api_key: profile_files::normalize_relay_api_key(&input.api_key)?,
+        model_name: profile_files::normalize_relay_model_name(&input.model_name)?,
+    })
+}
+
 pub(crate) async fn reauthorize_account_internal(
     app: &AppHandle,
     state: &AppState,
@@ -223,6 +275,15 @@ pub(crate) async fn reauthorize_account_internal(
 pub(crate) async fn import_auth_json_accounts_internal(
     app: &AppHandle,
     state: &AppState,
+    items: Vec<AuthJsonImportInput>,
+) -> Result<ImportAccountsResult, String> {
+    let _guard = state.store_lock.lock().await;
+    let store_path = account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
+    import_auth_json_accounts_into_store_path(&store_path, items).await
+}
+
+pub(crate) async fn import_auth_json_accounts_into_store_path(
+    store_path: &Path,
     items: Vec<AuthJsonImportInput>,
 ) -> Result<ImportAccountsResult, String> {
     if items.is_empty() {
@@ -268,12 +329,10 @@ pub(crate) async fn import_auth_json_accounts_internal(
     let current_account_key = current_auth_account_key();
     let current_variant_key = current_auth_variant_key();
     let (imported_count, updated_count) = {
-        let mut _guard = state.store_lock.lock().await;
-        let mut store = load_store(app)?;
+        let mut store = load_store_from_path(store_path)?;
         let mut imported_count = 0usize;
         let mut updated_count = 0usize;
         let mut touched_ids = HashSet::new();
-        let store_path = account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
 
         for prepared in prepared_imports {
             let (summary, updated_existing) = upsert_prepared_import(
@@ -298,7 +357,7 @@ pub(crate) async fn import_auth_json_accounts_internal(
             profile_files::sync_account_profile_in_store_path(&store_path, account)?;
         }
 
-        save_store(app, &store)?;
+        save_store_to_path(store_path, &store)?;
         (imported_count, updated_count)
     };
 
@@ -479,13 +538,8 @@ pub(crate) async fn refresh_all_usage_internal(
         build_refresh_targets(store.accounts, current_auth_override.as_ref())
     };
 
-    let mut outcomes: HashMap<String, RefreshOutcome> =
-        HashMap::with_capacity(refresh_targets.len());
-    for target in refresh_targets {
-        let account_key = target.account_key.clone();
-        let outcome = refresh_usage_for_target(app, state, &target, force_auth_refresh).await;
-        outcomes.insert(account_key, outcome);
-    }
+    let outcomes =
+        refresh_usage_targets_with_workers(app, state, refresh_targets, force_auth_refresh).await;
 
     let store = {
         let _guard = state.store_lock.lock().await;
@@ -556,6 +610,70 @@ pub(crate) async fn refresh_all_usage_internal(
     Ok(summaries)
 }
 
+async fn refresh_usage_targets_with_workers(
+    app: &AppHandle,
+    state: &AppState,
+    refresh_targets: Vec<RefreshTarget>,
+    force_auth_refresh: bool,
+) -> HashMap<String, RefreshOutcome> {
+    let worker_count = refresh_usage_worker_count(refresh_targets.len());
+    stream::iter(refresh_targets)
+        .map(|target| async move {
+            let account_key = target.account_key.clone();
+            let outcome = refresh_usage_for_target(app, state, &target, force_auth_refresh).await;
+            (account_key, outcome)
+        })
+        .buffer_unordered(worker_count)
+        .collect::<HashMap<_, _>>()
+        .await
+}
+
+fn refresh_usage_worker_count(target_count: usize) -> usize {
+    let cpu_count = std::thread::available_parallelism()
+        .map(NonZeroUsize::get)
+        .unwrap_or(1);
+    let available_memory_mib = available_system_memory_mib();
+    let worker_count =
+        refresh_usage_worker_count_from_resources(target_count, cpu_count, available_memory_mib);
+    log::info!(
+        "账号刷新 worker_count={worker_count} target_count={target_count} cpu_count={cpu_count} available_memory_mib={available_memory_mib:?}"
+    );
+    worker_count
+}
+
+fn refresh_usage_worker_count_from_resources(
+    target_count: usize,
+    cpu_count: usize,
+    available_memory_mib: Option<u64>,
+) -> usize {
+    let target_limit = target_count.max(1);
+    let cpu_limit = cpu_count
+        .max(1)
+        .saturating_mul(REFRESH_USAGE_WORKERS_PER_CPU)
+        .max(1);
+    let memory_limit = available_memory_mib
+        .map(|memory_mib| {
+            (memory_mib / REFRESH_USAGE_MEMORY_PER_WORKER_MIB)
+                .try_into()
+                .unwrap_or(usize::MAX)
+        })
+        .unwrap_or(usize::MAX)
+        .max(1);
+
+    target_limit.min(cpu_limit).min(memory_limit).max(1)
+}
+
+fn available_system_memory_mib() -> Option<u64> {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    let available_memory_bytes = system.available_memory();
+    if available_memory_bytes == 0 {
+        return None;
+    }
+
+    Some(available_memory_bytes / 1024 / 1024)
+}
+
 fn build_refresh_targets(
     accounts: Vec<StoredAccount>,
     current_auth_override: Option<&(String, serde_json::Value)>,
@@ -620,6 +738,118 @@ fn should_replace_refresh_target(existing: &RefreshTarget, candidate: &RefreshTa
     candidate.updated_at > existing.updated_at
 }
 
+fn keepalive_max_last_refresh_age_secs(account_key: &str) -> i64 {
+    if KEEPALIVE_LAST_REFRESH_JITTER_SECS <= 0 {
+        return KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS;
+    }
+
+    // 使用稳定 FNV-1a hash，而不是随机种子的 DefaultHasher，确保同一账号跨进程刷新窗口一致。
+    let hash = account_key
+        .as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325u64, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        });
+    KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS
+        + i64::try_from(hash % KEEPALIVE_LAST_REFRESH_JITTER_SECS as u64).unwrap_or(0)
+}
+
+fn auth_json_refresh_token(auth_json: &serde_json::Value) -> Option<&str> {
+    auth_json
+        .get("tokens")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|tokens| tokens.get("refresh_token"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn auth_json_account_key(auth_json: &serde_json::Value) -> Option<String> {
+    extract_auth(auth_json)
+        .ok()
+        .map(|auth| account_group_key(&auth.principal_id, &auth.account_id))
+}
+
+async fn latest_account_auth_json(
+    app: &AppHandle,
+    state: &AppState,
+    account_key: &str,
+) -> Option<serde_json::Value> {
+    if let Ok(Some(current_auth_json)) = read_current_codex_auth_optional() {
+        if auth_json_account_key(&current_auth_json).as_deref() == Some(account_key) {
+            return Some(current_auth_json);
+        }
+    }
+
+    let _guard = state.store_lock.lock().await;
+    let store = load_store(app).ok()?;
+    store
+        .accounts
+        .into_iter()
+        .filter(|account| {
+            !matches!(account.source_kind, AccountSourceKind::Relay)
+                && account.account_key() == account_key
+        })
+        .max_by(|left, right| {
+            (!left.auth_refresh_blocked)
+                .cmp(&(!right.auth_refresh_blocked))
+                .then(left.updated_at.cmp(&right.updated_at))
+        })
+        .map(|account| account.auth_json)
+}
+
+async fn refresh_latest_auth_json_if_newer(
+    app: &AppHandle,
+    state: &AppState,
+    account_key: &str,
+    auth_json: &serde_json::Value,
+) -> serde_json::Value {
+    let Some(latest) = latest_account_auth_json(app, state, account_key).await else {
+        return auth_json.clone();
+    };
+
+    let current_refresh_token = auth_json_refresh_token(auth_json);
+    let latest_refresh_token = auth_json_refresh_token(&latest);
+    if latest_refresh_token.is_some() && latest_refresh_token != current_refresh_token {
+        log::info!("刷新前检测到账号已有更新后的授权快照，改用最新快照 account_key={account_key}");
+        return latest;
+    }
+
+    auth_json.clone()
+}
+
+fn is_stale_refresh_snapshot_error(raw_error: &str) -> bool {
+    let normalized = raw_error.to_ascii_lowercase();
+    normalized.contains("refresh_token_reused")
+        || normalized
+            .contains("your refresh token has already been used to generate a new access token")
+        || is_invalid_refresh_grant(&normalized)
+}
+
+async fn recover_refresh_failure_from_latest_snapshot(
+    app: &AppHandle,
+    state: &AppState,
+    account_key: &str,
+    attempted_auth_json: &serde_json::Value,
+    raw_error: &str,
+) -> Option<serde_json::Value> {
+    if !is_stale_refresh_snapshot_error(raw_error) {
+        return None;
+    }
+
+    let latest = latest_account_auth_json(app, state, account_key).await?;
+    let attempted_refresh_token = auth_json_refresh_token(attempted_auth_json);
+    let latest_refresh_token = auth_json_refresh_token(&latest);
+    if latest_refresh_token.is_some() && latest_refresh_token != attempted_refresh_token {
+        log::warn!(
+            "刷新失败后检测到本地已有更新后的授权快照，使用最新快照恢复 account_key={account_key}"
+        );
+        return Some(latest);
+    }
+
+    None
+}
+
 async fn refresh_usage_for_target(
     app: &AppHandle,
     state: &AppState,
@@ -632,12 +862,18 @@ async fn refresh_usage_for_target(
     let mut auth_refresh_blocked = target.auth_refresh_blocked;
     let mut auth_refresh_error = target.auth_refresh_error.clone();
 
+    if force_auth_refresh && !auth_refresh_blocked {
+        working_auth_json =
+            refresh_latest_auth_json_if_newer(app, state, &target.account_key, &working_auth_json)
+                .await;
+    }
+
     if force_auth_refresh
         && !auth_refresh_blocked
         && auth_tokens_need_keepalive_refresh(
             &working_auth_json,
             KEEPALIVE_REFRESH_WINDOW_SECS,
-            KEEPALIVE_MAX_LAST_REFRESH_AGE_SECS,
+            keepalive_max_last_refresh_age_secs(&target.account_key),
         )
     {
         match refresh_chatgpt_auth_tokens_serialized(&working_auth_json, &state.auth_refresh_lock)
@@ -662,16 +898,31 @@ async fn refresh_usage_for_target(
                 }
             }
             Err(err) => {
-                handle_refresh_failure(
+                if let Some(recovered) = recover_refresh_failure_from_latest_snapshot(
                     app,
                     state,
                     &target.account_key,
+                    &working_auth_json,
                     &err,
-                    &mut auth_refresh_blocked,
-                    &mut auth_refresh_error,
-                    &mut refresh_error,
                 )
-                .await;
+                .await
+                {
+                    working_auth_json = recovered;
+                    auth_refreshed = true;
+                    auth_refresh_blocked = false;
+                    auth_refresh_error = None;
+                } else {
+                    handle_refresh_failure(
+                        app,
+                        state,
+                        &target.account_key,
+                        &err,
+                        &mut auth_refresh_blocked,
+                        &mut auth_refresh_error,
+                        &mut refresh_error,
+                    )
+                    .await;
+                }
             }
         }
     }
@@ -710,16 +961,38 @@ async fn refresh_usage_for_target(
                 };
             }
             Err(err) => {
-                handle_refresh_failure(
+                if let Some(recovered) = recover_refresh_failure_from_latest_snapshot(
                     app,
                     state,
                     &target.account_key,
+                    &working_auth_json,
                     &err,
-                    &mut auth_refresh_blocked,
-                    &mut auth_refresh_error,
-                    &mut refresh_error,
                 )
-                .await;
+                .await
+                {
+                    working_auth_json = recovered;
+                    auth_refreshed = true;
+                    auth_refresh_blocked = false;
+                    auth_refresh_error = None;
+                    extracted = extract_auth(&working_auth_json);
+                    fetch_result = match &extracted {
+                        Ok(auth) => {
+                            fetch_usage_snapshot(&auth.access_token, &auth.account_id).await
+                        }
+                        Err(err) => Err(err.clone()),
+                    };
+                } else {
+                    handle_refresh_failure(
+                        app,
+                        state,
+                        &target.account_key,
+                        &err,
+                        &mut auth_refresh_blocked,
+                        &mut auth_refresh_error,
+                        &mut refresh_error,
+                    )
+                    .await;
+                }
             }
         }
     }
@@ -934,9 +1207,17 @@ fn should_retry_with_token_refresh(
 
 fn should_suspend_auth_keepalive(raw_error: &str) -> bool {
     let normalized = raw_error.to_ascii_lowercase();
+    is_refresh_token_invalidation_error(&normalized)
+        || normalized.contains("deactivated_workspace")
+        || normalized.contains("your openai account has been deactivated")
+        || normalized.contains("account has been deactivated")
+        || normalized.contains("account deactivated")
+        || normalized.contains("deactivated_user")
+}
+
+fn is_refresh_token_invalidation_error(normalized: &str) -> bool {
     normalized.contains("refresh_token_reused")
-        || is_invalid_refresh_grant(&normalized)
-        || normalized.contains("provided authentication token is expired")
+        || is_invalid_refresh_grant(normalized)
         || normalized
             .contains("your refresh token has already been used to generate a new access token")
         || normalized.contains("refresh token expired")
@@ -948,12 +1229,6 @@ fn should_suspend_auth_keepalive(raw_error: &str) -> bool {
         || normalized.contains("refresh token invalid")
         || normalized.contains("invalid refresh token")
         || normalized.contains("please try signing in again")
-        || normalized.contains("token is expired")
-        || normalized.contains("deactivated_workspace")
-        || normalized.contains("your openai account has been deactivated")
-        || normalized.contains("account has been deactivated")
-        || normalized.contains("account deactivated")
-        || normalized.contains("deactivated_user")
         || normalized.contains("auth.json 缺少 refresh_token")
 }
 
@@ -970,24 +1245,13 @@ fn normalize_usage_error_message(raw_error: &str) -> String {
     {
         return DEACTIVATED_ACCOUNT_NOTICE.to_string();
     }
-    if normalized.contains("refresh_token_reused")
-        || is_invalid_refresh_grant(&normalized)
-        || normalized.contains("provided authentication token is expired")
-        || normalized
-            .contains("your refresh token has already been used to generate a new access token")
-        || normalized.contains("refresh token expired")
-        || normalized.contains("refresh_token expired")
-        || normalized.contains("expired refresh token")
-        || normalized.contains("refresh token is expired")
-        || normalized.contains("refresh token revoked")
-        || normalized.contains("refresh_token_revoked")
-        || normalized.contains("refresh token invalid")
-        || normalized.contains("invalid refresh token")
-        || normalized.contains("please try signing in again")
-        || normalized.contains("token is expired")
-        || normalized.contains("auth.json 缺少 refresh_token")
-    {
+    if is_refresh_token_invalidation_error(&normalized) {
         return AUTH_EXPIRED_NOTICE.to_string();
+    }
+    if normalized.contains("provided authentication token is expired")
+        || normalized.contains("token is expired")
+    {
+        return USAGE_AUTH_TOKEN_EXPIRED_NOTICE.to_string();
     }
     raw_error.to_string()
 }
@@ -1630,16 +1894,37 @@ fn normalize_import_source(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::expand_import_json_content;
+    use super::is_stale_refresh_snapshot_error;
+    use super::keepalive_max_last_refresh_age_secs;
+    use super::normalize_api_account_connection_input;
     use super::normalize_usage_error_message;
+    use super::refresh_usage_worker_count_from_resources;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
     use super::PreparedImport;
     use super::AUTH_EXPIRED_NOTICE;
+    use super::KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS;
+    use super::KEEPALIVE_LAST_REFRESH_JITTER_SECS;
+    use super::USAGE_AUTH_TOKEN_EXPIRED_NOTICE;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
+    use crate::models::TestApiAccountConnectionInput;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
     use serde_json::json;
+
+    fn test_api_input(
+        base_url: &str,
+        api_key: &str,
+        model_name: &str,
+    ) -> TestApiAccountConnectionInput {
+        TestApiAccountConnectionInput {
+            label: "Test API".to_string(),
+            base_url: base_url.to_string(),
+            api_key: api_key.to_string(),
+            model_name: model_name.to_string(),
+        }
+    }
 
     fn usage_snapshot(plan_type: &str) -> UsageSnapshot {
         UsageSnapshot {
@@ -1657,6 +1942,51 @@ mod tests {
             }),
             credits: None,
         }
+    }
+
+    #[test]
+    fn test_api_account_connection_normalizes_valid_input() {
+        let normalized = normalize_api_account_connection_input(&test_api_input(
+            " https://example.com/v1/// ",
+            " provider-token-123 ",
+            " gpt-test ",
+        ))
+        .expect("valid input should normalize");
+
+        assert_eq!(normalized.base_url, "https://example.com/v1");
+        assert_eq!(normalized.api_key, "provider-token-123");
+        assert_eq!(normalized.model_name, "gpt-test");
+    }
+
+    #[test]
+    fn test_api_account_connection_rejects_invalid_base_url() {
+        let error = normalize_api_account_connection_input(&test_api_input(
+            "example.com/v1",
+            "sk-test",
+            "gpt-test",
+        ))
+        .expect_err("base url without scheme should fail");
+
+        assert!(error.contains("http/https"));
+    }
+
+    #[test]
+    fn test_api_account_connection_rejects_empty_key_or_model() {
+        let key_error = normalize_api_account_connection_input(&test_api_input(
+            "https://example.com/v1",
+            " ",
+            "gpt-test",
+        ))
+        .expect_err("empty key should fail");
+        let model_error = normalize_api_account_connection_input(&test_api_input(
+            "https://example.com/v1",
+            "sk-test",
+            " ",
+        ))
+        .expect_err("empty model should fail");
+
+        assert!(key_error.contains("API Key"));
+        assert!(model_error.contains("模型"));
     }
 
     fn prepared_import(
@@ -1790,6 +2120,46 @@ mod tests {
     }
 
     #[test]
+    fn expand_import_json_content_normalizes_chatgpt_session_json() {
+        let raw = json!({
+            "WARNING_BANNER": "do not share",
+            "user": {
+                "id": "user-1",
+                "name": "Session User",
+                "email": "session@example.com"
+            },
+            "account": {
+                "id": "account-1",
+                "planType": "pro"
+            },
+            "accessToken": "header.eyJleHAiOjQxMDI0NDQ4MDB9.signature",
+            "authProvider": "openai",
+            "sessionToken": "session-1"
+        })
+        .to_string();
+
+        let candidates = expand_import_json_content(&raw, "session.json", None).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].source, "session.json");
+        let tokens = candidates[0]
+            .auth_json
+            .get("tokens")
+            .and_then(serde_json::Value::as_object)
+            .expect("session import should produce token object");
+        assert_eq!(
+            tokens.get("account_id").and_then(serde_json::Value::as_str),
+            Some("account-1")
+        );
+        assert_eq!(
+            tokens
+                .get("session_token")
+                .and_then(serde_json::Value::as_str),
+            Some("session-1")
+        );
+    }
+
+    #[test]
     fn upsert_prepared_import_reuses_unknown_variant_placeholder() {
         let mut store = AccountsStore::default();
         store.accounts.push(StoredAccount {
@@ -1909,6 +2279,59 @@ mod tests {
     }
 
     #[test]
+    fn keepalive_refresh_age_is_stable_and_staggered() {
+        let first = keepalive_max_last_refresh_age_secs("account-a");
+        let second = keepalive_max_last_refresh_age_secs("account-b");
+
+        assert_eq!(first, keepalive_max_last_refresh_age_secs("account-a"));
+        assert!(first >= KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS);
+        assert!(first < KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS + KEEPALIVE_LAST_REFRESH_JITTER_SECS);
+        assert!(second >= KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS);
+        assert!(second < KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS + KEEPALIVE_LAST_REFRESH_JITTER_SECS);
+    }
+
+    #[test]
+    fn refresh_usage_worker_count_uses_target_cpu_and_memory_limits() {
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(0, 8, Some(4096)),
+            1
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(1, 8, Some(4096)),
+            1
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(100, 4, Some(4096)),
+            8
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(100, 16, Some(300)),
+            1
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(1000, 64, Some(1024 * 1024)),
+            128
+        );
+        assert_eq!(
+            refresh_usage_worker_count_from_resources(10, 64, Some(1024 * 1024)),
+            10
+        );
+    }
+
+    #[test]
+    fn stale_refresh_snapshot_errors_are_recoverable() {
+        assert!(is_stale_refresh_snapshot_error(
+            r#"刷新登录令牌失败 -> 401: {"code":"refresh_token_reused"}"#
+        ));
+        assert!(is_stale_refresh_snapshot_error(
+            r#"刷新登录令牌失败 -> 400: {"error":"invalid_grant"}"#
+        ));
+        assert!(!is_stale_refresh_snapshot_error(
+            "请求用量接口失败: 500 Internal Server Error"
+        ));
+    }
+
+    #[test]
     fn refresh_failures_suspend_keepalive_for_invalid_grant_refresh_token() {
         let error = r#"刷新登录令牌失败 https://auth.openai.com/oauth/token -> 400 Bad Request: {"error":"invalid_grant","error_description":"Refresh token expired"}"#;
 
@@ -1922,5 +2345,16 @@ mod tests {
 
         assert!(should_suspend_auth_keepalive(error));
         assert_eq!(normalize_usage_error_message(error), AUTH_EXPIRED_NOTICE);
+    }
+
+    #[test]
+    fn access_token_expired_usage_errors_do_not_suspend_keepalive() {
+        let error = "请求用量接口失败: 401 Unauthorized: provided authentication token is expired";
+
+        assert!(!should_suspend_auth_keepalive(error));
+        assert_eq!(
+            normalize_usage_error_message(error),
+            USAGE_AUTH_TOKEN_EXPIRED_NOTICE
+        );
     }
 }

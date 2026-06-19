@@ -321,8 +321,8 @@
 .proxyUsageLine {
   fill: none;
   stroke-width: 2.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.12));
 }
@@ -342,6 +342,13 @@
 
 .proxyUsageHoverLayer {
   isolation: isolate;
+}
+
+.proxyUsageHoverBand {
+  fill: color-mix(in srgb, var(--brand-cool) 10%, transparent);
+  stroke: color-mix(in srgb, var(--brand-cool) 20%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 
 .proxyUsageHoverMarkerHalo {
@@ -774,6 +781,45 @@
   font: 500 0.76rem/1.45 var(--font-ui);
 }
 
+.proxyModelCard {
+  gap: 12px;
+}
+
+.proxyModelCardHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.proxyModelCardCopy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.proxyModelCardCopy strong {
+  font: 700 1rem/1.1 var(--font-ui);
+}
+
+.proxyModelCardCopy p {
+  margin: 0;
+  color: var(--subtle);
+  font: 500 0.78rem/1.45 var(--font-ui);
+}
+
+button.proxySubmenuTrigger {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding-inline: 12px;
+}
+
+button.proxySubmenuTrigger span {
+  font: 650 0.78rem/1 var(--font-ui);
+}
+
 .proxyRangeInput {
   width: 100%;
   accent-color: var(--brand-cool);
@@ -831,6 +877,8 @@
 .proxyDetailActions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -842,6 +890,20 @@
 
 .proxyEndpointCard {
   grid-column: 1 / -1;
+}
+
+.proxyCodexBindCard {
+  grid-column: 1 / -1;
+}
+
+.proxyCodexBindCard.isBound {
+  border-color: color-mix(in srgb, var(--brand-cool) 28%, var(--proxy-nested-card-line) 72%);
+}
+
+.proxyCodexBindMeta {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
 }
 
 .proxyLabel {
@@ -931,6 +993,358 @@
 
 .proxyErrorText {
   color: var(--error-text);
+}
+
+.proxyModelDialog {
+  width: min(760px, 100%);
+  display: grid;
+  gap: 16px;
+}
+
+.proxyModelDialogSubtitle {
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font: 500 0.82rem/1.5 var(--font-ui);
+}
+
+.proxyModelDialogToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.proxyModelSearchField {
+  min-width: min(320px, 100%);
+  flex: 1 1 260px;
+}
+
+.proxyModelSearchInput {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 12px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--meta-bg) 48%, transparent);
+  color: var(--ink);
+  font: 600 0.8rem/1 var(--font-ui);
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.proxyModelSearchInput:focus {
+  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent);
+}
+
+.proxyModelDialogToolbarActions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.proxyModelDialogList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.proxyModelToggleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid var(--proxy-nested-card-line);
+  border-radius: 14px;
+  background: var(--proxy-nested-card-surface);
+  box-shadow: var(--proxy-nested-card-shadow);
+}
+
+.proxyModelToggleName {
+  min-width: 0;
+  font: 650 0.82rem/1.25 var(--font-ui);
+  color: color-mix(in srgb, var(--ink) 94%, var(--surface-tint) 6%);
+  word-break: break-word;
+}
+
+.proxyModelToggleControl {
+  justify-self: end;
+}
+
+.proxyModelEmptyState {
+  grid-column: 1 / -1;
+  padding: 18px 16px;
+  border: 1px dashed color-mix(in srgb, var(--line) 76%, var(--surface-tint) 24%);
+  border-radius: 14px;
+  color: var(--subtle);
+  text-align: center;
+  font: 600 0.8rem/1.45 var(--font-ui);
+}
+
+.proxyKeyManagerCard {
+  grid-column: 1 / -1;
+}
+
+.proxyHelpTip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.proxyHelpButton {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--brand-cool) 40%, var(--line) 60%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--control-bg) 88%, var(--brand-cool) 12%);
+  color: var(--brand-cool);
+  font: 800 0.72rem/1 var(--font-ui);
+  cursor: help;
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.proxyHelpButton:hover,
+.proxyHelpButton:focus-visible {
+  border-color: color-mix(in srgb, var(--brand-cool) 68%, var(--line) 32%);
+  background: color-mix(in srgb, var(--control-bg) 76%, var(--brand-cool) 24%);
+  outline: none;
+}
+
+.proxyHelpBubble {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  width: min(300px, calc(100vw - 48px));
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 94%, var(--surface-tint) 6%);
+  box-shadow:
+    0 16px 30px rgba(8, 16, 30, 0.18),
+    inset 0 1px var(--surface-highlight-soft);
+  color: var(--ink);
+  font: 600 0.76rem/1.45 var(--font-ui);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition:
+    opacity 130ms ease,
+    transform 130ms ease,
+    visibility 130ms ease;
+  visibility: hidden;
+}
+
+.proxyHelpTip:hover .proxyHelpBubble,
+.proxyHelpTip:focus-within .proxyHelpBubble {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.proxyKeyManagerHeader,
+.proxyKeyItemHeader,
+.proxyKeySecretRow,
+.proxyKeySummaryGrid,
+.proxyKeyBindingColumns {
+  display: grid;
+  gap: 10px;
+}
+
+.proxyKeyManagerHeader {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  align-items: start;
+}
+
+.proxyKeyManagerIntro {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.proxyKeyTitleRow,
+.proxySectionTitleWithHelp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.proxyKeyManagerHeader strong {
+  margin-top: 4px;
+}
+
+.proxyKeyManagerHeader p {
+  max-width: 62ch;
+  margin: 0;
+}
+
+.proxyKeyCreateRow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.proxyKeyInput {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--control-bg);
+  color: var(--ink);
+  font: 600 0.78rem/1.25 var(--font-ui);
+  outline: none;
+}
+
+.proxyKeyInput:focus {
+  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent);
+}
+
+.proxyKeySecretInput {
+  font-family: var(--font-mono);
+}
+
+.proxyKeyList {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, var(--surface-tint) 28%);
+}
+
+.proxyKeyItem {
+  display: grid;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, var(--surface-tint) 28%);
+  background: transparent;
+}
+
+.proxyKeyItem:first-child {
+  border-top: 0;
+}
+
+.proxyKeyItemHeader {
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
+  align-items: end;
+}
+
+.proxyKeyNameField {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--subtle);
+  font: 650 0.68rem/1.1 var(--font-ui);
+}
+
+.proxyKeySecretRow {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, var(--surface-tint) 30%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--meta-bg) 34%, transparent);
+}
+
+.proxyKeySecretRow code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.proxyKeySummaryGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.proxyKeySummaryGrid span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 68%, var(--surface-tint) 32%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--meta-bg) 30%, transparent);
+  color: var(--subtle);
+  font: 600 0.7rem/1.25 var(--font-ui);
+}
+
+.proxyKeySummaryGrid strong {
+  font-size: 0.8rem;
+}
+
+.proxyKeyBindingBlock {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+}
+
+.proxyKeyBindingColumns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.proxyKeyChipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.proxyKeyChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--ink);
+  font: 650 0.72rem/1.1 var(--font-ui);
+}
+
+.proxyKeyChip input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+
+.proxyKeyLogs {
+  display: grid;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+}
+
+.proxyKeyLogs p {
+  margin: 0;
+}
+
+.proxyKeyLogRow {
+  display: grid;
+  grid-template-columns: 86px minmax(90px, 0.9fr) minmax(120px, 1fr) minmax(100px, 0.8fr) minmax(120px, 0.9fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--meta-bg) 38%, transparent);
+  color: var(--subtle);
+  font: 600 0.7rem/1.25 var(--font-ui);
+}
+
+.proxyKeyLogRow strong {
+  font-size: 0.72rem;
 }
 
 .remoteWorkspace {
@@ -1666,6 +2080,22 @@ button.bottomDockButton.isActive:focus-visible {
     justify-content: flex-start;
   }
 
+  .proxyModelCardHeader,
+  .proxyModelToggleRow,
+  .proxyKeyManagerHeader,
+  .proxyKeyItemHeader,
+  .proxyKeyBindingColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .proxyModelDialogToolbarActions {
+    justify-content: flex-start;
+  }
+
+  .proxyModelToggleControl {
+    justify-self: start;
+  }
+
   .remoteAuthRow {
     grid-template-columns: 1fr;
   }
@@ -1677,6 +2107,10 @@ button.bottomDockButton.isActive:focus-visible {
 
 @media (max-width: 720px) {
   .proxyControlRow,
+  .proxyKeyCreateRow,
+  .proxyKeySecretRow,
+  .proxyKeySummaryGrid,
+  .proxyKeyLogRow,
   .cloudflaredFormGrid,
   .cloudflaredModeGrid,
   .remoteServerGrid,

@@ -13,7 +13,7 @@ use crate::utils::new_background_command;
 #[cfg(target_os = "windows")]
 use crate::utils::new_resolved_command;
 #[cfg(target_os = "windows")]
-use windows::core::HSTRING;
+use windows::core::{HSTRING, PCWSTR};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 #[cfg(target_os = "windows")]
@@ -22,8 +22,10 @@ use windows::Win32::System::Com::{
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Shell::{
-    ApplicationActivationManager, IApplicationActivationManager, AO_NONE,
+    ApplicationActivationManager, IApplicationActivationManager, ShellExecuteW, AO_NONE,
 };
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 const INVALID_CONFIGURED_CODEX_PATH_MESSAGE: &str =
     "设置的 Codex 启动路径无效。请填写 Codex.exe 或 codex/codex.exe 的完整路径，或填写包含它们的安装目录。";
@@ -37,19 +39,21 @@ const WINDOWS_STORE_LAUNCH_POLL_MS: u64 = 250;
 /// 重点处理 GUI 进程 PATH 不完整的问题：
 /// 先定位真实可执行路径，再把其父目录注入子进程 PATH。
 pub(crate) fn new_codex_command(configured_path: Option<&str>) -> Result<Command, String> {
-    let normalized_configured_path = normalize_configured_path(configured_path);
-    let codex_path = find_configured_codex_cli_path(normalized_configured_path.as_deref())
-        .or_else(find_codex_cli_path)
-        .ok_or_else(|| {
-            if normalized_configured_path.is_some() {
-                INVALID_CONFIGURED_CODEX_PATH_MESSAGE.to_string()
-            } else {
-                "未找到 codex 可执行文件。请先安装 Codex CLI，或将其所在目录加入系统 PATH。"
-                    .to_string()
-            }
-        })?;
+    new_codex_command_with_builder(configured_path, |path| new_background_command(path))
+}
 
-    let mut cmd = new_background_command(&codex_path);
+pub(crate) fn new_codex_foreground_command(
+    configured_path: Option<&str>,
+) -> Result<Command, String> {
+    new_codex_command_with_builder(configured_path, |path| Command::new(path))
+}
+
+fn new_codex_command_with_builder(
+    configured_path: Option<&str>,
+    build_command: impl FnOnce(&Path) -> Command,
+) -> Result<Command, String> {
+    let codex_path = resolve_codex_cli_path(configured_path)?;
+    let mut cmd = build_command(&codex_path);
 
     if let Some(parent) = codex_path.parent() {
         let path_entries = if let Some(current_path) = env::var_os("PATH") {
@@ -64,6 +68,74 @@ pub(crate) fn new_codex_command(configured_path: Option<&str>) -> Result<Command
     }
 
     Ok(cmd)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn launch_codex_command_elevated(
+    configured_path: Option<&str>,
+    args: &[String],
+) -> Result<(), String> {
+    let codex_path = resolve_codex_cli_path(configured_path)?;
+    launch_elevated_process(&codex_path, args)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn launch_elevated_process(program: &Path, args: &[String]) -> Result<(), String> {
+    let operation = wide_null("runas");
+    let file = wide_os_null(program.as_os_str());
+    let parameters_text = args
+        .iter()
+        .map(|arg| quote_windows_arg(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let parameters = wide_null(&parameters_text);
+    let directory = program
+        .parent()
+        .map(|parent| wide_os_null(parent.as_os_str()));
+
+    let parameters_ptr = if parameters_text.is_empty() {
+        PCWSTR::null()
+    } else {
+        PCWSTR(parameters.as_ptr())
+    };
+    let directory_ptr = directory
+        .as_ref()
+        .map(|value| PCWSTR(value.as_ptr()))
+        .unwrap_or_else(PCWSTR::null);
+
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(operation.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            parameters_ptr,
+            directory_ptr,
+            SW_SHOWNORMAL,
+        )
+    };
+    let code = result.0 as isize;
+    if code <= 32 {
+        Err(format!(
+            "以管理员身份启动 Codex 失败 {}，ShellExecuteW 返回码 {code}",
+            program.display()
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn resolve_codex_cli_path(configured_path: Option<&str>) -> Result<PathBuf, String> {
+    let normalized_configured_path = normalize_configured_path(configured_path);
+    find_configured_codex_cli_path(normalized_configured_path.as_deref())
+        .or_else(find_codex_cli_path)
+        .ok_or_else(|| {
+            if normalized_configured_path.is_some() {
+                INVALID_CONFIGURED_CODEX_PATH_MESSAGE.to_string()
+            } else {
+                "未找到 codex 可执行文件。请先安装 Codex CLI，或将其所在目录加入系统 PATH。"
+                    .to_string()
+            }
+        })
 }
 
 pub(crate) fn validate_configured_codex_path(configured_path: Option<&str>) -> Result<(), String> {
@@ -699,6 +771,58 @@ fn normalize_configured_path(configured_path: Option<&str>) -> Option<PathBuf> {
     } else {
         Some(PathBuf::from(unquoted))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn wide_null(value: &str) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    std::ffi::OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn wide_os_null(value: &std::ffi::OsStr) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    value.encode_wide().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(target_os = "windows")]
+fn quote_windows_arg(value: &str) -> String {
+    if value.is_empty() {
+        return "\"\"".to_string();
+    }
+
+    if !value
+        .chars()
+        .any(|item| item.is_whitespace() || item == '"')
+    {
+        return value.to_string();
+    }
+
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0usize;
+    for item in value.chars() {
+        match item {
+            '\\' => backslashes += 1,
+            '"' => {
+                quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                quoted.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                quoted.push(item);
+            }
+        }
+    }
+    quoted.push_str(&"\\".repeat(backslashes * 2));
+    quoted.push('"');
+    quoted
 }
 
 fn push_codex_candidates_from_dir(candidates: &mut Vec<PathBuf>, dir: &Path) {

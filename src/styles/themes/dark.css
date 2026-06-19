@@ -1,171 +1,138 @@
 :root[data-theme="dark"] {
-  --ink: #f6efe3;
-  --subtle: #aeb5c8;
-  --bg-0: #070d17;
-  --bg-1: #0f1a2d;
-  --bg-2: #142742;
-  --line: rgba(222, 232, 255, 0.18);
-  --brand-hot: #ff8f38;
-  --brand-cool: #2fd2c8;
-  --brand: #ff9c60;
-  --brand-soft: rgba(255, 169, 115, 0.3);
-  --brand-strong: #66e0d7;
-  --card: rgba(10, 19, 35, 0.68);
-  --panel-bg: rgba(5, 10, 20, 0.66);
+  --ink: #e5edf7;
+  --subtle: #94a3b8;
+  --muted: #64748b;
+  --bg-0: #0b1120;
+  --bg-1: #111827;
+  --bg-2: #1e293b;
+  --line: rgba(226, 232, 240, 0.12);
+  --line-strong: rgba(226, 232, 240, 0.2);
+  --brand: #60a5fa;
+  --brand-hot: #fbbf24;
+  --brand-cool: #60a5fa;
+  --brand-soft: rgba(96, 165, 250, 0.14);
+  --brand-strong: #93c5fd;
+  --ok: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --info: #60a5fa;
+  --card: #111827;
+  --panel-bg: #0f172a;
   --panel-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.34),
+    0 20px 42px rgba(0, 0, 0, 0.32),
     inset 0 1px rgba(255, 255, 255, 0.06);
-  --ambient-line: rgba(248, 255, 255, 0.1);
-  --meta-bg: rgba(16, 27, 48, 0.45);
-  --import-bg: rgba(17, 34, 62, 0.54);
-  --button-primary-bg: linear-gradient(120deg, rgba(255, 143, 56, 0.3), rgba(255, 143, 56, 0.15));
-  --button-primary-border: rgba(255, 196, 138, 0.5);
-  --button-ghost-bg: rgba(47, 210, 200, 0.08);
-  --button-ghost-border: rgba(117, 231, 222, 0.45);
-  --button-danger-bg: rgba(242, 106, 119, 0.12);
-  --button-danger-border: rgba(242, 106, 119, 0.45);
-  --surface-tint: #213149;
-  --surface-highlight-strong: rgba(255, 255, 255, 0.18);
-  --surface-highlight: rgba(255, 255, 255, 0.12);
-  --surface-highlight-soft: rgba(255, 255, 255, 0.1);
-  --surface-highlight-faint: rgba(255, 255, 255, 0.08);
-  --surface-overlay: rgba(44, 70, 107, 0.26);
-  --surface-hover-bg: rgba(164, 192, 234, 0.12);
-  --surface-selected-bg: rgba(47, 210, 200, 0.18);
-  --surface-switch-track: rgba(85, 110, 150, 0.42);
-  --surface-switch-track-active: rgba(47, 210, 200, 0.5);
-  --overlay-scrim: rgba(3, 10, 18, 0.62);
-  --overlay-scrim-strong: rgba(2, 8, 15, 0.74);
-  --shell-glow-a: rgba(255, 164, 95, 0.22);
-  --shell-glow-b: rgba(78, 214, 203, 0.18);
-  --shell-glow-c: rgba(125, 150, 190, 0.12);
-  --tab-surface:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--meta-bg) 88%, var(--surface-tint) 12%),
-      rgba(10, 19, 33, 0.9)
-    );
-  --tab-active-surface:
-    radial-gradient(120% 130% at 0% 0%, rgba(255, 167, 98, 0.16), transparent 50%),
-    radial-gradient(130% 130% at 100% 100%, rgba(78, 214, 203, 0.14), transparent 46%),
-    linear-gradient(140deg, rgba(35, 57, 87, 0.56), rgba(8, 16, 29, 0.88));
-  --feature-card-surface:
-    radial-gradient(130% 160% at 0% 0%, rgba(255, 162, 91, 0.14), transparent 52%),
-    radial-gradient(140% 150% at 100% 100%, rgba(57, 211, 200, 0.12), transparent 46%),
-    linear-gradient(150deg, rgba(29, 46, 71, 0.8), rgba(8, 16, 29, 0.92));
-  --section-card-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--section-surface) 78%, rgba(10, 18, 30, 0.92) 22%),
-      transparent 100%
-    ),
-    linear-gradient(135deg, rgba(78, 106, 148, 0.16), transparent 62%);
-  --section-card-primary-surface:
-    radial-gradient(120% 120% at 0% 0%, rgba(255, 176, 112, 0.12), transparent 50%),
-    radial-gradient(110% 120% at 100% 0%, rgba(142, 230, 220, 0.1), transparent 48%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--section-surface) 84%, rgba(8, 15, 26, 0.94) 16%),
-      transparent 100%
-    );
-  --button-bg:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--card) 90%, rgba(34, 53, 80, 0.82) 10%),
-      color-mix(in srgb, var(--card) 96%, rgba(4, 8, 16, 0.72) 4%)
-    );
+  --ambient-line: rgba(226, 232, 240, 0.05);
+  --meta-bg: #111827;
+  --import-bg: #111827;
+  --button-primary-bg: linear-gradient(180deg, #60a5fa, #2563eb);
+  --button-primary-border: rgba(96, 165, 250, 0.56);
+  --button-ghost-bg: #111827;
+  --button-ghost-border: rgba(96, 165, 250, 0.24);
+  --button-danger-bg: rgba(251, 113, 133, 0.12);
+  --button-danger-border: rgba(251, 113, 133, 0.32);
+  --surface-tint: #172033;
+  --surface-highlight-strong: rgba(255, 255, 255, 0.14);
+  --surface-highlight: rgba(255, 255, 255, 0.1);
+  --surface-highlight-soft: rgba(255, 255, 255, 0.08);
+  --surface-highlight-faint: rgba(255, 255, 255, 0.05);
+  --surface-overlay: rgba(15, 23, 42, 0.86);
+  --surface-hover-bg: #172033;
+  --surface-selected-bg: rgba(96, 165, 250, 0.14);
+  --surface-switch-track: #334155;
+  --surface-switch-track-active: #3b82f6;
+  --overlay-scrim: rgba(2, 6, 23, 0.68);
+  --overlay-scrim-strong: rgba(2, 6, 23, 0.78);
+  --shell-glow-a: transparent;
+  --shell-glow-b: transparent;
+  --shell-glow-c: transparent;
+  --tab-surface: #111827;
+  --tab-active-surface: #172033;
+  --feature-card-surface: #111827;
+  --section-card-surface: #111827;
+  --section-card-primary-surface: #111827;
+  --button-bg: #111827;
   --button-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.34),
-    inset 0 1px var(--surface-highlight);
-  --button-hover-shadow:
-    0 10px 20px rgba(0, 0, 0, 0.34),
-    inset 0 1px var(--surface-highlight-strong);
-  --button-disabled-shadow:
     0 1px 2px rgba(0, 0, 0, 0.28),
     inset 0 1px rgba(255, 255, 255, 0.08);
-  --task-toast-surface:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--card) 88%, var(--surface-tint) 12%),
-      color-mix(in srgb, var(--brand-soft) 42%, rgba(9, 16, 29, 0.92) 58%)
-    );
-  --dock-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--panel-bg) 92%, rgba(28, 44, 68, 0.82) 8%),
-      color-mix(in srgb, var(--panel-bg) 98%, rgba(4, 8, 16, 0.56) 2%)
-    );
-  --dock-active-surface: linear-gradient(180deg, rgba(255, 156, 84, 0.24), rgba(52, 184, 173, 0.18));
-  --mode-card-active-surface: linear-gradient(150deg, rgba(255, 164, 95, 0.16), rgba(47, 210, 200, 0.14));
+  --button-hover-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.32),
+    inset 0 1px rgba(255, 255, 255, 0.12);
+  --button-disabled-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.24),
+    inset 0 1px rgba(255, 255, 255, 0.06);
+  --task-toast-surface: #111827;
+  --dock-surface: #111827;
+  --dock-active-surface: rgba(96, 165, 250, 0.14);
+  --mode-card-active-surface: rgba(96, 165, 250, 0.14);
   --button-flow: linear-gradient(
     110deg,
-    rgba(255, 164, 95, 0) 10%,
-    rgba(255, 179, 126, 0.58) 34%,
-    rgba(125, 240, 230, 0.68) 58%,
-    rgba(255, 164, 95, 0) 86%
+    rgba(96, 165, 250, 0) 10%,
+    rgba(96, 165, 250, 0.26) 42%,
+    rgba(74, 222, 128, 0.16) 58%,
+    rgba(96, 165, 250, 0) 86%
   );
-  --update-border: rgba(126, 204, 255, 0.42);
-  --update-bg: linear-gradient(120deg, rgba(34, 72, 124, 0.38), rgba(18, 34, 62, 0.52));
-  --update-strong: #cdeaff;
-  --update-subtle: #a9c6de;
-  --update-body: #d8e8f7;
-  --update-progress: #9fd0ff;
-  --empty-border: rgba(239, 244, 255, 0.34);
-  --card-shine: rgba(255, 255, 255, 0.18);
-  --card-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
-  --stamp-plan-color: #ffe2cb;
-  --stamp-plan-border: rgba(255, 175, 112, 0.62);
-  --stamp-plan-bg: rgba(255, 140, 52, 0.2);
-  --stamp-current-color: #c0fff8;
-  --stamp-current-border: rgba(144, 245, 235, 0.6);
-  --stamp-current-bg: rgba(60, 207, 189, 0.18);
-  --name-current: #ffcf9f;
-  --name-current-glow: rgba(255, 164, 95, 0.28);
-  --usage-remain: #a9b6cd;
-  --bar-track: rgba(214, 226, 255, 0.14);
-  --credits: #a7d9ff;
-  --error-text: #ff98a2;
-  --glow-hot: rgba(255, 145, 56, 0.24);
-  --glow-cool: rgba(47, 210, 200, 0.18);
-  --glow-neutral: rgba(202, 219, 255, 0.08);
-  --body-bg: #0a1220;
-  --shell-top: #08101a;
-  --shell-mid: #0d1728;
-  --shell-bottom: #13233a;
-  --stage-glass: rgba(255, 255, 255, 0.04);
-  --stage-line: rgba(206, 224, 255, 0.08);
-  --section-surface: rgba(15, 26, 44, 0.34);
-  --section-line: rgba(204, 223, 255, 0.1);
+  --update-border: rgba(96, 165, 250, 0.28);
+  --update-bg: #111827;
+  --update-strong: #e5edf7;
+  --update-subtle: #94a3b8;
+  --update-body: #cbd5e1;
+  --update-progress: #60a5fa;
+  --update-header-bg: #172033;
+  --update-meta-bg: #172033;
+  --update-log-bg: #0f172a;
+  --update-log-marker-bg: rgba(96, 165, 250, 0.14);
+  --update-log-marker-color: #93c5fd;
+  --empty-border: rgba(148, 163, 184, 0.32);
+  --card-shine: rgba(226, 232, 240, 0.16);
+  --card-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
+  --stamp-plan-color: #bfdbfe;
+  --stamp-plan-border: rgba(96, 165, 250, 0.34);
+  --stamp-plan-bg: rgba(96, 165, 250, 0.12);
+  --stamp-current-color: #86efac;
+  --stamp-current-border: rgba(74, 222, 128, 0.36);
+  --stamp-current-bg: rgba(74, 222, 128, 0.12);
+  --name-current: #93c5fd;
+  --name-current-glow: rgba(96, 165, 250, 0.18);
+  --usage-remain: #94a3b8;
+  --bar-track: #273449;
+  --credits: #93c5fd;
+  --error-text: #fb7185;
+  --glow-hot: transparent;
+  --glow-cool: transparent;
+  --glow-neutral: transparent;
+  --body-bg: #0b1120;
+  --shell-top: #0b1120;
+  --shell-mid: #0f172a;
+  --shell-bottom: #111827;
+  --stage-glass: rgba(15, 23, 42, 0.82);
+  --stage-line: rgba(226, 232, 240, 0.08);
+  --section-surface: #111827;
+  --section-line: rgba(226, 232, 240, 0.1);
   --section-shadow:
-    0 18px 38px rgba(0, 0, 0, 0.24),
-    inset 0 1px rgba(255, 255, 255, 0.08);
-  --account-card-bg-start: rgba(13, 24, 41, 0.9);
-  --account-card-bg-end: rgba(8, 17, 32, 0.84);
+    0 20px 42px rgba(0, 0, 0, 0.28),
+    inset 0 1px rgba(255, 255, 255, 0.06);
+  --account-card-bg-start: #111827;
+  --account-card-bg-end: #111827;
   --account-card-shadow:
-    0 10px 22px rgba(0, 0, 0, 0.34),
-    inset 0 1px rgba(255, 255, 255, 0.08);
+    0 12px 26px rgba(0, 0, 0, 0.3),
+    inset 0 1px rgba(255, 255, 255, 0.06);
   --account-card-hover-shadow:
-    0 16px 28px rgba(0, 0, 0, 0.42),
-    0 0 0 1px color-mix(in srgb, var(--tone-a) 34%, var(--line) 66%),
-    inset 0 1px rgba(255, 255, 255, 0.12);
-  --account-overlay-bg: linear-gradient(160deg, rgba(10, 20, 36, 0.44), rgba(6, 13, 25, 0.72));
-  --account-overlay-bg-touch: linear-gradient(
-    160deg,
-    rgba(12, 24, 42, 0.38),
-    rgba(7, 14, 27, 0.62)
-  );
-  --account-launch-color: rgba(236, 244, 255, 0.95);
-  --account-launch-shadow: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.55));
-  --proxy-usage-series-1: color-mix(in srgb, var(--brand-cool) 90%, var(--ink) 10%);
-  --proxy-usage-series-2: color-mix(in srgb, var(--brand-hot) 86%, var(--ink) 14%);
-  --proxy-usage-series-3: color-mix(in srgb, var(--credits) 78%, var(--brand-cool) 22%);
-  --proxy-usage-series-4: color-mix(in srgb, var(--ok) 76%, var(--brand-cool) 24%);
-  --proxy-usage-series-5: color-mix(in srgb, var(--danger) 78%, var(--brand-hot) 22%);
-  --proxy-usage-series-6: color-mix(in srgb, var(--stamp-current-color) 78%, var(--brand-cool) 22%);
-  --proxy-usage-series-7: color-mix(in srgb, var(--stamp-plan-color) 68%, var(--brand-hot) 32%);
-  --proxy-usage-series-8: color-mix(in srgb, var(--name-current) 72%, var(--brand-hot) 28%);
-  --proxy-usage-series-9: color-mix(in srgb, var(--brand-cool) 70%, var(--surface-tint) 30%);
-  --proxy-usage-series-10: color-mix(in srgb, var(--brand-hot) 66%, var(--subtle) 34%);
-  --proxy-usage-series-11: color-mix(in srgb, var(--credits) 68%, var(--ink) 32%);
-  --proxy-usage-series-12: color-mix(in srgb, var(--ok) 58%, var(--brand-hot) 42%);
+    0 16px 32px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(96, 165, 250, 0.28);
+  --account-overlay-bg: #111827;
+  --account-overlay-bg-touch: #111827;
+  --account-launch-color: #ffffff;
+  --account-launch-shadow: drop-shadow(0 10px 22px rgba(37, 99, 235, 0.34));
+  --proxy-usage-series-1: #60a5fa;
+  --proxy-usage-series-2: #4ade80;
+  --proxy-usage-series-3: #fbbf24;
+  --proxy-usage-series-4: #fb7185;
+  --proxy-usage-series-5: #22d3ee;
+  --proxy-usage-series-6: #a78bfa;
+  --proxy-usage-series-7: #2dd4bf;
+  --proxy-usage-series-8: #fb923c;
+  --proxy-usage-series-9: #38bdf8;
+  --proxy-usage-series-10: #a3e635;
+  --proxy-usage-series-11: #94a3b8;
+  --proxy-usage-series-12: #f472b6;
 }

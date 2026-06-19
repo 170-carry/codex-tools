@@ -5,6 +5,7 @@ use crate::cli;
 use crate::models::normalize_api_proxy_sequential_five_hour_limit_percent;
 use crate::models::AppSettings;
 use crate::models::AppSettingsPatch;
+use crate::proxy_service::sanitize_api_proxy_disabled_models_for_settings;
 use crate::state::AppState;
 use crate::store::load_store;
 use crate::store::save_store;
@@ -54,6 +55,9 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.smart_switch_include_api {
             store.settings.smart_switch_include_api = value;
         }
+        if let Some(value) = patch.launch_codex_as_admin {
+            store.settings.launch_codex_as_admin = value;
+        }
         if let Some(value) = patch.codex_launch_path {
             store.settings.codex_launch_path = normalize_codex_launch_path_for_storage(value)?;
         }
@@ -81,6 +85,13 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.api_proxy_sequential_five_hour_limit_percent {
             store.settings.api_proxy_sequential_five_hour_limit_percent =
                 normalize_api_proxy_sequential_five_hour_limit_percent(value);
+        }
+        if let Some(value) = patch.api_proxy_disabled_models {
+            store.settings.api_proxy_disabled_models =
+                sanitize_api_proxy_disabled_models_for_settings(value);
+        }
+        if let Some(value) = patch.codex_analytics_weekly_budget_usd {
+            store.settings.codex_analytics_weekly_budget_usd = normalize_weekly_budget(value);
         }
         if let Some(value) = patch.remote_servers {
             store.settings.remote_servers = value;
@@ -171,4 +182,14 @@ fn normalize_codex_launch_path_for_storage(
 fn should_discard_codex_launch_path(path: &str) -> bool {
     cli::is_windows_store_codex_path(std::path::Path::new(path))
         && cli::has_windows_store_codex_app()
+}
+
+fn normalize_weekly_budget(value: Option<f64>) -> Option<f64> {
+    value.and_then(|amount| {
+        if amount.is_finite() && amount > 0.0 {
+            Some((amount * 100.0).round() / 100.0)
+        } else {
+            None
+        }
+    })
 }

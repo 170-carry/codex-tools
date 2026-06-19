@@ -7,6 +7,7 @@ use tauri::Manager;
 
 const DEV_APP_DATA_DIR_ENV: &str = "CODEX_TOOLS_DEV_DATA_DIR";
 const DEV_CODEX_DIR_ENV: &str = "CODEX_TOOLS_DEV_CODEX_DIR";
+const APP_IDENTIFIER: &str = "com.carry.codex-tools";
 
 fn env_path(name: &str) -> Option<PathBuf> {
     let value = std::env::var(name).ok()?;
@@ -28,6 +29,18 @@ pub(crate) fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|error| format!("无法获取应用数据目录: {error}"))
+}
+
+pub(crate) fn app_data_dir_without_tauri() -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        if let Some(path) = env_path(DEV_APP_DATA_DIR_ENV) {
+            return Ok(path);
+        }
+    }
+
+    dirs::data_dir()
+        .map(|path| path.join(APP_IDENTIFIER))
+        .ok_or_else(|| "无法获取应用数据目录".to_string())
 }
 
 pub(crate) fn codex_dir() -> Result<PathBuf, String> {

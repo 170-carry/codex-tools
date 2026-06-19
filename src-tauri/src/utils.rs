@@ -36,12 +36,12 @@ pub(crate) fn try_set_private_permissions(path: &Path) -> Result<(), String> {
     {
         use std::os::unix::fs::PermissionsExt;
 
-        let mut permissions = fs::metadata(path)
-            .map_err(|error| format!("读取文件权限失败 {}: {error}", path.display()))?
-            .permissions();
-        permissions.set_mode(0o600);
+        let metadata = fs::metadata(path)
+            .map_err(|error| format!("读取路径权限失败 {}: {error}", path.display()))?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(if metadata.is_dir() { 0o700 } else { 0o600 });
         fs::set_permissions(path, permissions)
-            .map_err(|error| format!("设置文件权限失败 {}: {error}", path.display()))?;
+            .map_err(|error| format!("设置路径权限失败 {}: {error}", path.display()))?;
         Ok(())
     }
 
@@ -393,6 +393,47 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&path, permissions).expect("set execute bit");
         path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_permissions_keep_files_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let sandbox = unique_test_dir("private-file");
+        fs::create_dir_all(&sandbox).expect("create sandbox");
+        let path = sandbox.join("secret.txt");
+        fs::write(&path, "secret").expect("write secret");
+
+        try_set_private_permissions(&path).expect("set private file permissions");
+
+        let mode = fs::metadata(&path)
+            .expect("read file metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        let _ = fs::remove_dir_all(&sandbox);
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_permissions_keep_directories_searchable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let sandbox = unique_test_dir("private-dir");
+        fs::create_dir_all(&sandbox).expect("create sandbox");
+
+        try_set_private_permissions(&sandbox).expect("set private directory permissions");
+
+        let mode = fs::metadata(&sandbox)
+            .expect("read directory metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        fs::write(sandbox.join("probe.txt"), "ok").expect("directory should remain searchable");
+        let _ = fs::remove_dir_all(&sandbox);
+        assert_eq!(mode, 0o700);
     }
 
     #[test]

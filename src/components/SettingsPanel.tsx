@@ -179,6 +179,15 @@ export function SettingsPanel({
           />
 
           <SwitchField
+            checked={settings.launchCodexAsAdmin}
+            onChange={(checked) => onUpdateSettings({ launchCodexAsAdmin: checked })}
+            label={copy.settings.launchCodexAsAdmin.label}
+            checkedText={copy.settings.launchCodexAsAdmin.checkedText}
+            uncheckedText={copy.settings.launchCodexAsAdmin.uncheckedText}
+            disabled={savingSettings || !settings.launchCodexAfterSwitch}
+          />
+
+          <SwitchField
             checked={settings.smartSwitchIncludeApi}
             onChange={(checked) => onUpdateSettings({ smartSwitchIncludeApi: checked })}
             label={copy.settings.smartSwitchIncludeApi.label}

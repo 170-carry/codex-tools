@@ -29,3 +29,5 @@ release/
 debug/
 src-tauri/gen/
 .dev-runtime/
+.codex-verification/
+npm/ctc-*/bin/

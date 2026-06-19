@@ -212,7 +212,6 @@ export function AccountCard({
     selectedAccount.profileIntegrityError,
     selectedAccount.profileLastValidationError,
     selectedAccount.authRefreshError,
-    selectedAccount.usageError,
   ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
 
   const handleLaunch = () => {

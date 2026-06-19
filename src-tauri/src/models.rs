@@ -217,6 +217,30 @@ pub(crate) struct CreateApiAccountInput {
     pub(crate) force_save: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TestApiAccountConnectionInput {
+    pub(crate) label: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) model_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TestApiAccountConnectionResult {
+    pub(crate) ok: bool,
+    pub(crate) balance_text: Option<String>,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeleteCodexSessionResult {
+    pub(crate) session_id: String,
+    pub(crate) deleted_path: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportAccountFailure {
@@ -248,10 +272,88 @@ pub(crate) struct ApiProxyStatus {
     pub(crate) api_key: Option<String>,
     pub(crate) base_url: Option<String>,
     pub(crate) lan_base_url: Option<String>,
+    pub(crate) codex_proxy_bound: bool,
+    pub(crate) codex_proxy_restore_available: bool,
+    pub(crate) codex_proxy_base_url: Option<String>,
+    pub(crate) codex_proxy_config_path: Option<String>,
     pub(crate) active_account_key: Option<String>,
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_account_label: Option<String>,
     pub(crate) last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct ApiProxyKey {
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) key: String,
+    pub(crate) enabled: bool,
+    pub(crate) allowed_models: Vec<String>,
+    pub(crate) allowed_reasoning_efforts: Vec<String>,
+    pub(crate) allowed_service_tiers: Vec<String>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+}
+
+impl Default for ApiProxyKey {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            label: String::new(),
+            key: String::new(),
+            enabled: true,
+            allowed_models: Vec::new(),
+            allowed_reasoning_efforts: Vec::new(),
+            allowed_service_tiers: Vec::new(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateApiProxyKeyInput {
+    pub(crate) label: String,
+    #[serde(default)]
+    pub(crate) key: Option<String>,
+    #[serde(default)]
+    pub(crate) allowed_models: Vec<String>,
+    #[serde(default)]
+    pub(crate) allowed_reasoning_efforts: Vec<String>,
+    #[serde(default)]
+    pub(crate) allowed_service_tiers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateApiProxyKeyInput {
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) label: Option<String>,
+    #[serde(default)]
+    pub(crate) enabled: Option<bool>,
+    #[serde(default)]
+    pub(crate) allowed_models: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) allowed_reasoning_efforts: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) allowed_service_tiers: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiProxyKeyUsageLogEntry {
+    pub(crate) timestamp: i64,
+    pub(crate) key_id: Option<String>,
+    pub(crate) key_label: Option<String>,
+    pub(crate) model: String,
+    pub(crate) route: Option<String>,
+    pub(crate) reasoning_effort: Option<String>,
+    pub(crate) service_tier: Option<String>,
+    pub(crate) calls: i64,
+    pub(crate) tokens: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -432,6 +534,8 @@ pub(crate) struct AppSettings {
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
+    #[serde(default)]
+    pub(crate) launch_codex_as_admin: bool,
     pub(crate) codex_launch_path: Option<String>,
     #[serde(default)]
     pub(crate) active_account_id: Option<String>,
@@ -447,6 +551,10 @@ pub(crate) struct AppSettings {
     #[serde(default = "default_api_proxy_sequential_five_hour_limit_percent")]
     pub(crate) api_proxy_sequential_five_hour_limit_percent: f64,
     #[serde(default)]
+    pub(crate) api_proxy_disabled_models: Vec<String>,
+    #[serde(default)]
+    pub(crate) codex_analytics_weekly_budget_usd: Option<f64>,
+    #[serde(default)]
     pub(crate) api_proxy_sequential_account_key: Option<String>,
     pub(crate) remote_servers: Vec<RemoteServerConfig>,
     pub(crate) api_proxy_api_key: Option<String>,
@@ -461,6 +569,7 @@ impl Default for AppSettings {
             tray_usage_display_mode: TrayUsageDisplayMode::Remaining,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
+            launch_codex_as_admin: false,
             codex_launch_path: None,
             active_account_id: None,
             sync_opencode_openai_auth: false,
@@ -472,6 +581,8 @@ impl Default for AppSettings {
             api_proxy_load_balance_mode: ApiProxyLoadBalanceMode::default(),
             api_proxy_sequential_five_hour_limit_percent:
                 default_api_proxy_sequential_five_hour_limit_percent(),
+            api_proxy_disabled_models: Vec::new(),
+            codex_analytics_weekly_budget_usd: None,
             api_proxy_sequential_account_key: None,
             remote_servers: Vec::new(),
             api_proxy_api_key: None,
@@ -488,6 +599,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
+    pub(crate) launch_codex_as_admin: Option<bool>,
     pub(crate) codex_launch_path: Option<Option<String>>,
     pub(crate) sync_opencode_openai_auth: Option<bool>,
     pub(crate) restart_opencode_desktop_on_switch: Option<bool>,
@@ -497,6 +609,8 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) api_proxy_port: Option<u16>,
     pub(crate) api_proxy_load_balance_mode: Option<ApiProxyLoadBalanceMode>,
     pub(crate) api_proxy_sequential_five_hour_limit_percent: Option<f64>,
+    pub(crate) api_proxy_disabled_models: Option<Vec<String>>,
+    pub(crate) codex_analytics_weekly_budget_usd: Option<Option<f64>>,
     pub(crate) remote_servers: Option<Vec<RemoteServerConfig>>,
     pub(crate) locale: Option<AppLocale>,
     pub(crate) skipped_update_version: Option<Option<String>>,

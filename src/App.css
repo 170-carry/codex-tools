@@ -4,6 +4,7 @@
 @import "./styles/base.css";
 @import "./styles/controls.css";
 @import "./styles/feedback.css";
+@import "./styles/analytics.css";
 @import "./styles/proxy.css";
 @import "./styles/accounts.css";
 @import "./styles/responsive.css";

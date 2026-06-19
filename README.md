@@ -1,134 +1,273 @@
-# Codex Tools
+<div align="center">
+  <h1>Codex Tools</h1>
+  <p><strong>Codex 多账号管理、CLI/TUI 切换、用量查看和本地 OpenAI 兼容 API 反代工具。</strong></p>
+  <p>
+    <a href="https://github.com/170-carry/codex-tools/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/170-carry/codex-tools?label=release"></a>
+    <a href="https://www.npmjs.com/package/@170-carry/ctc"><img alt="npm" src="https://img.shields.io/npm/v/@170-carry/ctc?label=npm"></a>
+    <a href="https://github.com/170-carry/codex-tools/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+    <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey">
+  </p>
+</div>
 
-一个基于 **React + Tauri** 的桌面工具，用来管理多个 Codex 账号，并提供本地 API 反代能力：
-- 查看账号用量
-- 快速切换和启动 Codex
-- 本地 `/v1` 反代
-- cloudflared 公网访问
+## Overview
 
-仓库地址：<https://github.com/170-carry/codex-tools>
+Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、命令行入口和本地 `/v1` 反代能力。你可以用它导入账号、查看用量、切换本机 Codex 登录态，也可以把账号池暴露成 OpenAI 兼容接口供 Cursor、ChatWise、CC Switch、本地脚本等工具调用。
 
-## 更新日志
-[更新日志](changelog.md)
+## Contents
 
-## Cursor API反代功能提示
-1. 通过 Cursor 官网 下载并安装 Cursor。
+- [Highlights](#highlights)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [CLI Reference](#cli-reference)
+- [API Proxy](#api-proxy)
+- [Development](#development)
+- [Release](#release)
+- [Documentation](#documentation)
+- [Troubleshooting](#troubleshooting)
 
-2. 在 Cursor 中，点击2026-02-03_16-52-37图标，单击Cursor Settings，选择Models页面。
+## Highlights
 
-3. 开启 OpenAI API Key，填入您的 API Key。
+- 多账号管理：OAuth 登录导入、JSON 批量导入、账号备份回导入。
+- 用量查看：展示 `5h`、`1week` 用量窗口和账号计划类型。
+- 快速切换：切换 `~/.codex/auth.json` 和 `config.toml`，可联动启动 `codex app`。
+- CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/usage/doctor/report/tui`。
+- API 反代：本地提供 OpenAI 兼容 `/v1` 接口，支持运行中账号轮换。
+- App/CLI 绑定：可一键把 Codex App/CLI 切到本机反代地址，也可一键恢复原配置。
+- 公网访问：集成 cloudflared，支持快速隧道和命名隧道。
+- 桌面能力：状态栏驻留、自动更新、多语言界面、编辑器联动。
 
-4. 开启 Override OpenAI Base URL，填入可被 Cursor 访问的地址。
-
-5. 在Add or search model文本框中，输入Coding Plan支持的模型中的模型名称，点击Add Custom Model。
-
-6. 添加模型名称建议使用 `gpt-5.4`；同时兼容 `gpt-5-4` 别名
-
-### Cursor 接入注意事项
-
-- `ChatWise`、本地脚本、`curl` 这类本机直连客户端，可以直接使用本地 `Base URL`，例如 `http://127.0.0.1:8787/v1`
-- `Cursor` 不建议填写 `127.0.0.1`、`localhost`、`192.168.x.x`、`10.x.x.x` 这类本地或私网地址
-- 如果在 Cursor 里看到 `ssrf_blocked` 或 `connection to private IP is blocked`，通常不是代理本身报错，而是 Cursor 的模型提供方拦截了私网地址
-- 给 Cursor 使用时，请改用以下任意一种地址：
-- 使用应用内 `cloudflared` 生成的公网 `Public URL`
-- 使用“远程 Linux 反代”部署出来的公网服务器地址
-- 使用你自己的公网域名反向代理到本地或远程反代
-
-## 应用截图
+## Preview
 
 ![Codex Tools Screenshot](public/ScreenShot.png)
 
-## 解决codex-tools app 已损坏的方案
+## Installation
 
-> https://zhuanlan.zhihu.com/p/135948430
+### CLI/TUI
 
-> 省流:
+推荐通过 npm 安装命令行入口：
 
-> sudo spctl  --master-disable
+```bash
+npm i -g @170-carry/ctc
+```
 
-> sudo xattr -r -d com.apple.quarantine /Applications/Codex\ Tools.app
+安装后使用：
 
-## 快速启动（本地开发）
+```bash
+ctc list --json
+ctc switch --best --launch
+ctc tui
+ctc ui
+```
 
-### 1) 环境准备
+不想全局安装时，可以直接运行：
+
+```bash
+npx @170-carry/ctc list --json
+```
+
+`ctc ui` 会打开本机已安装的 Codex Tools 桌面应用；npm 包负责安装命令行入口和原生 CLI，不负责安装 `.app` 或 `.exe` 桌面包。
+
+### Desktop App
+
+桌面应用从 GitHub Releases 下载：
+
+- [Latest Release](https://github.com/170-carry/codex-tools/releases/latest)
+- macOS Apple Silicon / Intel
+- Windows x64
+
+安装桌面应用后，可以直接在 GUI 内完成账号导入、用量刷新、切换、API 反代和 cloudflared 配置。
+
+## Quick Start
+
+### Terminal
+
+```bash
+ctc login --label work
+ctc list --refresh --json
+ctc switch --best --launch
+ctc doctor --json
+```
+
+常见流程：
+
+1. 用 `ctc login` 调用官方 `codex login` 并导入账号。
+2. 用 `ctc list --refresh` 查看账号和用量。
+3. 用 `ctc switch 1` 或 `ctc switch --best` 切换账号。
+4. 用 `ctc doctor` 检查本机环境和账号库状态。
+
+### Desktop
+
+1. 打开 Codex Tools。
+2. 导入一个或多个 Codex 账号。
+3. 刷新账号用量。
+4. 选择账号并切换，或启动本地 API 反代。
+5. 需要公网访问时，再开启 cloudflared。
+
+## CLI Reference
+
+所有命令默认读取桌面应用相同的数据目录。需要隔离环境时，加 `--data-dir <目录>`。
+
+| 命令 | 说明 |
+| --- | --- |
+| `ctc list --json` | 列出已保存账号，输出 JSON |
+| `ctc list --refresh --json` | 刷新用量后列出账号 |
+| `ctc switch 1 --json` | 切换到第 1 个账号 |
+| `ctc switch --best --launch` | 按余量选择更合适的账号，并启动 `codex app` |
+| `ctc login --label work` | 调用官方 `codex login`，登录后自动导入账号 |
+| `ctc import ./auth.json --json` | 导入账号 JSON |
+| `ctc import ./accounts-dir --json` | 导入目录中的账号 JSON |
+| `ctc import --current --json` | 导入当前 `~/.codex/auth.json` |
+| `ctc export ./accounts.json --json` | 导出账号库 |
+| `ctc export --json` | 直接把账号库 JSON 输出到终端 |
+| `ctc usage --cached --json` | 查看本地缓存用量 |
+| `ctc doctor --json` | 检查数据目录、Codex CLI、账号库和本机 auth 文件 |
+| `ctc report --json` | 输出完整诊断报告 |
+| `ctc tui` | 打开终端账号选择器 |
+| `ctc ui` | 打开已安装的 Codex Tools 桌面应用 |
+
+## API Proxy
+
+Codex Tools 可以启动本地 OpenAI 兼容反代：
+
+- 默认地址：`http://127.0.0.1:8787/v1`
+- 鉴权方式：应用内生成的 `sk-...` API Key
+- 上游来源：已导入的 Codex 账号
+- 账号选择：按可用额度自动选择，支持运行中切换
+
+更多链路说明见 [docs/api-proxy.md](docs/api-proxy.md)。
+
+### Local Clients
+
+本地脚本、`curl`、ChatWise 等本机直连客户端，可以直接使用本地 `Base URL`：
+
+```bash
+curl http://127.0.0.1:8787/v1/models \
+  -H "Authorization: Bearer sk-..."
+```
+
+### Cursor
+
+Cursor 可能由服务端代发请求，不建议填写 `127.0.0.1`、`localhost`、`192.168.x.x`、`10.x.x.x` 等本地或私网地址。
+
+如果 Cursor 报 `ssrf_blocked` 或 `connection to private IP is blocked`，请改用：
+
+- 应用内 cloudflared 生成的 `Public URL`
+- 远程 Linux 反代地址
+- 自己的公网域名反向代理地址
+
+模型名称建议使用 `gpt-5.4`；同时兼容 `gpt-5-4` 别名。
+
+### CC Switch
+
+在 CC Switch 的 Codex 自定义 provider 中填写：
+
+- `Base URL`：`http://127.0.0.1:8787/v1`
+- `API Key`：应用内生成的 `sk-...`
+- `wire_api`：`responses`
+
+如果 Codex App/CLI 通过 wrapper、app bind、CC Switch 或自定义 provider 指向这个 `Base URL`，账号轮换会发生在本地反代层，不需要关闭 Codex App/CLI。
+
+反代面板也提供“切到本机反代”和“恢复正常地址”按钮，会自动备份并恢复 `~/.codex/config.toml` 与 `~/.codex/auth.json`。
+
+### Anthropic Messages
+
+兼容 Anthropic Messages 的客户端可以请求：
+
+- 地址：`http://127.0.0.1:8787/v1/messages`
+- Key：`x-api-key: sk-...`
+- 版本：`anthropic-version: 2023-06-01`
+
+这里的 `2023-06-01` 是 Anthropic API version，不是模型版本日期。
+
+## Development
+
+### Requirements
 
 - Node.js 20+
 - Rust stable
-- macOS 或 Windows（优先支持 macOS）
+- macOS 或 Windows
 
-### 2) 安装依赖
+### Run Locally
 
 ```bash
 npm install
-```
-
-### 3) 启动桌面应用
-
-```bash
 npm run tauri dev
 ```
 
-就这三步。
+### Build CLI
 
-## 主要功能
+```bash
+cd src-tauri
+cargo build --bin codex-tools-cli
+```
 
-### 1. 账号管理
+### Build Frontend
 
-- 支持 OAuth 登录导入
-- 支持上传单个或多个 `.json` 文件批量导入，也支持回导入导出的 `accounts.json` 备份
-- 支持直接读取文件夹下的全部 `.json` 文件
-- 导入结束后会恢复当前本机登录态，不覆盖你正在使用的账号
+```bash
+npm run build
+```
 
-### 2. 用量查看与智能切换
+## Release
 
-- 展示每个账号的 **5h**、**1week** 用量窗口和计划类型
-- 支持手动刷新，也会定时自动刷新
-- 支持按余量排序和智能切换到更合适的账号
-
-### 3. 切换账号并联动本机环境
-
-- 一键切换账号并启动 Codex
-- 找不到桌面应用时自动回退到 `codex app`
-- 可选同步 Opencode OpenAI 授权
-- 可选在切换后重启已选编辑器
-
-### 4. API 反代
-
-- 本地提供 OpenAI 兼容的 `/v1` 接口
-- 使用已登录的 Codex 账号作为上游能力来源
-- 支持固定端口、自定义端口、固定 API Key 和手动刷新 API Key
-- 按账号余量自动挑选可用账号进行转发
-- 可设置应用启动时自动启动 API 反代
-- 可作为 CC Switch 的 Codex 自定义 provider 上游，按 `responses` 协议接入
-
-### 5. 公网访问与桌面能力
-
-- 集成 cloudflared，可将本地反代暴露到公网
-- 支持快速隧道和命名隧道，可选 HTTP/2
-- 支持后台驻留、状态栏菜单、应用内更新和多语言界面
-
-API 反代详细链路见 [docs/api-proxy.md](docs/api-proxy.md)。
-
-## 打包与发布（简版）
-
-本项目已配置 GitHub Actions 自动发布（mac 双架构 + Windows）。
+本仓库使用 GitHub Actions 自动发布桌面安装包和 npm CLI 包。
 
 触发发布：
 
 ```bash
-git tag v0.1.3
-git push origin v0.1.3
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
-查看：
-- 代码仓库: <https://github.com/170-carry/codex-tools>
-- 版本发布: <https://github.com/170-carry/codex-tools/releases>
+发布内容：
 
-## 目录说明
+- macOS Apple Silicon 桌面安装包
+- macOS Intel 桌面安装包
+- Windows x64 桌面安装包
+- npm wrapper：`@170-carry/ctc`
+- npm native packages：`@170-carry/ctc-darwin-arm64`、`@170-carry/ctc-darwin-x64`、`@170-carry/ctc-win32-x64`
 
-- 前端：`src/`
-- Tauri / Rust：`src-tauri/`
-- 发布流程：`.github/workflows/release.yml`
+npm 发布需要在 GitHub repository secrets 中配置 `NPM_TOKEN`。
+
+## Documentation
+
+- [How to Use](how%20to%20use.md)
+- [API Proxy](docs/api-proxy.md)
+- [Linux Proxyd](docs/linux-proxyd.md)
+- [Changelog](changelog.md)
+
+## Troubleshooting
+
+### npm 安装后缺少原生包
+
+如果安装时禁用了 optional dependencies，可能会看到缺少平台包的提示。重新安装：
+
+```bash
+npm i -g @170-carry/ctc --include=optional
+```
+
+### macOS 提示应用已损坏
+
+如果 macOS 拦截未签名或隔离属性残留的应用，可以执行：
+
+```bash
+sudo spctl --master-disable
+sudo xattr -r -d com.apple.quarantine /Applications/Codex\ Tools.app
+```
+
+### Cursor 无法访问本地地址
+
+如果 Cursor 返回 `ssrf_blocked`，说明它的请求侧无法访问本机私网地址。请使用 cloudflared、远程 Linux 反代或公网域名。
+
+## Project Layout
+
+```text
+src/                     React frontend
+src-tauri/               Tauri and Rust backend
+src-tauri/src/bin/       Native CLI binaries
+npm/                     npm wrapper and platform packages
+docs/                    Extra documentation
+.github/workflows/       Release workflows
+```
 
 ## Star History
 

@@ -50,19 +50,31 @@
 }
 
 .addAuthDialog {
-  width: min(920px, 100%);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--import-bg) 86%, var(--surface-tint) 14%),
-      color-mix(in srgb, var(--import-bg) 92%, transparent)
-    );
+  width: min(980px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  border-radius: 18px;
+  padding: 18px;
+  background: var(--panel-bg);
+  box-shadow:
+    0 26px 60px rgba(15, 23, 42, 0.18),
+    inset 0 1px var(--surface-highlight-strong);
+  overflow: auto;
+}
+
+.addAuthDialog .settingsHeader {
+  padding: 0 2px 10px;
+  border-bottom: 0;
+}
+
+.addAuthDialog .settingsHeader h2 {
+  color: var(--ink);
+  font: 850 1.26rem/1.15 var(--font-ui);
 }
 
 .addAccountDialogSubtitle {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   color: var(--subtle);
-  font: 500 0.82rem/1.5 var(--font-ui);
+  font: 700 0.8rem/1.42 var(--font-ui);
 }
 
 .addAccountLead {
@@ -97,91 +109,100 @@
 }
 
 .addAccountWorkspace {
-  margin-top: 16px;
+  margin-top: 10px;
   display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
 }
 
 .addAccountTabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .addAccountTab {
-  min-height: 92px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
-  border-radius: 18px;
-  padding: 12px 14px;
+  min-height: 68px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 10px 12px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
   text-align: left;
-  background: var(--tab-surface);
-  box-shadow: inset 0 1px var(--surface-highlight-soft);
+  background: var(--card);
+  box-shadow: none;
 }
 
 .addAccountTab.isActive {
-  border-color: color-mix(in srgb, var(--brand-hot) 56%, var(--brand-cool) 44%);
-  background: var(--tab-active-surface);
+  border-color: color-mix(in srgb, var(--brand) 72%, var(--line) 28%);
+  background: color-mix(in srgb, var(--card) 92%, var(--brand-soft) 8%);
   box-shadow:
-    0 10px 22px rgba(22, 36, 56, 0.08),
-    inset 0 1px var(--surface-highlight-soft);
+    0 12px 24px rgba(37, 99, 235, 0.08),
+    inset 0 0 0 1px color-mix(in srgb, var(--brand) 20%, transparent);
 }
 
 .addAccountTabIcon,
 .addAccountPanelIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--surface-hover-bg) 68%, transparent);
-  color: color-mix(in srgb, var(--ink) 82%, var(--brand-cool) 18%);
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  color: color-mix(in srgb, var(--ink) 82%, var(--brand) 18%);
 }
 
 .addAccountTab.isActive .addAccountTabIcon,
 .addAccountPanelIcon {
-  background: linear-gradient(135deg, rgba(255, 165, 98, 0.22), rgba(95, 229, 218, 0.22));
-  color: var(--ink);
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line) 76%);
+  background: color-mix(in srgb, var(--brand-soft) 72%, var(--surface-tint) 28%);
+  color: var(--brand);
+}
+
+.addAccountTabIcon .iconGlyph,
+.addAccountPanelIcon .iconGlyph {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.2;
 }
 
 .addAccountTabContent {
   min-width: 0;
   display: grid;
-  gap: 6px;
+  gap: 3px;
 }
 
 .addAccountTabContent strong {
-  font: 650 0.92rem/1.2 var(--font-ui);
-  letter-spacing: -0.01em;
+  color: var(--ink);
+  font: 850 0.88rem/1.18 var(--font-ui);
 }
 
 .addAccountTabContent span {
   color: var(--subtle);
-  font: 500 0.77rem/1.45 var(--font-ui);
+  font: 700 0.72rem/1.35 var(--font-ui);
 }
 
 .addAccountPanel {
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
-  border-radius: 22px;
-  padding: 18px;
-  background: var(--feature-card-surface);
-  box-shadow:
-    0 14px 28px rgba(18, 34, 58, 0.08),
-    inset 0 1px var(--surface-highlight-soft);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--card);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .addAccountPanelHead {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
-  align-items: start;
+  gap: 12px;
+  align-items: center;
 }
 
 .addAccountPanelCopy {
@@ -190,14 +211,14 @@
 
 .addAccountPanelCopy h3 {
   margin: 0;
-  font: 700 1.2rem/1.12 var(--font-ui);
-  letter-spacing: -0.03em;
+  color: var(--ink);
+  font: 850 1.05rem/1.16 var(--font-ui);
 }
 
 .addAccountPanelCopy p {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   color: var(--subtle);
-  font: 500 0.88rem/1.58 var(--font-ui);
+  font: 700 0.78rem/1.42 var(--font-ui);
 }
 
 .addAccountPanelBody,
@@ -206,37 +227,36 @@
 .addUploadSection,
 .addApiSection {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .addOauthActionRow {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
 }
 
 .addOauthListening {
-  min-height: 42px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 14px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--brand-cool) 16%, transparent);
-  color: color-mix(in srgb, var(--ink) 74%, var(--brand-cool) 26%);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  color: var(--brand);
   font: 700 0.78rem/1 var(--font-ui);
 }
 
 .addOauthField {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .addOauthFieldLabel {
   color: var(--subtle);
-  font: 700 0.75rem/1.15 var(--font-ui);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font: 800 0.76rem/1.15 var(--font-ui);
+  text-transform: none;
 }
 
 .addFieldHint {
@@ -247,23 +267,27 @@
 .addOauthInput,
 .addOauthTextarea {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--meta-bg) 54%, var(--surface-tint) 46%);
+  background: var(--bg-0);
   color: var(--ink);
-  box-shadow: inset 0 1px var(--surface-highlight-soft);
-  font: 500 0.8rem/1.45 var(--font-mono);
+  box-shadow: inset 0 1px var(--surface-highlight-strong);
+  font: 650 0.84rem/1.45 var(--font-mono);
 }
 
 .addOauthInput {
-  min-height: 44px;
-  padding: 11px 13px;
+  min-height: 40px;
+  padding: 9px 12px;
 }
 
 .addOauthTextarea {
   resize: vertical;
-  min-height: 112px;
-  padding: 12px 13px;
+  min-height: 88px;
+  padding: 10px 12px;
+}
+
+.addSessionTextarea {
+  min-height: 170px;
 }
 
 .addOauthReadonlyInput {
@@ -273,27 +297,27 @@
 .addOauthInput:focus,
 .addOauthTextarea:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--brand-cool) 54%, var(--line) 46%);
+  border-color: color-mix(in srgb, var(--brand) 62%, var(--line) 38%);
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--brand-cool) 14%, transparent),
-    inset 0 1px var(--surface-highlight-soft);
+    0 0 0 3px color-mix(in srgb, var(--brand) 12%, transparent),
+    inset 0 1px var(--surface-highlight-strong);
 }
 
 .addOauthStatus {
-  border: 1px dashed color-mix(in srgb, var(--line) 72%, var(--surface-tint) 28%);
-  border-radius: 16px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--meta-bg) 40%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--line) 88%, var(--subtle) 12%);
+  border-radius: 14px;
+  padding: 12px;
+  background: var(--bg-1);
   display: grid;
-  gap: 12px;
+  gap: 8px;
   justify-items: start;
   text-align: left;
 }
 
 .addOauthStatus strong,
 .addUploadQueueHeader strong {
-  font: 700 1rem/1.2 var(--font-ui);
-  letter-spacing: -0.02em;
+  color: var(--ink);
+  font: 850 0.98rem/1.2 var(--font-ui);
 }
 
 .addOauthStatus p,
@@ -302,11 +326,13 @@
 .addCurrentSummary p {
   margin: 0;
   color: var(--subtle);
-  font: 500 0.84rem/1.58 var(--font-ui);
+  font: 700 0.84rem/1.55 var(--font-ui);
 }
 
 .addAccountPrimaryAction {
   min-width: 220px;
+  min-height: 40px;
+  border-radius: 12px;
   justify-self: start;
 }
 
@@ -318,12 +344,12 @@
 
 .addInlineBadge {
   width: fit-content;
-  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line) 78%);
+  border-radius: 8px;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--brand-cool) 18%, transparent);
-  color: color-mix(in srgb, var(--ink) 78%, var(--brand-cool) 22%);
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  color: var(--brand);
   font: 700 0.72rem/1 var(--font-mono);
-  letter-spacing: 0.08em;
 }
 
 .addOauthSpinner {
@@ -334,47 +360,40 @@
 .addUploadPickerGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .addApiFieldGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 12px;
+  gap: 10px;
 }
 
 .addApiStatus,
 .addApiErrorBox {
-  border-radius: 18px;
-  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
   display: grid;
   gap: 6px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--meta-bg) 58%, var(--surface-tint) 42%),
-      color-mix(in srgb, var(--meta-bg) 34%, transparent)
-    );
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 0 0 1px color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
+  background: var(--bg-1);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
 }
 
 .addApiErrorBox {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(242, 106, 119, 0.09),
-      rgba(242, 106, 119, 0.03)
-    );
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.24) inset,
-    0 0 0 1px rgba(242, 106, 119, 0.22);
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line) 66%);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-tint) 92%);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+}
+
+.addApiSuccessBox {
+  border-color: color-mix(in srgb, var(--ok) 34%, var(--line) 66%);
+  background: color-mix(in srgb, var(--ok) 8%, var(--surface-tint) 92%);
 }
 
 .addApiErrorBox strong {
-  font: 700 0.94rem/1.2 var(--font-ui);
-  letter-spacing: -0.02em;
+  color: var(--ink);
+  font: 850 0.94rem/1.2 var(--font-ui);
 }
 
 .addApiErrorBox p {
@@ -395,18 +414,13 @@
 }
 
 .addUploadQueue {
-  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--surface-tint) 22%);
-  border-radius: 20px;
-  padding: 16px;
-  min-height: 190px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--meta-bg) 54%, var(--surface-tint) 46%),
-      color-mix(in srgb, var(--meta-bg) 32%, transparent)
-    );
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  min-height: 128px;
+  background: var(--bg-1);
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .addUploadQueueHeader {
@@ -428,18 +442,20 @@
   gap: 10px;
   align-items: start;
   padding: 10px 12px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-hover-bg) 56%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
 }
 
 .addUploadFileIndex {
   width: 22px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: 7px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--brand-hot) 18%, transparent);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  color: var(--brand);
   font: 700 0.72rem/1 var(--font-mono);
 }
 
@@ -451,13 +467,14 @@
 }
 
 .addUploadEmptyState {
-  min-height: 104px;
-  border-radius: 16px;
+  min-height: 68px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
   padding: 14px;
   display: grid;
   place-items: center;
   text-align: center;
-  background: color-mix(in srgb, var(--surface-hover-bg) 42%, transparent);
+  background: var(--card);
 }
 
 .addAuthSpinner {
@@ -486,29 +503,67 @@
   align-items: center;
   justify-content: center;
   background: var(--overlay-scrim-strong);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   animation: fadeIn 140ms ease both;
 }
 
 .updateDialog {
-  width: min(700px, 100%);
+  width: min(660px, 100%);
   max-height: calc(100vh - 40px);
-  overflow: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--update-border);
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--update-bg);
-  padding: 14px;
-  box-shadow: var(--panel-shadow);
+  box-shadow:
+    0 24px 64px rgba(15, 23, 42, 0.22),
+    0 1px 1px rgba(15, 23, 42, 0.08),
+    inset 0 1px var(--surface-highlight-soft);
   animation: riseIn 220ms ease both;
 }
 
-.updateDialog::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+.updateDialogHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  background: var(--update-header-bg);
+}
+
+.updateDialogIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand-soft) 70%, var(--surface-tint) 30%);
+  box-shadow: inset 0 1px var(--surface-highlight-strong);
+}
+
+.updateDialogTitleBlock {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.updateVersionPill {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line) 72%);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--brand-strong);
+  background: color-mix(in srgb, var(--brand-soft) 66%, var(--surface-tint) 34%);
+  font: 800 0.72rem/1 var(--font-mono);
+  white-space: nowrap;
 }
 
 .settingsHeader {
@@ -523,6 +578,35 @@
   margin: 0;
   font: 650 1.08rem/1.2 var(--font-ui);
   letter-spacing: -0.02em;
+}
+
+.updateDialogHeader h2 {
+  margin: 0;
+  color: var(--update-strong);
+  font: 750 1.16rem/1.18 var(--font-ui);
+}
+
+.updateDialogHeader p {
+  margin: 0;
+  color: var(--update-subtle);
+  font: 500 0.84rem/1.45 var(--font-ui);
+}
+
+.updateDialogContent {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 12px;
+}
+
+.updateDialogContent::-webkit-scrollbar {
+  width: 10px;
+}
+
+.updateDialogContent::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 74%, var(--subtle) 26%);
+  background-clip: padding-box;
 }
 
 .settingsGroup {
@@ -896,7 +980,7 @@ button {
   background: var(--button-bg);
   box-shadow: var(--button-shadow);
   font: 600 0.84rem/1 var(--font-ui);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 button::before {
@@ -905,7 +989,7 @@ button::before {
 
 button:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--line) 70%, var(--ink) 30%);
+  border-color: color-mix(in srgb, var(--line) 62%, var(--brand) 38%);
   box-shadow: var(--button-hover-shadow);
 }
 
@@ -924,13 +1008,15 @@ button:focus-visible {
 }
 
 button.primary {
-  border-color: color-mix(in srgb, var(--brand-hot) 36%, var(--line) 64%);
+  border-color: var(--button-primary-border);
   background: var(--button-primary-bg);
+  color: #ffffff;
 }
 
 button.ghost {
-  border-color: color-mix(in srgb, var(--brand-cool) 24%, var(--line) 76%);
+  border-color: var(--button-ghost-border);
   background: var(--button-ghost-bg);
+  color: var(--brand);
 }
 
 button.danger {
@@ -940,67 +1026,111 @@ button.danger {
 
 .metaStrip {
   margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(156px, 1fr));
+  gap: 12px;
+  align-items: stretch;
 }
 
 .metaPill {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--meta-bg);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.metricIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.metricIconGlyph {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.metric-blue .metricIcon {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.metric-green .metricIcon {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.metric-amber .metricIcon {
+  color: #d97706;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.metric-red .metricIcon {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.metricCopy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto;
   align-items: baseline;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--surface-tint) 10%);
-  border-radius: 12px;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--meta-bg) 38%, transparent);
-  box-shadow: inset 0 1px var(--surface-highlight-faint);
+  justify-content: start;
+  gap: 6px 8px;
 }
 
-.metaPill span {
+.metricCopy span {
+  grid-column: 1 / -1;
   color: var(--subtle);
-  font: 600 0.72rem/1.1 var(--font-ui);
-  letter-spacing: 0.01em;
+  font: 700 0.78rem/1.1 var(--font-ui);
 }
 
-.metaPill strong {
+.metricCopy strong {
+  color: var(--ink);
   word-break: break-word;
-  font: 650 0.94rem/1 var(--font-ui);
-  letter-spacing: -0.02em;
+  font: 800 1.2rem/1 var(--font-ui);
 }
 
-.metaPill strong.metaPillMono {
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  line-height: 1.2;
-}
-
-.tokenMetaPill {
-  min-width: 92px;
-}
-
-.tokenMetaPill.hasError {
-  border-color: color-mix(in srgb, var(--danger) 30%, var(--line) 70%);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
+.metricCopy em {
+  color: var(--subtle);
+  font: 650 0.72rem/1.2 var(--font-ui);
+  font-style: normal;
 }
 
 .metaExportButton {
-  min-width: 84px;
+  display: none;
 }
 
 .importBar {
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--surface-tint) 10%);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--import-bg) 34%, transparent);
-  padding: 8px;
+  align-self: stretch;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   justify-content: flex-end;
-  box-shadow: inset 0 1px var(--surface-highlight-faint);
 }
 
-.importSmartSwitch {
-  min-width: 132px;
+.importSmartSwitch,
+.importPrimary {
+  min-width: 126px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
 }

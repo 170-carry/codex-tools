@@ -24,11 +24,11 @@ function phrases(
 }
 
 const AUTH_EXPIRED_MESSAGE = phrases(
-  "授权过期，请重新登录授权。",
-  "Authorization expired. Please sign in again.",
-  "認証の有効期限が切れました。再度ログインして認可してください。",
-  "인증이 만료되었습니다. 다시 로그인하여 인증하세요.",
-  "Срок авторизации истек. Войдите снова."
+  "工具保存的授权快照已失效，请重新登录授权。",
+  "The saved authorization snapshot is no longer valid. Please sign in again.",
+  "保存された認証スナップショットが無効になりました。再度ログインして認可してください。",
+  "저장된 인증 스냅샷이 더 이상 유효하지 않습니다. 다시 로그인하여 인증하세요.",
+  "Сохраненный снимок авторизации больше недействителен. Войдите снова."
 );
 
 const DEACTIVATED_ACCOUNT_MESSAGE = phrases(
@@ -52,12 +52,26 @@ const REPLACEMENTS: PhraseReplacement[] = [
   },
   {
     source: "授权过期，请重新登录授权。",
+    target: AUTH_EXPIRED_MESSAGE,
+  },
+  {
+    source: "工具保存的授权快照已失效，请重新登录授权。",
     target: phrases(
-      "授权过期，请重新登录授权。",
-      "Authorization expired. Please sign in again.",
-      "認証の有効期限が切れました。再度ログインして認可してください。",
-      "인증이 만료되었습니다. 다시 로그인하여 인증하세요.",
-      "Срок авторизации истек. Войдите снова."
+      "工具保存的授权快照已失效，请重新登录授权。",
+      "The saved authorization snapshot is no longer valid. Please sign in again.",
+      "保存された認証スナップショットが無効になりました。再度ログインして認可してください。",
+      "저장된 인증 스냅샷이 더 이상 유효하지 않습니다. 다시 로그인하여 인증하세요.",
+      "Сохраненный снимок авторизации больше недействителен. Войдите снова."
+    ),
+  },
+  {
+    source: "用量刷新失败：登录令牌已过期，请刷新用量或切换账号重新校验。",
+    target: phrases(
+      "用量刷新失败：登录令牌已过期，请刷新用量或切换账号重新校验。",
+      "Usage refresh failed because the sign-in token expired. Refresh usage or switch accounts to check again.",
+      "サインイントークンの期限が切れたため、使用量の更新に失敗しました。使用量を更新するか、アカウントを切り替えて再確認してください。",
+      "로그인 토큰이 만료되어 사용량 새로고침에 실패했습니다. 사용량을 새로고침하거나 계정을 전환해 다시 확인하세요.",
+      "Не удалось обновить использование: срок действия токена входа истек. Обновите использование или переключите аккаунт для повторной проверки."
     ),
   },
   {
@@ -112,13 +126,14 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
-    source: "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses，收到的是 ",
+    source:
+      "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 ",
     target: phrases(
-      "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses，收到的是 ",
-      "This proxy only supports GET /v1/models, POST /v1/chat/completions, and POST /v1/responses. Received ",
-      "このプロキシは GET /v1/models、POST /v1/chat/completions、POST /v1/responses のみをサポートしています。受信したのは ",
-      "이 프록시는 GET /v1/models, POST /v1/chat/completions, POST /v1/responses만 지원합니다. 받은 요청은 ",
-      "Этот прокси поддерживает только GET /v1/models, POST /v1/chat/completions и POST /v1/responses. Получено: "
+      "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 ",
+      "This proxy only supports GET /v1/models, POST /v1/chat/completions, POST /v1/responses, POST /v1/messages, POST /v1/images/generations, POST /v1/images/edits, and POST /v1/images/variations. Received ",
+      "このプロキシは GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations のみをサポートしています。受信したのは ",
+      "이 프록시는 GET /v1/models, POST /v1/chat/completions, POST /v1/responses, POST /v1/messages, POST /v1/images/generations, POST /v1/images/edits, POST /v1/images/variations만 지원합니다. 받은 요청은 ",
+      "Этот прокси поддерживает только GET /v1/models, POST /v1/chat/completions, POST /v1/responses, POST /v1/messages, POST /v1/images/generations, POST /v1/images/edits и POST /v1/images/variations. Получено: "
     ),
   },
   {

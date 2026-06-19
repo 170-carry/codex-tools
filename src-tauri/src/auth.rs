@@ -188,6 +188,10 @@ pub(crate) fn normalize_imported_auth_json(auth_json: Value) -> Value {
         return normalize_auth_json_for_codex(auth_json);
     }
 
+    if let Some(session_auth_json) = normalize_chatgpt_session_json(root) {
+        return normalize_auth_json_for_codex(session_auth_json);
+    }
+
     let Some(access_token) = root.get("access_token").and_then(Value::as_str) else {
         return auth_json;
     };
@@ -232,6 +236,252 @@ pub(crate) fn normalize_imported_auth_json(auth_json: Value) -> Value {
     }
 
     normalize_auth_json_for_codex(Value::Object(normalized))
+}
+
+fn normalize_chatgpt_session_json(root: &Map<String, Value>) -> Option<Value> {
+    let access_token = first_string_at_paths(
+        root,
+        &[
+            &["accessToken"],
+            &["access_token"],
+            &["token", "accessToken"],
+            &["token", "access_token"],
+            &["credentials", "access_token"],
+        ],
+    )?;
+    let access_claims = decode_jwt_payload(&access_token).ok();
+    let access_auth_claims = access_claims
+        .as_ref()
+        .and_then(|claims| claims.get("https://api.openai.com/auth"))
+        .and_then(Value::as_object);
+
+    let account_id = first_non_empty_string(vec![
+        first_string_at_paths(
+            root,
+            &[
+                &["account", "id"],
+                &["account_id"],
+                &["chatgpt_account_id"],
+                &["credentials", "chatgpt_account_id"],
+            ],
+        ),
+        access_auth_claims
+            .and_then(|claims| claims.get("chatgpt_account_id"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+    ])?;
+    let plan_type = first_non_empty_string(vec![
+        first_string_at_paths(
+            root,
+            &[
+                &["account", "planType"],
+                &["account", "plan_type"],
+                &["planType"],
+                &["plan_type"],
+                &["credentials", "plan_type"],
+            ],
+        ),
+        access_auth_claims
+            .and_then(|claims| claims.get("chatgpt_plan_type"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+    ]);
+    let user_id = first_non_empty_string(vec![
+        first_string_at_paths(
+            root,
+            &[
+                &["user", "id"],
+                &["user_id"],
+                &["chatgpt_user_id"],
+                &["credentials", "chatgpt_user_id"],
+            ],
+        ),
+        access_auth_claims
+            .and_then(|claims| {
+                claims
+                    .get("chatgpt_user_id")
+                    .or_else(|| claims.get("user_id"))
+            })
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+    ]);
+    let email = first_non_empty_string(vec![
+        first_string_at_paths(
+            root,
+            &[&["user", "email"], &["email"], &["credentials", "email"]],
+        ),
+        access_claims
+            .as_ref()
+            .and_then(|claims| claims.get("email"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        access_claims
+            .as_ref()
+            .and_then(|claims| claims.get("https://api.openai.com/profile"))
+            .and_then(Value::as_object)
+            .and_then(|profile| profile.get("email"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+    ]);
+    let expires_at = session_expires_at_unix(root, access_claims.as_ref());
+    let id_token = first_string_at_paths(
+        root,
+        &[
+            &["idToken"],
+            &["id_token"],
+            &["token", "idToken"],
+            &["token", "id_token"],
+            &["credentials", "id_token"],
+        ],
+    )
+    .unwrap_or_else(|| {
+        build_synthetic_chatgpt_id_token(
+            &account_id,
+            plan_type.as_deref(),
+            user_id.as_deref(),
+            email.as_deref(),
+            expires_at,
+        )
+    });
+
+    let mut tokens = Map::new();
+    tokens.insert("access_token".to_string(), Value::String(access_token));
+    tokens.insert("id_token".to_string(), Value::String(id_token));
+    tokens.insert("account_id".to_string(), Value::String(account_id));
+
+    if let Some(refresh_token) = first_string_at_paths(
+        root,
+        &[
+            &["refreshToken"],
+            &["refresh_token"],
+            &["token", "refreshToken"],
+            &["token", "refresh_token"],
+            &["credentials", "refresh_token"],
+        ],
+    ) {
+        tokens.insert("refresh_token".to_string(), Value::String(refresh_token));
+    } else {
+        // Codex auth snapshots expect the field to exist, but browser session exports do not
+        // contain a refresh token. Keep it empty so this import remains a short-lived credential.
+        tokens.insert("refresh_token".to_string(), Value::String(String::new()));
+    }
+
+    if let Some(session_token) = first_string_at_paths(
+        root,
+        &[
+            &["sessionToken"],
+            &["session_token"],
+            &["token", "sessionToken"],
+            &["token", "session_token"],
+        ],
+    ) {
+        tokens.insert("session_token".to_string(), Value::String(session_token));
+    }
+
+    Some(serde_json::json!({
+        "OPENAI_API_KEY": Value::Null,
+        "auth_mode": "chatgpt",
+        "last_refresh": current_rfc3339_timestamp().unwrap_or_else(|_| {
+            unix_timestamp_to_rfc3339(current_unix_timestamp()).unwrap_or_else(|| {
+                "1970-01-01T00:00:00Z".to_string()
+            })
+        }),
+        "tokens": tokens
+    }))
+}
+
+fn string_at_path<'a>(root: &'a Map<String, Value>, path: &[&str]) -> Option<&'a str> {
+    let (first_key, rest) = path.split_first()?;
+    let mut current = root.get(*first_key)?;
+    for key in rest {
+        current = current.as_object()?.get(*key)?;
+    }
+    current
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn first_string_at_paths(root: &Map<String, Value>, paths: &[&[&str]]) -> Option<String> {
+    paths
+        .iter()
+        .find_map(|path| string_at_path(root, path).map(ToString::to_string))
+}
+
+fn first_non_empty_string(values: Vec<Option<String>>) -> Option<String> {
+    values
+        .into_iter()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty())
+}
+
+fn session_expires_at_unix(root: &Map<String, Value>, claims: Option<&Value>) -> i64 {
+    claims
+        .and_then(|value| value.get("exp"))
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
+        .or_else(|| {
+            root.get("expires")
+                .and_then(Value::as_str)
+                .and_then(|value| OffsetDateTime::parse(value, &Rfc3339).ok())
+                .map(|value| value.unix_timestamp())
+        })
+        .unwrap_or_else(|| current_unix_timestamp() + 90 * 24 * 60 * 60)
+}
+
+fn build_synthetic_chatgpt_id_token(
+    account_id: &str,
+    plan_type: Option<&str>,
+    user_id: Option<&str>,
+    email: Option<&str>,
+    expires_at: i64,
+) -> String {
+    let now = current_unix_timestamp();
+    let mut auth_claims = Map::new();
+    auth_claims.insert(
+        "chatgpt_account_id".to_string(),
+        Value::String(account_id.to_string()),
+    );
+    if let Some(plan_type) = plan_type.map(str::trim).filter(|value| !value.is_empty()) {
+        auth_claims.insert(
+            "chatgpt_plan_type".to_string(),
+            Value::String(plan_type.to_string()),
+        );
+    }
+    if let Some(user_id) = user_id.map(str::trim).filter(|value| !value.is_empty()) {
+        auth_claims.insert(
+            "chatgpt_user_id".to_string(),
+            Value::String(user_id.to_string()),
+        );
+        auth_claims.insert("user_id".to_string(), Value::String(user_id.to_string()));
+    }
+
+    let mut payload = Map::new();
+    payload.insert("iat".to_string(), Value::Number(now.into()));
+    payload.insert("exp".to_string(), Value::Number(expires_at.into()));
+    payload.insert(
+        "https://api.openai.com/auth".to_string(),
+        Value::Object(auth_claims),
+    );
+    if let Some(email) = email.map(str::trim).filter(|value| !value.is_empty()) {
+        payload.insert("email".to_string(), Value::String(email.to_string()));
+    }
+    if let Some(user_id) = user_id.map(str::trim).filter(|value| !value.is_empty()) {
+        payload.insert("sub".to_string(), Value::String(user_id.to_string()));
+    }
+
+    let header = serde_json::json!({
+        "alg": "none",
+        "typ": "JWT",
+        "codex_tools_synthetic": true
+    });
+    encode_jwt_part(&header) + "." + &encode_jwt_part(&Value::Object(payload)) + ".synthetic"
+}
+
+fn encode_jwt_part(value: &Value) -> String {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// 解析当前 auth.json，提取账号标识和用量接口所需 token。
@@ -396,6 +646,8 @@ pub(crate) fn extract_codex_oauth_tokens(auth_json: &Value) -> Result<CodexOAuth
     let refresh_token = tokens
         .get("refresh_token")
         .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .ok_or_else(|| "auth.json 缺少 refresh_token".to_string())?
         .to_string();
     let account_id = tokens
@@ -429,14 +681,15 @@ pub(crate) fn auth_tokens_expire_within(auth_json: &Value, lead_time_secs: i64) 
     };
     let refresh_deadline = now + lead_time_secs.max(0);
 
-    ["access_token", "id_token"].iter().any(|field| {
-        tokens
-            .get(*field)
-            .and_then(Value::as_str)
-            .and_then(jwt_expiration_unix)
-            .map(|exp| exp <= refresh_deadline)
-            .unwrap_or(false)
-    })
+    // Codex 请求实际使用 access_token；id_token 主要提供身份声明，通常 1 小时过期。
+    // 如果把 id_token 过期也当作刷新条件，工具会远早于 Codex 官方客户端刷新 refresh_token，
+    // 容易把仍可正常使用的账号快照误判成“授权过期”。
+    tokens
+        .get("access_token")
+        .and_then(Value::as_str)
+        .and_then(jwt_expiration_unix)
+        .map(|exp| exp <= refresh_deadline)
+        .unwrap_or(false)
 }
 
 pub(crate) fn auth_tokens_need_refresh(auth_json: &Value) -> bool {
@@ -479,6 +732,8 @@ pub(crate) async fn refresh_chatgpt_auth_tokens(auth_json: &Value) -> Result<Val
     let refresh_token = tokens
         .get("refresh_token")
         .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .ok_or_else(|| "auth.json 缺少 refresh_token".to_string())?;
     let id_token = tokens
         .get("id_token")
@@ -789,6 +1044,13 @@ fn timestamp_value_to_secs(timestamp: i64) -> i64 {
     }
 }
 
+fn current_unix_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 fn unix_timestamp_to_rfc3339(timestamp: i64) -> Option<String> {
     let datetime = if timestamp.abs() >= 1_000_000_000_000 {
         OffsetDateTime::from_unix_timestamp_nanos(i128::from(timestamp) * 1_000_000).ok()?
@@ -964,6 +1226,11 @@ mod tests {
         format!("header.{payload}.signature")
     }
 
+    fn jwt_with_payload(payload: Value) -> String {
+        let payload = URL_SAFE_NO_PAD.encode(payload.to_string());
+        format!("header.{payload}.signature")
+    }
+
     fn jwt_with_chatgpt_account_id(account_id: &str) -> String {
         let payload = URL_SAFE_NO_PAD.encode(
             json!({
@@ -1033,7 +1300,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_refresh_needed_when_id_token_is_expired() {
+    fn marks_refresh_needed_when_access_token_is_expired() {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("current time should be available")
@@ -1041,8 +1308,8 @@ mod tests {
         let auth_json = json!({
             "auth_mode": "chatgpt",
             "tokens": {
-                "access_token": jwt_with_exp(now + 3600),
-                "id_token": jwt_with_exp(now - 5),
+                "access_token": jwt_with_exp(now - 5),
+                "id_token": jwt_with_exp(now + 3600),
                 "refresh_token": "refresh-token"
             }
         });
@@ -1061,6 +1328,24 @@ mod tests {
             "tokens": {
                 "access_token": jwt_with_exp(now + 3600),
                 "id_token": jwt_with_exp(now + 3600),
+                "refresh_token": "refresh-token"
+            }
+        });
+
+        assert!(!auth_tokens_need_refresh(&auth_json));
+    }
+
+    #[test]
+    fn skips_refresh_when_only_id_token_is_expired() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("current time should be available")
+            .as_secs() as i64;
+        let auth_json = json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": jwt_with_exp(now + 3600),
+                "id_token": jwt_with_exp(now - 5),
                 "refresh_token": "refresh-token"
             }
         });
@@ -1158,6 +1443,67 @@ mod tests {
             normalized.get("last_refresh"),
             Some(&json!("2026-03-16T03:20:39.082325Z"))
         );
+    }
+
+    #[test]
+    fn normalizes_chatgpt_session_json_with_synthetic_id_token() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("current time should be available")
+            .as_secs() as i64;
+        let access_token = jwt_with_payload(json!({
+            "exp": now + 3600,
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "account-from-token",
+                "chatgpt_plan_type": "plus",
+                "chatgpt_user_id": "user-from-token"
+            },
+            "https://api.openai.com/profile": {
+                "email": "token@example.com"
+            }
+        }));
+
+        let normalized = normalize_imported_auth_json(json!({
+            "user": {
+                "id": "user-root",
+                "name": "Root User",
+                "email": "root@example.com"
+            },
+            "account": {
+                "id": "account-root",
+                "planType": "pro"
+            },
+            "accessToken": access_token,
+            "authProvider": "openai",
+            "sessionToken": "session-token"
+        }));
+
+        let tokens = normalized
+            .get("tokens")
+            .and_then(Value::as_object)
+            .expect("session import should produce tokens");
+        assert_eq!(
+            tokens.get("account_id").and_then(Value::as_str),
+            Some("account-root")
+        );
+        assert_eq!(
+            tokens.get("session_token").and_then(Value::as_str),
+            Some("session-token")
+        );
+        assert_eq!(
+            tokens.get("refresh_token").and_then(Value::as_str),
+            Some("")
+        );
+
+        let extracted = extract_auth(&normalized).expect("synthetic id token should be readable");
+        assert_eq!(extracted.account_id, "account-root");
+        assert_eq!(extracted.email.as_deref(), Some("root@example.com"));
+        assert_eq!(extracted.plan_type.as_deref(), Some("pro"));
+        assert!(!auth_tokens_need_keepalive_refresh(
+            &normalized,
+            60,
+            7 * 24 * 60 * 60
+        ));
     }
 
     #[test]
