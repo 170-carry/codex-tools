@@ -645,17 +645,14 @@ impl StoredAccount {
             return self.plan_type.clone();
         }
 
-        self.plan_type
-            .clone()
+        self.usage
+            .as_ref()
+            .and_then(|usage| usage.plan_type.clone())
+            .or_else(|| self.plan_type.clone())
             .or_else(|| {
                 extract_auth(&self.auth_json)
                     .ok()
                     .and_then(|auth| auth.plan_type)
-            })
-            .or_else(|| {
-                self.usage
-                    .as_ref()
-                    .and_then(|usage| usage.plan_type.clone())
             })
     }
 
@@ -692,7 +689,7 @@ impl StoredAccount {
             email: self.email.clone(),
             account_key,
             account_id: self.account_id.clone(),
-            plan_type: self.plan_type.clone(),
+            plan_type: self.resolved_plan_type(),
             api_base_url: self.api_base_url.clone(),
             model_name: self.model_name.clone(),
             balance_text: self.balance_text.clone(),
@@ -966,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_plan_type_prefers_stored_plan_type_over_usage_plan_type() {
+    fn resolved_plan_type_prefers_usage_plan_type_over_stored_plan_type() {
         let account = StoredAccount {
             id: "mixed".to_string(),
             label: "mixed".to_string(),
@@ -997,12 +994,16 @@ mod tests {
             codex_keepalive_last_at: None,
         };
 
-        assert_eq!(account.resolved_plan_type().as_deref(), Some("team"));
-        assert_eq!(account.variant_key(), "shared@example.com|account-1|team");
+        assert_eq!(account.resolved_plan_type().as_deref(), Some("plus"));
+        assert_eq!(
+            account.to_summary(None, None).plan_type.as_deref(),
+            Some("plus")
+        );
+        assert_eq!(account.variant_key(), "shared@example.com|account-1|plus");
     }
 
     #[test]
-    fn resolved_plan_type_falls_back_to_auth_claim_before_usage() {
+    fn resolved_plan_type_prefers_usage_plan_type_over_auth_claim() {
         let account = StoredAccount {
             id: "auth".to_string(),
             label: "auth".to_string(),
@@ -1032,6 +1033,53 @@ mod tests {
             added_at: 1,
             updated_at: 1,
             usage: Some(usage_snapshot("plus")),
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
+        };
+
+        assert_eq!(account.resolved_plan_type().as_deref(), Some("plus"));
+    }
+
+    #[test]
+    fn resolved_plan_type_falls_back_to_auth_claim_when_usage_plan_missing() {
+        let account = StoredAccount {
+            id: "auth-fallback".to_string(),
+            label: "auth-fallback".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("shared@example.com".to_string()),
+            email: Some("shared@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: None,
+            auth_json: json!({
+                "auth_mode": "chatgpt",
+                "tokens": {
+                    "access_token": "token",
+                    "id_token": jwt_with_plan("team")
+                }
+            }),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 1,
+            usage: Some(UsageSnapshot {
+                fetched_at: 1,
+                plan_type: None,
+                five_hour: None,
+                one_week: None,
+                credits: None,
+            }),
             usage_error: None,
             auth_refresh_blocked: false,
             auth_refresh_error: None,

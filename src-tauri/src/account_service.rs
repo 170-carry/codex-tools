@@ -556,23 +556,24 @@ pub(crate) async fn refresh_all_usage_internal(
             account.auth_refresh_error = outcome.auth_refresh_error.clone();
             account.codex_keepalive_last_at = outcome.codex_keepalive_last_at;
             account.email = outcome.auth_email.clone().or(account.email.clone());
-            let preferred_auth_plan_type = if outcome.auth_is_current || outcome.auth_refreshed {
+            let fallback_auth_plan_type = if outcome.auth_is_current || outcome.auth_refreshed {
                 outcome.auth_plan_type.clone()
             } else {
                 outcome.auth_plan_type.clone().or(account.plan_type.clone())
             };
             if let Some(snapshot) = outcome.usage.clone() {
                 let mut resolved_snapshot = snapshot;
-                let resolved_plan_type = preferred_auth_plan_type
-                    .clone()
-                    .or(resolved_snapshot.plan_type.clone());
+                let resolved_plan_type = resolve_usage_first_plan_type(
+                    Some(&resolved_snapshot),
+                    fallback_auth_plan_type.clone(),
+                );
                 resolved_snapshot.plan_type = resolved_plan_type.clone();
                 account.plan_type = resolved_plan_type;
                 account.usage = Some(resolved_snapshot);
             }
             if let Some(err) = outcome.usage_error.clone() {
-                if preferred_auth_plan_type.is_some() {
-                    account.plan_type = preferred_auth_plan_type;
+                if fallback_auth_plan_type.is_some() {
+                    account.plan_type = fallback_auth_plan_type;
                 }
                 account.usage_error = Some(err);
             } else if outcome.usage.is_some() {
@@ -736,6 +737,15 @@ fn should_replace_refresh_target(existing: &RefreshTarget, candidate: &RefreshTa
         return !candidate.auth_refresh_blocked;
     }
     candidate.updated_at > existing.updated_at
+}
+
+fn resolve_usage_first_plan_type(
+    usage: Option<&UsageSnapshot>,
+    fallback_plan_type: Option<String>,
+) -> Option<String> {
+    usage
+        .and_then(|snapshot| snapshot.plan_type.clone())
+        .or(fallback_plan_type)
 }
 
 fn keepalive_max_last_refresh_age_secs(account_key: &str) -> i64 {
@@ -1490,11 +1500,7 @@ fn upsert_prepared_import(
     let now = now_unix_seconds();
     let resolved_label = normalize_custom_label(label)
         .unwrap_or_else(|| fallback_account_label(email.as_deref(), &account_id));
-    let resolved_plan_type = plan_type.or_else(|| {
-        usage
-            .as_ref()
-            .and_then(|snapshot| snapshot.plan_type.clone())
-    });
+    let resolved_plan_type = resolve_usage_first_plan_type(usage.as_ref(), plan_type);
     let resolved_account_key = account_group_key(&principal_id, &account_id);
     let resolved_plan_key = normalize_plan_type_key(resolved_plan_type.as_deref());
     let resolved_variant_key =
@@ -1622,7 +1628,7 @@ fn apply_prepared_import_to_account(
     existing.source_kind = AccountSourceKind::Chatgpt;
     existing.principal_id = Some(principal_id);
     existing.email = email;
-    existing.plan_type = plan_type.or(existing.plan_type.clone());
+    existing.plan_type = plan_type.or_else(|| existing.plan_type.clone());
     existing.auth_json = auth_json;
     existing.api_base_url = None;
     existing.api_key = None;
@@ -1647,11 +1653,7 @@ fn apply_reauthorized_account(existing: &mut StoredAccount, prepared: PreparedIm
     } = prepared;
 
     let now = now_unix_seconds();
-    let resolved_plan_type = plan_type.or_else(|| {
-        usage
-            .as_ref()
-            .and_then(|snapshot| snapshot.plan_type.clone())
-    });
+    let resolved_plan_type = resolve_usage_first_plan_type(usage.as_ref(), plan_type);
 
     existing.principal_id = Some(principal_id);
     existing.source_kind = AccountSourceKind::Chatgpt;
@@ -1899,6 +1901,7 @@ mod tests {
     use super::normalize_api_account_connection_input;
     use super::normalize_usage_error_message;
     use super::refresh_usage_worker_count_from_resources;
+    use super::resolve_usage_first_plan_type;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
     use super::PreparedImport;
@@ -1942,6 +1945,28 @@ mod tests {
             }),
             credits: None,
         }
+    }
+
+    #[test]
+    fn usage_plan_type_overrides_stale_auth_plan_type() {
+        let resolved =
+            resolve_usage_first_plan_type(Some(&usage_snapshot("free")), Some("pro".to_string()));
+
+        assert_eq!(resolved.as_deref(), Some("free"));
+    }
+
+    #[test]
+    fn usage_plan_type_falls_back_when_snapshot_has_no_plan_type() {
+        let usage = UsageSnapshot {
+            fetched_at: 10,
+            plan_type: None,
+            five_hour: None,
+            one_week: None,
+            credits: None,
+        };
+        let resolved = resolve_usage_first_plan_type(Some(&usage), Some("pro".to_string()));
+
+        assert_eq!(resolved.as_deref(), Some("pro"));
     }
 
     #[test]
@@ -2217,7 +2242,7 @@ mod tests {
     }
 
     #[test]
-    fn upsert_prepared_import_prefers_auth_plan_type_over_usage_plan_type() {
+    fn upsert_prepared_import_prefers_usage_plan_type_over_auth_plan_type() {
         let mut store = AccountsStore::default();
         let prepared = PreparedImport {
             principal_id: "shared@example.com".to_string(),
@@ -2232,8 +2257,8 @@ mod tests {
         let (summary, updated_existing) = upsert_prepared_import(&mut store, prepared, None, None);
 
         assert!(!updated_existing);
-        assert_eq!(summary.plan_type.as_deref(), Some("team"));
-        assert_eq!(store.accounts[0].plan_type.as_deref(), Some("team"));
+        assert_eq!(summary.plan_type.as_deref(), Some("plus"));
+        assert_eq!(store.accounts[0].plan_type.as_deref(), Some("plus"));
         assert_eq!(
             store.accounts[0]
                 .usage
