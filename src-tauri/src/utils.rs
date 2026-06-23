@@ -282,9 +282,41 @@ fn preferred_executable_dir_candidates() -> Vec<PathBuf> {
         ] {
             push_unique_candidate(&mut dirs, dir);
         }
+
+        #[cfg(target_os = "windows")]
+        add_winget_package_executable_dirs(&mut dirs, &home);
     }
 
     dirs
+}
+
+#[cfg(target_os = "windows")]
+fn add_winget_package_executable_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
+    let packages_dir = home
+        .join("AppData")
+        .join("Local")
+        .join("Microsoft")
+        .join("WinGet")
+        .join("Packages");
+    let Ok(packages) = fs::read_dir(packages_dir) else {
+        return;
+    };
+
+    for package in packages.flatten() {
+        let package_path = package.path();
+        let Some(package_name) = package_path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !package_name.starts_with("zig.zig_") {
+            continue;
+        }
+        push_unique_candidate(dirs, package_path.clone());
+        if let Ok(children) = fs::read_dir(package_path) {
+            for child in children.flatten() {
+                push_unique_candidate(dirs, child.path());
+            }
+        }
+    }
 }
 
 fn push_unique_dir(dirs: &mut Vec<PathBuf>, candidate: PathBuf) {
