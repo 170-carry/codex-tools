@@ -952,6 +952,7 @@
 }
 
 .modeGroup > button.primary {
+  color: var(--ink);
   background: color-mix(in srgb, var(--card) 84%, var(--surface-tint) 16%);
   border: 1px solid color-mix(in srgb, var(--brand-hot) 26%, var(--line) 74%);
   box-shadow:
