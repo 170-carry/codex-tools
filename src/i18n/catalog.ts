@@ -538,6 +538,7 @@ export type MessageCatalog = {
       groupAriaLabel: string;
       remaining: string;
       used: string;
+      fiveHourRemaining: string;
       hidden: string;
     };
     theme: {

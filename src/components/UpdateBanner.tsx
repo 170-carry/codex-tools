@@ -61,7 +61,7 @@ export function UpdateBanner({
             <p>{copy.updateDialog.subtitle(pendingUpdate.currentVersion)}</p>
           </div>
           <button
-            className="iconButton ghost"
+            className="iconButton ghost closeButton"
             onClick={onClose}
             aria-label={copy.updateDialog.close}
             title={copy.common.close}

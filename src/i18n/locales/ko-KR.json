@@ -515,10 +515,11 @@
     "noSupportedEditors": "재시작 가능한 지원 에디터를 찾지 못했습니다.",
     "trayUsageDisplay": {
       "label": "상태바 표시",
-      "description": "트레이 메뉴에 사용량, 잔여량 또는 숨김 중 무엇을 표시할지 선택합니다.",
+      "description": "트레이 메뉴에 사용량, 잔여량, 5h 잔여만 또는 숨김 중 무엇을 표시할지 선택합니다.",
       "groupAriaLabel": "상태바 표시 모드",
       "remaining": "남음",
       "used": "사용",
+      "fiveHourRemaining": "5h만",
       "hidden": "숨김"
     },
     "theme": {
