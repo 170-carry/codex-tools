@@ -49,9 +49,15 @@ fn remaining_percent(window: Option<&UsageWindow>) -> Option<f64> {
 fn mode_percent(mode: TrayUsageDisplayMode, window: Option<&UsageWindow>) -> Option<f64> {
     match mode {
         TrayUsageDisplayMode::Used => window.map(|item| item.used_percent),
-        TrayUsageDisplayMode::Remaining => remaining_percent(window),
+        TrayUsageDisplayMode::Remaining | TrayUsageDisplayMode::FiveHourRemaining => {
+            remaining_percent(window)
+        }
         TrayUsageDisplayMode::Hidden => None,
     }
+}
+
+fn only_show_five_hour(mode: TrayUsageDisplayMode) -> bool {
+    mode == TrayUsageDisplayMode::FiveHourRemaining
 }
 
 fn read_tray_usage_mode(app: &AppHandle) -> TrayUsageDisplayMode {
@@ -82,6 +88,13 @@ fn tray_account_usage_line(
             .as_ref()
             .and_then(|usage| usage.five_hour.as_ref()),
     ));
+
+    if only_show_five_hour(mode) {
+        let remaining_label =
+            i18n::tray_usage_mode_label(locale, TrayUsageDisplayMode::Remaining);
+        return format!("{current_prefix}{} | {remaining_label} {five_hour}", account.label);
+    }
+
     let one_week = format_percent(mode_percent(
         mode,
         account
@@ -111,6 +124,9 @@ fn build_macos_tray_title(accounts: &[AccountSummary], mode: TrayUsageDisplayMod
                 .as_ref()
                 .and_then(|usage| usage.five_hour.as_ref()),
         ));
+        if only_show_five_hour(mode) {
+            return five_hour;
+        }
         let one_week = format_percent(mode_percent(
             mode,
             current
@@ -119,6 +135,10 @@ fn build_macos_tray_title(accounts: &[AccountSummary], mode: TrayUsageDisplayMod
                 .and_then(|usage| usage.one_week.as_ref()),
         ));
         return format!("5h {five_hour} / 1w {one_week}");
+    }
+
+    if only_show_five_hour(mode) {
+        return "--".to_string();
     }
 
     "5h -- / 1w --".to_string()

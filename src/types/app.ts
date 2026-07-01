@@ -388,7 +388,7 @@ export type PendingUpdateInfo = {
 
 export type ThemeMode = "light" | "dark";
 
-export type TrayUsageDisplayMode = "remaining" | "used" | "hidden";
+export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "hidden";
 
 export type ApiProxyLoadBalanceMode = "average" | "sequential";
 
