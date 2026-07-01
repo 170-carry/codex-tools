@@ -142,6 +142,13 @@
       "business": "BUSINESS"
     }
   },
+  "accountDeleteDialog": {
+    "title": "Delete account?",
+    "description": "{{label}} will be removed from the local account store. Confirm before deleting.",
+    "cancel": "Cancel",
+    "confirm": "Delete",
+    "deleting": "Deleting"
+  },
   "accountsGrid": {
     "emptyTitle": "No accounts yet",
     "emptyDescription": "Click “Add account”. It appears automatically after authorization."

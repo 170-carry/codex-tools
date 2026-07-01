@@ -279,7 +279,12 @@ export function useCodexController() {
   const [renamingAccountId, setRenamingAccountId] = useState<string | null>(
     null,
   );
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<AccountSummary | null>(
+    null,
+  );
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(
+    null,
+  );
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<string | null>(null);
@@ -295,7 +300,6 @@ export function useCodexController() {
   >([]);
   const [hasOpencodeDesktopApp, setHasOpencodeDesktopApp] = useState(false);
   const installingUpdateRef = useRef(false);
-  const deleteConfirmTimerRef = useRef<number | null>(null);
   const settingsUpdateQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const apiProxyUsageLoadSeqRef = useRef(0);
@@ -836,16 +840,6 @@ export function useCodexController() {
       window.clearTimeout(timer);
     };
   }, [notice]);
-
-  useEffect(
-    () => () => {
-      if (deleteConfirmTimerRef.current !== null) {
-        window.clearTimeout(deleteConfirmTimerRef.current);
-        deleteConfirmTimerRef.current = null;
-      }
-    },
-    [],
-  );
 
   const installPendingUpdate = useCallback(
     async (knownUpdate?: NonNullable<Awaited<ReturnType<typeof check>>>) => {
@@ -2439,42 +2433,45 @@ export function useCodexController() {
 
   const onDelete = useCallback(
     async (account: AccountSummary) => {
-      if (pendingDeleteId !== account.id) {
-        setPendingDeleteId(account.id);
-        if (deleteConfirmTimerRef.current !== null) {
-          window.clearTimeout(deleteConfirmTimerRef.current);
-        }
-        deleteConfirmTimerRef.current = window.setTimeout(() => {
-          setPendingDeleteId((current) =>
-            current === account.id ? null : current,
-          );
-          deleteConfirmTimerRef.current = null;
-        }, 5_000);
-        setNotice({
-          type: "info",
-          message: copy.notices.deleteConfirm(account.label),
-        });
+      setDeleteCandidate(account);
+      setNotice({
+        type: "info",
+        message: copy.notices.deleteConfirm(account.label),
+      });
+    },
+    [copy.notices],
+  );
+
+  const onCancelDelete = useCallback(() => {
+    if (deletingAccountId !== null) {
+      return;
+    }
+    setDeleteCandidate(null);
+  }, [deletingAccountId]);
+
+  const onConfirmDelete = useCallback(
+    async () => {
+      if (!deleteCandidate || deletingAccountId !== null) {
         return;
       }
 
-      if (deleteConfirmTimerRef.current !== null) {
-        window.clearTimeout(deleteConfirmTimerRef.current);
-        deleteConfirmTimerRef.current = null;
-      }
-      setPendingDeleteId(null);
-
+      const account = deleteCandidate;
+      setDeletingAccountId(account.id);
       try {
         await invoke<void>("delete_account", { id: account.id });
         setAccounts((prev) => prev.filter((item) => item.id !== account.id));
+        setDeleteCandidate(null);
         setNotice({ type: "ok", message: copy.notices.accountDeleted });
       } catch (error) {
         setNotice({
           type: "error",
           message: copy.notices.deleteFailed(localizeError(String(error))),
         });
+      } finally {
+        setDeletingAccountId(null);
       }
     },
-    [copy.notices, localizeError, pendingDeleteId],
+    [copy.notices, deleteCandidate, deletingAccountId, localizeError],
   );
 
   const onSwitch = useCallback(
@@ -2683,7 +2680,9 @@ export function useCodexController() {
     stoppingCloudflared,
     switchingId,
     renamingAccountId,
-    pendingDeleteId,
+    pendingDeleteId: deleteCandidate?.id ?? null,
+    deleteCandidate,
+    deletingAccountId,
     checkingUpdate,
     installingUpdate,
     updateProgress,
@@ -2749,6 +2748,8 @@ export function useCodexController() {
     onRenameAccountLabel,
     onToggleAccountApiProxy,
     onDelete,
+    onCancelDelete,
+    onConfirmDelete,
     onSwitch,
     onSmartSwitch,
     onUpdateRemoteServers,

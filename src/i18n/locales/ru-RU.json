@@ -142,6 +142,13 @@
       "business": "BUSINESS"
     }
   },
+  "accountDeleteDialog": {
+    "title": "Удалить аккаунт?",
+    "description": "{{label}} будет удален из локального хранилища аккаунтов. Подтвердите удаление.",
+    "cancel": "Отмена",
+    "confirm": "Удалить",
+    "deleting": "Удаление"
+  },
   "accountsGrid": {
     "emptyTitle": "Пока нет аккаунтов",
     "emptyDescription": "Нажмите «Добавить аккаунт». После авторизации он появится автоматически."

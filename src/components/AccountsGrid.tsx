@@ -571,7 +571,6 @@ export function AccountsGrid({
         : null;
       const activeVariant =
         group.variants.find((account) => account.id === switchingId) ||
-        group.variants.find((account) => account.id === pendingDeleteId) ||
         group.variants.find((account) => account.isCurrent) ||
         preferred ||
         fallbackVariant;
@@ -588,7 +587,7 @@ export function AccountsGrid({
       }
       return compareAccountsByRemaining(left.account, right.account);
     });
-  }, [groupedAccounts, pendingDeleteId, preferredVariantByGroup, switchingId]);
+  }, [groupedAccounts, preferredVariantByGroup, switchingId]);
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -908,7 +907,7 @@ export function AccountsGrid({
                             }}
                           >
                             <ActionIcon type="delete" />
-                            {isDeletePending ? copy.accountCard.deleteConfirm : text.deleteAccount}
+                            {text.deleteAccount}
                           </button>
                         </div>
                       ) : null}
@@ -1073,7 +1072,7 @@ export function AccountsGrid({
                   onClick={() => onDelete(selectedRow.account)}
                 >
                   <ActionIcon type="delete" />
-                  <span>{pendingDeleteId === selectedRow.account.id ? copy.accountCard.deleteConfirm : text.deleteAccount}</span>
+                  <span>{text.deleteAccount}</span>
                 </button>
               </div>
             </section>

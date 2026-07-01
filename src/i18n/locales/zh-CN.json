@@ -142,6 +142,13 @@
       "business": "BUSINESS"
     }
   },
+  "accountDeleteDialog": {
+    "title": "确认删除账号",
+    "description": "将从本机账号库删除 {{label}}，此操作需要手动确认。",
+    "cancel": "取消",
+    "confirm": "确认删除",
+    "deleting": "正在删除"
+  },
   "accountsGrid": {
     "emptyTitle": "还没有账号",
     "emptyDescription": "点击“添加账号”，完成授权后会自动出现在列表中。"

@@ -1,6 +1,6 @@
 {
   "name": "@170-carry/ctc",
-  "version": "2.0.1",
+  "version": "2.0.6",
   "description": "Codex Tools command launcher",
   "license": "MIT",
   "homepage": "https://github.com/170-carry/codex-tools",
@@ -25,8 +25,8 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@170-carry/ctc-darwin-arm64": "2.0.1",
-    "@170-carry/ctc-darwin-x64": "2.0.1",
-    "@170-carry/ctc-win32-x64": "2.0.1"
+    "@170-carry/ctc-darwin-arm64": "2.0.6",
+    "@170-carry/ctc-darwin-x64": "2.0.6",
+    "@170-carry/ctc-win32-x64": "2.0.6"
   }
 }

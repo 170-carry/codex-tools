@@ -8,6 +8,7 @@ import { AddAccountDialog } from "./components/AddAccountDialog";
 import { AccountsGrid } from "./components/AccountsGrid";
 import { AppTopBar } from "./components/AppTopBar";
 import { DebugFloatingTool } from "./components/DebugFloatingTool";
+import { DeleteAccountDialog } from "./components/DeleteAccountDialog";
 import { MetaStrip } from "./components/MetaStrip";
 import { NoticeBanner } from "./components/NoticeBanner";
 import { RemoteDeployProgressToast } from "./components/RemoteDeployProgressToast";
@@ -40,6 +41,8 @@ function App() {
     switchingId,
     renamingAccountId,
     pendingDeleteId,
+    deleteCandidate,
+    deletingAccountId,
     checkingUpdate,
     installingUpdate,
     updateProgress,
@@ -135,6 +138,8 @@ function App() {
     onRenameAccountLabel,
     onToggleAccountApiProxy,
     onDelete,
+    onCancelDelete,
+    onConfirmDelete,
     onSwitch,
     onSmartSwitch,
     onUpdateRemoteServers,
@@ -249,6 +254,12 @@ function App() {
           onTestApiConnection={onTestApiAccountConnection}
           onImportFiles={onImportAuthFiles}
           onClose={onCloseAddDialog}
+        />
+        <DeleteAccountDialog
+          account={deleteCandidate}
+          deleting={deletingAccountId === deleteCandidate?.id}
+          onCancel={onCancelDelete}
+          onConfirm={() => void onConfirmDelete()}
         />
 
         <NoticeBanner notice={notice} />

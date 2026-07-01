@@ -142,6 +142,13 @@
       "business": "BUSINESS"
     }
   },
+  "accountDeleteDialog": {
+    "title": "アカウントを削除しますか？",
+    "description": "{{label}} をローカルのアカウント保存先から削除します。削除前に確認してください。",
+    "cancel": "キャンセル",
+    "confirm": "削除",
+    "deleting": "削除中"
+  },
   "accountsGrid": {
     "emptyTitle": "まだアカウントがありません",
     "emptyDescription": "「アカウント追加」をクリックすると、認証後に自動表示されます。"

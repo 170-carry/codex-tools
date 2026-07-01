@@ -142,6 +142,13 @@
       "business": "BUSINESS"
     }
   },
+  "accountDeleteDialog": {
+    "title": "계정을 삭제할까요?",
+    "description": "{{label}} 계정이 로컬 계정 저장소에서 제거됩니다. 삭제 전 확인하세요.",
+    "cancel": "취소",
+    "confirm": "삭제",
+    "deleting": "삭제 중"
+  },
   "accountsGrid": {
     "emptyTitle": "아직 계정이 없습니다",
     "emptyDescription": "“계정 추가”를 클릭하면 인증 후 자동으로 표시됩니다."

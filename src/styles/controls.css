@@ -77,6 +77,58 @@
   font: 700 0.8rem/1.42 var(--font-ui);
 }
 
+.deleteAccountDialog {
+  width: min(420px, calc(100vw - 40px));
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--panel-bg);
+}
+
+.deleteAccountDialogIcon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--line) 74%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.deleteAccountDialogBody {
+  display: grid;
+  gap: 8px;
+}
+
+.deleteAccountDialogBody h2 {
+  margin: 0;
+  color: var(--ink);
+  font: 850 1.2rem/1.2 var(--font-ui);
+}
+
+.deleteAccountDialogBody p {
+  margin: 0;
+  color: var(--muted);
+  font: 650 0.9rem/1.5 var(--font-ui);
+}
+
+.deleteAccountDialogBody strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font: 800 0.95rem/1.35 var(--font-ui);
+}
+
+.deleteAccountDialogActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .addAccountLead {
   margin-top: 10px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);

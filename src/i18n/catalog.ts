@@ -177,6 +177,13 @@ export type MessageCatalog = {
     minuteSuffix: string;
     planLabels: Record<string, string>;
   };
+  accountDeleteDialog: {
+    title: string;
+    description: (label: string) => string;
+    cancel: string;
+    confirm: string;
+    deleting: string;
+  };
   accountsGrid: {
     emptyTitle: string;
     emptyDescription: string;
@@ -719,6 +726,11 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.addAccount.uploadSelectedCount, { count }),
     },
     accountCard: raw.accountCard,
+    accountDeleteDialog: {
+      ...raw.accountDeleteDialog,
+      description: (label) =>
+        fillTemplate(raw.accountDeleteDialog.description, { label }),
+    },
     accountsGrid: raw.accountsGrid,
     bottomDock: raw.bottomDock,
     analytics: raw.analytics,
