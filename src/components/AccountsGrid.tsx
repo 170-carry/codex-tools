@@ -50,6 +50,11 @@ type UiCopy = {
   weekUsage: string;
   remainingSuffix: (value: string) => string;
   resetTime: string;
+  resetCreditsTitle: string;
+  resetCreditsAvailable: (count: number | null) => string;
+  resetCreditsExpiresAt: string;
+  resetCreditsExpand: (hiddenCount: number) => string;
+  resetCreditsCollapse: string;
   planType: string;
   recentSwitches: string;
   switchRecordAction: string;
@@ -200,6 +205,11 @@ function getUiCopy(locale: string): UiCopy {
       weekUsage: "周使用率",
       remainingSuffix: (value) => `剩余 ${value}`,
       resetTime: "重置时间",
+      resetCreditsTitle: "重置卡",
+      resetCreditsAvailable: (count) => (count === null ? "可用数量未知" : `可用 ${count} 张`),
+      resetCreditsExpiresAt: "过期时间（系统本地时间）",
+      resetCreditsExpand: (hiddenCount) => `展开 ${hiddenCount} 张`,
+      resetCreditsCollapse: "收起",
       planType: "套餐类型",
       recentSwitches: "最近切换记录",
       switchRecordAction: "切换到此账号",
@@ -239,6 +249,11 @@ function getUiCopy(locale: string): UiCopy {
     weekUsage: "Weekly usage",
     remainingSuffix: (value) => `${value} remaining`,
     resetTime: "Reset time",
+    resetCreditsTitle: "Reset cards",
+    resetCreditsAvailable: (count) => (count === null ? "Available count unknown" : `${count} available`),
+    resetCreditsExpiresAt: "Expires (system local time)",
+    resetCreditsExpand: (hiddenCount) => `Show ${hiddenCount} more`,
+    resetCreditsCollapse: "Show less",
     planType: "Plan",
     recentSwitches: "Recent switches",
     switchRecordAction: "Switched to this account",
@@ -304,6 +319,11 @@ function formatFullDate(epochSec: number | null | undefined, locale: string, emp
   });
 }
 
+function hasResetCredits(account: AccountSummary): boolean {
+  const resetCredits = account.usage?.resetCredits;
+  return Boolean(resetCredits && (resetCredits.availableCount !== null || resetCredits.credits.length > 0));
+}
+
 function eventTimestampToUnixSeconds(timestamp: number): number {
   const timeOrigin = typeof performance === "undefined" ? 0 : performance.timeOrigin;
   return Math.floor((timeOrigin + timestamp) / 1000);
@@ -346,6 +366,68 @@ function UsageMeter({
         {label} {percent(value)} {text.remainingSuffix(percent(remaining))}
       </span>
     </div>
+  );
+}
+
+function ResetCreditsSection({
+  account,
+  expanded,
+  locale,
+  text,
+  onToggle,
+}: {
+  account: AccountSummary;
+  expanded: boolean;
+  locale: string;
+  text: UiCopy;
+  onToggle: () => void;
+}) {
+  const resetCredits = account.usage?.resetCredits;
+  if (!resetCredits || !hasResetCredits(account)) {
+    return null;
+  }
+
+  const visibleCredits = expanded ? resetCredits.credits : resetCredits.credits.slice(0, 2);
+  const hiddenCount = Math.max(0, resetCredits.credits.length - visibleCredits.length);
+
+  return (
+    <section className="detailCard resetCreditsCard">
+      <div className="detailSectionTitle">
+        <h3>{text.resetCreditsTitle}</h3>
+        <span className="resetCreditsCount">
+          {text.resetCreditsAvailable(resetCredits.availableCount ?? null)}
+        </span>
+      </div>
+      {visibleCredits.length > 0 ? (
+        <div className="resetCreditList">
+          {visibleCredits.map((credit, index) => (
+            <div
+              className="resetCreditItem"
+              key={`${credit.grantedAt ?? "unknown"}-${credit.expiresAt ?? "unknown"}-${index}`}
+            >
+              <span className="resetCreditIndex">{index + 1}</span>
+              <div>
+                <span>{text.resetCreditsExpiresAt}</span>
+                <strong>{formatFullDate(credit.expiresAt, locale, text.emptyValue)}</strong>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {resetCredits.credits.length > 2 ? (
+        <button
+          className="ghost resetCreditsToggle"
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <svg className={expanded ? "resetCreditsToggleIcon isExpanded" : "resetCreditsToggleIcon"} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+          <span>{expanded ? text.resetCreditsCollapse : text.resetCreditsExpand(hiddenCount)}</span>
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -519,6 +601,7 @@ export function AccountsGrid({
   const [openMenuAccountId, setOpenMenuAccountId] = useState<string | null>(null);
   const openMenuRootRef = useRef<HTMLDivElement | null>(null);
   const [switchRecords, setSwitchRecords] = useState<SwitchRecord[]>([]);
+  const [expandedResetCreditsByAccount, setExpandedResetCreditsByAccount] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!openMenuAccountId || typeof document === "undefined") {
@@ -679,6 +762,13 @@ export function AccountsGrid({
       ...current,
     ].slice(0, 5));
     onSwitch(account);
+  };
+
+  const toggleResetCredits = (accountId: string) => {
+    setExpandedResetCreditsByAccount((current) => ({
+      ...current,
+      [accountId]: !current[accountId],
+    }));
   };
 
   return (
@@ -1022,6 +1112,14 @@ export function AccountsGrid({
                 </strong>
               </div>
             </section>
+
+            <ResetCreditsSection
+              account={selectedRow.account}
+              expanded={Boolean(expandedResetCreditsByAccount[selectedRow.account.id])}
+              locale={locale}
+              text={text}
+              onToggle={() => toggleResetCredits(selectedRow.account.id)}
+            />
 
             <section className="detailCard recentSwitchCard">
               <div className="detailSectionTitle">

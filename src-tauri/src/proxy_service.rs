@@ -7051,6 +7051,7 @@ mod tests {
                     reset_at: None,
                 }),
                 credits: None,
+                reset_credits: None,
             }),
             auth_refresh_blocked,
             auth_refresh_error: None,

@@ -1944,6 +1944,7 @@ mod tests {
                 reset_at: Some(30),
             }),
             credits: None,
+            reset_credits: None,
         }
     }
 
@@ -1963,6 +1964,7 @@ mod tests {
             five_hour: None,
             one_week: None,
             credits: None,
+            reset_credits: None,
         };
         let resolved = resolve_usage_first_plan_type(Some(&usage), Some("pro".to_string()));
 

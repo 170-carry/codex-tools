@@ -805,6 +805,7 @@ button.accountTokenExportButton {
 .accountDetailPanel {
   padding: 16px;
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 20px;
   overflow: auto;
@@ -946,6 +947,98 @@ button.accountTokenExportButton {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.resetCreditsCard {
+  gap: 12px;
+}
+
+.resetCreditsCount {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line) 80%);
+  border-radius: 8px;
+  padding: 0 9px;
+  color: color-mix(in srgb, var(--brand) 82%, var(--ink) 18%);
+  background: color-mix(in srgb, var(--brand-soft) 68%, transparent);
+  font: 850 0.66rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.resetCreditList {
+  display: grid;
+  gap: 8px;
+}
+
+.resetCreditItem {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, var(--brand) 20%);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--card) 92%, var(--surface-tint) 8%);
+}
+
+.resetCreditIndex {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand-soft) 78%, transparent);
+  font: 850 0.76rem/1 var(--font-mono);
+}
+
+.resetCreditItem div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.resetCreditItem span:not(.resetCreditIndex) {
+  color: var(--subtle);
+  font: 750 0.66rem/1 var(--font-ui);
+}
+
+.resetCreditItem strong {
+  min-width: 0;
+  color: var(--ink);
+  font: 760 0.78rem/1.2 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.resetCreditsToggle {
+  min-height: 34px;
+  justify-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--brand) 76%, var(--ink) 24%);
+  font: 850 0.72rem/1 var(--font-ui);
+}
+
+.resetCreditsToggleIcon {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 140ms ease;
+}
+
+.resetCreditsToggleIcon.isExpanded {
+  transform: rotate(180deg);
 }
 
 .recentSwitchList {
