@@ -150,6 +150,8 @@ pub(crate) struct UsageSnapshot {
     pub(crate) five_hour: Option<UsageWindow>,
     pub(crate) one_week: Option<UsageWindow>,
     pub(crate) credits: Option<CreditSnapshot>,
+    #[serde(default)]
+    pub(crate) reset_credits: Option<ResetCreditsSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +168,21 @@ pub(crate) struct CreditSnapshot {
     pub(crate) has_credits: bool,
     pub(crate) unlimited: bool,
     pub(crate) balance: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResetCreditsSnapshot {
+    pub(crate) available_count: Option<i64>,
+    #[serde(default)]
+    pub(crate) credits: Vec<ResetCredit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResetCredit {
+    pub(crate) granted_at: Option<i64>,
+    pub(crate) expires_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -868,6 +885,7 @@ mod tests {
                 reset_at: Some(30),
             }),
             credits: None,
+            reset_credits: None,
         }
     }
 
@@ -1079,6 +1097,7 @@ mod tests {
                 five_hour: None,
                 one_week: None,
                 credits: None,
+                reset_credits: None,
             }),
             usage_error: None,
             auth_refresh_blocked: false,

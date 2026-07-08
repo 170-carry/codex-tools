@@ -12,12 +12,23 @@ export type CreditSnapshot = {
   balance: string | null;
 };
 
+export type ResetCredit = {
+  grantedAt: number | null;
+  expiresAt: number | null;
+};
+
+export type ResetCreditsSnapshot = {
+  availableCount: number | null;
+  credits: ResetCredit[];
+};
+
 export type UsageSnapshot = {
   fetchedAt: number;
   planType: string | null;
   fiveHour: UsageWindow | null;
   oneWeek: UsageWindow | null;
   credits: CreditSnapshot | null;
+  resetCredits: ResetCreditsSnapshot | null;
 };
 
 export type CodexTokenTotals = {

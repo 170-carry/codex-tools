@@ -3,6 +3,8 @@ use std::error::Error as StdError;
 
 use crate::app_paths;
 use crate::models::CreditSnapshot;
+use crate::models::ResetCredit;
+use crate::models::ResetCreditsSnapshot;
 use crate::models::UsageSnapshot;
 use crate::models::UsageWindow;
 use crate::utils::now_unix_seconds;
@@ -11,6 +13,7 @@ use crate::utils::truncate_for_error;
 const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com";
 const CODEX_USAGE_PATH: &str = "/api/codex/usage";
 const WHAM_USAGE_PATH: &str = "/wham/usage";
+const WHAM_RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
 const BACKEND_API_PREFIX: &str = "/backend-api";
 
 #[derive(Debug, Deserialize)]
@@ -92,7 +95,8 @@ pub(crate) async fn fetch_usage_snapshot(
                 continue;
             }
         };
-        return Ok(map_usage_payload(payload));
+        let reset_credits = fetch_reset_credits_snapshot(&client, access_token, account_id).await;
+        return Ok(map_usage_payload(payload, reset_credits));
     }
 
     if errors.is_empty() {
@@ -131,6 +135,35 @@ fn resolve_usage_urls() -> Vec<String> {
 
     candidates.push("https://chatgpt.com/backend-api/wham/usage".to_string());
     candidates.push(format!("https://chatgpt.com{CODEX_USAGE_PATH}"));
+
+    let mut deduped = Vec::new();
+    for url in candidates {
+        if !deduped.iter().any(|existing| existing == &url) {
+            deduped.push(url);
+        }
+    }
+    deduped
+}
+
+fn resolve_reset_credit_urls() -> Vec<String> {
+    let normalized = resolve_chatgpt_base_origin();
+    let mut candidates = Vec::new();
+
+    if let Some(origin) = normalized.strip_suffix(BACKEND_API_PREFIX) {
+        candidates.push(format!("{normalized}{WHAM_RESET_CREDITS_PATH}"));
+        candidates.push(format!(
+            "{origin}{BACKEND_API_PREFIX}{WHAM_RESET_CREDITS_PATH}"
+        ));
+    } else {
+        candidates.push(format!(
+            "{normalized}{BACKEND_API_PREFIX}{WHAM_RESET_CREDITS_PATH}"
+        ));
+        candidates.push(format!("{normalized}{WHAM_RESET_CREDITS_PATH}"));
+    }
+
+    candidates.push(format!(
+        "https://chatgpt.com{BACKEND_API_PREFIX}{WHAM_RESET_CREDITS_PATH}"
+    ));
 
     let mut deduped = Vec::new();
     for url in candidates {
@@ -180,7 +213,68 @@ fn read_chatgpt_base_url_from_config() -> Option<String> {
     None
 }
 
-fn map_usage_payload(payload: UsageApiResponse) -> UsageSnapshot {
+async fn fetch_reset_credits_snapshot(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+) -> Option<ResetCreditsSnapshot> {
+    let mut errors = Vec::new();
+
+    for reset_url in resolve_reset_credit_urls() {
+        let response = match client
+            .get(&reset_url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("ChatGPT-Account-Id", account_id)
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                errors.push(format!("{reset_url} -> {}", format_reqwest_error(&err)));
+                continue;
+            }
+        };
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            errors.push(format!(
+                "{reset_url} -> {status}: {}",
+                truncate_for_error(&body, 140)
+            ));
+            continue;
+        }
+
+        let payload: serde_json::Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(err) => {
+                errors.push(format!("{reset_url} -> 解析返回失败: {err}"));
+                continue;
+            }
+        };
+
+        return Some(map_reset_credits_payload(payload));
+    }
+
+    if !errors.is_empty() {
+        log::debug!(
+            "获取 Codex 重置卡失败: {}",
+            errors
+                .iter()
+                .take(2)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
+    }
+    None
+}
+
+fn map_usage_payload(
+    payload: UsageApiResponse,
+    reset_credits: Option<ResetCreditsSnapshot>,
+) -> UsageSnapshot {
     let mut windows: Vec<UsageWindowRaw> = Vec::new();
 
     if let Some(rate_limit) = payload.rate_limit {
@@ -218,6 +312,92 @@ fn map_usage_payload(payload: UsageApiResponse) -> UsageSnapshot {
             unlimited: credit.unlimited,
             balance: credit.balance,
         }),
+        reset_credits,
+    }
+}
+
+fn map_reset_credits_payload(payload: serde_json::Value) -> ResetCreditsSnapshot {
+    let available_count = payload
+        .get("available_count")
+        .or_else(|| payload.get("availableCount"))
+        .and_then(parse_optional_i64);
+
+    let credits = payload
+        .get("credits")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| ResetCredit {
+                    granted_at: get_timestamp_field(
+                        item,
+                        &[
+                            "granted_at",
+                            "grantedAt",
+                            "created_at",
+                            "createdAt",
+                            "obtained_at",
+                            "obtainedAt",
+                        ],
+                    ),
+                    expires_at: get_timestamp_field(
+                        item,
+                        &[
+                            "expires_at",
+                            "expiresAt",
+                            "expiration",
+                            "expire_at",
+                            "expireAt",
+                        ],
+                    ),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    ResetCreditsSnapshot {
+        available_count,
+        credits,
+    }
+}
+
+fn get_timestamp_field(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(parse_optional_i64))
+}
+
+fn parse_optional_i64(value: &serde_json::Value) -> Option<i64> {
+    if let Some(number) = value.as_i64() {
+        return Some(normalize_epoch_seconds(number));
+    }
+
+    if let Some(number) = value.as_u64() {
+        return i64::try_from(number).ok().map(normalize_epoch_seconds);
+    }
+
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        if let Ok(number) = text.parse::<i64>() {
+            return Some(normalize_epoch_seconds(number));
+        }
+        if let Ok(parsed) =
+            time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+        {
+            return Some(parsed.unix_timestamp());
+        }
+    }
+
+    None
+}
+
+fn normalize_epoch_seconds(value: i64) -> i64 {
+    if value > 10_000_000_000 {
+        value / 1000
+    } else {
+        value
     }
 }
 
@@ -237,5 +417,52 @@ fn to_usage_window(window: UsageWindowRaw) -> UsageWindow {
         used_percent: window.used_percent,
         window_seconds: window.limit_window_seconds,
         reset_at: Some(window.reset_at),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_reset_credits_payload;
+    use serde_json::json;
+
+    #[test]
+    fn reset_credits_payload_accepts_common_timestamp_shapes() {
+        let snapshot = map_reset_credits_payload(json!({
+            "available_count": 2,
+            "credits": [
+                {
+                    "granted_at": 1_797_392_400,
+                    "expires_at": 1_799_984_400_000i64
+                },
+                {
+                    "createdAt": "2026-12-15T10:00:00Z",
+                    "expiresAt": "2027-01-14T10:00:00Z"
+                }
+            ]
+        }));
+
+        assert_eq!(snapshot.available_count, Some(2));
+        assert_eq!(snapshot.credits.len(), 2);
+        assert_eq!(snapshot.credits[0].granted_at, Some(1_797_392_400));
+        assert_eq!(snapshot.credits[0].expires_at, Some(1_799_984_400));
+        assert_eq!(snapshot.credits[1].granted_at, Some(1_797_328_800));
+        assert_eq!(snapshot.credits[1].expires_at, Some(1_799_920_800));
+    }
+
+    #[test]
+    fn reset_credits_payload_accepts_camel_case_available_count() {
+        let snapshot = map_reset_credits_payload(json!({
+            "availableCount": "1",
+            "credits": [
+                {
+                    "obtained_at": "1797392400",
+                    "expireAt": null
+                }
+            ]
+        }));
+
+        assert_eq!(snapshot.available_count, Some(1));
+        assert_eq!(snapshot.credits[0].granted_at, Some(1_797_392_400));
+        assert_eq!(snapshot.credits[0].expires_at, None);
     }
 }

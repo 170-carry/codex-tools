@@ -357,6 +357,14 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .resetCreditItem {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .resetCreditItem div {
+    grid-column: 2;
+  }
+
   .proxySectionHeader,
   .cloudflaredToolbar,
   .cloudflaredInstallCard,
