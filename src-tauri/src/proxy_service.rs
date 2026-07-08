@@ -62,8 +62,9 @@ use tauri::AppHandle;
 
 use crate::app_paths;
 use crate::auth::extract_auth;
-use crate::auth::refresh_chatgpt_auth_tokens_serialized;
+use crate::auth::refresh_chatgpt_auth_tokens;
 use crate::models::normalize_api_proxy_sequential_five_hour_limit_percent;
+use crate::models::AccountSourceKind;
 use crate::models::ApiProxyKey;
 use crate::models::ApiProxyKeyUsageLogEntry;
 use crate::models::ApiProxyLoadBalanceMode;
@@ -464,7 +465,7 @@ fn app_proxy_storage_context(
     Ok(new_proxy_storage_context(
         app_data_dir(app)?,
         state.store_lock.clone(),
-        state.auth_refresh_lock.clone(),
+        state.auth_operation_lock.clone(),
         true,
     ))
 }
@@ -4124,14 +4125,33 @@ async fn refresh_proxy_candidate_auth(
     storage: &ProxyStorageContext,
     candidate: &ProxyCandidate,
 ) -> Result<ProxyCandidate, String> {
-    let refreshed_auth_json = match refresh_chatgpt_auth_tokens_serialized(
-        &candidate.auth_json,
-        &storage.auth_refresh_lock,
-    )
-    .await
+    // 串行化“读取最新快照 -> 刷新 -> 写回”，防止并发请求用旧 refresh_token 误封账号。
+    let _auth_guard = storage.auth_refresh_lock.lock().await;
+    if let Some(latest_auth_json) =
+        latest_proxy_account_auth_json(storage, &candidate.account_key).await
     {
+        if auth_json_refresh_token(&latest_auth_json).is_some()
+            && auth_json_refresh_token(&latest_auth_json)
+                != auth_json_refresh_token(&candidate.auth_json)
+        {
+            return proxy_candidate_with_auth_json(candidate, latest_auth_json);
+        }
+    }
+
+    let refreshed_auth_json = match refresh_chatgpt_auth_tokens(&candidate.auth_json).await {
         Ok(refreshed) => refreshed,
         Err(error) => {
+            if let Some(latest_auth_json) =
+                latest_proxy_account_auth_json(storage, &candidate.account_key).await
+            {
+                if auth_json_refresh_token(&latest_auth_json).is_some()
+                    && auth_json_refresh_token(&latest_auth_json)
+                        != auth_json_refresh_token(&candidate.auth_json)
+                {
+                    return proxy_candidate_with_auth_json(candidate, latest_auth_json);
+                }
+            }
+
             if should_suspend_proxy_refresh(&error) {
                 let normalized = normalize_proxy_refresh_error(&error);
                 persist_candidate_refresh_state(
@@ -4156,8 +4176,46 @@ async fn refresh_proxy_candidate_auth(
     )
     .await?;
 
-    let extracted = extract_auth(&refreshed_auth_json)
-        .map_err(|error| format!("刷新后解析账号登录态失败: {error}"))?;
+    proxy_candidate_with_auth_json(candidate, refreshed_auth_json)
+}
+
+async fn latest_proxy_account_auth_json(
+    storage: &ProxyStorageContext,
+    account_key: &str,
+) -> Option<Value> {
+    let _guard = storage.store_lock.lock().await;
+    let store = load_store_from_path(&account_store_path_from_data_dir(&storage.data_dir)).ok()?;
+    store
+        .accounts
+        .into_iter()
+        .filter(|account| {
+            !matches!(account.source_kind, AccountSourceKind::Relay)
+                && account.account_key() == account_key
+        })
+        .max_by(|left, right| {
+            (!left.auth_refresh_blocked)
+                .cmp(&(!right.auth_refresh_blocked))
+                .then(left.updated_at.cmp(&right.updated_at))
+        })
+        .map(|account| account.auth_json)
+}
+
+fn auth_json_refresh_token(auth_json: &Value) -> Option<&str> {
+    auth_json
+        .get("tokens")
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get("refresh_token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn proxy_candidate_with_auth_json(
+    candidate: &ProxyCandidate,
+    auth_json: Value,
+) -> Result<ProxyCandidate, String> {
+    let extracted =
+        extract_auth(&auth_json).map_err(|error| format!("刷新后解析账号登录态失败: {error}"))?;
 
     Ok(ProxyCandidate {
         id: candidate.id.clone(),
@@ -4165,7 +4223,7 @@ async fn refresh_proxy_candidate_auth(
         account_key: candidate.account_key.clone(),
         account_id: extracted.account_id,
         access_token: extracted.access_token,
-        auth_json: refreshed_auth_json,
+        auth_json,
         variant_key: candidate.variant_key.clone(),
         plan_type: candidate.plan_type.clone().or(extracted.plan_type),
         usage: candidate.usage.clone(),

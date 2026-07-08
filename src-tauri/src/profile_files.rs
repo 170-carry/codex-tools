@@ -445,6 +445,9 @@ fn build_chatgpt_profile_config(current_config: Option<&str>) -> String {
     if had_base_url {
         document.remove("model");
     }
+    // Codex filters local history by model_provider; account switching should
+    // keep official login history on the built-in provider key.
+    document["model_provider"] = value("openai");
     document.to_string()
 }
 
@@ -456,6 +459,9 @@ fn build_relay_profile_config(
     let mut document = parse_config_or_default(current_config);
     document["openai_base_url"] = value(base_url);
     document["model"] = value(model_name);
+    // Relay/API accounts still use the built-in OpenAI-compatible provider so
+    // existing Codex history remains visible after switching account types.
+    document["model_provider"] = value("openai");
     document.to_string()
 }
 

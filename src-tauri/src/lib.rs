@@ -9,6 +9,7 @@ mod i18n;
 mod models;
 mod opencode;
 mod profile_files;
+mod provider_sync;
 pub mod proxy_daemon;
 mod proxy_service;
 mod remote_service;
@@ -39,6 +40,7 @@ use tauri::State;
 use tauri::WindowEvent;
 
 use models::AccountSummary;
+use models::AccountsStore;
 use models::ApiProxyKey;
 use models::ApiProxyKeyUsageLogEntry;
 use models::ApiProxyStatus;
@@ -59,6 +61,7 @@ use models::PreparedOauthLogin;
 use models::RemoteProxyStatus;
 use models::RemoteServerConfig;
 use models::StartCloudflaredTunnelInput;
+use models::StoredAccount;
 use models::SwitchAccountResult;
 use models::TestApiAccountConnectionInput;
 use models::TestApiAccountConnectionResult;
@@ -76,6 +79,7 @@ const CODEX_COST_ANALYTICS_CACHE_FILE: &str = "codex-cost-analytics-cache.json";
 const APP_MENU_SETTINGS_ID: &str = "app_menu_settings";
 const APP_MENU_CHECK_UPDATES_ID: &str = "app_menu_check_updates";
 const AUTH_KEEPALIVE_INTERVAL_SECS: u64 = 300;
+const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
 
 #[cfg(target_os = "macos")]
 const APP_MENU_ABOUT_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/icon.png");
@@ -299,6 +303,14 @@ async fn clear_pending_oauth_if_matches(state: &AppState, expected_state: &str) 
     }
 }
 
+async fn ensure_no_pending_auth_operation(state: &AppState) -> Result<(), String> {
+    // OAuth 等待回调期间不长时间持有 auth_operation_lock，因此入口处显式阻断其它 auth 写操作。
+    if state.pending_oauth_login.lock().await.is_some() {
+        return Err(PENDING_AUTH_OPERATION_MESSAGE.to_string());
+    }
+    Ok(())
+}
+
 async fn import_oauth_auth_json(
     app: &AppHandle,
     state: &AppState,
@@ -330,6 +342,7 @@ async fn complete_oauth_login_internal(
     state: &AppState,
     callback_url: &str,
 ) -> Result<ImportAccountsResult, String> {
+    let _auth_guard = state.auth_operation_lock.lock().await;
     let pending = {
         let guard = state.pending_oauth_login.lock().await;
         guard
@@ -559,6 +572,8 @@ async fn import_current_auth_account(
     state: State<'_, AppState>,
     label: Option<String>,
 ) -> Result<AccountSummary, String> {
+    let _auth_guard = state.auth_operation_lock.lock().await;
+    ensure_no_pending_auth_operation(state.inner()).await?;
     let summary =
         account_service::import_current_auth_account_internal(&app, state.inner(), label).await?;
     let _ = tray::refresh_macos_tray_snapshot(&app);
@@ -589,6 +604,8 @@ async fn import_auth_json_accounts(
     state: State<'_, AppState>,
     items: Vec<AuthJsonImportInput>,
 ) -> Result<ImportAccountsResult, String> {
+    let _auth_guard = state.auth_operation_lock.lock().await;
+    ensure_no_pending_auth_operation(state.inner()).await?;
     let result =
         account_service::import_auth_json_accounts_internal(&app, state.inner(), items).await?;
     if result.imported_count > 0 || result.updated_count > 0 {
@@ -681,12 +698,16 @@ async fn refresh_all_usage(
     state: State<'_, AppState>,
     force_auth_refresh: Option<bool>,
 ) -> Result<Vec<AccountSummary>, String> {
-    let summaries = account_service::refresh_all_usage_internal(
-        &app,
-        state.inner(),
-        force_auth_refresh.unwrap_or(false),
-    )
-    .await?;
+    let force_auth_refresh = force_auth_refresh.unwrap_or(false);
+    if force_auth_refresh {
+        {
+            let _auth_guard = state.auth_operation_lock.lock().await;
+            ensure_no_pending_auth_operation(state.inner()).await?;
+        }
+    }
+    let summaries =
+        account_service::refresh_all_usage_internal(&app, state.inner(), force_auth_refresh)
+            .await?;
     let _ = tray::update_macos_tray_snapshot(&app, &summaries);
     Ok(summaries)
 }
@@ -1133,8 +1154,8 @@ async fn prepare_oauth_login(
     state: State<'_, AppState>,
     account_id: Option<String>,
 ) -> Result<PreparedOauthLogin, String> {
-    let _oauth_guard = state.oauth_flow_lock.lock().await;
     stop_oauth_callback_listener(state.inner()).await;
+    let _auth_guard = state.auth_operation_lock.lock().await;
     let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
     let (mut pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
     pending.reauthorize_account_id = account_id.and_then(|value| {
@@ -1164,7 +1185,6 @@ async fn complete_oauth_callback_login(
     state: State<'_, AppState>,
     callback_url: String,
 ) -> Result<ImportAccountsResult, String> {
-    let _oauth_guard = state.oauth_flow_lock.lock().await;
     let pending = {
         let guard = state.pending_oauth_login.lock().await;
         guard
@@ -1179,11 +1199,12 @@ async fn complete_oauth_callback_login(
 
 #[tauri::command]
 async fn cancel_oauth_login(state: State<'_, AppState>) -> Result<(), String> {
-    let _oauth_guard = state.oauth_flow_lock.lock().await;
+    let auth_guard = state.auth_operation_lock.lock().await;
     {
         let mut guard = state.pending_oauth_login.lock().await;
         *guard = None;
     }
+    drop(auth_guard);
     stop_oauth_callback_listener(state.inner()).await;
     Ok(())
 }
@@ -1193,6 +1214,10 @@ mod tests {
     use super::bind_oauth_callback_listener;
     use super::build_oauth_callback_url;
     use super::delete_codex_session_from_roots;
+    use super::should_noop_switch_account;
+    use crate::models::AccountsStore;
+    use crate::models::StoredAccount;
+    use serde_json::json;
     use std::fs;
     use std::net::TcpListener;
     use std::path::Path;
@@ -1209,6 +1234,38 @@ mod tests {
             "codex-tools-lib-test-{name}-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    fn test_chatgpt_account(id: &str, plan_type: &str) -> StoredAccount {
+        StoredAccount {
+            id: id.to_string(),
+            label: "test".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("user@example.com".to_string()),
+            email: Some("user@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: Some(plan_type.to_string()),
+            auth_json: json!({ "tokens": {} }),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 1,
+            usage: None,
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            api_proxy_enabled: true,
+            codex_keepalive_last_at: None,
+        }
     }
 
     fn write_test_session(path: &Path, session_id: &str) {
@@ -1263,6 +1320,80 @@ mod tests {
 
         assert_eq!(resolved_port, preferred_port);
         assert!(!listeners.is_empty());
+    }
+
+    #[test]
+    fn switch_noop_requires_active_id_and_matching_auth_variant() {
+        let account = test_chatgpt_account("account-row-1", "team");
+        let mut store = AccountsStore::default();
+        store.settings.active_account_id = Some(account.id.clone());
+        let current_variant_key = account.variant_key();
+
+        assert!(should_noop_switch_account(
+            &store,
+            &account,
+            None,
+            Some(&current_variant_key),
+        ));
+    }
+
+    #[test]
+    fn switch_noop_rejects_active_id_when_current_auth_is_unknown() {
+        let account = test_chatgpt_account("account-row-1", "team");
+        let mut store = AccountsStore::default();
+        store.settings.active_account_id = Some(account.id.clone());
+
+        assert!(!should_noop_switch_account(&store, &account, None, None));
+    }
+
+    #[test]
+    fn switch_noop_rejects_relay_active_id_without_current_auth_match() {
+        let mut account = test_chatgpt_account("relay-row-1", "relay");
+        account.source_kind = crate::models::AccountSourceKind::Relay;
+        account.api_base_url = Some("https://example.test/v1".to_string());
+        account.model_name = Some("gpt-5.4".to_string());
+        let mut store = AccountsStore::default();
+        store.settings.active_account_id = Some(account.id.clone());
+
+        assert!(!should_noop_switch_account(&store, &account, None, None));
+    }
+
+    #[test]
+    fn switch_noop_accepts_account_key_when_variant_is_unknown() {
+        let account = test_chatgpt_account("account-row-1", "team");
+        let mut store = AccountsStore::default();
+        store.settings.active_account_id = Some(account.id.clone());
+        let current_account_key = account.account_key();
+
+        assert!(should_noop_switch_account(
+            &store,
+            &account,
+            Some(&current_account_key),
+            None,
+        ));
+    }
+
+    #[test]
+    fn switch_noop_rejects_other_current_auth_or_active_id_mismatch() {
+        let account = test_chatgpt_account("account-row-1", "team");
+        let mut store = AccountsStore::default();
+        store.settings.active_account_id = Some(account.id.clone());
+        let current_account_key = account.account_key();
+
+        assert!(!should_noop_switch_account(
+            &store,
+            &account,
+            Some("other-user@example.com|account-2"),
+            Some("user@example.com|account-1|plus"),
+        ));
+
+        store.settings.active_account_id = Some("other-row".to_string());
+        assert!(!should_noop_switch_account(
+            &store,
+            &account,
+            Some(&current_account_key),
+            Some(&account.variant_key()),
+        ));
     }
 
     #[test]
@@ -1339,120 +1470,169 @@ async fn switch_account_and_launch(
     restart_editors_on_switch: Option<bool>,
     restart_editor_targets: Option<Vec<EditorAppId>>,
 ) -> Result<SwitchAccountResult, String> {
-    let store = {
-        let _guard = state.store_lock.lock().await;
-        store::load_store(&app)?
-    };
+    let (
+        account,
+        should_sync_opencode,
+        should_restart_opencode_desktop,
+        should_restart_editors,
+        effective_restart_targets,
+        configured_codex_launch_path,
+        launch_codex_as_admin,
+    ) = {
+        let _auth_guard = state.auth_operation_lock.lock().await;
+        ensure_no_pending_auth_operation(state.inner()).await?;
+        let store = {
+            let _guard = state.store_lock.lock().await;
+            store::load_store(&app)?
+        };
 
-    let mut account = store
-        .accounts
-        .iter()
-        .find(|account| account.id == id)
-        .cloned()
-        .ok_or_else(|| "找不到要切换的账号".to_string())?;
+        let mut account = store
+            .accounts
+            .iter()
+            .find(|account| account.id == id)
+            .cloned()
+            .ok_or_else(|| "找不到要切换的账号".to_string())?;
+        let mut refreshed_auth_updated_at = None;
 
-    if matches!(account.source_kind, models::AccountSourceKind::Chatgpt)
-        && auth::auth_tokens_need_refresh(&account.auth_json)
-    {
-        if account.auth_refresh_blocked {
-            return Err(format!(
-                "切换账号前刷新登录令牌失败: {}",
-                account
-                    .auth_refresh_error
-                    .clone()
-                    .unwrap_or_else(|| "工具保存的授权快照已失效，请重新登录授权。".to_string())
-            ));
+        let current_account_key = auth::current_auth_account_key();
+        let current_variant_key = auth::current_auth_variant_key();
+        if should_noop_switch_account(
+            &store,
+            &account,
+            current_account_key.as_deref(),
+            current_variant_key.as_deref(),
+        ) {
+            let mut result = noop_switch_account_result(&account);
+            result.provider_sync_error = provider_sync::sync_current_provider(None)
+                .err()
+                .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
+            return Ok(result);
         }
 
-        let refreshed_auth = match auth::refresh_chatgpt_auth_tokens_serialized(
-            &account.auth_json,
-            &state.auth_refresh_lock,
-        )
-        .await
-        {
-            Ok(refreshed_auth) => refreshed_auth,
-            Err(error) => {
-                let normalized_error = normalize_switch_refresh_error(&error);
-                let should_block_refresh = normalized_error
-                    == "当前账号的 refresh_token 已失效或已被轮换，请重新登录授权。"
-                    || normalized_error == "当前账号授权已过期，请重新登录授权。";
+        if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
+            let account_key = account.account_key();
+            let latest_auth = account_service::refresh_latest_auth_json_if_newer(
+                &app,
+                state.inner(),
+                &account_key,
+                &account.auth_json,
+            )
+            .await;
+            let mut auth_snapshot_changed = latest_auth != account.auth_json;
+            account.auth_json = latest_auth;
 
-                if should_block_refresh {
-                    let blocked_message = "工具保存的授权快照已失效，请重新登录授权。";
-                    match app_paths::app_data_dir(&app) {
-                        Ok(data_dir) => {
-                            let store_path = store::account_store_path_from_data_dir(&data_dir);
-                            if let Err(persist_error) =
-                                store::update_account_group_refresh_state_in_path(
-                                    &store_path,
-                                    &account.account_key(),
-                                    None,
-                                    true,
-                                    Some(blocked_message),
-                                    utils::now_unix_seconds(),
-                                    true,
+            if auth::auth_tokens_need_refresh(&account.auth_json) {
+                if account.auth_refresh_blocked {
+                    return Err(format!(
+                        "切换账号前刷新登录令牌失败: {}",
+                        account.auth_refresh_error.clone().unwrap_or_else(|| {
+                            "工具保存的授权快照已失效，请重新登录授权。".to_string()
+                        })
+                    ));
+                }
+
+                match auth::refresh_chatgpt_auth_tokens(&account.auth_json).await {
+                    Ok(refreshed_auth) => {
+                        account.auth_json = refreshed_auth;
+                        auth_snapshot_changed = true;
+                    }
+                    Err(error) => {
+                        // stale/reused/revoked 先尝试复用本地较新的快照，避免把并发刷新误判成永久失效。
+                        if let Some(recovered) =
+                            account_service::recover_refresh_failure_from_latest_snapshot(
+                                &app,
+                                state.inner(),
+                                &account_key,
+                                &account.auth_json,
+                                &error,
+                            )
+                            .await
+                        {
+                            account.auth_json = recovered;
+                            auth_snapshot_changed = true;
+                        } else {
+                            let normalized_error = normalize_switch_refresh_error(&error);
+                            let should_block_refresh = normalized_error
+                                == "当前账号的 refresh_token 已失效或已被轮换，请重新登录授权。"
+                                || normalized_error == "当前账号授权已过期，请重新登录授权。";
+
+                            if should_block_refresh {
+                                let blocked_message = "工具保存的授权快照已失效，请重新登录授权。";
+                                if let Err(persist_error) = persist_switch_refresh_blocked(
+                                    &app,
+                                    state.inner(),
+                                    &account_key,
+                                    blocked_message,
                                 )
-                            {
-                                log::warn!("切换失败后写回账号停刷状态失败: {persist_error}");
+                                .await
+                                {
+                                    log::warn!("切换失败后写回账号停刷状态失败: {persist_error}");
+                                }
                             }
-                        }
-                        Err(path_error) => {
-                            log::warn!("切换失败后获取应用数据目录失败: {path_error}");
+
+                            return Err(format!("切换账号前刷新登录令牌失败: {normalized_error}"));
                         }
                     }
                 }
-
-                return Err(format!("切换账号前刷新登录令牌失败: {normalized_error}"));
             }
-        };
 
-        account.auth_json = refreshed_auth.clone();
+            if auth_snapshot_changed {
+                refreshed_auth_updated_at = Some(utils::now_unix_seconds());
+            }
+        }
 
-        let refreshed_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| format!("读取系统时间失败: {error}"))?
-            .as_secs() as i64;
-        let _guard = state.store_lock.lock().await;
-        let mut latest_store = store::load_store(&app)?;
-        let stored_account = latest_store
-            .accounts
-            .iter_mut()
-            .find(|stored| stored.id == id)
-            .ok_or_else(|| "找不到要切换的账号".to_string())?;
-        stored_account.auth_json = refreshed_auth;
-        stored_account.updated_at = refreshed_at;
-        stored_account.auth_refresh_blocked = false;
-        stored_account.auth_refresh_error = None;
-        store::save_store(&app, &latest_store)?;
+        let should_sync_opencode = store.settings.sync_opencode_openai_auth;
+        let should_restart_opencode_desktop =
+            should_sync_opencode && store.settings.restart_opencode_desktop_on_switch;
+        let should_restart_editors =
+            restart_editors_on_switch.unwrap_or(store.settings.restart_editors_on_switch);
+        let effective_restart_targets =
+            restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
+        let configured_codex_launch_path = store.settings.codex_launch_path.clone();
+        let launch_codex_as_admin = store.settings.launch_codex_as_admin;
+        {
+            let _guard = state.store_lock.lock().await;
+            let mut latest_store = store::load_store(&app)?;
+            let stored_account = latest_store
+                .accounts
+                .iter_mut()
+                .find(|stored| stored.id == id)
+                .ok_or_else(|| "找不到要切换的账号".to_string())?;
+            if let Some(refreshed_at) = refreshed_auth_updated_at {
+                stored_account.auth_json = account.auth_json.clone();
+                stored_account.updated_at = refreshed_at;
+                stored_account.auth_refresh_blocked = false;
+                stored_account.auth_refresh_error = None;
+            }
+            profile_files::sync_account_profile_in_store_path(
+                &store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?),
+                stored_account,
+            )?;
+            profile_files::apply_account_profile(stored_account)?;
+            latest_store.settings.active_account_id = Some(stored_account.id.clone());
+            account = stored_account.clone();
+            store::save_store(&app, &latest_store)?;
+        }
+        let _ = tray::refresh_macos_tray_snapshot(&app);
+
+        (
+            account,
+            should_sync_opencode,
+            should_restart_opencode_desktop,
+            should_restart_editors,
+            effective_restart_targets,
+            configured_codex_launch_path,
+            launch_codex_as_admin,
+        )
+    };
+
+    let should_launch_codex = launch_codex.unwrap_or(true);
+    if should_launch_codex {
+        force_stop_running_codex();
     }
-
-    let should_sync_opencode = store.settings.sync_opencode_openai_auth;
-    let should_restart_opencode_desktop =
-        should_sync_opencode && store.settings.restart_opencode_desktop_on_switch;
-    let should_restart_editors =
-        restart_editors_on_switch.unwrap_or(store.settings.restart_editors_on_switch);
-    let effective_restart_targets =
-        restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
-    let configured_codex_launch_path = store.settings.codex_launch_path.clone();
-    let launch_codex_as_admin = store.settings.launch_codex_as_admin;
-    {
-        let _guard = state.store_lock.lock().await;
-        let mut latest_store = store::load_store(&app)?;
-        let stored_account = latest_store
-            .accounts
-            .iter_mut()
-            .find(|stored| stored.id == id)
-            .ok_or_else(|| "找不到要切换的账号".to_string())?;
-        profile_files::sync_account_profile_in_store_path(
-            &store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?),
-            stored_account,
-        )?;
-        profile_files::apply_account_profile(stored_account)?;
-        latest_store.settings.active_account_id = Some(stored_account.id.clone());
-        account = stored_account.clone();
-        store::save_store(&app, &latest_store)?;
-    }
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let provider_sync_error = provider_sync::sync_current_provider(None)
+        .err()
+        .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
 
     let mut opencode_synced = false;
     let mut opencode_sync_error = None;
@@ -1492,10 +1672,10 @@ async fn switch_account_and_launch(
     };
 
     // 向后兼容：旧前端未传参数时仍按“切换并启动”处理。
-    let should_launch_codex = launch_codex.unwrap_or(true);
     if !should_launch_codex {
         return Ok(SwitchAccountResult {
             account_id: account.account_id,
+            no_op: false,
             launched_app_path: None,
             used_fallback_cli: false,
             opencode_synced,
@@ -1504,11 +1684,9 @@ async fn switch_account_and_launch(
             opencode_desktop_restart_error,
             restarted_editor_apps,
             editor_restart_error,
+            provider_sync_error,
         });
     }
-
-    // 切换时强制结束旧实例，避免触发“是否退出”确认弹窗。
-    force_stop_running_codex();
 
     let mut app_launch_error = None;
     if let Some(path) = cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
@@ -1518,6 +1696,7 @@ async fn switch_account_and_launch(
             Ok(()) => {
                 return Ok(SwitchAccountResult {
                     account_id: account.account_id,
+                    no_op: false,
                     launched_app_path: Some(path.to_string_lossy().to_string()),
                     used_fallback_cli: false,
                     opencode_synced,
@@ -1526,6 +1705,7 @@ async fn switch_account_and_launch(
                     opencode_desktop_restart_error,
                     restarted_editor_apps,
                     editor_restart_error,
+                    provider_sync_error: provider_sync_error.clone(),
                 });
             }
             Err(error) => {
@@ -1551,6 +1731,7 @@ async fn switch_account_and_launch(
                 Ok(()) => {
                     return Ok(SwitchAccountResult {
                         account_id: account.account_id,
+                        no_op: false,
                         launched_app_path: None,
                         used_fallback_cli: false,
                         opencode_synced,
@@ -1559,6 +1740,7 @@ async fn switch_account_and_launch(
                         opencode_desktop_restart_error,
                         restarted_editor_apps,
                         editor_restart_error,
+                        provider_sync_error: provider_sync_error.clone(),
                     });
                 }
                 Err(error) => {
@@ -1632,6 +1814,7 @@ async fn switch_account_and_launch(
 
     Ok(SwitchAccountResult {
         account_id: account.account_id,
+        no_op: false,
         launched_app_path: None,
         used_fallback_cli: true,
         opencode_synced,
@@ -1640,7 +1823,66 @@ async fn switch_account_and_launch(
         opencode_desktop_restart_error,
         restarted_editor_apps,
         editor_restart_error,
+        provider_sync_error,
     })
+}
+
+fn should_noop_switch_account(
+    store: &AccountsStore,
+    account: &StoredAccount,
+    current_account_key: Option<&str>,
+    current_variant_key: Option<&str>,
+) -> bool {
+    if store.settings.active_account_id.as_deref() != Some(account.id.as_str()) {
+        return false;
+    }
+
+    if current_variant_key == Some(account.variant_key().as_str()) {
+        return true;
+    }
+    if current_variant_key.is_none() && current_account_key == Some(account.account_key().as_str())
+    {
+        return true;
+    }
+
+    false
+}
+
+fn noop_switch_account_result(account: &StoredAccount) -> SwitchAccountResult {
+    SwitchAccountResult {
+        account_id: account.account_id.clone(),
+        no_op: true,
+        launched_app_path: None,
+        used_fallback_cli: false,
+        opencode_synced: false,
+        opencode_sync_error: None,
+        opencode_desktop_restarted: false,
+        opencode_desktop_restart_error: None,
+        restarted_editor_apps: Vec::new(),
+        editor_restart_error: None,
+        provider_sync_error: None,
+    }
+}
+
+async fn persist_switch_refresh_blocked(
+    app: &AppHandle,
+    state: &AppState,
+    account_key: &str,
+    blocked_message: &str,
+) -> Result<(), String> {
+    let _guard = state.store_lock.lock().await;
+    let data_dir = app_paths::app_data_dir(app)?;
+    let store_path = store::account_store_path_from_data_dir(&data_dir);
+    store::update_account_group_refresh_state_in_path(
+        &store_path,
+        account_key,
+        None,
+        true,
+        Some(blocked_message),
+        utils::now_unix_seconds(),
+        true,
+    )?;
+    Ok(())
 }
 
 fn launch_codex_app(

@@ -306,11 +306,14 @@ export function useCodexController() {
   const apiProxyUsagePollInFlightRef = useRef(false);
   const reloginPromptedAccountKeysRef = useRef<Set<string>>(new Set());
   const profileIntegrityPromptedRef = useRef(false);
+  const switchInFlightRef = useRef(false);
 
   const sortedAccounts = useMemo(
     () => sortAccountsByRemaining(accounts),
     [accounts],
   );
+  const authBusy =
+    importingAccounts || oauthWaitingForCallback || switchingId !== null;
 
   const localizeError = useCallback(
     (error: string) => localizeBackendError(error, locale),
@@ -2476,6 +2479,15 @@ export function useCodexController() {
 
   const onSwitch = useCallback(
     async (account: AccountSummary) => {
+      if (
+        switchInFlightRef.current ||
+        importingAccounts ||
+        oauthWaitingForCallback
+      ) {
+        return false;
+      }
+
+      switchInFlightRef.current = true;
       setSwitchingId(account.id);
       try {
         const result = await invoke<SwitchAccountResult>(
@@ -2489,6 +2501,25 @@ export function useCodexController() {
           },
         );
         await loadAccounts();
+
+        if (result.noOp) {
+          // 兼容后端判定出的同账号 no-op，只刷新状态并提示当前账号。
+          if (result.providerSyncError) {
+            setNotice({
+              type: "error",
+              message: copy.notices.providerSyncFailed(
+                copy.notices.accountAlreadyCurrent,
+                localizeError(result.providerSyncError),
+              ),
+            });
+          } else {
+            setNotice({
+              type: "info",
+              message: copy.notices.accountAlreadyCurrent,
+            });
+          }
+          return false;
+        }
 
         let baseNotice: Notice;
         if (!settings.launchCodexAfterSwitch) {
@@ -2569,21 +2600,41 @@ export function useCodexController() {
           }
         }
 
+        if (result.providerSyncError) {
+          baseNotice = {
+            type: "error",
+            message: copy.notices.providerSyncFailed(
+              baseNotice.message,
+              localizeError(result.providerSyncError),
+            ),
+          };
+        }
+
         setNotice(baseNotice);
+        return true;
       } catch (error) {
+        try {
+          await loadAccounts();
+        } catch {
+          // 切换失败时后端可能已写入停刷状态，尽量刷新；刷新失败仍保留原错误提示。
+        }
         setNotice({
           type: "error",
           message: copy.notices.switchFailed(localizeError(String(error))),
         });
+        return false;
       } finally {
+        switchInFlightRef.current = false;
         setSwitchingId(null);
       }
     },
     [
       copy.editorAppLabels,
       copy.notices,
+      importingAccounts,
       loadAccounts,
       localizeError,
+      oauthWaitingForCallback,
       settings.launchCodexAfterSwitch,
       settings.syncOpencodeOpenaiAuth,
       settings.restartOpencodeDesktopOnSwitch,
@@ -2593,7 +2644,7 @@ export function useCodexController() {
   );
 
   const onSmartSwitch = useCallback(async () => {
-    if (switchingId) {
+    if (authBusy) {
       return;
     }
 
@@ -2616,10 +2667,10 @@ export function useCodexController() {
     await onSwitch(target);
   }, [
     copy.notices,
+    authBusy,
     onSwitch,
     settings.smartSwitchIncludeApi,
     sortedAccounts,
-    switchingId,
   ]);
 
   const onUpdateRemoteServers = useCallback(
@@ -2646,6 +2697,7 @@ export function useCodexController() {
     reauthorizeAccount,
     oauthWaitingForCallback,
     exportingAccounts,
+    authBusy,
     apiProxyStatus,
     apiProxyKeys,
     apiProxyKeyLogs,
@@ -2753,6 +2805,6 @@ export function useCodexController() {
     onSwitch,
     onSmartSwitch,
     onUpdateRemoteServers,
-    smartSwitching: switchingId !== null,
+    smartSwitching: authBusy,
   };
 }

@@ -58,6 +58,10 @@ Usage:
   ctc import <path...> [--json]
   ctc export [path] [--json]
   ctc usage [account] [--cached] [--json]
+  ctc provider status [--json]
+  ctc provider sync
+  ctc provider switch <provider>
+  ctc provider restore [backup-id]
   ctc doctor [--json]
   ctc report [--json]
   ctc tui
@@ -70,6 +74,7 @@ Commands:
   import   Import auth/account JSON files or current ~/.codex/auth.json
   export   Export stored accounts as JSON
   usage    Refresh or show account usage
+  provider Inspect or repair Codex history provider metadata
   doctor   Check local paths, Codex CLI, auth files, and account store
   report   Print a full diagnostic report
   tui      Open a terminal account selector

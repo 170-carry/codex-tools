@@ -38,6 +38,7 @@ function App() {
     importingAccounts,
     oauthWaitingForCallback,
     exportingAccounts,
+    authBusy,
     switchingId,
     renamingAccountId,
     pendingDeleteId,
@@ -299,6 +300,7 @@ function App() {
                 tokenUsageError={tokenUsageError}
                 loading={loading}
                 exportingAccounts={exportingAccounts}
+                authBusy={authBusy}
                 switchingId={switchingId}
                 renamingAccountId={renamingAccountId}
                 pendingDeleteId={pendingDeleteId}
@@ -311,7 +313,7 @@ function App() {
                 onToggleApiProxy={(account, enabled) =>
                   onToggleAccountApiProxy(account, enabled)
                 }
-                onSwitch={(account) => void onSwitch(account)}
+                onSwitch={(account) => onSwitch(account)}
                 onDelete={(account) => void onDelete(account)}
               />
             </div>

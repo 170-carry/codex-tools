@@ -12,6 +12,7 @@ import {
 type AccountCardProps = {
   accounts: AccountSummary[];
   exportingAccounts: boolean;
+  authBusy: boolean;
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
@@ -19,7 +20,7 @@ type AccountCardProps = {
   onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onToggleApiProxy: (account: AccountSummary, enabled: boolean) => Promise<boolean>;
-  onSwitch: (account: AccountSummary) => void;
+  onSwitch: (account: AccountSummary) => Promise<boolean>;
   onDelete: (account: AccountSummary) => void;
 };
 
@@ -158,6 +159,7 @@ function pickDefaultAccount(accounts: AccountSummary[]): AccountSummary | null {
 export function AccountCard({
   accounts,
   exportingAccounts,
+  authBusy,
   switchingId,
   renamingAccountId,
   pendingDeleteId,
@@ -213,10 +215,12 @@ export function AccountCard({
     selectedAccount.profileLastValidationError,
     selectedAccount.authRefreshError,
   ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+  // 只锁切换入口，导出/重命名/删除继续沿用各自的 busy 状态。
+  const switchDisabled = authBusy;
 
   const handleLaunch = () => {
-    if (isSwitching) return;
-    onSwitch(selectedAccount);
+    if (switchDisabled) return;
+    void onSwitch(selectedAccount);
   };
 
   const handleSelectAccount = (account: AccountSummary) => {
@@ -472,9 +476,13 @@ export function AccountCard({
         <button
           className={`ghost cardLaunchButton ${isSwitching ? "isBusy" : ""}`}
           onClick={handleLaunch}
-          disabled={isSwitching}
+          disabled={switchDisabled}
           aria-label={launchLabel}
-          title={isSwitching ? `${copy.accountCard.launching}...` : copy.accountCard.launch}
+          title={
+            isSwitching
+                ? `${copy.accountCard.launching}...`
+                : copy.accountCard.launch
+          }
         >
           <LaunchIcon spinning={isSwitching} />
           <span>{launchLabel}</span>

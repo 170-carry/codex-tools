@@ -169,6 +169,7 @@ export type AccountSummary = {
 
 export type SwitchAccountResult = {
   accountId: string;
+  noOp?: boolean;
   launchedAppPath: string | null;
   usedFallbackCli: boolean;
   opencodeSynced: boolean;
@@ -177,6 +178,7 @@ export type SwitchAccountResult = {
   opencodeDesktopRestartError: string | null;
   restartedEditorApps: EditorAppId[];
   editorRestartError: string | null;
+  providerSyncError: string | null;
 };
 
 export type PreparedOauthLogin = {

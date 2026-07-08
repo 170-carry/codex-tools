@@ -613,9 +613,11 @@ export type MessageCatalog = {
     deleteConfirm: (label: string) => string;
     accountDeleted: string;
     deleteFailed: (error: string) => string;
+    accountAlreadyCurrent: string;
     switchedOnly: string;
     switchedAndLaunchByCli: string;
     switchedAndLaunching: string;
+    providerSyncFailed: (base: string, error: string) => string;
     opencodeSyncFailed: (base: string, error: string) => string;
     opencodeSynced: (base: string) => string;
     opencodeDesktopRestartFailed: (base: string, error: string) => string;
@@ -797,6 +799,8 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.notices.deleteConfirm, { label }),
       deleteFailed: (error) =>
         fillTemplate(raw.notices.deleteFailed, { error }),
+      providerSyncFailed: (base, error) =>
+        fillTemplate(raw.notices.providerSyncFailed, { base, error }),
       opencodeSyncFailed: (base, error) =>
         fillTemplate(raw.notices.opencodeSyncFailed, { base, error }),
       opencodeSynced: (base) =>

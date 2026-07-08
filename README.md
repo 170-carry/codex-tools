@@ -30,7 +30,7 @@ Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、
 - 多账号管理：OAuth 登录导入、JSON 批量导入、账号备份回导入。
 - 用量查看：展示 `5h`、`1week` 用量窗口和账号计划类型。
 - 快速切换：切换 `~/.codex/auth.json` 和 `config.toml`，可联动启动 `codex app`。
-- CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/usage/doctor/report/tui`。
+- CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/usage/provider/doctor/report/tui`。
 - API 反代：本地提供 OpenAI 兼容 `/v1` 接口，支持运行中账号轮换。
 - App/CLI 绑定：可一键把 Codex App/CLI 切到本机反代地址，也可一键恢复原配置。
 - 公网访问：集成 cloudflared，支持快速隧道和命名隧道。
@@ -55,6 +55,7 @@ npm i -g @170-carry/ctc
 ```bash
 ctc list --json
 ctc switch --best --launch
+ctc provider status --json
 ctc tui
 ctc ui
 ```
@@ -85,6 +86,7 @@ npx @170-carry/ctc list --json
 ctc login --label work
 ctc list --refresh --json
 ctc switch --best --launch
+ctc provider sync
 ctc doctor --json
 ```
 
@@ -93,7 +95,8 @@ ctc doctor --json
 1. 用 `ctc login` 调用官方 `codex login` 并导入账号。
 2. 用 `ctc list --refresh` 查看账号和用量。
 3. 用 `ctc switch 1` 或 `ctc switch --best` 切换账号。
-4. 用 `ctc doctor` 检查本机环境和账号库状态。
+4. 用 `ctc provider sync` 修复 Codex 历史 provider 元数据。
+5. 用 `ctc doctor` 检查本机环境和账号库状态。
 
 ### Desktop
 
@@ -120,10 +123,16 @@ ctc doctor --json
 | `ctc export ./accounts.json --json` | 导出账号库 |
 | `ctc export --json` | 直接把账号库 JSON 输出到终端 |
 | `ctc usage --cached --json` | 查看本地缓存用量 |
+| `ctc provider status --json` | 查看当前 provider、rollout 和 `state_5.sqlite` provider 统计 |
+| `ctc provider sync` | 把本机 Codex 历史元数据同步到当前 provider |
+| `ctc provider switch openai` | 写入 `model_provider = "openai"` 并同步历史元数据 |
+| `ctc provider restore` | 恢复最近一次 provider 同步前备份 |
 | `ctc doctor --json` | 检查数据目录、Codex CLI、账号库和本机 auth 文件 |
 | `ctc report --json` | 输出完整诊断报告 |
 | `ctc tui` | 打开终端账号选择器 |
 | `ctc ui` | 打开已安装的 Codex Tools 桌面应用 |
+
+`ctc provider sync` 会在 `~/.codex/backups_state/provider-sync/` 下生成备份；包含 `encrypted_content` 的历史会恢复列表可见性，但跨 provider 继续 resume 仍可能受 Codex 加密上下文限制。
 
 ## API Proxy
 

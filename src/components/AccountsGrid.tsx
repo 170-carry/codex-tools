@@ -82,6 +82,7 @@ type AccountsGridProps = {
   tokenUsageError: string | null;
   loading: boolean;
   exportingAccounts: boolean;
+  authBusy: boolean;
   switchingId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
@@ -90,7 +91,7 @@ type AccountsGridProps = {
   onReauthorize: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onToggleApiProxy: (account: AccountSummary, enabled: boolean) => Promise<boolean>;
-  onSwitch: (account: AccountSummary) => void;
+  onSwitch: (account: AccountSummary) => Promise<boolean>;
   onDelete: (account: AccountSummary) => void;
 };
 
@@ -578,6 +579,7 @@ export function AccountsGrid({
   tokenUsageError,
   loading,
   exportingAccounts,
+  authBusy,
   switchingId,
   renamingAccountId,
   pendingDeleteId,
@@ -744,11 +746,20 @@ export function AccountsGrid({
     }
   };
 
-  const handleSwitch = (account: AccountSummary, eventTimestamp: number) => {
-    const sourceAccount = selectedRow?.account;
+  const handleSwitch = async (account: AccountSummary, eventTimestamp: number) => {
+    if (authBusy) {
+      return;
+    }
+
+    const sourceAccount = accounts.find((item) => item.isCurrent);
     const now = eventTimestampToUnixSeconds(eventTimestamp);
 
     setOpenMenuAccountId(null);
+    const didSwitch = await onSwitch(account);
+    if (!didSwitch) {
+      return;
+    }
+
     setSwitchRecords((current) => [
       {
         id: `${account.id}-${now}-${current.length}`,
@@ -761,7 +772,6 @@ export function AccountsGrid({
       },
       ...current,
     ].slice(0, 5));
-    onSwitch(account);
   };
 
   const toggleResetCredits = (accountId: string) => {
@@ -840,6 +850,8 @@ export function AccountsGrid({
                 const normalizedPlan = account.planType || account.usage?.planType;
                 const isSelected = selectedRow?.account.id === account.id;
                 const isSwitching = switchingId === account.id;
+                // 统一锁住切换入口，避免登录/导入/切换流程互相并发。
+                const switchDisabled = authBusy;
                 const isDeletePending = pendingDeleteId === account.id;
                 const isMenuOpen = openMenuAccountId === account.id;
                 const accountAddress = displayAccountAddress(account, text.emptyValue);
@@ -944,10 +956,10 @@ export function AccountsGrid({
                       <button
                         type="button"
                         className="rowSwitchButton"
-                        disabled={isSwitching}
+                        disabled={switchDisabled}
                         onClick={(event) => {
                           event.stopPropagation();
-                          handleSwitch(account, event.timeStamp);
+                          void handleSwitch(account, event.timeStamp);
                         }}
                       >
                         {isSwitching ? copy.accountCard.launching : text.switchAccount}
@@ -1150,8 +1162,10 @@ export function AccountsGrid({
                 </button>
                 <button
                   type="button"
-                  onClick={(event) => handleSwitch(selectedRow.account, event.timeStamp)}
-                  disabled={switchingId === selectedRow.account.id}
+                  onClick={(event) => {
+                    void handleSwitch(selectedRow.account, event.timeStamp);
+                  }}
+                  disabled={authBusy}
                 >
                   <ActionIcon type="switch" />
                   <span>{text.switchAccount}</span>

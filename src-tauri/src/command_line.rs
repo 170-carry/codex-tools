@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
@@ -23,13 +24,14 @@ use crate::models::AuthJsonImportInput;
 use crate::models::ImportAccountsResult;
 use crate::models::StoredAccount;
 use crate::profile_files;
+use crate::provider_sync;
 use crate::store;
 use crate::token_usage;
 use crate::usage;
 use crate::utils;
 
 const CLI_COMMANDS: &[&str] = &[
-    "list", "switch", "login", "import", "export", "usage", "doctor", "report", "tui",
+    "list", "switch", "login", "import", "export", "usage", "provider", "doctor", "report", "tui",
 ];
 
 #[derive(Debug, Parser)]
@@ -43,6 +45,8 @@ struct CliArgs {
     data_dir: Option<PathBuf>,
     #[arg(long, global = true)]
     json: bool,
+    #[arg(long, global = true, value_name = "DIR")]
+    codex_home: Option<PathBuf>,
     #[command(subcommand)]
     command: CliCommand,
 }
@@ -93,6 +97,11 @@ enum CliCommand {
         #[arg(long)]
         cached: bool,
     },
+    /// Inspect or repair Codex history provider metadata.
+    Provider {
+        #[command(subcommand)]
+        command: ProviderCommand,
+    },
     /// Check local paths, Codex CLI, auth files, and account store.
     Doctor,
     /// Print a fuller machine-readable diagnostic report.
@@ -104,6 +113,26 @@ enum CliCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum ProviderCommand {
+    /// Show current provider and local history metadata counts.
+    Status,
+    /// Rewrite local history metadata to the current or selected provider.
+    Sync {
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    /// Set config.toml model_provider, then sync local history metadata.
+    Switch { provider: String },
+    /// Restore the latest or selected provider-sync backup.
+    Restore { backup_id: Option<String> },
+    /// Remove older provider-sync backups.
+    PruneBackups {
+        #[arg(long, default_value_t = 10)]
+        keep: usize,
+    },
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CliSwitchResult {
@@ -111,6 +140,7 @@ struct CliSwitchResult {
     active_auth_path: String,
     active_config_path: String,
     launched_codex: bool,
+    provider_sync_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -261,6 +291,9 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
                 if result.launched_codex {
                     println!("launched codex app");
                 }
+                if let Some(error) = result.provider_sync_error.as_deref() {
+                    eprintln!("warning: {error}");
+                }
                 Ok(())
             }
         }
@@ -321,6 +354,9 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
                 refresh_usage(&store_path, account.as_deref()).await?
             };
             print_accounts(&accounts, args.json)
+        }
+        CliCommand::Provider { command } => {
+            run_provider_command(command, args.codex_home.as_deref(), args.json)
         }
         CliCommand::Doctor => {
             let report = build_doctor_report(&store_path)?;
@@ -549,6 +585,9 @@ async fn switch_account(
 
     let configured_codex_launch_path = store.settings.codex_launch_path.clone();
     store::save_store_to_path(store_path, &store)?;
+    let provider_sync_error = provider_sync::sync_current_provider(None)
+        .err()
+        .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
     if launch {
         launch_codex(configured_codex_launch_path.as_deref(), workspace)?;
     }
@@ -565,6 +604,7 @@ async fn switch_account(
             .to_string_lossy()
             .to_string(),
         launched_codex: launch,
+        provider_sync_error,
     })
 }
 
@@ -951,6 +991,66 @@ fn build_full_report(store_path: &Path) -> Result<CliFullReport, String> {
     })
 }
 
+fn run_provider_command(
+    command: ProviderCommand,
+    codex_home: Option<&Path>,
+    json: bool,
+) -> Result<(), String> {
+    match command {
+        ProviderCommand::Status => {
+            let status = provider_sync::get_status(codex_home)?;
+            if json {
+                print_json(&status)
+            } else {
+                print_provider_status(&status);
+                Ok(())
+            }
+        }
+        ProviderCommand::Sync { provider } => {
+            let result = match provider {
+                Some(provider) => provider_sync::sync_provider(codex_home, provider.as_str())?,
+                None => provider_sync::sync_current_provider(codex_home)?,
+            };
+            if json {
+                print_json(&result)
+            } else {
+                print_provider_sync_result(&result);
+                Ok(())
+            }
+        }
+        ProviderCommand::Switch { provider } => {
+            let result = provider_sync::switch_provider(codex_home, provider.as_str())?;
+            if json {
+                print_json(&result)
+            } else {
+                print_provider_sync_result(&result);
+                Ok(())
+            }
+        }
+        ProviderCommand::Restore { backup_id } => {
+            let result = provider_sync::restore_backup(codex_home, backup_id.as_deref())?;
+            if json {
+                print_json(&result)
+            } else {
+                println!(
+                    "restored backup {} rollouts={} sqlite={}",
+                    result.backup_id, result.restored_rollout_files, result.restored_sqlite
+                );
+                Ok(())
+            }
+        }
+        ProviderCommand::PruneBackups { keep } => {
+            let result = provider_sync::prune_backups(codex_home, keep)?;
+            if json {
+                print_json(&result)
+            } else {
+                println!("kept={} removed={}", result.kept, result.removed);
+                Ok(())
+            }
+        }
+    }
+}
+
 async fn run_tui(store_path: &Path, refresh: bool) -> Result<(), String> {
     if !io::stdin().is_terminal() {
         return Err("TUI 需要在交互式终端中运行".to_string());
@@ -1023,6 +1123,95 @@ fn print_accounts(accounts: &[AccountSummary], json: bool) -> Result<(), String>
     Ok(())
 }
 
+fn print_provider_status(status: &provider_sync::ProviderStatus) {
+    println!("codex_home={}", status.codex_home);
+    println!(
+        "current_provider={} source={}",
+        status.current_provider.id, status.current_provider.source
+    );
+    if let Some(base_url) = status.current_provider.base_url.as_deref() {
+        println!("openai_base_url={base_url}");
+    }
+    println!(
+        "configured_providers={}",
+        status.configured_providers.join(",")
+    );
+    println!(
+        "rollouts.sessions={}",
+        format_provider_counts(&status.rollout_counts.sessions)
+    );
+    println!(
+        "rollouts.archived_sessions={}",
+        format_provider_counts(&status.rollout_counts.archived_sessions)
+    );
+    println!(
+        "encrypted_content.sessions={}",
+        format_provider_counts(&status.encrypted_content_counts.sessions)
+    );
+    println!(
+        "encrypted_content.archived_sessions={}",
+        format_provider_counts(&status.encrypted_content_counts.archived_sessions)
+    );
+    if let Some(sqlite_counts) = status.sqlite_counts.as_ref() {
+        println!(
+            "sqlite.threads={} total={}",
+            format_provider_counts(&sqlite_counts.threads),
+            sqlite_counts.total_threads
+        );
+    } else {
+        println!("sqlite.threads=<missing>");
+    }
+    if !status.unreadable_rollout_files.is_empty() {
+        println!(
+            "unreadable_rollout_files={}",
+            status.unreadable_rollout_files.len()
+        );
+    }
+    println!(
+        "backups.available={} count={} latest={}",
+        status.backup_summary.available,
+        status.backup_summary.backup_count,
+        status
+            .backup_summary
+            .latest_backup_id
+            .as_deref()
+            .unwrap_or("-")
+    );
+}
+
+fn print_provider_sync_result(result: &provider_sync::ProviderSyncResult) {
+    println!("provider={}", result.provider);
+    println!(
+        "rollout_files scanned={} changed={}",
+        result.rollout_files_scanned, result.rollout_files_changed
+    );
+    println!(
+        "sqlite present={} changed_threads={}",
+        result.sqlite_present, result.sqlite_threads_changed
+    );
+    if let Some(path) = result.backup_path.as_deref() {
+        println!(
+            "backup id={} path={}",
+            result.backup_id.as_deref().unwrap_or("-"),
+            path
+        );
+    }
+    println!(
+        "encrypted_content.sessions={}",
+        format_provider_counts(&result.encrypted_content_counts.sessions)
+    );
+    println!(
+        "encrypted_content.archived_sessions={}",
+        format_provider_counts(&result.encrypted_content_counts.archived_sessions)
+    );
+    if !result.unreadable_rollout_files.is_empty() {
+        println!(
+            "unreadable_rollout_files={}",
+            result.unreadable_rollout_files.len()
+        );
+    }
+}
+
 fn print_doctor_report(report: &DoctorReport) {
     println!("ok={}", report.ok);
     println!("data_dir={}", report.data_dir);
@@ -1053,6 +1242,17 @@ fn format_window_percent(window: Option<&crate::models::UsageWindow>) -> String 
     window
         .map(|window| format!("{:.0}%", window.used_percent))
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn format_provider_counts(counts: &BTreeMap<String, u64>) -> String {
+    if counts.is_empty() {
+        return "-".to_string();
+    }
+    counts
+        .iter()
+        .map(|(provider, count)| format!("{provider}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn truncate_cell(value: &str, max_chars: usize) -> String {
@@ -1121,6 +1321,10 @@ mod tests {
         assert!(is_cli_invocation(&[
             OsString::from("codex-tools"),
             OsString::from("list"),
+        ]));
+        assert!(is_cli_invocation(&[
+            OsString::from("codex-tools"),
+            OsString::from("provider"),
         ]));
         assert!(!is_cli_invocation(&[OsString::from("codex-tools")]));
     }

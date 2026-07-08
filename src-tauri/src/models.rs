@@ -189,6 +189,8 @@ pub(crate) struct ResetCredit {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SwitchAccountResult {
     pub(crate) account_id: String,
+    #[serde(default)]
+    pub(crate) no_op: bool,
     pub(crate) launched_app_path: Option<String>,
     pub(crate) used_fallback_cli: bool,
     pub(crate) opencode_synced: bool,
@@ -197,6 +199,7 @@ pub(crate) struct SwitchAccountResult {
     pub(crate) opencode_desktop_restart_error: Option<String>,
     pub(crate) restarted_editor_apps: Vec<EditorAppId>,
     pub(crate) editor_restart_error: Option<String>,
+    pub(crate) provider_sync_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

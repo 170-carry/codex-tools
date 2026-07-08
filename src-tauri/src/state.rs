@@ -58,14 +58,14 @@ pub(crate) struct OauthCallbackListenerHandle {
 
 /// 全局运行态：
 /// - `store_lock` 保证账号存储读写的串行化。
+/// - `auth_operation_lock` 串行化 login/import/switch/token-refresh 等会改写 auth 的操作。
 /// - `pending_oauth_login` 维护当前 OAuth 授权会话。
 /// - `oauth_listener` 维护本地 OAuth 回调监听线程。
 /// - `api_proxy` 维护本地 API 反代服务的生命周期与状态。
 /// - `cloudflared` 维护公网隧道进程与当前状态。
 pub(crate) struct AppState {
     pub(crate) store_lock: Arc<Mutex<()>>,
-    pub(crate) auth_refresh_lock: Arc<Mutex<()>>,
-    pub(crate) oauth_flow_lock: Arc<Mutex<()>>,
+    pub(crate) auth_operation_lock: Arc<Mutex<()>>,
     pub(crate) pending_oauth_login: Mutex<Option<PendingOauthLogin>>,
     pub(crate) oauth_listener: Mutex<Option<OauthCallbackListenerHandle>>,
     pub(crate) api_proxy: Mutex<Option<ApiProxyRuntimeHandle>>,
@@ -76,8 +76,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             store_lock: Arc::new(Mutex::new(())),
-            auth_refresh_lock: Arc::new(Mutex::new(())),
-            oauth_flow_lock: Arc::new(Mutex::new(())),
+            auth_operation_lock: Arc::new(Mutex::new(())),
             pending_oauth_login: Mutex::new(None),
             oauth_listener: Mutex::new(None),
             api_proxy: Mutex::new(None),
