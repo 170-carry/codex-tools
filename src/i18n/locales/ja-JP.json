@@ -515,10 +515,11 @@
     "noSupportedEditors": "再起動対象の対応エディタが見つかりません。",
     "trayUsageDisplay": {
       "label": "ステータスバー表示",
-      "description": "トレイメニューに「使用済み」「残り」または非表示のどれを表示するか選択します。",
+      "description": "トレイメニューに「使用済み」「残り」「5h 残りのみ」または非表示のどれを表示するか選択します。",
       "groupAriaLabel": "ステータスバー表示モード",
       "remaining": "残り",
       "used": "使用済み",
+      "fiveHourRemaining": "5h のみ",
       "hidden": "非表示"
     },
     "theme": {

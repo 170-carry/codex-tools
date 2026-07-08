@@ -2830,7 +2830,7 @@ export function ApiProxyPanel({
                       </div>
                       <button
                         type="button"
-                        className="iconButton ghost"
+                        className="iconButton ghost closeButton"
                         onClick={() => setModelMenuOpen(false)}
                         title={copy.common.close}
                         disabled={modelMenuSaving}

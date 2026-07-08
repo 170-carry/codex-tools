@@ -505,6 +505,7 @@ pub(crate) struct StartCloudflaredTunnelInput {
 pub(crate) enum TrayUsageDisplayMode {
     Used,
     Hidden,
+    FiveHourRemaining,
     #[default]
     Remaining,
 }

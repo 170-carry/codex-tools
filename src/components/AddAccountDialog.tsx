@@ -549,7 +549,7 @@ export function AddAccountDialog({
           </div>
           <button
             type="button"
-            className="iconButton ghost"
+            className="iconButton ghost closeButton"
             onClick={onClose}
             title={copy.common.close}
             disabled={closeBlocked}

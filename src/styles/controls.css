@@ -1016,6 +1016,10 @@
   color: var(--subtle);
 }
 
+.closeButton {
+  cursor: default;
+}
+
 button {
   position: relative;
   isolation: isolate;

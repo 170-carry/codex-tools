@@ -515,10 +515,11 @@
     "noSupportedEditors": "当前未检测到支持重启的编辑器。",
     "trayUsageDisplay": {
       "label": "状态栏展示",
-      "description": "控制状态栏菜单中显示“已用”、“剩余”或不展示。",
+      "description": "控制状态栏菜单中显示“已用”、“剩余”、“仅 5h 剩余”或不展示。",
       "groupAriaLabel": "状态栏展示模式",
       "remaining": "剩余",
       "used": "已用",
+      "fiveHourRemaining": "仅 5h 剩余",
       "hidden": "不展示"
     },
     "theme": {

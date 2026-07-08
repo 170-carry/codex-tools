@@ -148,6 +148,14 @@ export function SettingsPanel({
                 {copy.settings.trayUsageDisplay.used}
               </button>
               <button
+                className={settings.trayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
+                disabled={savingSettings}
+                onClick={() => onUpdateSettings({ trayUsageDisplayMode: "fiveHourRemaining" })}
+                aria-pressed={settings.trayUsageDisplayMode === "fiveHourRemaining"}
+              >
+                {copy.settings.trayUsageDisplay.fiveHourRemaining}
+              </button>
+              <button
                 className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
                 disabled={savingSettings}
                 onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
