@@ -38,8 +38,16 @@ const REMOTE_DRAFTS_CACHE_KEY = "codex-tools:proxy-remote-drafts";
 const REMOTE_EXPANDED_CACHE_KEY = "codex-tools:proxy-remote-expanded-id";
 const REMOTE_SELECTED_CACHE_KEY = "codex-tools:proxy-remote-selected-id";
 const REMOTE_HISTORY_CACHE_KEY = "codex-tools:proxy-remote-history";
-const API_PROXY_REASONING_OPTION_IDS = ["minimal", "low", "medium", "high"] as const;
-const API_PROXY_SERVICE_TIER_OPTION_IDS = ["auto", "fast", "flex"] as const;
+const API_PROXY_REASONING_OPTION_IDS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+const API_PROXY_SERVICE_TIER_OPTION_IDS = ["auto", "default", "fast", "flex"] as const;
 type RemoteServerDraft = {
   id: string;
   label: string;
@@ -1751,25 +1759,37 @@ export function ApiProxyPanel({
   const cloudflaredBusy = installingCloudflared || startingCloudflared || stoppingCloudflared;
   const apiProxyReasoningOptions = useMemo(
     () => [
+      { id: "none", label: proxyCopy.reasoningNone },
       { id: "minimal", label: proxyCopy.reasoningMinimal },
       { id: "low", label: proxyCopy.reasoningLow },
       { id: "medium", label: proxyCopy.reasoningMedium },
       { id: "high", label: proxyCopy.reasoningHigh },
+      { id: "xhigh", label: proxyCopy.reasoningXHigh },
+      { id: "max", label: proxyCopy.reasoningMax },
     ],
     [
       proxyCopy.reasoningHigh,
       proxyCopy.reasoningLow,
+      proxyCopy.reasoningMax,
       proxyCopy.reasoningMedium,
       proxyCopy.reasoningMinimal,
+      proxyCopy.reasoningNone,
+      proxyCopy.reasoningXHigh,
     ],
   );
   const apiProxyServiceTierOptions = useMemo(
     () => [
       { id: "auto", label: proxyCopy.serviceTierAuto },
+      { id: "default", label: proxyCopy.serviceTierDefault },
       { id: "fast", label: proxyCopy.serviceTierFast },
       { id: "flex", label: proxyCopy.serviceTierFlex },
     ],
-    [proxyCopy.serviceTierAuto, proxyCopy.serviceTierFast, proxyCopy.serviceTierFlex],
+    [
+      proxyCopy.serviceTierAuto,
+      proxyCopy.serviceTierDefault,
+      proxyCopy.serviceTierFast,
+      proxyCopy.serviceTierFlex,
+    ],
   );
   const [portDraft, setPortDraft] = useState<string | null>(null);
   const [sequentialLimitDraft, setSequentialLimitDraft] = useState<number | null>(null);
@@ -2790,7 +2810,9 @@ export function ApiProxyPanel({
                               <span>{formatApiProxyKeyLogTime(locale, log.timestamp)}</span>
                               <strong>{log.model}</strong>
                               <span>{log.route ?? "--"}</span>
-                              <span>{log.reasoningEffort ?? "medium"} / {log.serviceTier ?? "auto"}</span>
+                              <span>
+                                {log.reasoningEffort ?? "--"} / {log.serviceTier ?? "--"}
+                              </span>
                               <span>
                                 {log.calls} {proxyCopy.keyCallsLabel}, {log.tokens}{" "}
                                 {proxyCopy.keyTokensLabel}

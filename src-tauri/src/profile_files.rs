@@ -17,6 +17,9 @@ use crate::app_paths;
 use crate::auth;
 use crate::models::AccountSourceKind;
 use crate::models::StoredAccount;
+use crate::models::DEFAULT_API_PROXY_MODEL;
+use crate::models::DEFAULT_API_PROXY_REASONING_EFFORT;
+use crate::models::DEFAULT_API_PROXY_SERVICE_TIER;
 use crate::utils;
 use crate::utils::set_private_permissions;
 
@@ -469,7 +472,28 @@ fn build_codex_proxy_config(current_config: Option<&str>, base_url: &str) -> Str
     let mut document = parse_config_or_default(current_config);
     document["openai_base_url"] = value(base_url);
     document["model_provider"] = value("openai");
+    set_missing_string_default(&mut document, "model", DEFAULT_API_PROXY_MODEL);
+    set_missing_string_default(
+        &mut document,
+        "model_reasoning_effort",
+        DEFAULT_API_PROXY_REASONING_EFFORT,
+    );
+    set_missing_string_default(
+        &mut document,
+        "service_tier",
+        DEFAULT_API_PROXY_SERVICE_TIER,
+    );
     document.to_string()
+}
+
+fn set_missing_string_default(document: &mut DocumentMut, key: &str, default_value: &str) {
+    let has_value = document
+        .get(key)
+        .and_then(|item| item.as_str())
+        .is_some_and(|value| !value.trim().is_empty());
+    if !has_value {
+        document[key] = value(default_value);
+    }
 }
 
 fn parse_config_or_default(current_config: Option<&str>) -> DocumentMut {
@@ -752,6 +776,20 @@ openai_base_url = "https://api.openai.com/v1"
         );
         assert_eq!(document["model_provider"].as_str(), Some("openai"));
         assert_eq!(document["model"].as_str(), Some("gpt-5.4"));
+        assert_eq!(document["model_reasoning_effort"].as_str(), Some("xhigh"));
+        assert_eq!(document["service_tier"].as_str(), Some("fast"));
+    }
+
+    #[test]
+    fn build_codex_proxy_config_uses_gpt_5_6_defaults_for_new_profiles() {
+        let config = build_codex_proxy_config(None, "http://127.0.0.1:8787/v1");
+        let document = config
+            .parse::<DocumentMut>()
+            .expect("proxy config should parse");
+
+        assert_eq!(document["model"].as_str(), Some("gpt-5.6-sol"));
+        assert_eq!(document["model_reasoning_effort"].as_str(), Some("xhigh"));
+        assert_eq!(document["service_tier"].as_str(), Some("fast"));
     }
 
     #[test]

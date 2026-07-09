@@ -20,8 +20,9 @@ const DAY_SECONDS: i64 = 24 * 60 * 60;
 const PROMPT_PREVIEW_CHARS: usize = 220;
 const TOP_EXPENSIVE_PROMPT_LIMIT: usize = 20;
 const SESSION_EXPORT_LIMIT: usize = 500;
-const PRICING_SOURCE: &str = "OpenAI API pricing, text tokens per 1M, checked 2026-06-13";
-const COST_ANALYTICS_CACHE_VERSION: u8 = 1;
+const PRICING_SOURCE: &str =
+    "OpenAI API standard short-context pricing, text tokens per 1M, checked 2026-07-10";
+const COST_ANALYTICS_CACHE_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -954,6 +955,39 @@ fn estimate_token_cost_usd(model: &str, usage: &CodexTokenTotals) -> f64 {
 
 fn pricing_rate_for_model(model: &str) -> PricingRate {
     let normalized = model.to_ascii_lowercase();
+    if normalized == "gpt-5.6"
+        || normalized == "gpt5.6"
+        || normalized == "gpt-5-6"
+        || normalized.starts_with("gpt-5.6-sol")
+        || normalized.starts_with("gpt5.6-sol")
+        || normalized.starts_with("gpt-5-6-sol")
+    {
+        return PricingRate {
+            input_per_million: 5.0,
+            cached_input_per_million: 0.5,
+            output_per_million: 30.0,
+        };
+    }
+    if normalized.starts_with("gpt-5.6-terra")
+        || normalized.starts_with("gpt5.6-terra")
+        || normalized.starts_with("gpt-5-6-terra")
+    {
+        return PricingRate {
+            input_per_million: 2.5,
+            cached_input_per_million: 0.25,
+            output_per_million: 15.0,
+        };
+    }
+    if normalized.starts_with("gpt-5.6-luna")
+        || normalized.starts_with("gpt5.6-luna")
+        || normalized.starts_with("gpt-5-6-luna")
+    {
+        return PricingRate {
+            input_per_million: 1.0,
+            cached_input_per_million: 0.1,
+            output_per_million: 6.0,
+        };
+    }
     if normalized.starts_with("gpt-5.5-pro") {
         return PricingRate {
             input_per_million: 15.0,
@@ -1402,6 +1436,27 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    #[test]
+    fn uses_official_gpt_5_6_variant_pricing() {
+        for (model, input, cached, output) in [
+            ("gpt-5.6-sol", 5.0, 0.5, 30.0),
+            ("gpt-5.6-terra", 2.5, 0.25, 15.0),
+            ("gpt-5.6-luna", 1.0, 0.1, 6.0),
+            ("gpt-5.6", 5.0, 0.5, 30.0),
+            ("gpt5.6-terra", 2.5, 0.25, 15.0),
+            ("gpt-5-6-luna", 1.0, 0.1, 6.0),
+            ("gpt-5.6-sol-2026-07-01", 5.0, 0.5, 30.0),
+        ] {
+            let rate = pricing_rate_for_model(model);
+            assert_eq!(rate.input_per_million, input, "input price for {model}");
+            assert_eq!(
+                rate.cached_input_per_million, cached,
+                "cached input price for {model}"
+            );
+            assert_eq!(rate.output_per_million, output, "output price for {model}");
+        }
     }
 
     #[test]

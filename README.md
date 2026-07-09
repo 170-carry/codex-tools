@@ -142,6 +142,9 @@ Codex Tools 可以启动本地 OpenAI 兼容反代：
 - 鉴权方式：应用内生成的 `sk-...` API Key
 - 上游来源：已导入的 Codex 账号
 - 账号选择：按可用额度自动选择，支持运行中切换
+- 默认模型：`gpt-5.6-sol`
+- 默认推理：`xhigh` + `fast`
+- GPT-5.6 模型：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`
 
 更多链路说明见 [docs/api-proxy.md](docs/api-proxy.md)。
 
@@ -164,7 +167,9 @@ Cursor 可能由服务端代发请求，不建议填写 `127.0.0.1`、`localhost
 - 远程 Linux 反代地址
 - 自己的公网域名反向代理地址
 
-模型名称建议使用 `gpt-5.4`；同时兼容 `gpt-5-4` 别名。
+模型名称建议使用 `gpt-5.6-sol`。`gpt-5.6`、`gpt5.6` 和 `gpt-5-6` 会映射到 Sol，Terra/Luna 也兼容无点号和全连字符别名。
+
+GPT-5.6 可用推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`max`；代理还保留 `minimal` 供旧模型兼容。可用速度为 `auto`、`default`、`fast`、`flex`，其中 `fast` 会按上游 wire 值 `priority` 发送。
 
 ### CC Switch
 
@@ -223,8 +228,8 @@ npm run build
 触发发布：
 
 ```bash
-git tag v2.0.1
-git push origin v2.0.1
+git tag v<version>
+git push origin v<version>
 ```
 
 发布内容：

@@ -168,8 +168,19 @@ Tauri 命令入口在：
 特点：
 
 - 这里不是实时问上游拿模型
-- 目前返回的是本地静态模型列表
+- 目前返回本地静态模型列表：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`、`gpt-5.5`、`gpt-5.4`、`gpt-image-2`
+- `gpt-5.6`、`gpt5.6`、`gpt-5-6` 会映射到 `gpt-5.6-sol`
 - 目的是让大多数依赖 `/v1/models` 的客户端能正常初始化
+
+推理与速度参数：
+
+- 推理强度兼容值：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`
+- 推理速度：`auto`、`default`、`fast`、`flex`
+- `priority` 是 `fast` 的上游 wire 别名，`standard` 是 `default` 的兼容别名
+- 请求未指定时默认使用 `xhigh` 与 `fast`
+- `ultra` 属于 Codex 客户端的多代理编排模式；反代收到该兼容值时按实际推理 wire 值 `max` 发送
+- GPT-5.6 的官方推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`max`；`minimal` 仅保留给旧模型兼容，GPT-5.6 请求会明确拒绝
+- 具体模型可用档位仍以上游能力为准；代理会拒绝未知值，不会静默降级
 
 ### 6.3 `POST /v1/chat/completions`
 
@@ -193,10 +204,11 @@ Tauri 命令入口在：
 
 行为：
 
-- 请求体不做大的协议改写，只做必要归一化
+- 非 GPT-5.6 请求体只做必要归一化；GPT-5.6 会转换为 Responses Lite 结构
 - 上游仍然统一发到 Codex `responses`
 - `stream: true` 时近似透传 SSE
 - `stream: false` 时从 SSE 中提取 `response.completed`，返回标准 JSON
+- Codex 0.144 WebSocket v2 会收到 `426` 并按客户端内置逻辑回退到 HTTP，避免破坏 warmup 和 `previous_response_id` 状态
 
 ### 6.5 `POST /v1/messages`
 
@@ -346,9 +358,9 @@ Tauri 命令入口在：
 - `Authorization: Bearer <candidate.access_token>`
 - `ChatGPT-Account-Id: <candidate.account_id>`
 - `Originator: codex_cli_rs`
-- `Version: 0.101.0`
+- `Version: 0.144.0`
 - `Session_id: <uuid>`
-- `User-Agent: codex_cli_rs/0.101.0 (...)`
+- `User-Agent: codex_cli_rs/0.144.0`
 - `Accept: text/event-stream`
 - `Content-Type: application/json`
 
@@ -369,11 +381,19 @@ Tauri 命令入口在：
 
 - `stream: true`
 - `store: false`
-- `instructions: ""`
-- `parallel_tool_calls: true`
-- `reasoning.effort: medium`
+- `reasoning.effort: xhigh`
 - `reasoning.summary: auto`
 - `include: ["reasoning.encrypted_content"]`
+- `service_tier: priority`（下游可写 `fast`）
+
+GPT-5.6 Sol/Terra/Luna 会额外使用 Responses Lite 契约：
+
+- 请求头补 `x-openai-internal-codex-responses-lite: true`
+- 顶层 `tools` 移到 `input` 首项 `additional_tools`
+- 非空 `instructions` 移到 developer message
+- 顶层 `tools` 与 `instructions` 不再发送
+- `parallel_tool_calls: false`
+- `reasoning.context: all_turns`
 
 这里 `store: false` 很关键。
 
@@ -439,10 +459,12 @@ OpenAI 里的：
 - 强制 `store: false`
 - 缺失时补 `instructions`
 - 缺失时补 `parallel_tool_calls`
-- 缺失时补 `reasoning.effort = medium`
+- 缺失时补 `reasoning.effort = xhigh`
 - 缺失时补 `reasoning.summary = auto`
+- 缺失时补快速档，向上游发送 `service_tier = priority`
 - 确保 `include` 里有 `reasoning.encrypted_content`
 - 丢弃上游不接受的 `metadata` 字段，避免 Cursor 等客户端报 `Unsupported parameter: metadata`
+- GPT-5.6 请求继续转换为 Responses Lite 契约
 
 ## 13. 上游 SSE 是怎么转回 OpenAI 的
 
@@ -642,6 +664,7 @@ Cloudflared 不参与：
   - `GET /v1/models`
   - `POST /v1/chat/completions`
   - `POST /v1/responses`
+  - `GET /v1/responses`（旧版 WebSocket；v2 返回 `426` 触发 HTTP 回退）
   - `POST /v1/messages`
   - `POST /v1/images/generations`
   - `POST /v1/images/edits`
@@ -649,6 +672,8 @@ Cloudflared 不参与：
 - 其他 `/v1/*` 路径目前直接返回不支持
 - 模型列表是本地静态表，不是实时探测
 - `/v1/responses` 的流式是近似透传，不额外做深层语义改写
+- GPT-5.6 Responses Lite 不接收 hosted `web_search`、`web_search_preview`、`image_generation` 工具；这类请求会明确拒绝，客户端扩展工具仍会透传
+- 远程图片 URL 会替换为占位文本，Lite 请求不会发送图片 `detail`
 - 核心目标是把最常用的聊天链路稳定打通
 
 ## 20. 代码位置索引
@@ -677,7 +702,9 @@ curl http://127.0.0.1:8787/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer sk-xxxx' \
   -d '{
-    "model": "gpt-5.4",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "xhigh",
+    "service_tier": "fast",
     "stream": false,
     "messages": [
       { "role": "user", "content": "1+1 等于几？只回答结果。" }
@@ -776,6 +803,7 @@ npm run test:codex-login-proxy -- --api-key 你的sk --prompt '1+1 等于几？�
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `GET /v1/responses`（旧版 WebSocket；v2 使用 HTTP 回退）
 - `POST /v1/messages`
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`
@@ -799,8 +827,9 @@ npm run test:codex-login-proxy -- --api-key 你的sk --prompt '1+1 等于几？�
 
 ```toml
 model_provider = "codex_tools"
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "xhigh"
+service_tier = "fast"
 disable_response_storage = true
 
 [model_providers.codex_tools]
@@ -844,7 +873,7 @@ curl http://127.0.0.1:8787/v1/messages \
   -H 'anthropic-version: 2023-06-01' \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "gpt-5.4",
+    "model": "gpt-5.6-sol",
     "max_tokens": 256,
     "messages": [{"role": "user", "content": "Say hi in one sentence."}]
   }'

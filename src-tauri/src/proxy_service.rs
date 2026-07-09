@@ -78,6 +78,9 @@ use crate::models::StoredAccount;
 use crate::models::UpdateApiProxyKeyInput;
 use crate::models::UsageSnapshot;
 use crate::models::UsageWindow;
+use crate::models::DEFAULT_API_PROXY_MODEL;
+use crate::models::DEFAULT_API_PROXY_REASONING_EFFORT;
+use crate::models::DEFAULT_API_PROXY_SERVICE_TIER;
 use crate::profile_files;
 use crate::state::ApiProxyRuntimeHandle;
 use crate::state::ApiProxyRuntimeSnapshot;
@@ -103,22 +106,55 @@ const DEFAULT_PROXY_CONNECT_TIMEOUT_SECS: u64 = 30;
 const DESKTOP_API_PROXY_BIND_HOST: &str = "0.0.0.0";
 const MAX_PROXY_CONNECT_RESPONSE_BYTES: usize = 16 * 1024;
 const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_MIB";
-const CODEX_CLIENT_VERSION: &str = "0.125.0";
-const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
+const CODEX_CLIENT_VERSION: &str = "0.144.0";
+const CODEX_USER_AGENT: &str = "codex_cli_rs/0.144.0";
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const ANTHROPIC_MESSAGES_REQUIRED_VERSION: &str = "2023-06-01";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
+const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "priority";
+const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
-const MODELS: &[&str] = &["gpt-5.4", "gpt-5.5", "gpt-image-2"];
+const MODELS: &[&str] = &[
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-image-2",
+];
 const REQUEST_MODEL_MAPPINGS: &[(&str, &str)] = &[
+    ("gpt-5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5.6-luna", "gpt-5.6-luna"),
+    ("gpt5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5-6-sol", "gpt-5.6-sol"),
+    ("gpt5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5-6-terra", "gpt-5.6-terra"),
+    ("gpt5.6-luna", "gpt-5.6-luna"),
+    ("gpt-5-6-luna", "gpt-5.6-luna"),
+    ("gpt5.6", "gpt-5.6-sol"),
+    ("gpt-5-6", "gpt-5.6-sol"),
+    ("gpt-5.6", "gpt-5.6-sol"),
     ("gpt5.5", "gpt-5.5"),
     ("gpt-5-5", "gpt-5.5"),
     ("gpt5.4", "gpt-5.4"),
     ("gpt-5-4", "gpt-5.4"),
 ];
 const RESPONSE_MODEL_NORMALIZATIONS: &[(&str, &str)] = &[
+    ("gpt-5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5.6-luna", "gpt-5.6-luna"),
+    ("gpt5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5-6-sol", "gpt-5.6-sol"),
+    ("gpt5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5-6-terra", "gpt-5.6-terra"),
+    ("gpt5.6-luna", "gpt-5.6-luna"),
+    ("gpt-5-6-luna", "gpt-5.6-luna"),
+    ("gpt5.6", "gpt-5.6-sol"),
+    ("gpt-5-6", "gpt-5.6-sol"),
+    ("gpt-5.6", "gpt-5.6-sol"),
     ("gpt5.5", "gpt-5.5"),
     ("gpt-5-5", "gpt-5.5"),
     ("gpt5.4", "gpt-5.4"),
@@ -136,8 +172,9 @@ const API_PROXY_USAGE_RANGE_7D_SECONDS: i64 = 7 * 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_14D_SECONDS: i64 = 14 * 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_30D_SECONDS: i64 = 30 * 24 * 60 * 60;
 const DEFAULT_API_PROXY_USAGE_RANGE_SECONDS: i64 = API_PROXY_USAGE_RANGE_24H_SECONDS;
-const API_PROXY_REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high"];
-const API_PROXY_SERVICE_TIERS: &[&str] = &["auto", "fast", "flex"];
+const API_PROXY_REASONING_EFFORTS: &[&str] =
+    &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+const API_PROXY_SERVICE_TIERS: &[&str] = &["auto", "default", "fast", "flex"];
 const MAX_PROXY_SESSION_AFFINITY_ENTRIES: usize = 512;
 const SESSION_AFFINITY_HEADERS: &[&str] = &[
     "x-codex-tools-session",
@@ -1507,6 +1544,18 @@ async fn responses_websocket_handler(
         Err(response) => return response,
     };
 
+    // Codex 0.144 WebSocket v2 uses a generate=false warmup and then reuses the
+    // connection with previous_response_id. This proxy intentionally forwards
+    // Responses over HTTP, so return 426 and let the official client use its
+    // built-in HTTP fallback instead of accepting a stateful protocol we cannot
+    // preserve end to end.
+    if responses_websocket_requires_http_fallback(&headers) {
+        return json_error_response(
+            StatusCode::UPGRADE_REQUIRED,
+            "Responses WebSocket v2 is served through the HTTP fallback.",
+        );
+    }
+
     let Ok(ws) = ws else {
         return json_error_response(
             StatusCode::UPGRADE_REQUIRED,
@@ -1516,6 +1565,15 @@ async fn responses_websocket_handler(
 
     ws.on_upgrade(move |socket| handle_responses_websocket(socket, context, proxy_key, headers))
         .into_response()
+}
+
+fn responses_websocket_requires_http_fallback(headers: &HeaderMap) -> bool {
+    headers
+        .get_all("openai-beta")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|value| value.trim().eq_ignore_ascii_case(RESPONSES_WEBSOCKETS_BETA))
 }
 
 async fn handle_responses_websocket(
@@ -1875,11 +1933,16 @@ fn convert_openai_chat_request_to_codex(request: &Value) -> Result<(Value, bool)
         return normalize_openai_responses_request(request.clone());
     }
 
-    let model = map_client_model_to_upstream(&required_string(request_object, "model")?)?;
+    let model = map_client_model_to_upstream(&request_model_or_default(request_object)?)?;
     let messages = request_object
         .get("messages")
         .and_then(Value::as_array)
         .ok_or_else(|| "聊天请求缺少 messages 数组".to_string())?;
+    if request_object.contains_key("tools")
+        && !request_object.get("tools").is_some_and(Value::is_array)
+    {
+        return Err("tools 必须是数组".to_string());
+    }
 
     let downstream_stream = request_object
         .get("stream")
@@ -1909,11 +1972,10 @@ fn convert_openai_chat_request_to_codex(request: &Value) -> Result<(Value, bool)
     root.insert(
         "reasoning".to_string(),
         json!({
-            "effort": request_object
-                .get("reasoning_effort")
-                .and_then(Value::as_str)
-                .or_else(|| request_object.get("reasoning").and_then(|value| value.get("effort")).and_then(Value::as_str))
-                .unwrap_or("medium"),
+            "effort": normalize_api_proxy_reasoning_effort_for_upstream(
+                request_reasoning_effort(request_object)?
+                    .unwrap_or(DEFAULT_API_PROXY_REASONING_EFFORT),
+            )?,
             "summary": request_object
                 .get("reasoning")
                 .and_then(|value| value.get("summary"))
@@ -2056,13 +2118,12 @@ fn convert_openai_chat_request_to_codex(request: &Value) -> Result<(Value, bool)
     if let Some(text) = request_object.get("text") {
         map_text_settings(&mut root, text);
     }
-    if let Some(service_tier) = request_object
-        .get("service_tier")
-        .and_then(Value::as_str)
-        .and_then(normalize_api_proxy_service_tier_for_upstream)
-    {
-        root.insert("service_tier".to_string(), Value::String(service_tier));
-    }
+    root.insert(
+        "service_tier".to_string(),
+        Value::String(api_proxy_service_tier_for_upstream(request_object)?),
+    );
+
+    normalize_responses_lite_payload(&mut root)?;
 
     Ok((Value::Object(root), downstream_stream))
 }
@@ -2072,7 +2133,7 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
         .as_object_mut()
         .ok_or_else(|| "responses 请求必须是 JSON 对象".to_string())?;
 
-    let model = map_client_model_to_upstream(&required_string(object, "model")?)?;
+    let model = map_client_model_to_upstream(&request_model_or_default(object)?)?;
     let downstream_stream = object
         .get("stream")
         .and_then(Value::as_bool)
@@ -2081,15 +2142,10 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
     object.insert("model".to_string(), Value::String(model));
     object.insert("stream".to_string(), Value::Bool(true));
     object.insert("store".to_string(), Value::Bool(false));
-    if let Some(service_tier) = object
-        .get("service_tier")
-        .and_then(Value::as_str)
-        .and_then(normalize_api_proxy_service_tier_for_upstream)
-    {
-        object.insert("service_tier".to_string(), Value::String(service_tier));
-    } else {
-        object.remove("service_tier");
-    }
+    object.insert(
+        "service_tier".to_string(),
+        Value::String(api_proxy_service_tier_for_upstream(object)?),
+    );
     if !object.contains_key("instructions") {
         object.insert("instructions".to_string(), Value::String(String::new()));
     }
@@ -2097,15 +2153,37 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
         object.insert("parallel_tool_calls".to_string(), Value::Bool(true));
     }
 
+    let legacy_reasoning_effort = match object.remove("reasoning_effort") {
+        Some(Value::String(effort)) => Some(effort),
+        Some(Value::Null) | None => None,
+        Some(_) => return Err("reasoning_effort 必须是字符串".to_string()),
+    };
     let reasoning = object
         .entry("reasoning".to_string())
         .or_insert_with(|| Value::Object(Map::new()));
-    if !reasoning.is_object() {
+    if reasoning.is_null() {
         *reasoning = Value::Object(Map::new());
+    } else if !reasoning.is_object() {
+        return Err("reasoning 必须是对象".to_string());
     }
     if let Some(reasoning_object) = reasoning.as_object_mut() {
-        if !reasoning_object.contains_key("effort") {
-            reasoning_object.insert("effort".to_string(), Value::String("medium".to_string()));
+        if !reasoning_object.contains_key("effort")
+            || reasoning_object.get("effort").is_some_and(Value::is_null)
+        {
+            reasoning_object.insert(
+                "effort".to_string(),
+                Value::String(match legacy_reasoning_effort.as_deref() {
+                    Some(effort) => normalize_api_proxy_reasoning_effort_for_upstream(effort)?,
+                    None => DEFAULT_API_PROXY_REASONING_EFFORT.to_string(),
+                }),
+            );
+        } else if let Some(effort) = reasoning_object.get("effort").and_then(Value::as_str) {
+            reasoning_object.insert(
+                "effort".to_string(),
+                Value::String(normalize_api_proxy_reasoning_effort_for_upstream(effort)?),
+            );
+        } else {
+            return Err("reasoning.effort 必须是字符串".to_string());
         }
         if !reasoning_object.contains_key("summary") {
             reasoning_object.insert("summary".to_string(), Value::String("auto".to_string()));
@@ -2135,6 +2213,8 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
         object.remove(*key);
     }
 
+    normalize_responses_lite_payload(object)?;
+
     Ok((request, downstream_stream))
 }
 
@@ -2142,11 +2222,16 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
     let request_object = request
         .as_object()
         .ok_or_else(|| "Anthropic Messages 请求必须是 JSON 对象".to_string())?;
-    let model = map_client_model_to_upstream(&required_string(request_object, "model")?)?;
+    let model = map_client_model_to_upstream(&request_model_or_default(request_object)?)?;
     let messages = request_object
         .get("messages")
         .and_then(Value::as_array)
         .ok_or_else(|| "Anthropic Messages 请求缺少 messages 数组".to_string())?;
+    if request_object.contains_key("tools")
+        && !request_object.get("tools").is_some_and(Value::is_array)
+    {
+        return Err("tools 必须是数组".to_string());
+    }
     let downstream_stream = bool_field(request_object, "stream", false);
 
     let mut root = Map::new();
@@ -2172,7 +2257,7 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
     root.insert(
         "reasoning".to_string(),
         json!({
-            "effort": anthropic_reasoning_effort(request_object),
+            "effort": anthropic_reasoning_effort(request_object)?,
             "summary": "auto",
         }),
     );
@@ -2188,7 +2273,10 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
     }
     copy_anthropic_passthrough_field(request_object, &mut root, "temperature", "temperature");
     copy_anthropic_passthrough_field(request_object, &mut root, "top_p", "top_p");
-    copy_anthropic_passthrough_field(request_object, &mut root, "service_tier", "service_tier");
+    root.insert(
+        "service_tier".to_string(),
+        Value::String(api_proxy_service_tier_for_upstream(request_object)?),
+    );
     if let Some(stop_sequences) = request_object.get("stop_sequences") {
         root.insert("stop".to_string(), stop_sequences.clone());
     }
@@ -2231,6 +2319,8 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
         }
     }
 
+    normalize_responses_lite_payload(&mut root)?;
+
     Ok((Value::Object(root), downstream_stream))
 }
 
@@ -2250,7 +2340,11 @@ fn anthropic_system_to_instructions(system: Option<&Value>) -> String {
     }
 }
 
-fn anthropic_reasoning_effort(request_object: &Map<String, Value>) -> &'static str {
+fn anthropic_reasoning_effort(request_object: &Map<String, Value>) -> Result<String, String> {
+    if let Some(effort) = request_reasoning_effort(request_object)? {
+        return normalize_api_proxy_reasoning_effort_for_upstream(effort);
+    }
+
     if request_object
         .get("thinking")
         .and_then(Value::as_object)
@@ -2258,9 +2352,9 @@ fn anthropic_reasoning_effort(request_object: &Map<String, Value>) -> &'static s
         .and_then(Value::as_str)
         == Some("enabled")
     {
-        "high"
+        Ok("high".to_string())
     } else {
-        "medium"
+        Ok(DEFAULT_API_PROXY_REASONING_EFFORT.to_string())
     }
 }
 
@@ -2788,6 +2882,304 @@ fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
     Ok(remap_model_name(model, REQUEST_MODEL_MAPPINGS).unwrap_or_else(|| model.to_string()))
 }
 
+fn request_model_or_default(object: &Map<String, Value>) -> Result<String, String> {
+    match object.get("model") {
+        None | Some(Value::Null) => Ok(DEFAULT_API_PROXY_MODEL.to_string()),
+        Some(Value::String(model)) if model.trim().is_empty() => {
+            Ok(DEFAULT_API_PROXY_MODEL.to_string())
+        }
+        Some(Value::String(model)) => Ok(model.trim().to_string()),
+        Some(_) => Err("model 必须是字符串".to_string()),
+    }
+}
+
+fn request_reasoning_effort(object: &Map<String, Value>) -> Result<Option<&str>, String> {
+    match object.get("reasoning_effort") {
+        Some(Value::String(effort)) => return Ok(Some(effort.as_str())),
+        Some(Value::Null) | None => {}
+        Some(_) => return Err("reasoning_effort 必须是字符串".to_string()),
+    }
+
+    let Some(reasoning) = object.get("reasoning") else {
+        return Ok(None);
+    };
+    if reasoning.is_null() {
+        return Ok(None);
+    }
+    let reasoning = reasoning
+        .as_object()
+        .ok_or_else(|| "reasoning 必须是对象".to_string())?;
+    match reasoning.get("effort") {
+        Some(Value::String(effort)) => Ok(Some(effort.as_str())),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => Err("reasoning.effort 必须是字符串".to_string()),
+    }
+}
+
+fn is_responses_lite_model(model: &str) -> bool {
+    ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        .iter()
+        .any(|prefix| model == *prefix || model.starts_with(&format!("{prefix}-")))
+}
+
+fn payload_uses_responses_lite(payload: &Value) -> bool {
+    payload
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(is_responses_lite_model)
+}
+
+fn normalize_responses_lite_payload(object: &mut Map<String, Value>) -> Result<(), String> {
+    let Some(model) = object.get("model").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    if !is_responses_lite_model(model) {
+        return Ok(());
+    }
+    if object
+        .get("reasoning")
+        .and_then(|reasoning| reasoning.get("effort"))
+        .and_then(Value::as_str)
+        == Some("minimal")
+    {
+        return Err(
+            "GPT-5.6 不支持 minimal 推理强度；请使用 none、low、medium、high、xhigh 或 max"
+                .to_string(),
+        );
+    }
+
+    if object.contains_key("tools") && !object.get("tools").is_some_and(Value::is_array) {
+        return Err("GPT-5.6 Responses Lite 的 tools 必须是数组".to_string());
+    }
+    if object.contains_key("instructions")
+        && !object.get("instructions").is_some_and(Value::is_string)
+    {
+        return Err("GPT-5.6 Responses Lite 的 instructions 必须是字符串".to_string());
+    }
+
+    let extra_tools = object
+        .remove("tools")
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    let instructions = object
+        .remove("instructions")
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .filter(|value| !value.is_empty());
+    let mut input = responses_lite_input_items(object.remove("input"))?;
+    for item in &mut input {
+        prepare_responses_lite_images(item);
+    }
+
+    let additional_tools_count = input
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("additional_tools"))
+        .count();
+    if additional_tools_count > 1
+        || (additional_tools_count == 1
+            && input
+                .first()
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str)
+                != Some("additional_tools"))
+    {
+        return Err(
+            "GPT-5.6 Responses Lite 的 additional_tools 必须且只能位于 input 首项".to_string(),
+        );
+    }
+
+    let already_has_additional_tools = input
+        .first()
+        .and_then(Value::as_object)
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        == Some("additional_tools");
+
+    if already_has_additional_tools {
+        let tools_are_array = input
+            .first()
+            .and_then(Value::as_object)
+            .and_then(|item| item.get("tools"))
+            .is_some_and(Value::is_array);
+        if !tools_are_array {
+            return Err("GPT-5.6 Responses Lite 的 additional_tools.tools 必须是数组".to_string());
+        }
+        if let Some(item) = input.first_mut().and_then(Value::as_object_mut) {
+            item.insert("role".to_string(), Value::String("developer".to_string()));
+        }
+        if !extra_tools.is_empty() {
+            if let Some(tools) = input
+                .first_mut()
+                .and_then(Value::as_object_mut)
+                .and_then(|item| item.get_mut("tools"))
+                .and_then(Value::as_array_mut)
+            {
+                tools.extend(extra_tools);
+            }
+        }
+    } else {
+        input.insert(
+            0,
+            json!({
+                "type": "additional_tools",
+                "role": "developer",
+                "tools": extra_tools,
+            }),
+        );
+    }
+
+    if let Some(instructions) = instructions {
+        input.insert(
+            1,
+            json!({
+                "type": "message",
+                "role": "developer",
+                "content": [{
+                    "type": "input_text",
+                    "text": instructions,
+                }],
+            }),
+        );
+    }
+
+    if let Some(tool_type) = responses_lite_unsupported_hosted_tool(&input) {
+        return Err(format!(
+            "GPT-5.6 Responses Lite 不支持 hosted tool 类型 {tool_type}；请使用客户端扩展工具"
+        ));
+    }
+
+    object.insert("input".to_string(), Value::Array(input));
+    object.insert("parallel_tool_calls".to_string(), Value::Bool(false));
+    if !object.contains_key("tool_choice") {
+        object.insert("tool_choice".to_string(), Value::String("auto".to_string()));
+    }
+
+    let reasoning = object
+        .entry("reasoning".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !reasoning.is_object() {
+        *reasoning = Value::Object(Map::new());
+    }
+    if let Some(reasoning) = reasoning.as_object_mut() {
+        reasoning.insert(
+            "context".to_string(),
+            Value::String("all_turns".to_string()),
+        );
+    }
+
+    Ok(())
+}
+
+fn responses_lite_unsupported_hosted_tool(input: &[Value]) -> Option<&str> {
+    let tools = input
+        .first()
+        .and_then(Value::as_object)
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("additional_tools"))?
+        .get("tools")?
+        .as_array()?;
+
+    tools.iter().find_map(|tool| {
+        let tool_type = tool.get("type").and_then(Value::as_str)?;
+        matches!(
+            tool_type,
+            "web_search" | "web_search_preview" | "image_generation"
+        )
+        .then_some(tool_type)
+    })
+}
+
+fn responses_lite_input_items(input: Option<Value>) -> Result<Vec<Value>, String> {
+    match input {
+        Some(Value::Array(items)) => Ok(items),
+        Some(Value::String(text)) => Ok(vec![json!({
+            "type": "message",
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": text,
+            }],
+        })]),
+        Some(Value::Null) | None => Ok(Vec::new()),
+        Some(_) => Err("GPT-5.6 Responses Lite 的 input 必须是字符串或数组".to_string()),
+    }
+}
+
+fn is_remote_image_url(url: &str) -> bool {
+    url.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+    })
+}
+
+fn is_data_image_url(url: &str) -> bool {
+    url.get(.."data:".len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"))
+}
+
+fn prepare_responses_lite_images(value: &mut Value) {
+    let remote_image_url = value.as_object().is_some_and(|object| {
+        object.get("type").and_then(Value::as_str) == Some("input_image")
+            && object
+                .get("image_url")
+                .and_then(Value::as_str)
+                .is_some_and(is_remote_image_url)
+    });
+    if remote_image_url {
+        *value = json!({
+            "type": "input_text",
+            "text": "image content omitted because remote image URLs are not supported",
+        });
+        return;
+    }
+
+    let unsupported_low_detail = value.as_object().is_some_and(|object| {
+        object.get("type").and_then(Value::as_str) == Some("input_image")
+            && object
+                .get("image_url")
+                .and_then(Value::as_str)
+                .is_some_and(is_data_image_url)
+            && object
+                .get("detail")
+                .and_then(Value::as_str)
+                .is_some_and(|detail| detail.eq_ignore_ascii_case("low"))
+    });
+    if unsupported_low_detail {
+        *value = json!({
+            "type": "input_text",
+            "text": "image content omitted because detail 'low' is not supported; use 'high', 'original', or 'auto'",
+        });
+        return;
+    }
+
+    match value {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("additional_tools") {
+                return;
+            }
+            if object.get("type").and_then(Value::as_str) == Some("input_image") {
+                object.remove("detail");
+            }
+            for value in object.values_mut() {
+                prepare_responses_lite_images(value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                prepare_responses_lite_images(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn payload_for_upstream(payload: &Value) -> Value {
+    let mut payload = payload.clone();
+    if let Some(object) = payload.as_object_mut() {
+        if object.get("service_tier").and_then(Value::as_str) == Some("default") {
+            object.remove("service_tier");
+        }
+    }
+    payload
+}
+
 fn should_use_responses_websocket(payload: &Value) -> bool {
     let _ = payload;
     false
@@ -2800,6 +3192,20 @@ fn websocket_response_create_payload(payload: &Value) -> Value {
             "type".to_string(),
             Value::String("response.create".to_string()),
         );
+        if payload_uses_responses_lite(&Value::Object(object.clone())) {
+            let metadata = object
+                .entry("client_metadata".to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if !metadata.is_object() {
+                *metadata = Value::Object(Map::new());
+            }
+            if let Some(metadata) = metadata.as_object_mut() {
+                metadata.insert(
+                    "ws_request_header_x_openai_internal_codex_responses_lite".to_string(),
+                    Value::String("true".to_string()),
+                );
+            }
+        }
     }
     payload
 }
@@ -3519,6 +3925,7 @@ async fn forward_codex_request_with_candidate(
     payload: &Value,
 ) -> Result<CodexUpstreamResponse, String> {
     let upstream_url = format!("{}/responses", context.upstream_base_url);
+    let upstream_payload = payload_for_upstream(payload);
     let session_id = headers
         .get("session_id")
         .and_then(|value| value.to_str().ok())
@@ -3526,22 +3933,14 @@ async fn forward_codex_request_with_candidate(
         .map(ToString::to_string)
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    let version = headers
-        .get("version")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(CODEX_CLIENT_VERSION);
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(CODEX_USER_AGENT);
+    let uses_responses_lite = payload_uses_responses_lite(&upstream_payload);
+    let (version, user_agent) = upstream_codex_client_identity(headers, uses_responses_lite);
 
-    if should_use_responses_websocket(payload) {
+    if should_use_responses_websocket(&upstream_payload) {
         return forward_codex_websocket_request_with_candidate(
             context,
             candidate,
-            payload,
+            &upstream_payload,
             &session_id,
             version,
             user_agent,
@@ -3549,10 +3948,10 @@ async fn forward_codex_request_with_candidate(
         .await;
     }
 
-    let serialized =
-        serde_json::to_vec(payload).map_err(|error| format!("序列化上游请求失败: {error}"))?;
+    let serialized = serde_json::to_vec(&upstream_payload)
+        .map_err(|error| format!("序列化上游请求失败: {error}"))?;
 
-    context
+    let mut request = context
         .client
         .post(&upstream_url)
         .header(
@@ -3566,12 +3965,35 @@ async fn forward_codex_request_with_candidate(
         .header("Version", version)
         .header("Session_id", session_id)
         .header("User-Agent", user_agent)
-        .header("Connection", "Keep-Alive")
+        .header("Connection", "Keep-Alive");
+    if uses_responses_lite {
+        request = request.header(RESPONSES_LITE_HEADER, "true");
+    }
+
+    request
         .body(serialized)
         .send()
         .await
         .map(CodexUpstreamResponse::Http)
         .map_err(|error| format!("请求 Codex 上游失败 {upstream_url}: {error}"))
+}
+
+fn upstream_codex_client_identity(headers: &HeaderMap, uses_responses_lite: bool) -> (&str, &str) {
+    if uses_responses_lite {
+        return (CODEX_CLIENT_VERSION, CODEX_USER_AGENT);
+    }
+
+    let version = headers
+        .get("version")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(CODEX_CLIENT_VERSION);
+    let user_agent = headers
+        .get("user-agent")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(CODEX_USER_AGENT);
+    (version, user_agent)
 }
 
 async fn forward_codex_websocket_request_with_candidate(
@@ -3804,7 +4226,7 @@ fn ensure_api_proxy_key_allows_payload(key: &ApiProxyKey, payload: &Value) -> Re
 
     if !key.allowed_reasoning_efforts.is_empty() {
         let requested = api_proxy_reasoning_effort_from_payload(payload)
-            .unwrap_or_else(|| "medium".to_string());
+            .unwrap_or_else(|| DEFAULT_API_PROXY_REASONING_EFFORT.to_string());
         if !key.allowed_reasoning_efforts.contains(&requested) {
             return Err(format!(
                 "平台 Key {} 未绑定推理等级: {}",
@@ -3814,8 +4236,8 @@ fn ensure_api_proxy_key_allows_payload(key: &ApiProxyKey, payload: &Value) -> Re
     }
 
     if !key.allowed_service_tiers.is_empty() {
-        let requested =
-            api_proxy_service_tier_from_payload(payload).unwrap_or_else(|| "auto".to_string());
+        let requested = api_proxy_service_tier_from_payload(payload)
+            .unwrap_or_else(|| DEFAULT_API_PROXY_SERVICE_TIER.to_string());
         if !key.allowed_service_tiers.contains(&requested) {
             return Err(format!(
                 "平台 Key {} 未绑定服务等级: {}",
@@ -3846,10 +4268,28 @@ fn api_proxy_requested_models_from_payload(payload: &Value) -> Vec<String> {
 
 fn api_proxy_requested_image_tool_models(payload: &Value) -> Vec<String> {
     let mut models = Vec::new();
-    let Some(tools) = payload.get("tools").and_then(Value::as_array) else {
-        return models;
-    };
+    if let Some(tools) = payload.get("tools").and_then(Value::as_array) {
+        collect_api_proxy_requested_image_tool_models(tools, &mut models);
+    }
 
+    if let Some(input) = payload.get("input").and_then(Value::as_array) {
+        for item in input {
+            let Some(item) = item.as_object() else {
+                continue;
+            };
+            if item.get("type").and_then(Value::as_str) != Some("additional_tools") {
+                continue;
+            }
+            if let Some(tools) = item.get("tools").and_then(Value::as_array) {
+                collect_api_proxy_requested_image_tool_models(tools, &mut models);
+            }
+        }
+    }
+
+    models
+}
+
+fn collect_api_proxy_requested_image_tool_models(tools: &[Value], models: &mut Vec<String>) {
     for tool in tools {
         let Some(object) = tool.as_object() else {
             continue;
@@ -3859,15 +4299,13 @@ fn api_proxy_requested_image_tool_models(payload: &Value) -> Vec<String> {
         }
 
         push_unique_api_proxy_model(
-            &mut models,
+            models,
             object
                 .get("model")
                 .and_then(Value::as_str)
                 .and_then(normalize_api_proxy_config_model_name),
         );
     }
-
-    models
 }
 
 fn push_unique_api_proxy_model(models: &mut Vec<String>, next: Option<String>) {
@@ -3899,7 +4337,8 @@ fn api_proxy_service_tier_from_payload(payload: &Value) -> Option<String> {
 
 fn normalize_api_proxy_service_tier_for_log(value: &str) -> Option<String> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "" | "auto" => Some("auto".to_string()),
+        "auto" => Some("auto".to_string()),
+        "" | "default" | "standard" => Some("default".to_string()),
         "fast" | "priority" => Some("fast".to_string()),
         "flex" => Some("flex".to_string()),
         _ => None,
@@ -3908,11 +4347,39 @@ fn normalize_api_proxy_service_tier_for_log(value: &str) -> Option<String> {
 
 fn normalize_api_proxy_service_tier_for_upstream(value: &str) -> Option<String> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "" => None,
+        "" => Some(DEFAULT_UPSTREAM_SERVICE_TIER.to_string()),
+        "default" | "standard" => Some("default".to_string()),
         "auto" => Some("auto".to_string()),
         "fast" | "priority" => Some("priority".to_string()),
         "flex" => Some("flex".to_string()),
         _ => None,
+    }
+}
+
+fn api_proxy_service_tier_for_upstream(
+    request_object: &Map<String, Value>,
+) -> Result<String, String> {
+    match request_object.get("service_tier") {
+        None => Ok(DEFAULT_UPSTREAM_SERVICE_TIER.to_string()),
+        Some(value) => {
+            let value = value
+                .as_str()
+                .ok_or_else(|| "service_tier 必须是字符串".to_string())?;
+            normalize_api_proxy_service_tier_for_upstream(value)
+                .ok_or_else(|| format!("不支持的推理速度: {value}"))
+        }
+    }
+}
+
+fn normalize_api_proxy_reasoning_effort_for_upstream(value: &str) -> Result<String, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" => Ok(DEFAULT_API_PROXY_REASONING_EFFORT.to_string()),
+        // Ultra is a Codex client mode. The inference request itself uses max.
+        "ultra" => Ok("max".to_string()),
+        normalized if API_PROXY_REASONING_EFFORTS.contains(&normalized) => {
+            Ok(normalized.to_string())
+        }
+        _ => Err(format!("不支持的推理强度: {value}")),
     }
 }
 
@@ -4940,24 +5407,9 @@ fn api_proxy_usage_model_from_payload(payload: &Value) -> String {
 }
 
 fn api_proxy_usage_image_tool_model_from_payload(payload: &Value) -> Option<String> {
-    payload
-        .get("tools")
-        .and_then(Value::as_array)
-        .and_then(|tools| {
-            tools.iter().find_map(|tool| {
-                let object = tool.as_object()?;
-                if object.get("type").and_then(Value::as_str) != Some("image_generation") {
-                    return None;
-                }
-
-                object
-                    .get("model")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|model| !model.is_empty())
-                    .map(normalize_model_for_client)
-            })
-        })
+    api_proxy_requested_image_tool_models(payload)
+        .into_iter()
+        .next()
 }
 
 fn api_proxy_usage_event(
@@ -7292,6 +7744,27 @@ mod tests {
     }
 
     #[test]
+    fn api_proxy_usage_finds_image_tool_model_in_responses_lite_input() {
+        let payload = json!({
+            "model": "gpt-5.6-sol",
+            "input": [{
+                "type": "additional_tools",
+                "role": "developer",
+                "tools": [{
+                    "type": "image_generation",
+                    "model": "gpt-image-2"
+                }]
+            }]
+        });
+
+        assert_eq!(api_proxy_usage_model_from_payload(&payload), "gpt-image-2");
+        assert_eq!(
+            api_proxy_requested_models_from_payload(&payload),
+            vec!["gpt-image-2"]
+        );
+    }
+
+    #[test]
     fn sanitize_api_proxy_disabled_models_filters_unknown_and_orders_results() {
         let disabled = sanitize_api_proxy_disabled_models_for_settings(vec![
             "gpt-image-2".to_string(),
@@ -7307,7 +7780,40 @@ mod tests {
     fn api_proxy_supported_models_only_exposes_current_allowlist() {
         assert_eq!(
             super::get_api_proxy_supported_models_internal(),
-            vec!["gpt-5.4", "gpt-5.5", "gpt-image-2"]
+            vec![
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "gpt-5.4",
+                "gpt-image-2",
+            ]
+        );
+    }
+
+    #[test]
+    fn api_proxy_sanitizers_accept_all_supported_reasoning_and_speed_options() {
+        assert_eq!(
+            super::sanitize_api_proxy_reasoning_efforts(vec![
+                "max".to_string(),
+                "none".to_string(),
+                "xhigh".to_string(),
+                "minimal".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "invalid".to_string(),
+            ]),
+            vec!["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+        );
+        assert_eq!(
+            super::sanitize_api_proxy_service_tiers(vec![
+                "priority".to_string(),
+                "default".to_string(),
+                "auto".to_string(),
+                "flex".to_string(),
+            ]),
+            vec!["auto", "default", "fast", "flex"]
         );
     }
 
@@ -7847,6 +8353,557 @@ mod tests {
     }
 
     #[test]
+    fn defaults_openai_requests_to_gpt_5_6_sol_xhigh_fast_responses_lite() {
+        let request = json!({
+            "messages": [{ "role": "user", "content": "hello" }],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "parameters": { "type": "object" }
+                }
+            }]
+        });
+
+        let (payload, _) =
+            convert_openai_chat_request_to_codex(&request).expect("request should convert");
+
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("xhigh")
+        );
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+        assert_eq!(
+            payload.get("parallel_tool_calls").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            payload.get("tool_choice").and_then(Value::as_str),
+            Some("auto")
+        );
+        assert!(payload.get("instructions").is_none());
+        assert!(payload.get("tools").is_none());
+        assert_eq!(
+            payload
+                .get("input")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str),
+            Some("additional_tools")
+        );
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("context"))
+                .and_then(Value::as_str),
+            Some("all_turns")
+        );
+
+        let (responses_payload, _) = normalize_openai_responses_request(json!({
+            "input": "hello"
+        }))
+        .expect("Responses request should use defaults");
+        assert_eq!(
+            responses_payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(
+            responses_payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("xhigh")
+        );
+        assert_eq!(
+            responses_payload
+                .get("service_tier")
+                .and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn maps_all_gpt_5_6_model_names_and_aliases() {
+        let cases = [
+            ("gpt-5.6", "gpt-5.6-sol"),
+            ("gpt5.6", "gpt-5.6-sol"),
+            ("gpt-5-6", "gpt-5.6-sol"),
+            ("gpt-5.6-sol", "gpt-5.6-sol"),
+            ("gpt5.6-sol", "gpt-5.6-sol"),
+            ("gpt-5-6-sol", "gpt-5.6-sol"),
+            ("gpt-5.6-terra", "gpt-5.6-terra"),
+            ("gpt5.6-terra", "gpt-5.6-terra"),
+            ("gpt-5-6-terra", "gpt-5.6-terra"),
+            ("gpt-5.6-luna", "gpt-5.6-luna"),
+            ("gpt5.6-luna", "gpt-5.6-luna"),
+            ("gpt-5-6-luna", "gpt-5.6-luna"),
+            ("gpt5.6-sol-2026-07-01", "gpt-5.6-sol-2026-07-01"),
+            ("gpt-5-6-terra-2026-07-01", "gpt-5.6-terra-2026-07-01"),
+            ("gpt-5.6-luna-2026-07-01", "gpt-5.6-luna-2026-07-01"),
+        ];
+
+        for (requested, expected) in cases {
+            let request = json!({
+                "model": requested,
+                "input": "hello"
+            });
+            let (payload, _) = normalize_openai_responses_request(request)
+                .expect("GPT-5.6 request should normalize");
+            assert_eq!(
+                payload.get("model").and_then(Value::as_str),
+                Some(expected),
+                "alias {requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn forwards_every_reasoning_effort_and_maps_ultra_to_max() {
+        for (requested, expected) in [
+            ("none", "none"),
+            ("low", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            ("xhigh", "xhigh"),
+            ("max", "max"),
+            ("ultra", "max"),
+        ] {
+            let request = json!({
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "reasoning": { "effort": requested }
+            });
+            let (payload, _) = normalize_openai_responses_request(request)
+                .expect("reasoning effort should normalize");
+            assert_eq!(
+                payload
+                    .get("reasoning")
+                    .and_then(|value| value.get("effort"))
+                    .and_then(Value::as_str),
+                Some(expected),
+                "effort {requested}"
+            );
+        }
+
+        let minimal = json!({
+            "model": "gpt-5.6-sol",
+            "input": "hello",
+            "reasoning": { "effort": "minimal" }
+        });
+        assert!(normalize_openai_responses_request(minimal)
+            .expect_err("GPT-5.6 minimal should be rejected")
+            .contains("minimal"));
+    }
+
+    #[test]
+    fn forwards_every_service_tier_and_alias() {
+        for (requested, payload_tier, policy_tier, upstream_tier) in [
+            ("", "priority", "fast", Some("priority")),
+            ("auto", "auto", "auto", Some("auto")),
+            ("default", "default", "default", None),
+            ("standard", "default", "default", None),
+            ("fast", "priority", "fast", Some("priority")),
+            ("priority", "priority", "fast", Some("priority")),
+            ("flex", "flex", "flex", Some("flex")),
+        ] {
+            let request = json!({
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "service_tier": requested
+            });
+            let (payload, _) =
+                normalize_openai_responses_request(request).expect("service tier should normalize");
+            assert_eq!(
+                payload.get("service_tier").and_then(Value::as_str),
+                Some(payload_tier),
+                "payload tier {requested}"
+            );
+            assert_eq!(
+                super::api_proxy_service_tier_from_payload(&payload).as_deref(),
+                Some(policy_tier),
+                "policy tier {requested}"
+            );
+            assert_eq!(
+                super::payload_for_upstream(&payload)
+                    .get("service_tier")
+                    .and_then(Value::as_str),
+                upstream_tier,
+                "upstream tier {requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn converts_gpt_5_6_responses_payload_to_lite_contract() {
+        let request = json!({
+            "model": "gpt-5.6-terra",
+            "instructions": "Be exact.",
+            "input": "hello",
+            "tools": [{ "type": "function", "name": "lookup", "parameters": {} }],
+            "parallel_tool_calls": true,
+            "reasoning": { "effort": "max" },
+            "service_tier": "fast"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+        let input = payload
+            .get("input")
+            .and_then(Value::as_array)
+            .expect("lite input should be an array");
+
+        assert_eq!(
+            input[0].get("type").and_then(Value::as_str),
+            Some("additional_tools")
+        );
+        assert_eq!(
+            input[0].get("role").and_then(Value::as_str),
+            Some("developer")
+        );
+        assert_eq!(
+            input[1].get("role").and_then(Value::as_str),
+            Some("developer")
+        );
+        assert_eq!(input[2].get("role").and_then(Value::as_str), Some("user"));
+        assert!(payload.get("instructions").is_none());
+        assert!(payload.get("tools").is_none());
+        assert_eq!(
+            payload.get("parallel_tool_calls").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("context"))
+                .and_then(Value::as_str),
+            Some("all_turns")
+        );
+    }
+
+    #[test]
+    fn preserves_existing_responses_lite_prefix_without_duplication() {
+        let request = json!({
+            "model": "gpt-5.6-sol",
+            "input": [
+                { "type": "additional_tools", "role": "developer", "tools": [] },
+                { "type": "message", "role": "user", "content": [] }
+            ]
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+        let input = payload
+            .get("input")
+            .and_then(Value::as_array)
+            .expect("lite input should be an array");
+        assert_eq!(
+            input
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("additional_tools"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn responses_lite_removes_image_detail_from_messages_and_tool_outputs() {
+        let request = json!({
+            "model": "gpt-5.6-sol",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_image",
+                        "image_url": "data:image/png;base64,AA==",
+                        "detail": "original"
+                    }]
+                },
+                {
+                    "type": "custom_tool_call_output",
+                    "call_id": "call-1",
+                    "output": [{
+                        "type": "input_image",
+                        "image_url": "data:image/png;base64,AA==",
+                        "detail": "high"
+                    }]
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_image",
+                        "image_url": "HTTPS://example.com/image.png",
+                        "detail": "high"
+                    }]
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call-2",
+                    "output": [{
+                        "type": "input_image",
+                        "image_url": "DATA:image/png;base64,AA==",
+                        "detail": "LOW"
+                    }]
+                }
+            ]
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+        let serialized = serde_json::to_string(&payload).expect("payload should serialize");
+
+        assert!(!serialized.contains("\"detail\""));
+        assert_eq!(serialized.matches("input_image").count(), 2);
+        assert!(!serialized.contains("example.com/image.png"));
+        assert!(serialized
+            .contains("image content omitted because remote image URLs are not supported"));
+        assert!(serialized.contains("image content omitted because detail 'low' is not supported"));
+    }
+
+    #[test]
+    fn responses_lite_websocket_payload_uses_client_metadata_marker() {
+        let payload = json!({
+            "model": "gpt-5.6-terra",
+            "input": []
+        });
+
+        let payload = super::websocket_response_create_payload(&payload);
+
+        assert_eq!(
+            payload
+                .get("client_metadata")
+                .and_then(|value| {
+                    value.get("ws_request_header_x_openai_internal_codex_responses_lite")
+                })
+                .and_then(Value::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn anthropic_and_websocket_entries_use_responses_lite_defaults() {
+        let anthropic = json!({
+            "system": "Be exact.",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "tools": [{
+                "name": "lookup",
+                "input_schema": { "type": "object" }
+            }]
+        });
+        let (anthropic_payload, _) = convert_anthropic_messages_request_to_codex(&anthropic)
+            .expect("Anthropic request should convert");
+        assert_eq!(
+            anthropic_payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(
+            anthropic_payload
+                .get("service_tier")
+                .and_then(Value::as_str),
+            Some("priority")
+        );
+        assert_eq!(
+            anthropic_payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("xhigh")
+        );
+        let anthropic_input = anthropic_payload
+            .get("input")
+            .and_then(Value::as_array)
+            .expect("Lite input should be an array");
+        assert_eq!(
+            anthropic_input[0].get("type").and_then(Value::as_str),
+            Some("additional_tools")
+        );
+        assert_eq!(
+            anthropic_input[1].get("role").and_then(Value::as_str),
+            Some("developer")
+        );
+
+        let websocket_payload = normalize_responses_websocket_create(
+            br#"{"type":"response.create","model":"gpt-5.6-luna","input":"hello"}"#,
+        )
+        .expect("WebSocket payload should normalize");
+        assert_eq!(
+            websocket_payload
+                .get("input")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str),
+            Some("additional_tools")
+        );
+        assert_eq!(
+            websocket_payload
+                .get("parallel_tool_calls")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn responses_websocket_v2_requests_use_http_fallback() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "openai-beta",
+            HeaderValue::from_static("other=true, responses_websockets=2026-02-06"),
+        );
+
+        assert!(super::responses_websocket_requires_http_fallback(&headers));
+        assert!(!super::responses_websocket_requires_http_fallback(
+            &HeaderMap::new()
+        ));
+    }
+
+    #[test]
+    fn responses_lite_forces_codex_0144_identity_while_classic_preserves_client_identity() {
+        let mut headers = HeaderMap::new();
+        headers.insert("version", HeaderValue::from_static("0.125.0"));
+        headers.insert(
+            "user-agent",
+            HeaderValue::from_static("codex_cli_rs/0.125.0"),
+        );
+
+        assert_eq!(
+            super::upstream_codex_client_identity(&headers, true),
+            ("0.144.0", "codex_cli_rs/0.144.0")
+        );
+        assert_eq!(
+            super::upstream_codex_client_identity(&headers, false),
+            ("0.125.0", "codex_cli_rs/0.125.0")
+        );
+        assert!(super::payload_uses_responses_lite(
+            &json!({ "model": "gpt-5.6-terra" })
+        ));
+        assert!(!super::payload_uses_responses_lite(
+            &json!({ "model": "gpt-5.5" })
+        ));
+    }
+
+    #[test]
+    fn explicit_standard_speed_is_preserved_for_policy_and_omitted_upstream() {
+        let request = json!({
+            "model": "gpt-5.6-luna",
+            "input": "hello",
+            "service_tier": "default"
+        });
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("default")
+        );
+        assert!(super::payload_for_upstream(&payload)
+            .get("service_tier")
+            .is_none());
+    }
+
+    #[test]
+    fn rejects_unknown_reasoning_effort_and_service_tier() {
+        let invalid_effort = json!({
+            "model": "gpt-5.6-sol",
+            "input": "hello",
+            "reasoning": { "effort": "future" }
+        });
+        let invalid_tier = json!({
+            "model": "gpt-5.6-sol",
+            "input": "hello",
+            "service_tier": "turbo"
+        });
+
+        assert!(normalize_openai_responses_request(invalid_effort)
+            .expect_err("unknown effort should fail")
+            .contains("future"));
+        assert!(normalize_openai_responses_request(invalid_tier)
+            .expect_err("unknown tier should fail")
+            .contains("turbo"));
+    }
+
+    #[test]
+    fn maps_ultra_to_max_and_rejects_malformed_model_or_reasoning() {
+        let ultra = json!({
+            "model": "gpt-5.6-sol",
+            "input": "hello",
+            "reasoning": { "effort": "ultra" }
+        });
+        let (payload, _) =
+            normalize_openai_responses_request(ultra).expect("ultra should map to max");
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("max")
+        );
+
+        for invalid in [
+            json!({ "model": 56, "input": "hello" }),
+            json!({ "model": "gpt-5.6-sol", "input": "hello", "reasoning": "high" }),
+            json!({ "model": "gpt-5.6-sol", "input": "hello", "reasoning": { "effort": 9 } }),
+            json!({ "model": "gpt-5.6-sol", "input": {}, "reasoning": { "effort": "high" } }),
+        ] {
+            assert!(normalize_openai_responses_request(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn non_lite_models_keep_classic_responses_fields() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "instructions": "Be exact.",
+            "input": "hello",
+            "tools": [{ "type": "function", "name": "lookup", "parameters": {} }],
+            "parallel_tool_calls": true
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("classic request should normalize");
+        assert_eq!(
+            payload.get("instructions").and_then(Value::as_str),
+            Some("Be exact.")
+        );
+        assert!(payload.get("tools").is_some_and(Value::is_array));
+        assert_eq!(
+            payload.get("parallel_tool_calls").and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn rejects_hosted_tools_that_responses_lite_cannot_advertise() {
+        for tool_type in ["web_search", "image_generation"] {
+            let request = json!({
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "tools": [{ "type": tool_type }]
+            });
+
+            let error = normalize_openai_responses_request(request)
+                .expect_err("hosted Responses tool should fail clearly");
+            assert!(error.contains(tool_type));
+        }
+    }
+
+    #[test]
     fn maps_chat_request_model_alias_to_upstream() {
         let request = json!({
             "model": "gpt-5-4",
@@ -8037,6 +9094,27 @@ mod tests {
 
         assert!(payload.get("metadata").is_none());
         assert!(payload.get("prompt_cache_retention").is_none());
+    }
+
+    #[test]
+    fn moves_legacy_responses_reasoning_effort_into_reasoning_object() {
+        let request = json!({
+            "model": "gpt-5.6-sol",
+            "input": "hello",
+            "reasoning_effort": "high"
+        });
+
+        let (payload, _) =
+            normalize_openai_responses_request(request).expect("request should normalize");
+
+        assert!(payload.get("reasoning_effort").is_none());
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("high")
+        );
     }
 
     #[test]

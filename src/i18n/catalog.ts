@@ -355,11 +355,15 @@ export type MessageCatalog = {
     keyServiceTierHelp: string;
     keyLogsLabel: string;
     keyNoLogs: string;
+    reasoningNone: string;
     reasoningMinimal: string;
     reasoningLow: string;
     reasoningMedium: string;
     reasoningHigh: string;
+    reasoningXHigh: string;
+    reasoningMax: string;
     serviceTierAuto: string;
+    serviceTierDefault: string;
     serviceTierFast: string;
     serviceTierFlex: string;
     remoteKicker: string;

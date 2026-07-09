@@ -90,9 +90,11 @@ fn tray_account_usage_line(
     ));
 
     if only_show_five_hour(mode) {
-        let remaining_label =
-            i18n::tray_usage_mode_label(locale, TrayUsageDisplayMode::Remaining);
-        return format!("{current_prefix}{} | {remaining_label} {five_hour}", account.label);
+        let remaining_label = i18n::tray_usage_mode_label(locale, TrayUsageDisplayMode::Remaining);
+        return format!(
+            "{current_prefix}{} | {remaining_label} {five_hour}",
+            account.label
+        );
     }
 
     let one_week = format_percent(mode_percent(
