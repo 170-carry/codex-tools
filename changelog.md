@@ -1,4 +1,9 @@
 ## 更新日志
+- v2.4.0
+  1. macOS 支持启动新版 `ChatGPT.app`，并继续兼容旧版 `Codex.app`、`Codex Desktop.app` 与 `codex app` 回退
+  2. 切换账号时按已验证的桌面主进程树安全重启 ChatGPT/Codex，避免误杀终端独立运行的 Codex CLI
+  3. 补充 ChatGPT/Codex 启动兼容测试与使用说明
+
 - v2.3.0
   1. API 反代新增 GPT-5.6 Sol、Terra、Luna，并兼容 `gpt-5.6` 与常见历史别名
   2. 支持完整推理强度与速度入口，默认使用 `gpt-5.6-sol`、`xhigh`、`fast`

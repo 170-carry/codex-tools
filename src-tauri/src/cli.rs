@@ -33,6 +33,8 @@ const INVALID_CONFIGURED_CODEX_PATH_MESSAGE: &str =
 const WINDOWS_STORE_LAUNCH_TIMEOUT_MS: u64 = 8_000;
 #[cfg(target_os = "windows")]
 const WINDOWS_STORE_LAUNCH_POLL_MS: u64 = 250;
+#[cfg(target_os = "macos")]
+const MACOS_CODEX_APP_NAMES: [&str; 3] = ["ChatGPT.app", "Codex.app", "Codex Desktop.app"];
 
 /// 构造可直接启动 Codex CLI 的命令。
 ///
@@ -214,35 +216,74 @@ pub(crate) fn find_codex_app_path() -> Option<PathBuf> {
         find_windows_codex_app_path()
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        let mut candidates = vec![
-            PathBuf::from("/Applications/Codex.app"),
-            PathBuf::from("/Applications/Codex Desktop.app"),
-        ];
+        let home = dirs::home_dir();
+        let candidates = macos_codex_app_candidates(home.as_deref());
 
-        if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join("Applications").join("Codex.app"));
-            candidates.push(home.join("Applications").join("Codex Desktop.app"));
-        }
-
-        if let Some(found) = candidates.into_iter().find(|path| path.exists()) {
+        if let Some(found) = candidates
+            .into_iter()
+            .find(|path| is_macos_codex_app_bundle(path))
+        {
             return Some(found);
         }
 
         let spotlight_queries = [
+            "kMDItemFSName == 'ChatGPT.app'",
             "kMDItemFSName == 'Codex.app'",
+            "kMDItemFSName == 'Codex Desktop.app'",
             "kMDItemCFBundleIdentifier == 'com.openai.codex'",
         ];
 
         for query in spotlight_queries {
-            if let Some(path) = first_spotlight_match(query) {
+            if let Some(path) = first_spotlight_codex_app_match(query) {
                 return Some(path);
             }
         }
 
         None
     }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_codex_app_candidates(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    // 新版 Codex 桌面端使用 ChatGPT.app 名称；旧名称继续作为兼容回退。
+    for app_name in MACOS_CODEX_APP_NAMES {
+        candidates.push(Path::new("/Applications").join(app_name));
+        if let Some(home) = home {
+            candidates.push(home.join("Applications").join(app_name));
+        }
+    }
+
+    candidates
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn is_macos_codex_app_bundle(path: &Path) -> bool {
+    if !is_macos_app_bundle(path) {
+        return false;
+    }
+
+    let Some(app_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    if matches_ignore_ascii_case(app_name, &["Codex.app", "Codex Desktop.app"]) {
+        return true;
+    }
+    if !app_name.eq_ignore_ascii_case("ChatGPT.app") {
+        return false;
+    }
+
+    // ChatGPT.app 历史上也可能是普通聊天客户端，内置 codex 才能证明它支持当前启动协议。
+    is_executable_file(&path.join("Contents").join("Resources").join("codex"))
 }
 
 fn find_codex_cli_path() -> Option<PathBuf> {
@@ -464,15 +505,8 @@ fn append_configured_codex_candidates(candidates: &mut Vec<PathBuf>, configured_
 
 #[cfg(target_os = "macos")]
 fn append_macos_app_bundle_codex_candidates(candidates: &mut Vec<PathBuf>) {
-    let mut app_paths = vec![
-        PathBuf::from("/Applications/Codex.app"),
-        PathBuf::from("/Applications/Codex Desktop.app"),
-    ];
-
-    if let Some(home) = dirs::home_dir() {
-        app_paths.push(home.join("Applications").join("Codex.app"));
-        app_paths.push(home.join("Applications").join("Codex Desktop.app"));
-    }
+    let home = dirs::home_dir();
+    let mut app_paths = macos_codex_app_candidates(home.as_deref());
 
     if let Some(found) = find_codex_app_path() {
         app_paths.push(found);
@@ -894,7 +928,7 @@ fn is_windows_codex_app_file(path: &Path) -> bool {
     !matches_ignore_ascii_case(parent_name, &["bin"])
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn matches_ignore_ascii_case(value: &str, candidates: &[&str]) -> bool {
     candidates
         .iter()
@@ -937,8 +971,8 @@ fn is_macos_app_bundle(path: &Path) -> bool {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn first_spotlight_match(query: &str) -> Option<PathBuf> {
+#[cfg(target_os = "macos")]
+fn first_spotlight_codex_app_match(query: &str) -> Option<PathBuf> {
     let output = Command::new("mdfind").arg(query).output().ok()?;
     if !output.status.success() {
         return None;
@@ -950,5 +984,63 @@ fn first_spotlight_match(query: &str) -> Option<PathBuf> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(PathBuf::from)
-        .find(|path| path.exists())
+        .find(|path| is_macos_codex_app_bundle(path))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::is_macos_codex_app_bundle;
+    use super::macos_codex_app_candidates;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn macos_candidates_prioritize_chatgpt_and_keep_legacy_names() {
+        let candidates = macos_codex_app_candidates(Some(Path::new("/Users/tester")));
+
+        assert_eq!(
+            candidates,
+            vec![
+                Path::new("/Applications/ChatGPT.app").to_path_buf(),
+                Path::new("/Users/tester/Applications/ChatGPT.app").to_path_buf(),
+                Path::new("/Applications/Codex.app").to_path_buf(),
+                Path::new("/Users/tester/Applications/Codex.app").to_path_buf(),
+                Path::new("/Applications/Codex Desktop.app").to_path_buf(),
+                Path::new("/Users/tester/Applications/Codex Desktop.app").to_path_buf(),
+            ]
+        );
+    }
+
+    #[test]
+    fn chatgpt_candidate_requires_embedded_codex_but_legacy_bundle_stays_compatible() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let sandbox = std::env::temp_dir().join(format!(
+            "codex-tools-cli-test-{}-{nonce}",
+            std::process::id()
+        ));
+        let chatgpt_app = sandbox.join("ChatGPT.app");
+        let legacy_app = sandbox.join("Codex.app");
+        fs::create_dir_all(chatgpt_app.join("Contents").join("Resources"))
+            .expect("create ChatGPT test bundle");
+        fs::create_dir_all(&legacy_app).expect("create legacy Codex test bundle");
+
+        assert!(!is_macos_codex_app_bundle(&chatgpt_app));
+        assert!(is_macos_codex_app_bundle(&legacy_app));
+
+        let embedded_codex = chatgpt_app.join("Contents").join("Resources").join("codex");
+        fs::write(&embedded_codex, b"test").expect("write embedded codex marker");
+        let mut permissions = fs::metadata(&embedded_codex)
+            .expect("read marker metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&embedded_codex, permissions).expect("make marker executable");
+
+        assert!(is_macos_codex_app_bundle(&chatgpt_app));
+        let _ = fs::remove_dir_all(sandbox);
+    }
 }

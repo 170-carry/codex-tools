@@ -21,6 +21,8 @@ mod tray;
 mod usage;
 mod utils;
 
+#[cfg(target_os = "macos")]
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
@@ -1213,13 +1215,21 @@ async fn cancel_oauth_login(state: State<'_, AppState>) -> Result<(), String> {
 mod tests {
     use super::bind_oauth_callback_listener;
     use super::build_oauth_callback_url;
+    #[cfg(target_os = "macos")]
+    use super::collect_descendant_process_ids;
     use super::delete_codex_session_from_roots;
+    #[cfg(target_os = "macos")]
+    use super::macos_codex_main_app_bundle_for_executable;
     use super::should_noop_switch_account;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use serde_json::json;
+    #[cfg(target_os = "macos")]
+    use std::collections::HashSet;
     use std::fs;
     use std::net::TcpListener;
+    #[cfg(target_os = "macos")]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::path::PathBuf;
     use std::time::SystemTime;
@@ -1293,6 +1303,80 @@ mod tests {
             callback_url,
             "http://localhost:17888/auth/callback?code=abc&state=xyz"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_process_matching_only_accepts_desktop_main_executables() {
+        let sandbox = unique_test_dir("macos-codex-process-paths");
+        let chatgpt_app = sandbox.join("ChatGPT.app");
+        let chatgpt_resources = chatgpt_app.join("Contents").join("Resources");
+        fs::create_dir_all(&chatgpt_resources).expect("create ChatGPT resources");
+        let embedded_codex = chatgpt_resources.join("codex");
+        fs::write(&embedded_codex, b"test").expect("write embedded codex marker");
+        let mut permissions = fs::metadata(&embedded_codex)
+            .expect("read embedded codex metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&embedded_codex, permissions).expect("make marker executable");
+
+        let chatgpt_main_executable = chatgpt_app.join("Contents").join("MacOS").join("ChatGPT");
+        assert_eq!(
+            macos_codex_main_app_bundle_for_executable(&chatgpt_main_executable),
+            Some(chatgpt_app.as_path())
+        );
+
+        let chatgpt_renderer_executable = chatgpt_app
+            .join("Contents")
+            .join("Frameworks")
+            .join("Codex (Renderer).app")
+            .join("Contents")
+            .join("MacOS")
+            .join("Codex (Renderer)");
+        assert_eq!(
+            macos_codex_main_app_bundle_for_executable(&chatgpt_renderer_executable),
+            None
+        );
+        let independent_codex_cli = chatgpt_resources.join("codex");
+        assert_eq!(
+            macos_codex_main_app_bundle_for_executable(&independent_codex_cli),
+            None
+        );
+
+        let legacy_app = sandbox.join("Codex.app");
+        fs::create_dir_all(&legacy_app).expect("create legacy Codex bundle");
+        let legacy_executable = legacy_app.join("Contents").join("MacOS").join("Codex");
+        assert_eq!(
+            macos_codex_main_app_bundle_for_executable(&legacy_executable),
+            Some(legacy_app.as_path())
+        );
+
+        let unrelated_app = sandbox.join("Codex Tools.app");
+        fs::create_dir_all(&unrelated_app).expect("create unrelated app bundle");
+        let unrelated_executable = unrelated_app.join("Contents").join("MacOS").join("app");
+        assert!(macos_codex_main_app_bundle_for_executable(&unrelated_executable).is_none());
+        let _ = fs::remove_dir_all(sandbox);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_process_tree_keeps_independent_codex_cli_outside_desktop_descendants() {
+        let desktop = sysinfo::Pid::from_u32(10);
+        let renderer = sysinfo::Pid::from_u32(11);
+        let app_server = sysinfo::Pid::from_u32(12);
+        let independent_cli = sysinfo::Pid::from_u32(20);
+        let process_parents = vec![
+            (desktop, Some(sysinfo::Pid::from_u32(1))),
+            (renderer, Some(desktop)),
+            (app_server, Some(renderer)),
+            (independent_cli, Some(sysinfo::Pid::from_u32(2))),
+        ];
+
+        let targets =
+            collect_descendant_process_ids(HashSet::from([desktop]), process_parents.as_slice());
+
+        assert_eq!(targets, HashSet::from([desktop, renderer, app_server]));
+        assert!(!targets.contains(&independent_cli));
     }
 
     #[test]
@@ -1628,7 +1712,7 @@ async fn switch_account_and_launch(
 
     let should_launch_codex = launch_codex.unwrap_or(true);
     if should_launch_codex {
-        force_stop_running_codex();
+        force_stop_running_codex()?;
     }
     let provider_sync_error = provider_sync::sync_current_provider(None)
         .err()
@@ -2186,13 +2270,133 @@ async fn install_sshpass() -> Result<(), String> {
     remote_service::install_sshpass_internal().await
 }
 
-fn force_stop_running_codex() {
+#[cfg(target_os = "macos")]
+fn macos_codex_main_app_bundle_for_executable(
+    executable: &std::path::Path,
+) -> Option<&std::path::Path> {
+    let macos_dir = executable.parent()?;
+    if !macos_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("MacOS"))
+    {
+        return None;
+    }
+
+    let contents_dir = macos_dir.parent()?;
+    if !contents_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("Contents"))
+    {
+        return None;
+    }
+
+    let app_bundle = contents_dir.parent()?;
+    if !cli::is_macos_codex_app_bundle(app_bundle) {
+        return None;
+    }
+
+    let expected_executable_name = app_bundle.file_stem()?.to_str()?;
+    let executable_name = executable.file_name()?.to_str()?;
+    executable_name
+        .eq_ignore_ascii_case(expected_executable_name)
+        .then_some(app_bundle)
+}
+
+#[cfg(target_os = "macos")]
+fn collect_descendant_process_ids(
+    mut targets: HashSet<sysinfo::Pid>,
+    process_parents: &[(sysinfo::Pid, Option<sysinfo::Pid>)],
+) -> HashSet<sysinfo::Pid> {
+    loop {
+        let previous_count = targets.len();
+        for (pid, parent) in process_parents {
+            if parent.is_some_and(|parent| targets.contains(&parent)) {
+                targets.insert(*pid);
+            }
+        }
+        if targets.len() == previous_count {
+            return targets;
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn running_macos_codex_desktop_process_ids(
+    system: &sysinfo::System,
+    current_user_id: &sysinfo::Uid,
+) -> HashSet<sysinfo::Pid> {
+    let same_user_processes = system
+        .processes()
+        .iter()
+        .filter(|(_, process)| process.user_id() == Some(current_user_id))
+        .map(|(pid, process)| (*pid, process))
+        .collect::<Vec<_>>();
+    let desktop_roots = same_user_processes
+        .iter()
+        .filter_map(|(pid, process)| {
+            process.exe().and_then(|executable| {
+                macos_codex_main_app_bundle_for_executable(executable).map(|_| *pid)
+            })
+        })
+        .collect::<HashSet<_>>();
+    let process_parents = same_user_processes
+        .into_iter()
+        .map(|(pid, process)| (pid, process.parent()))
+        .collect::<Vec<_>>();
+
+    collect_descendant_process_ids(desktop_roots, &process_parents)
+}
+
+#[cfg(target_os = "macos")]
+fn stop_running_macos_codex_processes() -> Result<(), String> {
+    let mut system = sysinfo::System::new_all();
+    let current_pid = sysinfo::get_current_pid().map_err(|error| error.to_string())?;
+    let current_user_id = system
+        .process(current_pid)
+        .and_then(|process| process.user_id())
+        .cloned()
+        .ok_or_else(|| "无法识别当前用户，未结束 ChatGPT/Codex 应用进程".to_string())?;
+    let mut remaining = running_macos_codex_desktop_process_ids(&system, &current_user_id);
+    if remaining.is_empty() {
+        return Ok(());
+    }
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        // 按已验证 App bundle 的可执行路径结束整个进程树，避免裸进程名误杀普通 ChatGPT。
+        for pid in &remaining {
+            if let Some(process) = system.process(*pid) {
+                let _ = process.kill();
+            }
+        }
+
+        thread::sleep(Duration::from_millis(50));
+        system.refresh_processes();
+        remaining.retain(|pid| system.process(*pid).is_some());
+        remaining.extend(running_macos_codex_desktop_process_ids(
+            &system,
+            &current_user_id,
+        ));
+        if remaining.is_empty() {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            let pids = remaining
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!("无法结束正在运行的 ChatGPT/Codex 应用进程: {pids}"));
+        }
+    }
+}
+
+fn force_stop_running_codex() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let _ = Command::new("pkill").args(["-9", "-x", "Codex"]).status();
-        let _ = Command::new("pkill")
-            .args(["-9", "-x", "Codex Desktop"])
-            .status();
+        stop_running_macos_codex_processes()?;
     }
 
     #[cfg(target_os = "windows")]
@@ -2209,6 +2413,7 @@ fn force_stop_running_codex() {
 
     // 等待进程树收敛，避免新实例拉起时与旧实例短暂重叠。
     thread::sleep(Duration::from_millis(220));
+    Ok(())
 }
 
 fn handle_window_close_to_background(window: &tauri::Window, event: &WindowEvent) {
