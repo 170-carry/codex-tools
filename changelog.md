@@ -1,4 +1,21 @@
-## 更新日志
+## 更新日志 / Changelog
+
+### Unreleased
+
+#### English
+
+1. Improve the macOS status bar and usage labels: use the color app icon, default to showing one-week remaining usage, optionally show 5h / 1w labels, hide the entire status item when disabled, and keep the account meters labeled 5h / 1w even when both values are currently identical.
+2. Significantly reduce background energy use: remove Codex inference keepalive calls, delay and deduplicate refreshes, pause foreground polling while the window is hidden, and reuse unchanged token-log results.
+3. Speed up first-launch loading: show cached accounts immediately and run non-critical startup work concurrently.
+4. Fix the macOS status bar after a Plus-to-Pro upgrade: correctly identify the current account and display its usage.
+
+#### 中文
+
+1. 优化 macOS 状态栏和用量标签：使用彩色应用图标，默认仅显示一周剩余用量，可选显示 5h / 1w 标签，选择“不显示”时隐藏整个状态项；即使两个周期当前数值相同，账号用量栏仍分别标注 5h / 1w。
+2. 大幅降低后台耗电：移除 Codex 推理保活请求，延后并去重刷新任务，在窗口隐藏时暂停前台轮询，并复用未变化的 Token 日志结果。
+3. 加快首次启动加载：优先显示本地缓存账号，并发执行非关键启动任务。
+4. 修复 Plus 升级为 PRO 后状态栏无法正确识别当前账号并显示用量的问题。
+
 - v2.4.0
   1. macOS 支持启动新版 `ChatGPT.app`，并继续兼容旧版 `Codex.app`、`Codex Desktop.app` 与 `codex app` 回退
   2. 切换账号时按已验证的桌面主进程树安全重启 ChatGPT/Codex，避免误杀终端独立运行的 Codex CLI

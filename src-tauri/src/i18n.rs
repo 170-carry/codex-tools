@@ -157,6 +157,10 @@ pub(crate) fn tray_usage_mode_label(locale: AppLocale, mode: TrayUsageDisplayMod
             locale,
             &["settings", "trayUsageDisplay", "fiveHourRemaining"],
         ),
+        TrayUsageDisplayMode::OneWeekRemaining => text(
+            locale,
+            &["settings", "trayUsageDisplay", "oneWeekRemaining"],
+        ),
         TrayUsageDisplayMode::Hidden => text(locale, &["settings", "trayUsageDisplay", "hidden"]),
     }
 }

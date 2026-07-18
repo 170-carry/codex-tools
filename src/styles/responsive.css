@@ -193,6 +193,28 @@
     min-width: 0;
   }
 
+  .settingRowTrayUsage {
+    grid-template-columns: 1fr;
+    align-items: start;
+    min-height: 0;
+  }
+
+  .trayUsageSettingsControls {
+    width: 100%;
+    justify-items: stretch;
+    gap: 10px;
+  }
+
+  .trayUsageSettingsControls .trayUsageModeGroup {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .trayUsageTitleSwitch {
+    justify-self: end;
+  }
+
   .settingValueMuted {
     max-width: none;
     text-align: left;
@@ -460,6 +482,19 @@
     right: 14px;
     width: calc(100vw - 28px);
   }
+}
+
+@media (max-width: 620px) {
+  .trayUsageSettingsControls .trayUsageModeGroup {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .trayUsageSettingsControls .trayUsageModeGroup {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
 }
 
 @media (max-width: 620px) {

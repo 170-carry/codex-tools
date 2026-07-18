@@ -1,11 +1,15 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::time::SystemTime;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -157,6 +161,25 @@ struct ParsedTokenEvent {
     total: Option<CodexTokenTotals>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TokenUsageFileFingerprint {
+    length: u64,
+    modified_at: Option<SystemTime>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedTokenUsageFile {
+    fingerprint: TokenUsageFileFingerprint,
+    parsed: ParsedTokenSessionFile,
+}
+
+#[derive(Debug, Default)]
+struct TokenUsageCache {
+    files: HashMap<PathBuf, CachedTokenUsageFile>,
+}
+
+static TOKEN_USAGE_CACHE: OnceLock<Mutex<TokenUsageCache>> = OnceLock::new();
+
 #[derive(Debug, Default)]
 struct ParsedSession {
     started_at: Option<i64>,
@@ -171,19 +194,101 @@ pub(crate) fn collect_codex_token_usage_snapshot() -> Result<CodexTokenUsageSnap
         codex_dir.join("sessions"),
         codex_dir.join("archived_sessions"),
     ];
-    Ok(scan_codex_token_usage_roots(&roots, now_unix_seconds()))
+    let mut cache = TOKEN_USAGE_CACHE
+        .get_or_init(|| Mutex::new(TokenUsageCache::default()))
+        .lock()
+        .unwrap_or_else(|poisoned| {
+            log::warn!("Token 用量缓存锁异常，继续使用恢复后的缓存");
+            poisoned.into_inner()
+        });
+    Ok(scan_codex_token_usage_roots_with_cache(
+        &roots,
+        now_unix_seconds(),
+        &mut cache,
+    ))
 }
 
+#[cfg(test)]
 fn scan_codex_token_usage_roots(roots: &[PathBuf], now: i64) -> CodexTokenUsageSnapshot {
-    let mut files = Vec::new();
+    let mut cache = TokenUsageCache::default();
+    scan_codex_token_usage_roots_with_cache(roots, now, &mut cache)
+}
+
+fn scan_codex_token_usage_roots_with_cache(
+    roots: &[PathBuf],
+    now: i64,
+    cache: &mut TokenUsageCache,
+) -> CodexTokenUsageSnapshot {
+    let mut file_paths = Vec::new();
     let mut failed_path_count = 0;
     for root in roots {
-        collect_jsonl_files(root, &mut files, &mut failed_path_count);
+        collect_jsonl_files(root, &mut file_paths, &mut failed_path_count);
+    }
+    file_paths.sort();
+    file_paths.dedup();
+
+    let source_path_count = file_paths.len();
+    let mut sources = Vec::with_capacity(source_path_count);
+    for path in file_paths {
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => sources.push((
+                path,
+                TokenUsageFileFingerprint {
+                    length: metadata.len(),
+                    modified_at: metadata.modified().ok(),
+                },
+            )),
+            Ok(_) | Err(_) => failed_path_count += 1,
+        }
     }
 
+    let source_paths: HashSet<&PathBuf> = sources.iter().map(|(path, _)| path).collect();
+    cache.files.retain(|path, _| source_paths.contains(path));
+
+    for (path, fingerprint) in &sources {
+        let cache_hit = cache
+            .files
+            .get(path)
+            .map(|cached| cached.fingerprint == *fingerprint)
+            .unwrap_or(false);
+        if cache_hit {
+            continue;
+        }
+
+        match parse_token_session_file(path) {
+            Ok(parsed) => {
+                cache.files.insert(
+                    path.clone(),
+                    CachedTokenUsageFile {
+                        fingerprint: fingerprint.clone(),
+                        parsed,
+                    },
+                );
+            }
+            Err(_) => {
+                cache.files.remove(path);
+                failed_path_count += 1;
+            }
+        }
+    }
+
+    let parsed_files: Vec<&ParsedTokenSessionFile> = sources
+        .iter()
+        .filter_map(|(path, _)| cache.files.get(path).map(|cached| &cached.parsed))
+        .collect();
+
+    build_codex_token_usage_snapshot(&parsed_files, now, source_path_count, failed_path_count)
+}
+
+fn build_codex_token_usage_snapshot(
+    files: &[&ParsedTokenSessionFile],
+    now: i64,
+    source_path_count: usize,
+    failed_path_count: usize,
+) -> CodexTokenUsageSnapshot {
     let mut snapshot = CodexTokenUsageSnapshot {
         updated_at: now,
-        source_path_count: files.len(),
+        source_path_count,
         failed_path_count,
         event_count: 0,
         last_24h: CodexTokenTotals::default(),
@@ -198,40 +303,33 @@ fn scan_codex_token_usage_roots(roots: &[PathBuf], now: i64) -> CodexTokenUsageS
     let last_7d_start = now.saturating_sub(7 * DAY_SECONDS);
     let last_30d_start = now.saturating_sub(30 * DAY_SECONDS);
 
-    for file in files {
-        match parse_token_session_file(&file) {
-            Ok(session) => {
-                for event in session.events {
-                    snapshot.event_count += 1;
-                    if let Some(last) = event.last.as_ref() {
-                        if event.timestamp >= last_24h_start {
-                            snapshot.last_24h.add(last);
-                        }
-                        if event.timestamp >= last_3d_start {
-                            snapshot.last_3d.add(last);
-                        }
-                        if event.timestamp >= last_7d_start {
-                            snapshot.last_7d.add(last);
-                        }
-                        if event.timestamp >= last_30d_start {
-                            snapshot.last_30d.add(last);
-                        }
-                    }
+    for session in files {
+        for event in &session.events {
+            snapshot.event_count += 1;
+            if let Some(last) = event.last.as_ref() {
+                if event.timestamp >= last_24h_start {
+                    snapshot.last_24h.add(last);
                 }
-
-                if let Some(latest_session) = session.latest_session {
-                    let should_replace = snapshot
-                        .latest_session
-                        .as_ref()
-                        .map(|current| latest_session.updated_at > current.updated_at)
-                        .unwrap_or(true);
-                    if should_replace {
-                        snapshot.latest_session = Some(latest_session);
-                    }
+                if event.timestamp >= last_3d_start {
+                    snapshot.last_3d.add(last);
+                }
+                if event.timestamp >= last_7d_start {
+                    snapshot.last_7d.add(last);
+                }
+                if event.timestamp >= last_30d_start {
+                    snapshot.last_30d.add(last);
                 }
             }
-            Err(_) => {
-                snapshot.failed_path_count += 1;
+        }
+
+        if let Some(latest_session) = session.latest_session.as_ref() {
+            let should_replace = snapshot
+                .latest_session
+                .as_ref()
+                .map(|current| latest_session.updated_at > current.updated_at)
+                .unwrap_or(true);
+            if should_replace {
+                snapshot.latest_session = Some(latest_session.clone());
             }
         }
     }
@@ -467,6 +565,7 @@ pub(crate) fn serialize_codex_cost_analytics_export(
     }
 }
 
+#[derive(Debug, Clone)]
 struct ParsedTokenSessionFile {
     events: Vec<ParsedTokenEvent>,
     latest_session: Option<CodexTokenSessionUsage>,
@@ -790,6 +889,11 @@ fn parse_token_session_file(path: &Path) -> Result<ParsedTokenSessionFile, Strin
 }
 
 fn parse_token_event_line(line: &str) -> Option<ParsedTokenEvent> {
+    // Most rollout lines are prompts, tool output, or UI events. Avoid allocating a
+    // full serde_json::Value for them before checking for the one event this view uses.
+    if !line.contains("\"token_count\"") {
+        return None;
+    }
     let root = serde_json::from_str::<Value>(line).ok()?;
     if root.get("type")?.as_str()? != "event_msg" {
         return None;
@@ -1388,7 +1492,6 @@ impl ParsedSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
     fn event_line(timestamp: &str, total: u64, last: u64) -> String {
@@ -1503,6 +1606,41 @@ mod tests {
                 .total_tokens,
             350
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reuses_token_usage_cache_and_reparses_changed_files() {
+        let root = unique_temp_dir();
+        let sessions = root.join("sessions").join("2026").join("04").join("28");
+        fs::create_dir_all(&sessions).expect("create sessions dir");
+        let path = sessions.join("rollout-cache-test.jsonl");
+        fs::write(&path, event_line("2026-04-28T06:00:00Z", 100, 100)).expect("write initial log");
+
+        let roots = [root.join("sessions"), root.join("archived_sessions")];
+        let mut cache = TokenUsageCache::default();
+        let initial = scan_codex_token_usage_roots_with_cache(&roots, 1_777_361_000, &mut cache);
+        let unchanged = scan_codex_token_usage_roots_with_cache(&roots, 1_777_361_001, &mut cache);
+
+        assert_eq!(cache.files.len(), 1);
+        assert_eq!(initial.event_count, 1);
+        assert_eq!(unchanged.event_count, 1);
+        assert_eq!(unchanged.last_24h.total_tokens, 100);
+
+        fs::write(
+            &path,
+            [
+                event_line("2026-04-28T06:00:00Z", 100, 100),
+                event_line("2026-04-28T06:01:00Z", 300, 200),
+            ]
+            .join("\n"),
+        )
+        .expect("update log");
+
+        let changed = scan_codex_token_usage_roots_with_cache(&roots, 1_777_361_002, &mut cache);
+        assert_eq!(changed.event_count, 2);
+        assert_eq!(changed.last_24h.total_tokens, 300);
 
         let _ = fs::remove_dir_all(root);
     }

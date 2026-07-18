@@ -688,6 +688,49 @@
   min-height: 50px;
 }
 
+.settingRowTrayUsage {
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  min-height: 82px;
+  padding-block: 10px;
+}
+
+.settingRowTrayUsage > .settingMeta {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+}
+
+.trayUsageSettingsControls {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trayUsageTitleSwitch {
+  gap: 8px;
+  justify-self: end;
+}
+
+.trayUsageTitleSwitchLabel {
+  color: var(--subtle);
+  font: 600 0.76rem/1.2 var(--font-ui);
+}
+
+.trayUsageSettingsControls .trayUsageModeGroup {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: auto;
+}
+
+.trayUsageModeGroup > button {
+  width: auto;
+  min-width: 78px;
+}
+
 .settingRowNested {
   background: color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%);
 }

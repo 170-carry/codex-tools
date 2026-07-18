@@ -5,7 +5,6 @@ import { compareAccountsByRemaining } from "../utils/accountRanking";
 import {
   formatPlan,
   formatTokenCount,
-  formatWindowLabel,
   percent,
   planTone,
   remainingPercent,
@@ -332,11 +331,13 @@ function eventTimestampToUnixSeconds(timestamp: number): number {
 
 function UsageMeter({
   label,
+  windowLabel,
   window,
   text,
   className,
 }: {
   label: string;
+  windowLabel: "5h" | "1w";
   window: UsageWindow | null;
   text: UiCopy;
   className?: string;
@@ -356,12 +357,7 @@ function UsageMeter({
       </div>
       <div className="usageMeterFoot">
         <span>{text.remainingSuffix(percent(remaining))}</span>
-        <span>{formatWindowLabel(window, {
-          fallback: label,
-          oneWeek: "1w",
-          hourSuffix: "h",
-          minuteSuffix: "m",
-        })}</span>
+        <span>{windowLabel}</span>
       </div>
       <span className="visuallyHidden">
         {label} {percent(value)} {text.remainingSuffix(percent(remaining))}
@@ -928,12 +924,14 @@ export function AccountsGrid({
                     <UsageMeter
                       className="accountUsageFive"
                       label={text.fiveHourUsage}
+                      windowLabel="5h"
                       window={account.usage?.fiveHour ?? null}
                       text={text}
                     />
                     <UsageMeter
                       className="accountUsageWeek"
                       label={text.weekUsage}
+                      windowLabel="1w"
                       window={account.usage?.oneWeek ?? null}
                       text={text}
                     />
@@ -1099,11 +1097,13 @@ export function AccountsGrid({
               <h3>{text.usageOverview}</h3>
               <UsageMeter
                 label={text.fiveHourUsage}
+                windowLabel="5h"
                 window={selectedRow.account.usage?.fiveHour ?? null}
                 text={text}
               />
               <UsageMeter
                 label={text.weekUsage}
+                windowLabel="1w"
                 window={selectedRow.account.usage?.oneWeek ?? null}
                 text={text}
               />

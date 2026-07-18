@@ -519,12 +519,18 @@
     "noSupportedEditors": "No supported editor detected for restart.",
     "trayUsageDisplay": {
       "label": "Status bar display",
-      "description": "Choose whether tray menu shows used quota, remaining quota, 5h remaining only, or hides usage.",
+      "description": "Choose whether the status bar shows used quota, remaining quota, 5h remaining only, 1-week remaining only, or hides usage.",
       "groupAriaLabel": "Status bar display mode",
       "remaining": "Remaining",
       "used": "Used",
       "fiveHourRemaining": "5h only",
+      "oneWeekRemaining": "1-week only",
       "hidden": "Hidden"
+    },
+    "trayUsageTitleWindowLabels": {
+      "label": "Show 5h / 1w labels",
+      "checkedText": "Show labels",
+      "uncheckedText": "Numbers only"
     },
     "theme": {
       "label": "Dark mode",

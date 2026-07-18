@@ -50,6 +50,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Prepare optional bilingual release notes / 准备可选双语更新说明
+        id: release_notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+        run: node scripts/extract-release-notes.mjs "$RELEASE_TAG" --github-output
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0.6.1
         env:
@@ -59,13 +66,7 @@ jobs:
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           releaseName: "Codex Tools ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}"
-          releaseBody: |
-            Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
-
-            Build matrix includes:
-            - macOS Apple Silicon (aarch64)
-            - macOS Intel (x86_64)
-            - Windows
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

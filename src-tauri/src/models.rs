@@ -114,8 +114,6 @@ pub(crate) struct StoredAccount {
     pub(crate) auth_refresh_error: Option<String>,
     #[serde(default = "default_api_proxy_enabled")]
     pub(crate) api_proxy_enabled: bool,
-    #[serde(default)]
-    pub(crate) codex_keepalive_last_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -144,6 +142,65 @@ pub(crate) struct AccountSummary {
     pub(crate) auth_refresh_error: Option<String>,
     pub(crate) api_proxy_enabled: bool,
     pub(crate) is_current: bool,
+}
+
+/// Marks the summary that represents the active Codex identity.
+///
+/// A subscription plan is a state of an account, not the account's durable
+/// identity. We therefore prefer an exact account-plus-plan match, but when a
+/// refresh changes the plan label (for example, Plus to Pro), fall back to the
+/// unique matching account group. If multiple historical plan variants remain,
+/// the last account explicitly selected in this app is the safe tiebreaker.
+pub(crate) fn mark_current_account_summary(
+    summaries: &mut [AccountSummary],
+    current_account_key: Option<&str>,
+    active_account_id: Option<&str>,
+) {
+    if summaries.iter().any(|account| account.is_current) {
+        return;
+    }
+
+    let matching_group_indexes = current_account_key
+        .map(|current_account_key| {
+            summaries
+                .iter()
+                .enumerate()
+                .filter_map(|(index, account)| {
+                    (account.account_key == current_account_key).then_some(index)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    match matching_group_indexes.as_slice() {
+        [index] => {
+            summaries[*index].is_current = true;
+            return;
+        }
+        [] => {}
+        _ => {
+            if let Some(active_account_id) = active_account_id {
+                if let Some(index) = matching_group_indexes
+                    .into_iter()
+                    .find(|index| summaries[*index].id == active_account_id)
+                {
+                    summaries[index].is_current = true;
+                }
+            }
+            return;
+        }
+    }
+
+    // Preserve the existing last-selected fallback when the current auth file
+    // is unavailable or refers to an account that is not in this store.
+    if let Some(active_account_id) = active_account_id {
+        if let Some(account) = summaries
+            .iter_mut()
+            .find(|account| account.id == active_account_id)
+        {
+            account.is_current = true;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -514,6 +571,7 @@ pub(crate) enum TrayUsageDisplayMode {
     Hidden,
     FiveHourRemaining,
     #[default]
+    OneWeekRemaining,
     Remaining,
 }
 
@@ -556,6 +614,8 @@ pub(crate) struct InstalledEditorApp {
 pub(crate) struct AppSettings {
     pub(crate) launch_at_startup: bool,
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
+    #[serde(default)]
+    pub(crate) tray_usage_title_show_window_labels: bool,
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
@@ -591,7 +651,8 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             launch_at_startup: false,
-            tray_usage_display_mode: TrayUsageDisplayMode::Remaining,
+            tray_usage_display_mode: TrayUsageDisplayMode::OneWeekRemaining,
+            tray_usage_title_show_window_labels: false,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
             launch_codex_as_admin: false,
@@ -622,6 +683,7 @@ impl Default for AppSettings {
 pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
+    pub(crate) tray_usage_title_show_window_labels: Option<bool>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) launch_codex_as_admin: Option<bool>,
@@ -805,14 +867,6 @@ fn merge_duplicate_account_variant(left: StoredAccount, right: StoredAccount) ->
         preferred.auth_refresh_error = alternate.auth_refresh_error.clone();
     }
     preferred.api_proxy_enabled = preferred.api_proxy_enabled && alternate.api_proxy_enabled;
-    preferred.codex_keepalive_last_at = match (
-        preferred.codex_keepalive_last_at,
-        alternate.codex_keepalive_last_at,
-    ) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    };
     if preferred.auth_json.is_null() && !alternate.auth_json.is_null() {
         preferred.auth_json = alternate.auth_json.clone();
     }
@@ -871,7 +925,11 @@ fn duplicate_account_merge_score(account: &StoredAccount) -> (u8, u8, u8, u8, i6
 #[cfg(test)]
 mod tests {
     use super::dedupe_account_variants;
+    use super::mark_current_account_summary;
+    use super::AppSettings;
+    use super::AppSettingsPatch;
     use super::StoredAccount;
+    use super::TrayUsageDisplayMode;
     use super::UsageSnapshot;
     use super::UsageWindow;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -895,6 +953,46 @@ mod tests {
             credits: None,
             reset_credits: None,
         }
+    }
+
+    #[test]
+    fn new_settings_default_to_one_week_remaining_without_overwriting_existing_modes() {
+        assert_eq!(
+            AppSettings::default().tray_usage_display_mode,
+            TrayUsageDisplayMode::OneWeekRemaining
+        );
+        assert!(!AppSettings::default().tray_usage_title_show_window_labels);
+
+        let missing_mode: AppSettings = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(
+            missing_mode.tray_usage_display_mode,
+            TrayUsageDisplayMode::OneWeekRemaining
+        );
+        assert!(!missing_mode.tray_usage_title_show_window_labels);
+
+        assert_eq!(
+            serde_json::to_value(TrayUsageDisplayMode::OneWeekRemaining).unwrap(),
+            json!("oneWeekRemaining")
+        );
+
+        let existing_mode: AppSettings =
+            serde_json::from_value(json!({ "trayUsageDisplayMode": "remaining" })).unwrap();
+        assert_eq!(
+            existing_mode.tray_usage_display_mode,
+            TrayUsageDisplayMode::Remaining
+        );
+        assert!(!existing_mode.tray_usage_title_show_window_labels);
+
+        let patch: AppSettingsPatch = serde_json::from_value(json!({
+            "trayUsageDisplayMode": "oneWeekRemaining",
+            "trayUsageTitleShowWindowLabels": true
+        }))
+        .unwrap();
+        assert_eq!(
+            patch.tray_usage_display_mode,
+            Some(TrayUsageDisplayMode::OneWeekRemaining)
+        );
+        assert_eq!(patch.tray_usage_title_show_window_labels, Some(true));
     }
 
     fn jwt_with_plan(plan_type: &str) -> String {
@@ -939,7 +1037,6 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             api_proxy_enabled: true,
-            codex_keepalive_last_at: None,
         }
     }
 
@@ -1017,7 +1114,6 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             api_proxy_enabled: true,
-            codex_keepalive_last_at: None,
         };
 
         assert_eq!(account.resolved_plan_type().as_deref(), Some("plus"));
@@ -1026,6 +1122,70 @@ mod tests {
             Some("plus")
         );
         assert_eq!(account.variant_key(), "shared@example.com|account-1|plus");
+    }
+
+    #[test]
+    fn marks_unique_account_group_current_when_usage_plan_differs_from_auth_plan() {
+        let account = stored_account(
+            "upgraded",
+            "upgraded",
+            "account-1",
+            Some("plus"),
+            Some("pro"),
+            10,
+        );
+        let current_account_key = account.account_key();
+        let current_variant_key = format!("{current_account_key}|plus");
+        let mut summaries =
+            vec![account.to_summary(Some(&current_account_key), Some(&current_variant_key))];
+
+        assert!(!summaries[0].is_current);
+
+        mark_current_account_summary(&mut summaries, Some(&current_account_key), None);
+
+        assert!(summaries[0].is_current);
+    }
+
+    #[test]
+    fn uses_active_account_to_disambiguate_multiple_plan_variants_in_one_group() {
+        let plus = stored_account("plus", "plus", "account-1", Some("plus"), Some("plus"), 10);
+        let pro = stored_account("pro", "pro", "account-1", Some("pro"), Some("pro"), 20);
+        let current_account_key = plus.account_key();
+        let current_variant_key = format!("{current_account_key}|team");
+        let mut summaries = vec![
+            plus.to_summary(Some(&current_account_key), Some(&current_variant_key)),
+            pro.to_summary(Some(&current_account_key), Some(&current_variant_key)),
+        ];
+
+        mark_current_account_summary(&mut summaries, Some(&current_account_key), Some("pro"));
+
+        assert!(!summaries[0].is_current);
+        assert!(summaries[1].is_current);
+    }
+
+    #[test]
+    fn avoids_selecting_an_unrelated_active_account_when_group_is_ambiguous() {
+        let plus = stored_account("plus", "plus", "account-1", Some("plus"), Some("plus"), 10);
+        let pro = stored_account("pro", "pro", "account-1", Some("pro"), Some("pro"), 20);
+        let other = stored_account(
+            "other",
+            "other",
+            "account-2",
+            Some("plus"),
+            Some("plus"),
+            30,
+        );
+        let current_account_key = plus.account_key();
+        let current_variant_key = format!("{current_account_key}|team");
+        let mut summaries = vec![
+            plus.to_summary(Some(&current_account_key), Some(&current_variant_key)),
+            pro.to_summary(Some(&current_account_key), Some(&current_variant_key)),
+            other.to_summary(Some(&current_account_key), Some(&current_variant_key)),
+        ];
+
+        mark_current_account_summary(&mut summaries, Some(&current_account_key), Some("other"));
+
+        assert!(summaries.iter().all(|account| !account.is_current));
     }
 
     #[test]
@@ -1063,7 +1223,6 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             api_proxy_enabled: true,
-            codex_keepalive_last_at: None,
         };
 
         assert_eq!(account.resolved_plan_type().as_deref(), Some("plus"));
@@ -1111,7 +1270,6 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             api_proxy_enabled: true,
-            codex_keepalive_last_at: None,
         };
 
         assert_eq!(account.resolved_plan_type().as_deref(), Some("team"));
@@ -1147,7 +1305,6 @@ mod tests {
                 auth_refresh_blocked: false,
                 auth_refresh_error: None,
                 api_proxy_enabled: true,
-                codex_keepalive_last_at: None,
             },
             StoredAccount {
                 id: "second".to_string(),
@@ -1176,7 +1333,6 @@ mod tests {
                 auth_refresh_blocked: false,
                 auth_refresh_error: None,
                 api_proxy_enabled: true,
-                codex_keepalive_last_at: None,
             },
         ];
 

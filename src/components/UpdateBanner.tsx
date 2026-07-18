@@ -24,16 +24,16 @@ export function UpdateBanner({
   onSkipVersion,
   onInstallNow,
 }: UpdateBannerProps) {
-  const { copy } = useI18n();
+  const { copy, locale } = useI18n();
 
   if (!open || !pendingUpdate) {
     return null;
   }
 
-  const changelogEntry = getChangelogEntryForVersion(pendingUpdate.version);
+  const changelogEntry = getChangelogEntryForVersion(pendingUpdate.version, locale);
   const releaseNoteItems = changelogEntry?.items.length
     ? changelogEntry.items
-    : normalizeReleaseNoteItems(pendingUpdate.body);
+    : normalizeReleaseNoteItems(pendingUpdate.body, locale);
   const versionLabel = pendingUpdate.version.startsWith("v")
     ? pendingUpdate.version
     : `v${pendingUpdate.version}`;

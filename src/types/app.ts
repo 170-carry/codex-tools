@@ -401,7 +401,7 @@ export type PendingUpdateInfo = {
 
 export type ThemeMode = "light" | "dark";
 
-export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "hidden";
+export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "oneWeekRemaining" | "hidden";
 
 export type ApiProxyLoadBalanceMode = "average" | "sequential";
 
@@ -422,6 +422,7 @@ export type InstalledEditorApp = {
 export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
+  trayUsageTitleShowWindowLabels: boolean;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;

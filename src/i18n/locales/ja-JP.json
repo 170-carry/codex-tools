@@ -519,12 +519,18 @@
     "noSupportedEditors": "再起動対象の対応エディタが見つかりません。",
     "trayUsageDisplay": {
       "label": "ステータスバー表示",
-      "description": "トレイメニューに「使用済み」「残り」「5h 残りのみ」または非表示のどれを表示するか選択します。",
+      "description": "ステータスバーに「使用済み」「残り」「5h 残りのみ」「1週間の残りのみ」または非表示のどれを表示するか選択します。",
       "groupAriaLabel": "ステータスバー表示モード",
       "remaining": "残り",
       "used": "使用済み",
       "fiveHourRemaining": "5h のみ",
+      "oneWeekRemaining": "1週間のみ",
       "hidden": "非表示"
+    },
+    "trayUsageTitleWindowLabels": {
+      "label": "5h / 1週間ラベルを表示",
+      "checkedText": "ラベルを表示",
+      "uncheckedText": "数値のみ"
     },
     "theme": {
       "label": "ダークモード",

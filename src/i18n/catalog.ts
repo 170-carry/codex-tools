@@ -543,7 +543,13 @@ export type MessageCatalog = {
       remaining: string;
       used: string;
       fiveHourRemaining: string;
+      oneWeekRemaining: string;
       hidden: string;
+    };
+    trayUsageTitleWindowLabels: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
     };
     theme: {
       label: string;

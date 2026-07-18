@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Current account identification before and after</title>
+  <desc id="desc">A comparison showing how a Plus to Pro plan transition could break exact variant matching and how stable identity matching fixes it.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="1" stop-color="#edf2f8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#26364d" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowRed" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M1 1l9 5-9 5z" fill="#d65c4b"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M1 1l9 5-9 5z" fill="#2b9b69"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+      .title { font-size: 40px; font-weight: 750; fill: #172033; }
+      .subtitle { font-size: 20px; font-weight: 500; fill: #657189; }
+      .panel-title { font-size: 27px; font-weight: 750; }
+      .label { font-size: 15px; font-weight: 700; fill: #657189; letter-spacing: .4px; }
+      .card-title { font-size: 21px; font-weight: 720; fill: #1f2b40; }
+      .card-sub { font-size: 16px; font-weight: 520; fill: #667287; }
+      .result { font-size: 23px; font-weight: 750; }
+      .result-sub { font-size: 16px; font-weight: 560; }
+      .pill { font-size: 15px; font-weight: 750; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#page)"/>
+  <text class="title" x="56" y="62">Current account resolution · 当前账号识别</text>
+  <text class="subtitle" x="56" y="96">Handles a real Plus → Pro transition without inventing a second account</text>
+  <text class="subtitle" x="1544" y="96" text-anchor="end">套餐变化不应让同一账号“消失”或重复</text>
+
+  <g filter="url(#shadow)">
+    <rect x="48" y="126" width="728" height="710" rx="28" fill="#fff"/>
+    <rect x="824" y="126" width="728" height="710" rx="28" fill="#fff"/>
+  </g>
+
+  <circle cx="84" cy="171" r="13" fill="#df6a59"/>
+  <path d="M78 165l12 12m0-12l-12 12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <text class="panel-title" x="110" y="180" fill="#a63f32">Before · 精确变体匹配</text>
+  <text class="label" x="86" y="238">TWO SNAPSHOTS OF THE SAME ACCOUNT</text>
+
+  <rect x="86" y="260" width="652" height="104" rx="18" fill="#f8faff" stroke="#cfd8ea"/>
+  <circle cx="126" cy="312" r="24" fill="#dfe8ff"/>
+  <text x="126" y="319" text-anchor="middle" font-size="20" font-weight="750" fill="#3867d6">A</text>
+  <text class="card-title" x="166" y="304">auth.json · demo@example.com</text>
+  <text class="card-sub" x="166" y="333">Saved during the previous subscription period</text>
+  <rect x="633" y="289" width="76" height="34" rx="17" fill="#eaf0ff"/>
+  <text class="pill" x="671" y="312" text-anchor="middle" fill="#3867d6">PLUS</text>
+
+  <rect x="86" y="391" width="652" height="104" rx="18" fill="#f8faff" stroke="#cfd8ea"/>
+  <circle cx="126" cy="443" r="24" fill="#efe6ff"/>
+  <text x="126" y="450" text-anchor="middle" font-size="20" font-weight="750" fill="#7a4dcc">U</text>
+  <text class="card-title" x="166" y="435">Fresh usage · demo@example.com</text>
+  <text class="card-sub" x="166" y="464">Server now reports the upgraded subscription</text>
+  <rect x="641" y="420" width="68" height="34" rx="17" fill="#f0e9ff"/>
+  <text class="pill" x="675" y="443" text-anchor="middle" fill="#7144c1">PRO</text>
+
+  <path d="M412 495v46" stroke="#d65c4b" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+  <rect x="126" y="552" width="572" height="96" rx="18" fill="#fff5f3" stroke="#f0c4bb"/>
+  <text class="result" x="412" y="586" text-anchor="middle" fill="#a63f32">PLUS ≠ PRO → exact key mismatch</text>
+  <text class="result-sub" x="412" y="615" text-anchor="middle" fill="#b05a4d">同一账号无法被标记为当前账号</text>
+
+  <path d="M412 648v40" stroke="#d65c4b" stroke-width="2.5" marker-end="url(#arrowRed)"/>
+  <rect x="126" y="700" width="572" height="93" rx="18" fill="#fff0ed"/>
+  <text class="result" x="412" y="738" text-anchor="middle" fill="#a63f32">Status item shows “--”</text>
+  <text class="result-sub" x="412" y="766" text-anchor="middle" fill="#b05a4d">或界面同时出现 Plus / Pro 变体</text>
+
+  <circle cx="860" cy="171" r="13" fill="#2fa66f"/>
+  <path d="M853 171l5 5 10-12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="panel-title" x="886" y="180" fill="#19784e">After · 稳定身份匹配</text>
+  <text class="label" x="862" y="238">IDENTITY FIRST, PLAN AS CURRENT METADATA</text>
+
+  <rect x="862" y="260" width="652" height="104" rx="18" fill="#f5fcf8" stroke="#b7dfca"/>
+  <circle cx="902" cy="312" r="24" fill="#dff5e9"/>
+  <path d="M894 312l6 6 12-15" fill="none" stroke="#248b5e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="card-title" x="942" y="304">Stable account group</text>
+  <text class="card-sub" x="942" y="333">Account ID / subject / email identify the person</text>
+  <rect x="1374" y="289" width="110" height="34" rx="17" fill="#dff5e9"/>
+  <text class="pill" x="1429" y="312" text-anchor="middle" fill="#19784e">SAME USER</text>
+
+  <path d="M1188 364v42" stroke="#2b9b69" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <rect x="862" y="417" width="652" height="104" rx="18" fill="#f5fcf8" stroke="#b7dfca"/>
+  <circle cx="902" cy="469" r="24" fill="#dff5e9"/>
+  <text x="902" y="476" text-anchor="middle" font-size="20" font-weight="750" fill="#19784e">ID</text>
+  <text class="card-title" x="942" y="461">Active account ID as a tie-breaker</text>
+  <text class="card-sub" x="942" y="490">Used only when the identity group has multiple variants</text>
+
+  <path d="M1188 521v36" stroke="#2b9b69" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <rect x="902" y="568" width="572" height="96" rx="18" fill="#ebf9f2" stroke="#b7dfca"/>
+  <text class="result" x="1188" y="602" text-anchor="middle" fill="#19784e">Current account → PRO</text>
+  <text class="result-sub" x="1188" y="631" text-anchor="middle" fill="#2e805a">状态栏立即使用缓存用量，不再等待切换账号</text>
+
+  <path d="M1188 664v34" stroke="#2b9b69" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <rect x="902" y="710" width="572" height="83" rx="18" fill="#e8f8f0"/>
+  <text class="result" x="1188" y="741" text-anchor="middle" fill="#19784e">Expired token? Refresh once, then retry</text>
+  <text class="result-sub" x="1188" y="769" text-anchor="middle" fill="#2e805a">访问令牌过期时自动刷新并重试用量请求</text>
+</svg>

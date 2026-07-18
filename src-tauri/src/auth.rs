@@ -622,6 +622,79 @@ pub(crate) fn current_auth_variant_key() -> Option<String> {
         .and_then(|auth_json| auth_variant_key(&auth_json))
 }
 
+/// Emits a redacted startup diagnostic for the current Codex auth file.
+///
+/// This is deliberately compiled only for debug builds. It reports parser stages and
+/// field presence, never token contents or account identifiers.
+#[cfg(debug_assertions)]
+pub(crate) fn log_current_auth_parse_diagnostic(context: &str) {
+    let path = match codex_auth_path() {
+        Ok(path) => path,
+        Err(_) => {
+            log::warn!("AUTH_DIAG auth context={context} stage=auth_path_unavailable");
+            return;
+        }
+    };
+
+    if !path.exists() {
+        log::warn!("AUTH_DIAG auth context={context} stage=file_missing");
+        return;
+    }
+
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            log::warn!(
+                "AUTH_DIAG auth context={context} stage=file_read_failed error_kind={:?}",
+                error.kind()
+            );
+            return;
+        }
+    };
+    let byte_len = raw.len();
+    let auth_json: Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!(
+                "AUTH_DIAG auth context={context} stage=json_parse_failed bytes={byte_len} line={} column={}",
+                error.line(),
+                error.column()
+            );
+            return;
+        }
+    };
+
+    let tokens = auth_token_object(&auth_json);
+    let access_token_present = tokens
+        .and_then(|tokens| tokens.get("access_token"))
+        .and_then(Value::as_str)
+        .is_some();
+    let id_token = tokens
+        .and_then(|tokens| tokens.get("id_token"))
+        .and_then(Value::as_str);
+    let direct_account_id_present = tokens
+        .and_then(|tokens| tokens.get("account_id"))
+        .and_then(Value::as_str)
+        .is_some();
+    let id_token_present = id_token.is_some();
+    let id_token_payload_decodable = id_token
+        .map(|token| decode_jwt_payload(token).is_ok())
+        .unwrap_or(false);
+    let strict_parse_error = extract_auth(&auth_json).err();
+    let strict_parse_status = strict_parse_error.as_deref().unwrap_or("ok");
+
+    log::info!(
+        "AUTH_DIAG auth context={context} stage=shape_checked bytes={byte_len} root_object={} auth_mode_present={} tokens_present={} access_token_present={} id_token_present={} id_token_payload_decodable={} direct_account_id_present={} strict_parse={strict_parse_status}",
+        auth_json.is_object(),
+        auth_json.get("auth_mode").and_then(Value::as_str).is_some(),
+        tokens.is_some(),
+        access_token_present,
+        id_token_present,
+        id_token_payload_decodable,
+        direct_account_id_present,
+    );
+}
+
 fn normalize_principal_key(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
