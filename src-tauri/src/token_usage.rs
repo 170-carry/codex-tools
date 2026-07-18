@@ -22,7 +22,7 @@ const TOP_EXPENSIVE_PROMPT_LIMIT: usize = 20;
 const SESSION_EXPORT_LIMIT: usize = 500;
 const PRICING_SOURCE: &str =
     "OpenAI API standard short-context pricing, text tokens per 1M, checked 2026-07-10";
-const COST_ANALYTICS_CACHE_VERSION: u8 = 2;
+const COST_ANALYTICS_CACHE_VERSION: u8 = 3;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -68,6 +68,7 @@ pub(crate) struct CodexCostAnalyticsSnapshot {
     pub(crate) total_cost_usd: f64,
     pub(crate) last_7d: CodexTokenTotals,
     pub(crate) last_7d_cost_usd: f64,
+    pub(crate) daily: Vec<CodexDailyCostBucket>,
     pub(crate) weekly_budget_usd: Option<f64>,
     pub(crate) weekly_budget_percent: Option<f64>,
     pub(crate) weekly_budget_alert: String,
@@ -75,6 +76,15 @@ pub(crate) struct CodexCostAnalyticsSnapshot {
     pub(crate) sessions: Vec<CodexSessionCostBreakdown>,
     pub(crate) heatmap: Vec<CodexHourlyCostBucket>,
     pub(crate) top_prompts: Vec<CodexPromptCostBreakdown>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexDailyCostBucket {
+    pub(crate) date: String,
+    pub(crate) event_count: usize,
+    pub(crate) total: CodexTokenTotals,
+    pub(crate) cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -291,6 +301,7 @@ where
     let mut total_cost_usd = 0.0;
     let mut last_7d = CodexTokenTotals::default();
     let mut last_7d_cost_usd = 0.0;
+    let mut daily = BTreeMap::<String, CodexDailyCostBucket>::new();
 
     for (index, file) in files.iter().enumerate() {
         match parse_cost_analytics_session_file(file) {
@@ -313,6 +324,21 @@ where
                 sessions.push(session);
 
                 for event in parsed.events {
+                    if let Some(date) = analytics_date_key(event.timestamp) {
+                        let bucket =
+                            daily
+                                .entry(date.clone())
+                                .or_insert_with(|| CodexDailyCostBucket {
+                                    date,
+                                    event_count: 0,
+                                    total: CodexTokenTotals::default(),
+                                    cost_usd: 0.0,
+                                });
+                        bucket.event_count += 1;
+                        bucket.total.add(&event.total);
+                        bucket.cost_usd += event.cost_usd;
+                    }
+
                     if event.timestamp >= last_7d_start {
                         last_7d.add(&event.total);
                         last_7d_cost_usd += event.cost_usd;
@@ -390,6 +416,13 @@ where
         total_cost_usd: round_cost(total_cost_usd),
         last_7d,
         last_7d_cost_usd: round_cost(last_7d_cost_usd),
+        daily: daily
+            .into_values()
+            .map(|mut bucket| {
+                bucket.cost_usd = round_cost(bucket.cost_usd);
+                bucket
+            })
+            .collect(),
         weekly_budget_usd: None,
         weekly_budget_percent: None,
         weekly_budget_alert: "none".to_string(),
@@ -1093,6 +1126,12 @@ fn heatmap_bucket_key(timestamp: i64) -> Option<(u8, u8)> {
     ))
 }
 
+fn analytics_date_key(timestamp: i64) -> Option<String> {
+    OffsetDateTime::from_unix_timestamp(timestamp)
+        .ok()
+        .map(|date_time| date_time.date().to_string())
+}
+
 fn cost_analytics_csv(snapshot: &CodexCostAnalyticsSnapshot) -> String {
     let mut rows = Vec::new();
     rows.push(csv_row(&[
@@ -1561,6 +1600,10 @@ mod tests {
         assert_eq!(snapshot.event_count, 1);
         assert_eq!(snapshot.total.total_tokens, 3_000);
         assert!((snapshot.total_cost_usd - 0.032275).abs() < 0.000001);
+        assert_eq!(snapshot.daily.len(), 1);
+        assert_eq!(snapshot.daily[0].date, "2026-06-10");
+        assert_eq!(snapshot.daily[0].total.total_tokens, 3_000);
+        assert!((snapshot.daily[0].cost_usd - 0.032275).abs() < 0.000001);
         assert_eq!(snapshot.weekly_budget_alert, "danger");
         assert_eq!(progress_events.last().expect("progress").percent, 100);
         assert_eq!(snapshot.projects[0].project_name, "project-alpha");

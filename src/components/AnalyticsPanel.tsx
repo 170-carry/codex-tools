@@ -26,6 +26,12 @@ type AnalyticsPanelProps = {
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+function shiftIsoDate(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 function formatUsd(value: number, locale: string) {
   const digits = Math.abs(value) < 1 ? 4 : 2;
   return new Intl.NumberFormat(locale, {
@@ -323,8 +329,61 @@ export function AnalyticsPanel({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null,
   );
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const budgetInputValue =
     weeklyBudgetUsd === null ? "" : String(weeklyBudgetUsd);
+
+  const daily = useMemo(() => analytics?.daily ?? [], [analytics?.daily]);
+  const earliestDate = daily[0]?.date ?? "";
+  const latestDate = daily[daily.length - 1]?.date ?? "";
+  const defaultDateFrom = latestDate
+    ? earliestDate > shiftIsoDate(latestDate, -6)
+      ? earliestDate
+      : shiftIsoDate(latestDate, -6)
+    : "";
+  const selectedDateFrom = dateFrom || defaultDateFrom;
+  const selectedDateTo = dateTo || latestDate;
+
+  const selectedDaily = useMemo(
+    () =>
+      daily.filter(
+        (bucket) =>
+          (!selectedDateFrom || bucket.date >= selectedDateFrom) &&
+          (!selectedDateTo || bucket.date <= selectedDateTo),
+      ),
+    [daily, selectedDateFrom, selectedDateTo],
+  );
+  const selectedCostUsd = selectedDaily.reduce(
+    (sum, bucket) => sum + bucket.costUsd,
+    0,
+  );
+  const selectedTokens = selectedDaily.reduce(
+    (sum, bucket) => sum + bucket.total.totalTokens,
+    0,
+  );
+  const selectedEventCount = selectedDaily.reduce(
+    (sum, bucket) => sum + bucket.eventCount,
+    0,
+  );
+  const selectedRangeLabel =
+    selectedDateFrom && selectedDateTo
+      ? `${selectedDateFrom} – ${selectedDateTo}`
+      : text.dateRange;
+
+  const selectRecentDays = (days: number) => {
+    if (!latestDate) {
+      return;
+    }
+    const candidate = shiftIsoDate(latestDate, -(days - 1));
+    setDateFrom(earliestDate > candidate ? earliestDate : candidate);
+    setDateTo(latestDate);
+  };
+
+  const selectAllDates = () => {
+    setDateFrom(earliestDate);
+    setDateTo(latestDate);
+  };
 
   const normalizedQuery = sessionQuery.trim().toLocaleLowerCase();
   const filteredSessions = useMemo(() => {
@@ -480,6 +539,42 @@ export function AnalyticsPanel({
           </section>
         ) : null}
 
+        <section className="analyticsDateRange" aria-label={text.dateRange}>
+          <strong>{text.dateRange}</strong>
+          <div className="analyticsDatePresets">
+            <button type="button" className="ghost" onClick={() => selectRecentDays(7)}>
+              {text.preset7d}
+            </button>
+            <button type="button" className="ghost" onClick={() => selectRecentDays(30)}>
+              {text.preset30d}
+            </button>
+            <button type="button" className="ghost" onClick={selectAllDates}>
+              {text.presetAll}
+            </button>
+          </div>
+          <label>
+            <span>{text.dateFrom}</span>
+            <input
+              type="date"
+              min={earliestDate}
+              max={selectedDateTo || latestDate}
+              value={selectedDateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+            />
+          </label>
+          <i aria-hidden="true">—</i>
+          <label>
+            <span>{text.dateTo}</span>
+            <input
+              type="date"
+              min={selectedDateFrom || earliestDate}
+              max={latestDate}
+              value={selectedDateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+            />
+          </label>
+        </section>
+
         <section className="analyticsStats">
           {statCard(
             text.totalCost,
@@ -487,16 +582,14 @@ export function AnalyticsPanel({
             text.pricingEstimate,
           )}
           {statCard(
-            text.last7dCost,
-            analytics ? formatUsd(analytics.last7dCostUsd, locale) : "--",
-            `${analytics?.weeklyBudgetPercent ?? 0}%`,
+            text.selectedCost,
+            analytics ? formatUsd(selectedCostUsd, locale) : "--",
+            selectedRangeLabel,
           )}
           {statCard(
-            text.totalTokens,
-            analytics
-              ? formatNumber(analytics.total.totalTokens, locale)
-              : "--",
-            text.tokenEvents,
+            text.selectedTokens,
+            analytics ? formatNumber(selectedTokens, locale) : "--",
+            `${formatNumber(selectedEventCount, locale)} ${text.tokenEvents}`,
           )}
           {statCard(
             text.sessions,

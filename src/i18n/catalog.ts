@@ -215,6 +215,14 @@ export type MessageCatalog = {
     totalCost: string;
     last7dCost: string;
     totalTokens: string;
+    dateRange: string;
+    dateFrom: string;
+    dateTo: string;
+    selectedCost: string;
+    selectedTokens: string;
+    preset7d: string;
+    preset30d: string;
+    presetAll: string;
     sessions: string;
     projectsTitle: string;
     projectsDescription: string;

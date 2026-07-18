@@ -10,6 +10,7 @@
 }
 
 .analyticsHeader,
+.analyticsDateRange,
 .analyticsBudget,
 .analyticsNotice,
 .analyticsEmpty,
@@ -113,11 +114,54 @@
 }
 
 .analyticsActions,
+.analyticsDatePresets,
 .analyticsBudgetActions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.analyticsDateRange {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  border-radius: 16px;
+  padding: 12px 16px;
+}
+
+.analyticsDateRange > strong {
+  align-self: center;
+  margin-right: auto;
+  color: var(--ink);
+  font: 850 0.9rem/1.2 var(--font-ui);
+}
+
+.analyticsDateRange label {
+  display: grid;
+  gap: 5px;
+}
+
+.analyticsDateRange label span {
+  color: var(--subtle);
+  font: 700 0.7rem/1 var(--font-ui);
+}
+
+.analyticsDateRange input {
+  min-width: 146px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: var(--bg-0);
+  color: var(--ink);
+  color-scheme: light dark;
+  font: 700 0.8rem/1 var(--font-ui);
+}
+
+.analyticsDateRange > i {
+  align-self: center;
+  color: var(--muted);
+  font-style: normal;
 }
 
 .analyticsStats {
