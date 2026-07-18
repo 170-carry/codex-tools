@@ -48,23 +48,15 @@ Runtime quota percentages are still taken from the usage response. This change d
 
 ### 2. macOS status-item settings · macOS 状态项设置
 
-**Before / 修改前**
-
-![Status settings before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-before.png)
-
-**After / 修改后**
-
-![Status settings after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-after.png)
+| Before / 修改前 | After / 修改后 |
+| --- | --- |
+| ![Status settings before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-before.png) | ![Status settings after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-after.png) |
 
 ### 3. Usage-window labels · 用量周期标签
 
-**Before / 修改前**
-
-![The five-hour meter was mislabeled as 1w](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-before.png)
-
-**After / 修改后**
-
-![The semantic slots are labeled 5h and 1w](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-after.png)
+| Before / 修改前 | After / 修改后 |
+| --- | --- |
+| ![The five-hour meter was mislabeled as 1w](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-before.png) | ![The semantic slots are labeled 5h and 1w](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-after.png) |
 
 ### 4. Background work and startup · 后台任务与启动
 
@@ -74,9 +66,9 @@ _This diagram summarizes code-path changes; it is not a quantitative battery ben
 
 _该图概括代码路径变化，不代表定量耗电基准测试。_
 
-### 5. Current-account resolution · 当前账号识别
+### 5. Plus-to-Pro status-bar account resolution · Plus 升级 PRO 后状态栏账号识别
 
-![Current account resolution before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-resolution-before-after.png)
+![Plus-to-Pro status-bar account resolution before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-resolution-before-after.png)
 
 ### 6. In-app release notes · 应用内更新说明
 

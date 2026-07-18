@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
-  <title id="title">Current account identification before and after</title>
+  <title id="title">Plus-to-Pro status-bar account identification before and after</title>
   <desc id="desc">A comparison showing how a Plus to Pro plan transition could break exact variant matching and how stable identity matching fixes it.</desc>
   <defs>
     <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
@@ -30,7 +30,7 @@
   </defs>
 
   <rect width="1600" height="900" fill="url(#page)"/>
-  <text class="title" x="56" y="62">Current account resolution · 当前账号识别</text>
+  <text class="title" x="56" y="62">Plus → Pro status-bar account resolution · Plus 升级 PRO 后状态栏账号识别</text>
   <text class="subtitle" x="56" y="96">Handles a real Plus → Pro transition without inventing a second account</text>
   <text class="subtitle" x="1544" y="96" text-anchor="end">套餐变化不应让同一账号“消失”或重复</text>
 
