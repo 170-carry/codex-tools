@@ -51,7 +51,7 @@
   <path d="M48 202h728v28H48z" fill="url(#beforeHead)"/>
   <circle cx="82" cy="167" r="13" fill="#e16f5c"/>
   <path d="M76 161l12 12m0-12l-12 12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
-  <text class="panel-title" x="108" y="176" fill="#a63f32">Before · 优化前</text>
+  <text class="panel-title" x="108" y="176" fill="#a63f32">Before · 修改前</text>
   <text class="panel-subtitle" x="108" y="207">Work continues regardless of visibility</text>
   <rect x="625" y="151" width="115" height="35" rx="18" fill="#ffe4df"/>
   <text class="tag" x="682.5" y="174" text-anchor="middle" fill="#b54a3b">HIGH LOAD</text>
@@ -60,7 +60,7 @@
   <path d="M824 202h728v28H824z" fill="url(#afterHead)"/>
   <circle cx="858" cy="167" r="13" fill="#2fa66f"/>
   <path d="M851 167l5 5 10-12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <text class="panel-title" x="884" y="176" fill="#19784e">After · 优化后</text>
+  <text class="panel-title" x="884" y="176" fill="#19784e">After · 修改后</text>
   <text class="panel-subtitle" x="884" y="207">Do work only when it is useful</text>
   <rect x="1401" y="151" width="115" height="35" rx="18" fill="#dff5e9"/>
   <text class="tag" x="1458.5" y="174" text-anchor="middle" fill="#19784e">ON DEMAND</text>

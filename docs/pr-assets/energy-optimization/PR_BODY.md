@@ -27,42 +27,42 @@ Runtime quota percentages are still taken from the usage response. This change d
 
 ### 具体改动
 
-- **优化 macOS 状态栏和用量标签：**使用彩色应用图标，默认仅显示一周剩余用量，可选显示 `5h / 1w` 标签，选择“不显示”时隐藏整个状态项；模式选项位于第一行，标签开关在第二行右对齐，并在两个周期当前数值相同时仍分别标注 `5h / 1w`。
-- **大幅降低后台耗电：**移除向 `/backend-api/codex/responses` 发送的推理保活请求，延后并去重刷新任务，在主窗口隐藏时暂停前台轮询，阻止 Token 扫描重叠执行，并复用未变化的 Token 日志结果。
-- **加快首次启动加载：**优先渲染缓存账号，并发启动非关键初始化任务。
-- **修复 Plus 升级为 PRO 后状态栏无法正确识别当前账号并显示用量的问题：**先按稳定账号身份匹配，再把套餐作为变体元数据，使状态栏能够识别当前账号并显示其用量。
+- **优化 macOS 状态栏和用量标签：** 使用彩色应用图标，默认仅显示一周剩余用量，可选显示 `5h / 1w` 标签，选择“不显示”时隐藏整个状态项；模式选项位于第一行，标签开关在第二行右对齐，并在两个周期当前数值相同时仍分别标注 `5h / 1w`。
+- **大幅降低后台耗电：** 移除向 `/backend-api/codex/responses` 发送的推理保活请求，延后并去重刷新任务，在主窗口隐藏时暂停前台轮询，阻止 Token 扫描重叠执行，并复用未变化的 Token 日志结果。
+- **加快首次启动加载：** 优先渲染缓存账号，并发启动非关键初始化任务。
+- **修复 Plus 升级为 PRO 后状态栏无法正确识别当前账号并显示用量的问题：** 先按稳定账号身份匹配，再把套餐作为变体元数据，使状态栏能够识别当前账号并显示其用量。
 
 ### 技术说明
 
-- **扩展一个窄范围的重试匹配：**明确包含 `provided authentication token is expired` 或 `token is expired` 的响应，即使状态码不是 `401`，现在也会复用已有的刷新并重试路径。`main` 原本已经会重试 `401 / unauthorized / invalid_token` 响应，也原本就不会因为 Access Token 过期而永久封锁账号。
-- **保持发布说明可选且一致：**存在匹配的更新说明时，将其复用于 GitHub Release 和 Tauri updater 元数据；不存在时仅输出构建警告，自动生成旧式通用发布文字并继续正常发布。
-- **正式版不包含诊断行为：**脱敏授权解析诊断仍限制在 `debug_assertions` 下。
+- **扩展一个窄范围的重试匹配：** 明确包含 `provided authentication token is expired` 或 `token is expired` 的响应，即使状态码不是 `401`，现在也会复用已有的刷新并重试路径。`main` 原本已经会重试 `401 / unauthorized / invalid_token` 响应，也原本就不会因为 Access Token 过期而永久封锁账号。
+- **保持发布说明可选且一致：** 存在匹配的更新说明时，将其复用于 GitHub Release 和 Tauri updater 元数据；不存在时仅输出构建警告，自动生成旧式通用发布文字并继续正常发布。
+- **正式版不包含诊断行为：** 脱敏授权解析诊断仍限制在 `debug_assertions` 下。
 
 ## Before / After · 前后对比
 
 ### 1. macOS status-item appearance · macOS 状态项外观
 
-| Before / 优化前 | After / 优化后 |
+| Before / 修改前 | After / 修改后 |
 | --- | --- |
 | ![Incomplete monochrome status-item icon](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-item-before.png) | ![Color application icon in the macOS status bar](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-item-after.png) |
 
 ### 2. macOS status-item settings · macOS 状态项设置
 
-**Before / 优化前**
+**Before / 修改前**
 
 ![Status settings before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-before.png)
 
-**After / 优化后**
+**After / 修改后**
 
 ![Status settings after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-after.png)
 
 ### 3. Usage-window labels · 用量周期标签
 
-**Before / 优化前**
+**Before / 修改前**
 
 ![The five-hour meter was mislabeled as 1w](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-before.png)
 
-**After / 优化后**
+**After / 修改后**
 
 ![The semantic slots are labeled 5h and 1w](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-after.png)
 
@@ -70,13 +70,17 @@ Runtime quota percentages are still taken from the usage response. This change d
 
 ![Background work before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/background-work-before-after.png)
 
+_This diagram summarizes code-path changes; it is not a quantitative battery benchmark._
+
+_该图概括代码路径变化，不代表定量耗电基准测试。_
+
 ### 5. Current-account resolution · 当前账号识别
 
 ![Current account resolution before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-resolution-before-after.png)
 
 ### 6. In-app release notes · 应用内更新说明
 
-| Before / 优化前 | After / 优化后 |
+| Before / 修改前 | After / 修改后 |
 | --- | --- |
 | ![Generic release notes before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/in-app-release-notes-before.png) | ![Actual localized release notes after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/in-app-release-notes-live-preview.jpg) |
 
