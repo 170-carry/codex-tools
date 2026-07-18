@@ -164,6 +164,18 @@
   font-style: normal;
 }
 
+.analyticsDatePresets button.is-active {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--brand) 28%, transparent);
+}
+
+.analyticsDatePresets button.is-active:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 88%, var(--ink) 12%);
+}
+
 .analyticsStats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

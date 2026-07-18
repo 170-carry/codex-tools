@@ -22,7 +22,7 @@ const TOP_EXPENSIVE_PROMPT_LIMIT: usize = 20;
 const SESSION_EXPORT_LIMIT: usize = 500;
 const PRICING_SOURCE: &str =
     "OpenAI API standard short-context pricing, text tokens per 1M, checked 2026-07-10";
-const COST_ANALYTICS_CACHE_VERSION: u8 = 4;
+const COST_ANALYTICS_CACHE_VERSION: u8 = 6;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +70,8 @@ pub(crate) struct CodexCostAnalyticsSnapshot {
     pub(crate) last_7d_cost_usd: f64,
     pub(crate) daily: Vec<CodexDailyCostBucket>,
     pub(crate) daily_projects: Vec<CodexDailyProjectCostBreakdown>,
+    pub(crate) daily_sessions: Vec<CodexDailySessionCostBreakdown>,
+    pub(crate) daily_prompts: Vec<CodexDailyPromptCostBreakdown>,
     pub(crate) weekly_budget_usd: Option<f64>,
     pub(crate) weekly_budget_percent: Option<f64>,
     pub(crate) weekly_budget_alert: String,
@@ -100,6 +102,41 @@ pub(crate) struct CodexDailyProjectCostBreakdown {
     pub(crate) total: CodexTokenTotals,
     pub(crate) cost_usd: f64,
     pub(crate) last_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexDailySessionCostBreakdown {
+    pub(crate) date: String,
+    pub(crate) session_id: String,
+    pub(crate) parent_session_id: Option<String>,
+    pub(crate) project_path: String,
+    pub(crate) project_name: String,
+    pub(crate) prompt_keys: Vec<String>,
+    pub(crate) event_count: usize,
+    pub(crate) model_token_totals: BTreeMap<String, u64>,
+    pub(crate) total: CodexTokenTotals,
+    pub(crate) cost_usd: f64,
+    pub(crate) started_at: i64,
+    pub(crate) updated_at: i64,
+    pub(crate) source_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexDailyPromptCostBreakdown {
+    pub(crate) date: String,
+    pub(crate) prompt_key: String,
+    pub(crate) session_id: String,
+    pub(crate) project_path: String,
+    pub(crate) project_name: String,
+    pub(crate) timestamp: i64,
+    pub(crate) model_token_totals: BTreeMap<String, u64>,
+    pub(crate) prompt_preview: String,
+    pub(crate) prompt_chars: usize,
+    pub(crate) total: CodexTokenTotals,
+    pub(crate) cost_usd: f64,
+    pub(crate) source_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -318,11 +355,14 @@ where
     let mut last_7d_cost_usd = 0.0;
     let mut daily = BTreeMap::<String, CodexDailyCostBucket>::new();
     let mut daily_projects = BTreeMap::<(String, String), DailyProjectAccumulator>::new();
+    let mut daily_sessions = BTreeMap::<(String, String), DailySessionAccumulator>::new();
+    let mut daily_prompts = BTreeMap::<(String, String), DailyPromptAccumulator>::new();
 
     for (index, file) in files.iter().enumerate() {
         match parse_cost_analytics_session_file(file) {
             Ok(parsed) => {
                 let session = parsed.session;
+                let parent_session_id = session.parent_session_id.clone();
                 let project_entry = projects
                     .entry(session.project_path.clone())
                     .or_insert_with(|| ProjectAccumulator::new(&session.project_path));
@@ -357,6 +397,22 @@ where
                         daily_projects
                             .entry((date.clone(), event.project_path.clone()))
                             .or_insert_with(|| DailyProjectAccumulator::from_event(&date, &event))
+                            .add(&event);
+
+                        daily_sessions
+                            .entry((date.clone(), event.session_id.clone()))
+                            .or_insert_with(|| {
+                                DailySessionAccumulator::from_event(
+                                    &date,
+                                    parent_session_id.as_deref(),
+                                    &event,
+                                )
+                            })
+                            .add(&event);
+
+                        daily_prompts
+                            .entry((date.clone(), event.prompt_key.clone()))
+                            .or_insert_with(|| DailyPromptAccumulator::from_event(&date, &event))
                             .add(&event);
                     }
 
@@ -447,6 +503,14 @@ where
         daily_projects: daily_projects
             .into_values()
             .map(DailyProjectAccumulator::into_breakdown)
+            .collect(),
+        daily_sessions: daily_sessions
+            .into_values()
+            .map(DailySessionAccumulator::into_breakdown)
+            .collect(),
+        daily_prompts: daily_prompts
+            .into_values()
+            .map(DailyPromptAccumulator::into_breakdown)
             .collect(),
         weekly_budget_usd: None,
         weekly_budget_percent: None,
@@ -637,6 +701,140 @@ impl DailyProjectAccumulator {
             total: self.total,
             cost_usd: round_cost(self.cost_usd),
             last_at: self.last_at,
+        }
+    }
+}
+
+struct DailySessionAccumulator {
+    date: String,
+    session_id: String,
+    parent_session_id: Option<String>,
+    project_path: String,
+    project_name: String,
+    prompt_keys: Vec<String>,
+    event_count: usize,
+    model_token_totals: BTreeMap<String, u64>,
+    total: CodexTokenTotals,
+    cost_usd: f64,
+    started_at: i64,
+    updated_at: i64,
+    source_path: String,
+}
+
+impl DailySessionAccumulator {
+    fn from_event(
+        date: &str,
+        parent_session_id: Option<&str>,
+        event: &AnalyticsTokenEvent,
+    ) -> Self {
+        Self {
+            date: date.to_string(),
+            session_id: event.session_id.clone(),
+            parent_session_id: parent_session_id.map(ToString::to_string),
+            project_path: event.project_path.clone(),
+            project_name: event.project_name.clone(),
+            prompt_keys: Vec::new(),
+            event_count: 0,
+            model_token_totals: BTreeMap::new(),
+            total: CodexTokenTotals::default(),
+            cost_usd: 0.0,
+            started_at: event.timestamp,
+            updated_at: event.timestamp,
+            source_path: event.source_path.clone(),
+        }
+    }
+
+    fn add(&mut self, event: &AnalyticsTokenEvent) {
+        self.prompt_keys.push(event.prompt_key.clone());
+        self.event_count += 1;
+        *self
+            .model_token_totals
+            .entry(event.model.clone())
+            .or_insert(0) += event.total.total_tokens;
+        self.total.add(&event.total);
+        self.cost_usd += event.cost_usd;
+        self.started_at = self.started_at.min(event.timestamp);
+        self.updated_at = self.updated_at.max(event.timestamp);
+    }
+
+    fn into_breakdown(mut self) -> CodexDailySessionCostBreakdown {
+        self.prompt_keys.sort();
+        self.prompt_keys.dedup();
+        CodexDailySessionCostBreakdown {
+            date: self.date,
+            session_id: self.session_id,
+            parent_session_id: self.parent_session_id,
+            project_path: self.project_path,
+            project_name: self.project_name,
+            prompt_keys: self.prompt_keys,
+            event_count: self.event_count,
+            model_token_totals: self.model_token_totals,
+            total: self.total,
+            cost_usd: round_cost(self.cost_usd),
+            started_at: self.started_at,
+            updated_at: self.updated_at,
+            source_path: self.source_path,
+        }
+    }
+}
+
+struct DailyPromptAccumulator {
+    date: String,
+    prompt_key: String,
+    session_id: String,
+    project_path: String,
+    project_name: String,
+    timestamp: i64,
+    model_token_totals: BTreeMap<String, u64>,
+    prompt_preview: String,
+    prompt_chars: usize,
+    total: CodexTokenTotals,
+    cost_usd: f64,
+    source_path: String,
+}
+
+impl DailyPromptAccumulator {
+    fn from_event(date: &str, event: &AnalyticsTokenEvent) -> Self {
+        Self {
+            date: date.to_string(),
+            prompt_key: event.prompt_key.clone(),
+            session_id: event.session_id.clone(),
+            project_path: event.project_path.clone(),
+            project_name: event.project_name.clone(),
+            timestamp: event.timestamp,
+            model_token_totals: BTreeMap::new(),
+            prompt_preview: event.prompt_preview.clone(),
+            prompt_chars: event.prompt_chars,
+            total: CodexTokenTotals::default(),
+            cost_usd: 0.0,
+            source_path: event.source_path.clone(),
+        }
+    }
+
+    fn add(&mut self, event: &AnalyticsTokenEvent) {
+        self.timestamp = self.timestamp.min(event.timestamp);
+        *self
+            .model_token_totals
+            .entry(event.model.clone())
+            .or_insert(0) += event.total.total_tokens;
+        self.total.add(&event.total);
+        self.cost_usd += event.cost_usd;
+    }
+
+    fn into_breakdown(self) -> CodexDailyPromptCostBreakdown {
+        CodexDailyPromptCostBreakdown {
+            date: self.date,
+            prompt_key: self.prompt_key,
+            session_id: self.session_id,
+            project_path: self.project_path,
+            project_name: self.project_name,
+            timestamp: self.timestamp,
+            model_token_totals: self.model_token_totals,
+            prompt_preview: self.prompt_preview,
+            prompt_chars: self.prompt_chars,
+            total: self.total,
+            cost_usd: round_cost(self.cost_usd),
+            source_path: self.source_path,
         }
     }
 }
@@ -1684,6 +1882,24 @@ mod tests {
         assert_eq!(snapshot.daily_projects[0].project_name, "project-alpha");
         assert_eq!(snapshot.daily_projects[0].session_ids, ["session-1"]);
         assert_eq!(snapshot.daily_projects[0].prompt_keys.len(), 1);
+        assert_eq!(snapshot.daily_sessions.len(), 1);
+        assert_eq!(snapshot.daily_sessions[0].session_id, "session-1");
+        assert_eq!(snapshot.daily_sessions[0].event_count, 1);
+        assert_eq!(snapshot.daily_sessions[0].total.total_tokens, 3_000);
+        assert_eq!(
+            snapshot.daily_sessions[0].model_token_totals["gpt-5.5"],
+            3_000
+        );
+        assert_eq!(snapshot.daily_prompts.len(), 1);
+        assert_eq!(
+            snapshot.daily_prompts[0].prompt_preview,
+            "Build forensic export"
+        );
+        assert_eq!(snapshot.daily_prompts[0].total.total_tokens, 3_000);
+        assert_eq!(
+            snapshot.daily_prompts[0].model_token_totals["gpt-5.5"],
+            3_000
+        );
         assert_eq!(snapshot.weekly_budget_alert, "danger");
         assert_eq!(progress_events.last().expect("progress").percent, 100);
         assert_eq!(snapshot.projects[0].project_name, "project-alpha");

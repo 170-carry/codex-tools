@@ -331,6 +331,9 @@ export function AnalyticsPanel({
   );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [activeDatePreset, setActiveDatePreset] = useState<
+    "7d" | "30d" | "all" | null
+  >("7d");
   const budgetInputValue =
     weeklyBudgetUsd === null ? "" : String(weeklyBudgetUsd);
 
@@ -338,6 +341,14 @@ export function AnalyticsPanel({
   const dailyProjects = useMemo(
     () => analytics?.dailyProjects ?? [],
     [analytics?.dailyProjects],
+  );
+  const dailySessions = useMemo(
+    () => analytics?.dailySessions ?? [],
+    [analytics?.dailySessions],
+  );
+  const dailyPrompts = useMemo(
+    () => analytics?.dailyPrompts ?? [],
+    [analytics?.dailyPrompts],
   );
   const earliestDate = daily[0]?.date ?? "";
   const latestDate = daily[daily.length - 1]?.date ?? "";
@@ -427,32 +438,197 @@ export function AnalyticsPanel({
       }))
       .sort((left, right) => right.costUsd - left.costUsd);
   }, [dailyProjects, selectedDateFrom, selectedDateTo]);
+  const selectedSessions = useMemo(() => {
+    type RangeSession = CodexSessionCostBreakdown & {
+      promptKeys: Set<string>;
+      modelTokenTotals: Map<string, number>;
+    };
+    const bySession = new Map<string, RangeSession>();
+
+    for (const session of dailySessions) {
+      if (
+        (selectedDateFrom && session.date < selectedDateFrom) ||
+        (selectedDateTo && session.date > selectedDateTo)
+      ) {
+        continue;
+      }
+      let aggregate = bySession.get(session.sessionId);
+      if (!aggregate) {
+        aggregate = {
+          sessionId: session.sessionId,
+          parentSessionId: session.parentSessionId,
+          projectPath: session.projectPath,
+          projectName: session.projectName,
+          startedAt: session.startedAt,
+          updatedAt: session.updatedAt,
+          durationSeconds: null,
+          promptCount: 0,
+          eventCount: 0,
+          model: "unknown",
+          total: {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 0,
+          },
+          costUsd: 0,
+          sourcePath: session.sourcePath,
+          promptKeys: new Set<string>(),
+          modelTokenTotals: new Map<string, number>(),
+        };
+        bySession.set(session.sessionId, aggregate);
+      }
+      session.promptKeys.forEach((key) => aggregate.promptKeys.add(key));
+      for (const [model, tokens] of Object.entries(session.modelTokenTotals)) {
+        aggregate.modelTokenTotals.set(
+          model,
+          (aggregate.modelTokenTotals.get(model) ?? 0) + tokens,
+        );
+      }
+      aggregate.eventCount += session.eventCount;
+      aggregate.total.inputTokens += session.total.inputTokens;
+      aggregate.total.cachedInputTokens += session.total.cachedInputTokens;
+      aggregate.total.outputTokens += session.total.outputTokens;
+      aggregate.total.reasoningOutputTokens +=
+        session.total.reasoningOutputTokens;
+      aggregate.total.totalTokens += session.total.totalTokens;
+      aggregate.costUsd += session.costUsd;
+      aggregate.startedAt = Math.min(
+        aggregate.startedAt ?? session.startedAt,
+        session.startedAt,
+      );
+      aggregate.updatedAt = Math.max(
+        aggregate.updatedAt ?? session.updatedAt,
+        session.updatedAt,
+      );
+    }
+
+    return Array.from(bySession.values())
+      .map(({ promptKeys, modelTokenTotals, ...session }) => {
+        const model = Array.from(modelTokenTotals.entries()).sort(
+          (left, right) => right[1] - left[1],
+        )[0]?.[0] ?? "unknown";
+        const durationSeconds =
+          session.startedAt !== null && session.updatedAt !== null
+            ? Math.max(0, session.updatedAt - session.startedAt)
+            : null;
+        return {
+          ...session,
+          promptCount: promptKeys.size,
+          model,
+          durationSeconds,
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.costUsd - left.costUsd ||
+          (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+      );
+  }, [dailySessions, selectedDateFrom, selectedDateTo]);
+  const selectedTopPrompts = useMemo(() => {
+    type RangePrompt = CodexPromptCostBreakdown & {
+      promptKey: string;
+      modelTokenTotals: Map<string, number>;
+    };
+    const byPrompt = new Map<string, RangePrompt>();
+
+    for (const prompt of dailyPrompts) {
+      if (
+        (selectedDateFrom && prompt.date < selectedDateFrom) ||
+        (selectedDateTo && prompt.date > selectedDateTo)
+      ) {
+        continue;
+      }
+      let aggregate = byPrompt.get(prompt.promptKey);
+      if (!aggregate) {
+        aggregate = {
+          promptKey: prompt.promptKey,
+          sessionId: prompt.sessionId,
+          projectPath: prompt.projectPath,
+          projectName: prompt.projectName,
+          timestamp: prompt.timestamp,
+          model: "unknown",
+          promptPreview: prompt.promptPreview,
+          promptChars: prompt.promptChars,
+          total: {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 0,
+          },
+          costUsd: 0,
+          sourcePath: prompt.sourcePath,
+          modelTokenTotals: new Map<string, number>(),
+        };
+        byPrompt.set(prompt.promptKey, aggregate);
+      }
+      for (const [model, tokens] of Object.entries(prompt.modelTokenTotals)) {
+        aggregate.modelTokenTotals.set(
+          model,
+          (aggregate.modelTokenTotals.get(model) ?? 0) + tokens,
+        );
+      }
+      aggregate.timestamp = Math.min(aggregate.timestamp, prompt.timestamp);
+      aggregate.total.inputTokens += prompt.total.inputTokens;
+      aggregate.total.cachedInputTokens += prompt.total.cachedInputTokens;
+      aggregate.total.outputTokens += prompt.total.outputTokens;
+      aggregate.total.reasoningOutputTokens +=
+        prompt.total.reasoningOutputTokens;
+      aggregate.total.totalTokens += prompt.total.totalTokens;
+      aggregate.costUsd += prompt.costUsd;
+    }
+
+    return Array.from(byPrompt.values())
+      .map((prompt) => ({
+        sessionId: prompt.sessionId,
+        projectPath: prompt.projectPath,
+        projectName: prompt.projectName,
+        timestamp: prompt.timestamp,
+        model:
+          Array.from(prompt.modelTokenTotals.entries()).sort(
+            (left, right) => right[1] - left[1],
+          )[0]?.[0] ?? "unknown",
+        promptPreview: prompt.promptPreview,
+        promptChars: prompt.promptChars,
+        total: prompt.total,
+        costUsd: prompt.costUsd,
+        sourcePath: prompt.sourcePath,
+      }))
+      .sort(
+        (left, right) =>
+          right.costUsd - left.costUsd || right.timestamp - left.timestamp,
+      )
+      .slice(0, 20);
+  }, [dailyPrompts, selectedDateFrom, selectedDateTo]);
   const selectedRangeLabel =
     selectedDateFrom && selectedDateTo
       ? `${selectedDateFrom} – ${selectedDateTo}`
       : text.dateRange;
 
-  const selectRecentDays = (days: number) => {
+  const selectRecentDays = (days: number, preset: "7d" | "30d") => {
     if (!latestDate) {
       return;
     }
     const candidate = shiftIsoDate(latestDate, -(days - 1));
     setDateFrom(earliestDate > candidate ? earliestDate : candidate);
     setDateTo(latestDate);
+    setActiveDatePreset(preset);
   };
 
   const selectAllDates = () => {
     setDateFrom(earliestDate);
     setDateTo(latestDate);
+    setActiveDatePreset("all");
   };
 
   const normalizedQuery = sessionQuery.trim().toLocaleLowerCase();
   const filteredSessions = useMemo(() => {
-    const sessions = analytics?.sessions ?? [];
     if (!normalizedQuery) {
-      return sessions;
+      return selectedSessions;
     }
-    return sessions.filter((session) =>
+    return selectedSessions.filter((session) =>
       [
         session.sessionId,
         session.parentSessionId ?? "",
@@ -464,7 +640,7 @@ export function AnalyticsPanel({
         .toLocaleLowerCase()
         .includes(normalizedQuery),
     );
-  }, [analytics?.sessions, normalizedQuery]);
+  }, [normalizedQuery, selectedSessions]);
 
   const saveBudget = () => {
     const trimmed = budgetInputRef.current?.value.trim() ?? "";
@@ -603,13 +779,28 @@ export function AnalyticsPanel({
         <section className="analyticsDateRange" aria-label={text.dateRange}>
           <strong>{text.dateRange}</strong>
           <div className="analyticsDatePresets">
-            <button type="button" className="ghost" onClick={() => selectRecentDays(7)}>
+            <button
+              type="button"
+              className={`ghost ${activeDatePreset === "7d" ? "is-active" : ""}`}
+              aria-pressed={activeDatePreset === "7d"}
+              onClick={() => selectRecentDays(7, "7d")}
+            >
               {text.preset7d}
             </button>
-            <button type="button" className="ghost" onClick={() => selectRecentDays(30)}>
+            <button
+              type="button"
+              className={`ghost ${activeDatePreset === "30d" ? "is-active" : ""}`}
+              aria-pressed={activeDatePreset === "30d"}
+              onClick={() => selectRecentDays(30, "30d")}
+            >
               {text.preset30d}
             </button>
-            <button type="button" className="ghost" onClick={selectAllDates}>
+            <button
+              type="button"
+              className={`ghost ${activeDatePreset === "all" ? "is-active" : ""}`}
+              aria-pressed={activeDatePreset === "all"}
+              onClick={selectAllDates}
+            >
               {text.presetAll}
             </button>
           </div>
@@ -620,7 +811,10 @@ export function AnalyticsPanel({
               min={earliestDate}
               max={selectedDateTo || latestDate}
               value={selectedDateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
+              onChange={(event) => {
+                setDateFrom(event.target.value);
+                setActiveDatePreset(null);
+              }}
             />
           </label>
           <i aria-hidden="true">—</i>
@@ -631,7 +825,10 @@ export function AnalyticsPanel({
               min={selectedDateFrom || earliestDate}
               max={latestDate}
               value={selectedDateTo}
-              onChange={(event) => setDateTo(event.target.value)}
+              onChange={(event) => {
+                setDateTo(event.target.value);
+                setActiveDatePreset(null);
+              }}
             />
           </label>
         </section>
@@ -654,8 +851,8 @@ export function AnalyticsPanel({
           )}
           {statCard(
             text.sessions,
-            analytics ? formatNumber(analytics.sessions.length, locale) : "--",
-            text.sourceFiles,
+            analytics ? formatNumber(selectedSessions.length, locale) : "--",
+            selectedRangeLabel,
           )}
         </section>
 
@@ -770,7 +967,7 @@ export function AnalyticsPanel({
                   <p>{text.topPromptsDescription}</p>
                 </div>
               </div>
-              <TopPrompts prompts={analytics.topPrompts} locale={locale} />
+              <TopPrompts prompts={selectedTopPrompts} locale={locale} />
             </section>
           </div>
         ) : null}
