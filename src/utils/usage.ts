@@ -1,5 +1,19 @@
 import type { UsageWindow } from "../types/app";
 
+const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60;
+const FIVE_HOUR_WINDOW_TOLERANCE_SECONDS = 60 * 60;
+
+export function fiveHourUsageWindow(window: UsageWindow | null): UsageWindow | null {
+  if (
+    !window ||
+    Math.abs(window.windowSeconds - FIVE_HOUR_WINDOW_SECONDS) >
+      FIVE_HOUR_WINDOW_TOLERANCE_SECONDS
+  ) {
+    return null;
+  }
+  return window;
+}
+
 export function percent(value: number | undefined | null): string {
   if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";

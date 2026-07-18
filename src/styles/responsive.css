@@ -363,6 +363,13 @@
     gap: 12px;
   }
 
+  .accountListFrame:not(.hasFiveHourUsage) .accountRow {
+    grid-template-areas:
+      "identity actions"
+      "week week"
+      "reset proxy";
+  }
+
   .accountRow .accountIdentityCell {
     grid-area: identity;
   }

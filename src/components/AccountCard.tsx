@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
 import type { AccountSummary, UsageWindow } from "../types/app";
 import {
+  fiveHourUsageWindow,
   formatPlan,
   formatWindowLabel,
   percent,
@@ -193,7 +194,7 @@ export function AccountCard({
 
   const usage = selectedAccount.usage;
   const isRelay = selectedAccount.sourceKind === "relay";
-  const fiveHour = usage?.fiveHour ?? null;
+  const fiveHour = fiveHourUsageWindow(usage?.fiveHour ?? null);
   const oneWeek = usage?.oneWeek ?? null;
   const normalizedPlan = isRelay ? "api" : selectedAccount.planType || usage?.planType;
   const tone = planTone(normalizedPlan);
@@ -417,7 +418,7 @@ export function AccountCard({
 
       {!isRelay ? (
         <div className={`usageGrid ${isFreePlan ? "isFreePlan" : ""}`}>
-          {!isFreePlan && (
+          {!isFreePlan && fiveHour ? (
             <UsageDial
               accent="hot"
               centerLabel={usageCenterLabel}
@@ -431,7 +432,7 @@ export function AccountCard({
               resetValue={fiveHourReset}
               displayPercent={displayUsagePercent(fiveHour)}
             />
-          )}
+          ) : null}
           <UsageDial
             accent="cool"
             centerLabel={usageCenterLabel}

@@ -3,6 +3,7 @@ import type { AccountSummary, CodexTokenUsageSnapshot, UsageWindow } from "../ty
 import { useI18n } from "../i18n/I18nProvider";
 import { compareAccountsByRemaining } from "../utils/accountRanking";
 import {
+  fiveHourUsageWindow,
   formatPlan,
   formatTokenCount,
   formatWindowLabel,
@@ -152,14 +153,20 @@ function usedPercent(window: UsageWindow | null): number | null {
 }
 
 function accountHasExhaustedWindow(account: AccountSummary): boolean {
-  return [account.usage?.fiveHour ?? null, account.usage?.oneWeek ?? null].some((window) => {
+  return [
+    fiveHourUsageWindow(account.usage?.fiveHour ?? null),
+    account.usage?.oneWeek ?? null,
+  ].some((window) => {
     const remaining = remainingPercent(window);
     return remaining !== null && remaining <= 0;
   });
 }
 
 function lowestRemaining(account: AccountSummary): number | null {
-  const values = [remainingPercent(account.usage?.fiveHour ?? null), remainingPercent(account.usage?.oneWeek ?? null)]
+  const values = [
+    remainingPercent(fiveHourUsageWindow(account.usage?.fiveHour ?? null)),
+    remainingPercent(account.usage?.oneWeek ?? null),
+  ]
     .filter((value): value is number => value !== null && !Number.isNaN(value));
   return values.length > 0 ? Math.min(...values) : null;
 }
@@ -604,6 +611,9 @@ export function AccountsGrid({
   const openMenuRootRef = useRef<HTMLDivElement | null>(null);
   const [switchRecords, setSwitchRecords] = useState<SwitchRecord[]>([]);
   const [expandedResetCreditsByAccount, setExpandedResetCreditsByAccount] = useState<Record<string, boolean>>({});
+  const hasFiveHourUsage = accounts.some(
+    (account) => fiveHourUsageWindow(account.usage?.fiveHour ?? null) !== null,
+  );
 
   useEffect(() => {
     if (!openMenuAccountId || typeof document === "undefined") {
@@ -707,6 +717,9 @@ export function AccountsGrid({
     filteredRows[0] ||
     rows[0] ||
     null;
+  const selectedFiveHour = fiveHourUsageWindow(
+    selectedRow?.account.usage?.fiveHour ?? null,
+  );
 
   const selectAccount = (accountId: string) => {
     setEditingAliasId(null);
@@ -825,7 +838,9 @@ export function AccountsGrid({
               <p>{accounts.length === 0 ? copy.accountsGrid.emptyDescription : text.noMatchesDescription}</p>
             </div>
           ) : (
-            <div className="accountListFrame">
+            <div
+              className={`accountListFrame${hasFiveHourUsage ? " hasFiveHourUsage" : ""}`}
+            >
               <TokenUsageStrip
                 tokenUsage={tokenUsage}
                 tokenUsageError={tokenUsageError}
@@ -837,7 +852,7 @@ export function AccountsGrid({
               />
               <div className="accountListHeader" aria-hidden="true">
                 <span>{copy.bottomDock.accounts}</span>
-                <span>{text.fiveHourUsage}</span>
+                {hasFiveHourUsage ? <span>{text.fiveHourUsage}</span> : null}
                 <span>{text.weekUsage}</span>
                 <span>{text.resetTime}</span>
                 <span>{text.proxyEnabled}</span>
@@ -856,6 +871,7 @@ export function AccountsGrid({
                 const isMenuOpen = openMenuAccountId === account.id;
                 const accountAddress = displayAccountAddress(account, text.emptyValue);
                 const issueReason = accountIssueReason(account, text.issueFallbackReason);
+                const fiveHour = fiveHourUsageWindow(account.usage?.fiveHour ?? null);
 
                 return (
                   <article
@@ -925,12 +941,14 @@ export function AccountsGrid({
                         </span>
                       </span>
                     </div>
-                    <UsageMeter
-                      className="accountUsageFive"
-                      label={text.fiveHourUsage}
-                      window={account.usage?.fiveHour ?? null}
-                      text={text}
-                    />
+                    {hasFiveHourUsage ? (
+                      <UsageMeter
+                        className="accountUsageFive"
+                        label={text.fiveHourUsage}
+                        window={fiveHour}
+                        text={text}
+                      />
+                    ) : null}
                     <UsageMeter
                       className="accountUsageWeek"
                       label={text.weekUsage}
@@ -938,7 +956,9 @@ export function AccountsGrid({
                       text={text}
                     />
                     <div className="resetCell">
-                      <span>{formatResetValue(account.usage?.fiveHour?.resetAt, locale, text.emptyValue)}</span>
+                      {hasFiveHourUsage ? (
+                        <span>{formatResetValue(fiveHour?.resetAt, locale, text.emptyValue)}</span>
+                      ) : null}
                       <strong>{formatResetValue(account.usage?.oneWeek?.resetAt, locale, text.emptyValue)}</strong>
                     </div>
                     <label className="rowToggle" onClick={(event) => event.stopPropagation()}>
@@ -1097,11 +1117,13 @@ export function AccountsGrid({
 
             <section className="detailCard">
               <h3>{text.usageOverview}</h3>
-              <UsageMeter
-                label={text.fiveHourUsage}
-                window={selectedRow.account.usage?.fiveHour ?? null}
-                text={text}
-              />
+              {selectedFiveHour ? (
+                <UsageMeter
+                  label={text.fiveHourUsage}
+                  window={selectedFiveHour}
+                  text={text}
+                />
+              ) : null}
               <UsageMeter
                 label={text.weekUsage}
                 window={selectedRow.account.usage?.oneWeek ?? null}
@@ -1112,7 +1134,13 @@ export function AccountsGrid({
             <section className="detailMetaGrid">
               <div>
                 <span>{text.resetTime}</span>
-                <strong>{formatFullDate(selectedRow.account.usage?.fiveHour?.resetAt, locale, text.emptyValue)}</strong>
+                <strong>
+                  {formatFullDate(
+                    selectedFiveHour?.resetAt ?? selectedRow.account.usage?.oneWeek?.resetAt,
+                    locale,
+                    text.emptyValue,
+                  )}
+                </strong>
               </div>
               <div>
                 <span>{text.planType}</span>

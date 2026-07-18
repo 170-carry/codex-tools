@@ -1,6 +1,6 @@
 import { useI18n } from "../i18n/I18nProvider";
 import type { AccountSummary } from "../types/app";
-import { remainingPercent } from "../utils/usage";
+import { fiveHourUsageWindow, remainingPercent } from "../utils/usage";
 
 type MetaStripProps = {
   accounts: AccountSummary[];
@@ -60,7 +60,10 @@ function hasBlockingAccountIssue(account: AccountSummary): boolean {
 }
 
 function hasExhaustedWindow(account: AccountSummary): boolean {
-  return [account.usage?.fiveHour ?? null, account.usage?.oneWeek ?? null].some((window) => {
+  return [
+    fiveHourUsageWindow(account.usage?.fiveHour ?? null),
+    account.usage?.oneWeek ?? null,
+  ].some((window) => {
     const remaining = remainingPercent(window);
     return remaining !== null && remaining <= 0;
   });

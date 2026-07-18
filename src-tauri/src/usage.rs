@@ -15,6 +15,10 @@ const CODEX_USAGE_PATH: &str = "/api/codex/usage";
 const WHAM_USAGE_PATH: &str = "/wham/usage";
 const WHAM_RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
 const BACKEND_API_PREFIX: &str = "/backend-api";
+const FIVE_HOUR_WINDOW_SECONDS: i64 = 5 * 60 * 60;
+const FIVE_HOUR_WINDOW_TOLERANCE_SECONDS: i64 = 60 * 60;
+const ONE_WEEK_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+const ONE_WEEK_WINDOW_TOLERANCE_SECONDS: i64 = 24 * 60 * 60;
 
 #[derive(Debug, Deserialize)]
 struct UsageApiResponse {
@@ -299,8 +303,18 @@ fn map_usage_payload(
         }
     }
 
-    let five_hour = pick_nearest_window(&windows, 5 * 60 * 60).map(to_usage_window);
-    let one_week = pick_nearest_window(&windows, 7 * 24 * 60 * 60).map(to_usage_window);
+    let five_hour = pick_nearest_window(
+        &windows,
+        FIVE_HOUR_WINDOW_SECONDS,
+        FIVE_HOUR_WINDOW_TOLERANCE_SECONDS,
+    )
+    .map(to_usage_window);
+    let one_week = pick_nearest_window(
+        &windows,
+        ONE_WEEK_WINDOW_SECONDS,
+        ONE_WEEK_WINDOW_TOLERANCE_SECONDS,
+    )
+    .map(to_usage_window);
 
     UsageSnapshot {
         fetched_at: now_unix_seconds(),
@@ -401,9 +415,14 @@ fn normalize_epoch_seconds(value: i64) -> i64 {
     }
 }
 
-fn pick_nearest_window(windows: &[UsageWindowRaw], target_seconds: i64) -> Option<UsageWindowRaw> {
+fn pick_nearest_window(
+    windows: &[UsageWindowRaw],
+    target_seconds: i64,
+    tolerance_seconds: i64,
+) -> Option<UsageWindowRaw> {
     windows
         .iter()
+        .filter(|window| (window.limit_window_seconds - target_seconds).abs() <= tolerance_seconds)
         .min_by_key(|window| (window.limit_window_seconds - target_seconds).abs())
         .map(|window| UsageWindowRaw {
             used_percent: window.used_percent,
@@ -423,7 +442,40 @@ fn to_usage_window(window: UsageWindowRaw) -> UsageWindow {
 #[cfg(test)]
 mod tests {
     use super::map_reset_credits_payload;
+    use super::map_usage_payload;
+    use super::UsageApiResponse;
     use serde_json::json;
+
+    #[test]
+    fn usage_payload_does_not_reuse_weekly_window_as_five_hour_window() {
+        let payload: UsageApiResponse = serde_json::from_value(json!({
+            "plan_type": "plus",
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 12.0,
+                    "limit_window_seconds": 604800,
+                    "reset_at": 1784968885
+                },
+                "secondary_window": {
+                    "used_percent": 12.0,
+                    "limit_window_seconds": 604800,
+                    "reset_at": 1784968885
+                }
+            }
+        }))
+        .expect("deserialize usage payload");
+
+        let snapshot = map_usage_payload(payload, None);
+
+        assert!(snapshot.five_hour.is_none());
+        assert_eq!(
+            snapshot
+                .one_week
+                .as_ref()
+                .map(|window| window.window_seconds),
+            Some(604800)
+        );
+    }
 
     #[test]
     fn reset_credits_payload_accepts_common_timestamp_shapes() {

@@ -1,4 +1,5 @@
 import type { AccountSummary, UsageWindow } from "../types/app";
+import { fiveHourUsageWindow } from "./usage";
 
 const UNKNOWN_REMAINING = -1;
 
@@ -16,7 +17,9 @@ function accountRemainingScore(account: AccountSummary): {
 } {
   return {
     oneWeek: windowRemainingPercent(account.usage?.oneWeek),
-    fiveHour: windowRemainingPercent(account.usage?.fiveHour),
+    fiveHour: windowRemainingPercent(
+      fiveHourUsageWindow(account.usage?.fiveHour ?? null),
+    ),
   };
 }
 

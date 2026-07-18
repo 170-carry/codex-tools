@@ -150,6 +150,10 @@
   overflow: hidden;
 }
 
+.accountListFrame:not(.hasFiveHourUsage) {
+  --account-row-columns: minmax(260px, 1.5fr) minmax(108px, 0.66fr) minmax(96px, 0.56fr) 50px minmax(106px, auto);
+}
+
 .accountTokenUsageStrip {
   min-width: 0;
   min-height: 42px;
