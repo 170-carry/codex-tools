@@ -123,6 +123,7 @@ export type CodexCostAnalyticsSnapshot = {
   last7d: CodexTokenTotals;
   last7dCostUsd: number;
   daily: CodexDailyCostBucket[];
+  dailyProjects: CodexDailyProjectCostBreakdown[];
   weeklyBudgetUsd: number | null;
   weeklyBudgetPercent: number | null;
   weeklyBudgetAlert: CodexBudgetAlert;
@@ -137,6 +138,18 @@ export type CodexDailyCostBucket = {
   eventCount: number;
   total: CodexTokenTotals;
   costUsd: number;
+};
+
+export type CodexDailyProjectCostBreakdown = {
+  date: string;
+  projectPath: string;
+  projectName: string;
+  sessionIds: string[];
+  promptKeys: string[];
+  eventCount: number;
+  total: CodexTokenTotals;
+  costUsd: number;
+  lastAt: number;
 };
 
 export type CodexCostAnalyticsProgress = {

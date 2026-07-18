@@ -335,6 +335,10 @@ export function AnalyticsPanel({
     weeklyBudgetUsd === null ? "" : String(weeklyBudgetUsd);
 
   const daily = useMemo(() => analytics?.daily ?? [], [analytics?.daily]);
+  const dailyProjects = useMemo(
+    () => analytics?.dailyProjects ?? [],
+    [analytics?.dailyProjects],
+  );
   const earliestDate = daily[0]?.date ?? "";
   const latestDate = daily[daily.length - 1]?.date ?? "";
   const defaultDateFrom = latestDate
@@ -366,6 +370,63 @@ export function AnalyticsPanel({
     (sum, bucket) => sum + bucket.eventCount,
     0,
   );
+  const selectedProjects = useMemo(() => {
+    type RangeProject = CodexProjectCostBreakdown & {
+      sessionIds: Set<string>;
+      promptKeys: Set<string>;
+    };
+    const byProject = new Map<string, RangeProject>();
+
+    for (const project of dailyProjects) {
+      if (
+        (selectedDateFrom && project.date < selectedDateFrom) ||
+        (selectedDateTo && project.date > selectedDateTo)
+      ) {
+        continue;
+      }
+      let aggregate = byProject.get(project.projectPath);
+      if (!aggregate) {
+        aggregate = {
+          projectPath: project.projectPath,
+          projectName: project.projectName,
+          sessionCount: 0,
+          promptCount: 0,
+          eventCount: 0,
+          total: {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 0,
+          },
+          costUsd: 0,
+          lastAt: null,
+          sessionIds: new Set<string>(),
+          promptKeys: new Set<string>(),
+        };
+        byProject.set(project.projectPath, aggregate);
+      }
+      project.sessionIds.forEach((id) => aggregate.sessionIds.add(id));
+      project.promptKeys.forEach((key) => aggregate.promptKeys.add(key));
+      aggregate.eventCount += project.eventCount;
+      aggregate.total.inputTokens += project.total.inputTokens;
+      aggregate.total.cachedInputTokens += project.total.cachedInputTokens;
+      aggregate.total.outputTokens += project.total.outputTokens;
+      aggregate.total.reasoningOutputTokens +=
+        project.total.reasoningOutputTokens;
+      aggregate.total.totalTokens += project.total.totalTokens;
+      aggregate.costUsd += project.costUsd;
+      aggregate.lastAt = Math.max(aggregate.lastAt ?? 0, project.lastAt);
+    }
+
+    return Array.from(byProject.values())
+      .map(({ sessionIds, promptKeys, ...project }) => ({
+        ...project,
+        sessionCount: sessionIds.size,
+        promptCount: promptKeys.size,
+      }))
+      .sort((left, right) => right.costUsd - left.costUsd);
+  }, [dailyProjects, selectedDateFrom, selectedDateTo]);
   const selectedRangeLabel =
     selectedDateFrom && selectedDateTo
       ? `${selectedDateFrom} – ${selectedDateTo}`
@@ -666,7 +727,7 @@ export function AnalyticsPanel({
                   <p>{text.projectsDescription}</p>
                 </div>
               </div>
-              <ProjectRows projects={analytics.projects} locale={locale} />
+              <ProjectRows projects={selectedProjects} locale={locale} />
             </section>
 
             <section className="analyticsBlock analyticsBlockHeatmap">

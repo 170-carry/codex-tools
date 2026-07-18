@@ -22,7 +22,7 @@ const TOP_EXPENSIVE_PROMPT_LIMIT: usize = 20;
 const SESSION_EXPORT_LIMIT: usize = 500;
 const PRICING_SOURCE: &str =
     "OpenAI API standard short-context pricing, text tokens per 1M, checked 2026-07-10";
-const COST_ANALYTICS_CACHE_VERSION: u8 = 3;
+const COST_ANALYTICS_CACHE_VERSION: u8 = 4;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +69,7 @@ pub(crate) struct CodexCostAnalyticsSnapshot {
     pub(crate) last_7d: CodexTokenTotals,
     pub(crate) last_7d_cost_usd: f64,
     pub(crate) daily: Vec<CodexDailyCostBucket>,
+    pub(crate) daily_projects: Vec<CodexDailyProjectCostBreakdown>,
     pub(crate) weekly_budget_usd: Option<f64>,
     pub(crate) weekly_budget_percent: Option<f64>,
     pub(crate) weekly_budget_alert: String,
@@ -85,6 +86,20 @@ pub(crate) struct CodexDailyCostBucket {
     pub(crate) event_count: usize,
     pub(crate) total: CodexTokenTotals,
     pub(crate) cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexDailyProjectCostBreakdown {
+    pub(crate) date: String,
+    pub(crate) project_path: String,
+    pub(crate) project_name: String,
+    pub(crate) session_ids: Vec<String>,
+    pub(crate) prompt_keys: Vec<String>,
+    pub(crate) event_count: usize,
+    pub(crate) total: CodexTokenTotals,
+    pub(crate) cost_usd: f64,
+    pub(crate) last_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -302,6 +317,7 @@ where
     let mut last_7d = CodexTokenTotals::default();
     let mut last_7d_cost_usd = 0.0;
     let mut daily = BTreeMap::<String, CodexDailyCostBucket>::new();
+    let mut daily_projects = BTreeMap::<(String, String), DailyProjectAccumulator>::new();
 
     for (index, file) in files.iter().enumerate() {
         match parse_cost_analytics_session_file(file) {
@@ -329,7 +345,7 @@ where
                             daily
                                 .entry(date.clone())
                                 .or_insert_with(|| CodexDailyCostBucket {
-                                    date,
+                                    date: date.clone(),
                                     event_count: 0,
                                     total: CodexTokenTotals::default(),
                                     cost_usd: 0.0,
@@ -337,6 +353,11 @@ where
                         bucket.event_count += 1;
                         bucket.total.add(&event.total);
                         bucket.cost_usd += event.cost_usd;
+
+                        daily_projects
+                            .entry((date.clone(), event.project_path.clone()))
+                            .or_insert_with(|| DailyProjectAccumulator::from_event(&date, &event))
+                            .add(&event);
                     }
 
                     if event.timestamp >= last_7d_start {
@@ -422,6 +443,10 @@ where
                 bucket.cost_usd = round_cost(bucket.cost_usd);
                 bucket
             })
+            .collect(),
+        daily_projects: daily_projects
+            .into_values()
+            .map(DailyProjectAccumulator::into_breakdown)
             .collect(),
         weekly_budget_usd: None,
         weekly_budget_percent: None,
@@ -557,6 +582,57 @@ impl ProjectAccumulator {
             project_name: self.project_name,
             session_count: self.session_count,
             prompt_count: prompt_keys.len(),
+            event_count: self.event_count,
+            total: self.total,
+            cost_usd: round_cost(self.cost_usd),
+            last_at: self.last_at,
+        }
+    }
+}
+
+#[derive(Default)]
+struct DailyProjectAccumulator {
+    date: String,
+    project_path: String,
+    project_name: String,
+    session_ids: Vec<String>,
+    prompt_keys: Vec<String>,
+    event_count: usize,
+    total: CodexTokenTotals,
+    cost_usd: f64,
+    last_at: i64,
+}
+
+impl DailyProjectAccumulator {
+    fn from_event(date: &str, event: &AnalyticsTokenEvent) -> Self {
+        Self {
+            date: date.to_string(),
+            project_path: event.project_path.clone(),
+            project_name: event.project_name.clone(),
+            ..Self::default()
+        }
+    }
+
+    fn add(&mut self, event: &AnalyticsTokenEvent) {
+        self.session_ids.push(event.session_id.clone());
+        self.prompt_keys.push(event.prompt_key.clone());
+        self.event_count += 1;
+        self.total.add(&event.total);
+        self.cost_usd += event.cost_usd;
+        self.last_at = self.last_at.max(event.timestamp);
+    }
+
+    fn into_breakdown(mut self) -> CodexDailyProjectCostBreakdown {
+        self.session_ids.sort();
+        self.session_ids.dedup();
+        self.prompt_keys.sort();
+        self.prompt_keys.dedup();
+        CodexDailyProjectCostBreakdown {
+            date: self.date,
+            project_path: self.project_path,
+            project_name: self.project_name,
+            session_ids: self.session_ids,
+            prompt_keys: self.prompt_keys,
             event_count: self.event_count,
             total: self.total,
             cost_usd: round_cost(self.cost_usd),
@@ -1604,6 +1680,10 @@ mod tests {
         assert_eq!(snapshot.daily[0].date, "2026-06-10");
         assert_eq!(snapshot.daily[0].total.total_tokens, 3_000);
         assert!((snapshot.daily[0].cost_usd - 0.032275).abs() < 0.000001);
+        assert_eq!(snapshot.daily_projects.len(), 1);
+        assert_eq!(snapshot.daily_projects[0].project_name, "project-alpha");
+        assert_eq!(snapshot.daily_projects[0].session_ids, ["session-1"]);
+        assert_eq!(snapshot.daily_projects[0].prompt_keys.len(), 1);
         assert_eq!(snapshot.weekly_budget_alert, "danger");
         assert_eq!(progress_events.last().expect("progress").percent, 100);
         assert_eq!(snapshot.projects[0].project_name, "project-alpha");
