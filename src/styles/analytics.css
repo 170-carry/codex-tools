@@ -390,30 +390,108 @@
   grid-column: 1 / -1;
 }
 
-.analyticsHeatmap {
+.analyticsHeatmap,
+.analyticsTodayHeatmap,
+.analyticsDailyHeatmap {
   display: grid;
   gap: 5px;
 }
 
 .analyticsHeatmapHeader,
-.analyticsHeatmapRow {
+.analyticsHeatmapRow,
+.analyticsTodayHeatmapHeader,
+.analyticsTodayHeatmapRow {
   display: grid;
-  grid-template-columns: 40px repeat(24, minmax(8px, 1fr));
   gap: 4px;
   align-items: center;
 }
 
+.analyticsHeatmapHeader,
+.analyticsHeatmapRow {
+  grid-template-columns: 40px repeat(24, minmax(8px, 1fr));
+}
+
+.analyticsTodayHeatmapHeader,
+.analyticsTodayHeatmapRow {
+  grid-template-columns: repeat(24, minmax(8px, 1fr));
+}
+
 .analyticsHeatmapHeader b,
+.analyticsTodayHeatmapHeader b,
 .analyticsHeatmapRow span {
   color: var(--muted);
   font: 750 0.66rem/1 var(--font-ui);
 }
 
-.analyticsHeatmapRow i {
+.analyticsHeatmapRow i,
+.analyticsTodayHeatmapRow i {
   aspect-ratio: 1;
   min-height: 10px;
   border-radius: 3px;
   background: var(--brand);
+}
+
+.analyticsDailyHeatmap {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.analyticsDailyHeatmapMonths,
+.analyticsDailyHeatmapRow {
+  display: grid;
+  grid-template-columns: 40px repeat(var(--analytics-heatmap-weeks, 1), 24px);
+  gap: 4px;
+  align-items: center;
+  min-width: calc(40px + var(--analytics-heatmap-weeks, 1) * 28px);
+}
+
+.analyticsDailyHeatmapMonths b,
+.analyticsDailyHeatmapRow span,
+.analyticsDailyHeatmapLegend {
+  color: var(--muted);
+  font: 750 0.66rem/1 var(--font-ui);
+}
+
+.analyticsDailyHeatmapRow i,
+.analyticsDailyHeatmapLegend i {
+  aspect-ratio: 1;
+  min-height: 10px;
+  border-radius: 3px;
+  background: var(--brand);
+}
+
+.analyticsDailyHeatmapRow i[aria-label] {
+  min-height: 24px;
+  cursor: default;
+}
+
+.analyticsDailyHeatmapTooltip {
+  position: fixed;
+  z-index: 100;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 650 0.72rem/1.25 var(--font-ui);
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+}
+
+.analyticsDailyHeatmapLegend {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: calc(40px + var(--analytics-heatmap-weeks, 1) * 28px);
+  padding-top: 3px;
+}
+
+.analyticsDailyHeatmapLegend i {
+  width: 10px;
+  min-height: 10px;
 }
 
 .analyticsTableWrap {

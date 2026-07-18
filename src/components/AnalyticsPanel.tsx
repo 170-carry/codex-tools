@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useI18n } from "../i18n/I18nProvider";
 import type {
   CodexBudgetAlert,
   CodexCostAnalyticsProgress,
   CodexCostAnalyticsSnapshot,
-  CodexHourlyCostBucket,
   CodexProjectCostBreakdown,
   CodexPromptCostBreakdown,
   CodexSessionCostBreakdown,
@@ -25,6 +25,20 @@ type AnalyticsPanelProps = {
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 type DatePreset = "today" | "7d" | "30d" | "all";
 
 function localIsoDate(date: Date) {
@@ -38,6 +52,22 @@ function shiftIsoDate(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
+}
+
+function weekdayFromIsoDate(date: string) {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
+}
+
+function monthFromIsoDate(date: string) {
+  return new Date(`${date}T00:00:00Z`).getUTCMonth();
+}
+
+function weekdayHourFromTimestamp(timestamp: number) {
+  const date = new Date(timestamp * 1000);
+  return {
+    weekday: date.getUTCDay(),
+    hour: date.getUTCHours(),
+  };
 }
 
 function formatUsd(value: number, locale: string) {
@@ -120,17 +150,148 @@ function progressStageLabel(
   return copy.progressScanning;
 }
 
-function Heatmap({
-  buckets,
+function DailyHeatmap({
+  daily,
+  from,
+  to,
   locale,
 }: {
-  buckets: CodexHourlyCostBucket[];
+  daily: CodexCostAnalyticsSnapshot["daily"];
+  from: string;
+  to: string;
   locale: string;
 }) {
-  const byKey = new Map(
-    buckets.map((bucket) => [`${bucket.weekday}:${bucket.hour}`, bucket]),
+  const [tooltip, setTooltip] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const byDate = new Map(daily.map((bucket) => [bucket.date, bucket]));
+  const days: Array<{
+    date: string;
+    bucket: CodexCostAnalyticsSnapshot["daily"][number] | undefined;
+  }> = [];
+  if (from && to) {
+    for (let date = from; date <= to; date = shiftIsoDate(date, 1)) {
+      days.push({
+        date,
+        bucket: byDate.get(date),
+      });
+    }
+  }
+  const startOffset = days[0] ? weekdayFromIsoDate(days[0].date) : 0;
+  const weekCount = Math.max(1, Math.ceil((startOffset + days.length) / 7));
+  const cells = Array.from({ length: weekCount * 7 }, (_, index) => {
+    const day = days[index - startOffset];
+    return day ?? null;
+  });
+  const maxTokens = Math.max(
+    ...days.map((day) => day.bucket?.total.totalTokens ?? 0),
+    1,
   );
-  const maxTokens = Math.max(...buckets.map((bucket) => bucket.tokens), 1);
+  const monthLabels = Array.from({ length: weekCount }, (_, week) => {
+    const day = cells[week * 7];
+    if (!day || weekdayFromIsoDate(day.date) !== 0) {
+      return "";
+    }
+    const previous = cells[(week - 1) * 7];
+    const month = monthFromIsoDate(day.date);
+    return !previous || monthFromIsoDate(previous.date) !== month
+      ? MONTH_LABELS[month]
+      : "";
+  });
+
+  return (
+    <div
+      className="analyticsDailyHeatmap"
+      role="img"
+      aria-label="Codex daily token activity heatmap"
+      style={{ "--analytics-heatmap-weeks": weekCount } as CSSProperties}
+    >
+      <div className="analyticsDailyHeatmapMonths" aria-hidden="true">
+        <span />
+        {monthLabels.map((label, week) => (
+          <b key={week}>{label}</b>
+        ))}
+      </div>
+      {WEEKDAY_LABELS.map((label, weekday) => (
+        <div key={label} className="analyticsDailyHeatmapRow">
+          <span>{weekday % 2 === 1 ? label : ""}</span>
+          {Array.from({ length: weekCount }, (_, week) => {
+            const day = cells[week * 7 + weekday];
+            const tokens = day?.bucket?.total.totalTokens ?? 0;
+            const intensity =
+              tokens > 0 ? Math.max(0.12, tokens / maxTokens) : 0;
+            const title = day
+              ? `${day.date} · ${formatNumber(tokens, locale)} Token`
+              : "";
+            return (
+              <i
+                key={`${week}:${weekday}`}
+                title={title}
+                aria-label={day ? title : undefined}
+                aria-hidden={day ? undefined : true}
+                onMouseEnter={
+                  day
+                    ? (event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setTooltip({
+                          text: title,
+                          x: rect.left + rect.width / 2,
+                          y: rect.top - 7,
+                        });
+                      }
+                    : undefined
+                }
+                onMouseLeave={day ? () => setTooltip(null) : undefined}
+                style={{
+                  opacity: day
+                    ? intensity === 0
+                      ? 0.18
+                      : 0.24 + intensity * 0.76
+                    : 0,
+                }}
+              />
+            );
+          })}
+        </div>
+      ))}
+      <div className="analyticsDailyHeatmapLegend" aria-hidden="true">
+        <span>Less</span>
+        <i style={{ opacity: 0.18 }} />
+        <i style={{ opacity: 0.38 }} />
+        <i style={{ opacity: 0.58 }} />
+        <i style={{ opacity: 0.78 }} />
+        <i style={{ opacity: 1 }} />
+        <span>More</span>
+      </div>
+      {tooltip ? (
+        <div
+          className="analyticsDailyHeatmapTooltip"
+          role="tooltip"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          {tooltip.text}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HourlyHeatmap({
+  prompts,
+  locale,
+}: {
+  prompts: CodexCostAnalyticsSnapshot["dailyPrompts"];
+  locale: string;
+}) {
+  const byKey = new Map<string, number>();
+  for (const prompt of prompts) {
+    const { weekday, hour } = weekdayHourFromTimestamp(prompt.timestamp);
+    const key = `${weekday}:${hour}`;
+    byKey.set(key, (byKey.get(key) ?? 0) + prompt.total.totalTokens);
+  }
+  const maxTokens = Math.max(...Array.from(byKey.values()), 1);
   const hourLabels = Array.from({ length: 24 }, (_, hour) => hour);
 
   return (
@@ -149,11 +310,10 @@ function Heatmap({
         <div key={label} className="analyticsHeatmapRow">
           <span>{label}</span>
           {hourLabels.map((hour) => {
-            const bucket = byKey.get(`${weekday}:${hour}`);
-            const intensity = bucket
-              ? Math.max(0.08, bucket.tokens / maxTokens)
-              : 0;
-            const title = `${label} ${hour}:00, ${formatNumber(bucket?.tokens ?? 0, locale)} tokens`;
+            const tokens = byKey.get(`${weekday}:${hour}`) ?? 0;
+            const intensity =
+              tokens > 0 ? Math.max(0.08, tokens / maxTokens) : 0;
+            const title = `${label} ${hour}:00, ${formatNumber(tokens, locale)} tokens`;
             return (
               <i
                 key={hour}
@@ -166,6 +326,52 @@ function Heatmap({
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+function TodayHourlyHeatmap({
+  prompts,
+  locale,
+}: {
+  prompts: CodexCostAnalyticsSnapshot["dailyPrompts"];
+  locale: string;
+}) {
+  const byHour = new Map<number, number>();
+  for (const prompt of prompts) {
+    const { hour } = weekdayHourFromTimestamp(prompt.timestamp);
+    byHour.set(hour, (byHour.get(hour) ?? 0) + prompt.total.totalTokens);
+  }
+  const maxTokens = Math.max(...Array.from(byHour.values()), 1);
+  const hourLabels = Array.from({ length: 24 }, (_, hour) => hour);
+
+  return (
+    <div
+      className="analyticsTodayHeatmap"
+      role="img"
+      aria-label="Codex token activity for today"
+    >
+      <div className="analyticsTodayHeatmapHeader" aria-hidden="true">
+        {hourLabels.map((hour) => (
+          <b key={hour}>{hour % 6 === 0 ? hour : ""}</b>
+        ))}
+      </div>
+      <div className="analyticsTodayHeatmapRow">
+        {hourLabels.map((hour) => {
+          const tokens = byHour.get(hour) ?? 0;
+          const intensity =
+            tokens > 0 ? Math.max(0.08, tokens / maxTokens) : 0;
+          return (
+            <i
+              key={hour}
+              title={`${hour}:00, ${formatNumber(tokens, locale)} tokens`}
+              style={{
+                opacity: intensity === 0 ? 0.18 : 0.24 + intensity * 0.76,
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -537,6 +743,15 @@ export function AnalyticsPanel({
           (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
       );
   }, [dailySessions, selectedDateFrom, selectedDateTo]);
+  const selectedDailyPrompts = useMemo(
+    () =>
+      dailyPrompts.filter(
+        (prompt) =>
+          (!selectedDateFrom || prompt.date >= selectedDateFrom) &&
+          (!selectedDateTo || prompt.date <= selectedDateTo),
+      ),
+    [dailyPrompts, selectedDateFrom, selectedDateTo],
+  );
   const selectedTopPrompts = useMemo(() => {
     type RangePrompt = CodexPromptCostBreakdown & {
       promptKey: string;
@@ -544,13 +759,7 @@ export function AnalyticsPanel({
     };
     const byPrompt = new Map<string, RangePrompt>();
 
-    for (const prompt of dailyPrompts) {
-      if (
-        (selectedDateFrom && prompt.date < selectedDateFrom) ||
-        (selectedDateTo && prompt.date > selectedDateTo)
-      ) {
-        continue;
-      }
+    for (const prompt of selectedDailyPrompts) {
       let aggregate = byPrompt.get(prompt.promptKey);
       if (!aggregate) {
         aggregate = {
@@ -612,7 +821,7 @@ export function AnalyticsPanel({
           right.costUsd - left.costUsd || right.timestamp - left.timestamp,
       )
       .slice(0, 20);
-  }, [dailyPrompts, selectedDateFrom, selectedDateTo]);
+  }, [selectedDailyPrompts]);
   const selectedRangeLabel =
     selectedDateFrom && selectedDateTo
       ? `${selectedDateFrom} – ${selectedDateTo}`
@@ -967,7 +1176,21 @@ export function AnalyticsPanel({
                   <p>{text.heatmapDescription}</p>
                 </div>
               </div>
-              <Heatmap buckets={analytics.heatmap} locale={locale} />
+              {activeDatePreset === "today" ? (
+                <TodayHourlyHeatmap
+                  prompts={selectedDailyPrompts}
+                  locale={locale}
+                />
+              ) : activeDatePreset === "30d" || activeDatePreset === "all" ? (
+                <DailyHeatmap
+                  daily={selectedDaily}
+                  from={selectedDateFrom}
+                  to={selectedDateTo}
+                  locale={locale}
+                />
+              ) : (
+                <HourlyHeatmap prompts={selectedDailyPrompts} locale={locale} />
+              )}
             </section>
 
             <section className="analyticsBlock analyticsBlockSessions">
