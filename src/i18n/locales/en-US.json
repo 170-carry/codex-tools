@@ -185,6 +185,7 @@
     "dateTo": "End date",
     "selectedCost": "Range cost",
     "selectedTokens": "Range tokens",
+    "presetToday": "Today",
     "preset7d": "Last 7 days",
     "preset30d": "Last 30 days",
     "presetAll": "All",

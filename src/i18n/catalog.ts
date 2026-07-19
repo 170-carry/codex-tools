@@ -220,6 +220,7 @@ export type MessageCatalog = {
     dateTo: string;
     selectedCost: string;
     selectedTokens: string;
+    presetToday: string;
     preset7d: string;
     preset30d: string;
     presetAll: string;

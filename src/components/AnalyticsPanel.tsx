@@ -25,6 +25,14 @@ type AnalyticsPanelProps = {
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+type DatePreset = "today" | "7d" | "30d" | "all";
+
+function localIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function shiftIsoDate(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
@@ -331,9 +339,9 @@ export function AnalyticsPanel({
   );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [activeDatePreset, setActiveDatePreset] = useState<
-    "7d" | "30d" | "all" | null
-  >("7d");
+  const [activeDatePreset, setActiveDatePreset] = useState<DatePreset | null>(
+    "7d",
+  );
   const budgetInputValue =
     weeklyBudgetUsd === null ? "" : String(weeklyBudgetUsd);
 
@@ -352,6 +360,9 @@ export function AnalyticsPanel({
   );
   const earliestDate = daily[0]?.date ?? "";
   const latestDate = daily[daily.length - 1]?.date ?? "";
+  const todayDate = useMemo(() => localIsoDate(new Date()), []);
+  const dateInputMax =
+    latestDate && latestDate > todayDate ? latestDate : todayDate;
   const defaultDateFrom = latestDate
     ? earliestDate > shiftIsoDate(latestDate, -6)
       ? earliestDate
@@ -607,6 +618,19 @@ export function AnalyticsPanel({
       ? `${selectedDateFrom} – ${selectedDateTo}`
       : text.dateRange;
 
+  const selectToday = () => {
+    setDateFrom(todayDate);
+    setDateTo(todayDate);
+    setActiveDatePreset("today");
+  };
+
+  const refreshToday = () => {
+    selectToday();
+    if (!loading) {
+      onRefresh();
+    }
+  };
+
   const selectRecentDays = (days: number, preset: "7d" | "30d") => {
     if (!latestDate) {
       return;
@@ -781,6 +805,15 @@ export function AnalyticsPanel({
           <div className="analyticsDatePresets">
             <button
               type="button"
+              className={`ghost ${activeDatePreset === "today" ? "is-active" : ""}`}
+              aria-pressed={activeDatePreset === "today"}
+              onClick={selectToday}
+              onDoubleClick={refreshToday}
+            >
+              {text.presetToday}
+            </button>
+            <button
+              type="button"
               className={`ghost ${activeDatePreset === "7d" ? "is-active" : ""}`}
               aria-pressed={activeDatePreset === "7d"}
               onClick={() => selectRecentDays(7, "7d")}
@@ -809,7 +842,7 @@ export function AnalyticsPanel({
             <input
               type="date"
               min={earliestDate}
-              max={selectedDateTo || latestDate}
+              max={selectedDateTo || dateInputMax}
               value={selectedDateFrom}
               onChange={(event) => {
                 setDateFrom(event.target.value);
@@ -823,7 +856,7 @@ export function AnalyticsPanel({
             <input
               type="date"
               min={selectedDateFrom || earliestDate}
-              max={latestDate}
+              max={dateInputMax}
               value={selectedDateTo}
               onChange={(event) => {
                 setDateTo(event.target.value);

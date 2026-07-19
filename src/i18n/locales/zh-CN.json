@@ -185,6 +185,7 @@
     "dateTo": "结束日期",
     "selectedCost": "区间成本",
     "selectedTokens": "区间 Token",
+    "presetToday": "今天",
     "preset7d": "近 7 天",
     "preset30d": "近 30 天",
     "presetAll": "全部",
