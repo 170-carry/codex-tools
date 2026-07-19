@@ -99,6 +99,13 @@ export type CodexHourlyCostBucket = {
   costUsd: number;
 };
 
+export type CodexTimelineHourlyCostBucket = {
+  timestamp: number;
+  calls: number;
+  tokens: number;
+  costUsd: number;
+};
+
 export type CodexPromptCostBreakdown = {
   sessionId: string;
   projectPath: string;
@@ -132,6 +139,7 @@ export type CodexCostAnalyticsSnapshot = {
   projects: CodexProjectCostBreakdown[];
   sessions: CodexSessionCostBreakdown[];
   heatmap: CodexHourlyCostBucket[];
+  hourlyTimeline: CodexTimelineHourlyCostBucket[];
   topPrompts: CodexPromptCostBreakdown[];
 };
 

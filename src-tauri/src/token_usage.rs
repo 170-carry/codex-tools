@@ -17,12 +17,13 @@ use crate::app_paths;
 use crate::utils::now_unix_seconds;
 
 const DAY_SECONDS: i64 = 24 * 60 * 60;
+const HOUR_SECONDS: i64 = 60 * 60;
 const PROMPT_PREVIEW_CHARS: usize = 220;
 const TOP_EXPENSIVE_PROMPT_LIMIT: usize = 20;
 const SESSION_EXPORT_LIMIT: usize = 500;
 const PRICING_SOURCE: &str =
     "OpenAI API standard short-context pricing, text tokens per 1M, checked 2026-07-10";
-const COST_ANALYTICS_CACHE_VERSION: u8 = 6;
+const COST_ANALYTICS_CACHE_VERSION: u8 = 7;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +79,8 @@ pub(crate) struct CodexCostAnalyticsSnapshot {
     pub(crate) projects: Vec<CodexProjectCostBreakdown>,
     pub(crate) sessions: Vec<CodexSessionCostBreakdown>,
     pub(crate) heatmap: Vec<CodexHourlyCostBucket>,
+    #[serde(default)]
+    pub(crate) hourly_timeline: Vec<CodexTimelineHourlyCostBucket>,
     pub(crate) top_prompts: Vec<CodexPromptCostBreakdown>,
 }
 
@@ -175,6 +178,15 @@ pub(crate) struct CodexSessionCostBreakdown {
 pub(crate) struct CodexHourlyCostBucket {
     pub(crate) weekday: u8,
     pub(crate) hour: u8,
+    pub(crate) calls: usize,
+    pub(crate) tokens: u64,
+    pub(crate) cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexTimelineHourlyCostBucket {
+    pub(crate) timestamp: i64,
     pub(crate) calls: usize,
     pub(crate) tokens: u64,
     pub(crate) cost_usd: f64,
@@ -349,6 +361,7 @@ where
     let mut projects = BTreeMap::<String, ProjectAccumulator>::new();
     let mut prompts = BTreeMap::<String, PromptAccumulator>::new();
     let mut heatmap = initial_heatmap();
+    let mut hourly_timeline = BTreeMap::<i64, CodexTimelineHourlyCostBucket>::new();
     let mut total = CodexTokenTotals::default();
     let mut total_cost_usd = 0.0;
     let mut last_7d = CodexTokenTotals::default();
@@ -380,6 +393,22 @@ where
                 sessions.push(session);
 
                 for event in parsed.events {
+                    let hourly_timestamp = event.timestamp.div_euclid(HOUR_SECONDS) * HOUR_SECONDS;
+                    let hourly_bucket =
+                        hourly_timeline.entry(hourly_timestamp).or_insert_with(|| {
+                            CodexTimelineHourlyCostBucket {
+                                timestamp: hourly_timestamp,
+                                calls: 0,
+                                tokens: 0,
+                                cost_usd: 0.0,
+                            }
+                        });
+                    hourly_bucket.calls += 1;
+                    hourly_bucket.tokens = hourly_bucket
+                        .tokens
+                        .saturating_add(event.total.total_tokens);
+                    hourly_bucket.cost_usd += event.cost_usd;
+
                     if let Some(date) = analytics_date_key(event.timestamp) {
                         let bucket =
                             daily
@@ -518,6 +547,13 @@ where
         projects: project_breakdowns,
         sessions: sessions.into_iter().take(SESSION_EXPORT_LIMIT).collect(),
         heatmap: heatmap.into_values().collect(),
+        hourly_timeline: hourly_timeline
+            .into_values()
+            .map(|mut bucket| {
+                bucket.cost_usd = round_cost(bucket.cost_usd);
+                bucket
+            })
+            .collect(),
         top_prompts,
     };
     apply_codex_cost_analytics_budget(snapshot, weekly_budget_usd)
@@ -1928,6 +1964,87 @@ mod tests {
         assert_eq!(cached.event_count, snapshot.event_count);
         assert_eq!(cached.weekly_budget_usd, Some(1.0));
         assert_eq!(cached.weekly_budget_alert, "ok");
+
+        let mut outdated_cache = serde_json::from_str::<Value>(&cache).expect("outdated cache");
+        outdated_cache["version"] = Value::from(COST_ANALYTICS_CACHE_VERSION - 1);
+        outdated_cache["snapshot"]
+            .as_object_mut()
+            .expect("snapshot object")
+            .remove("hourlyTimeline");
+        assert!(
+            parse_codex_cost_analytics_cache(&outdated_cache.to_string(), Some(1.0))
+                .expect("outdated cache parse")
+                .is_none()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keeps_hourly_timeline_events_in_their_actual_hours() {
+        let root = unique_temp_dir();
+        let sessions = root.join("sessions").join("2026").join("06").join("10");
+        fs::create_dir_all(&sessions).expect("create sessions dir");
+        fs::write(
+            sessions.join("rollout-hourly.jsonl"),
+            [
+                serde_json::json!({
+                    "timestamp": "2026-06-10T00:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "session-hourly",
+                        "cwd": "/tmp/project-hourly"
+                    }
+                })
+                .to_string(),
+                serde_json::json!({
+                    "timestamp": "2026-06-10T00:00:01Z",
+                    "type": "turn_context",
+                    "payload": {
+                        "cwd": "/tmp/project-hourly",
+                        "model": "gpt-5.5"
+                    }
+                })
+                .to_string(),
+                serde_json::json!({
+                    "timestamp": "2026-06-10T00:00:02Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "user_message",
+                        "message": "Keep exact hourly usage"
+                    }
+                })
+                .to_string(),
+                analytics_token_line("2026-06-10T00:15:00Z", 100, 0, 0),
+                analytics_token_line("2026-06-10T01:45:00Z", 200, 0, 0),
+            ]
+            .join("\n"),
+        )
+        .expect("write hourly analytics log");
+
+        let now = parse_timestamp("2026-06-11T00:00:00Z").expect("parse now");
+        let snapshot = scan_codex_cost_analytics_roots_with_progress(
+            &[root.join("sessions")],
+            now,
+            None,
+            |_| {},
+        );
+
+        assert_eq!(snapshot.daily_prompts.len(), 1);
+        assert_eq!(snapshot.daily_prompts[0].total.total_tokens, 300);
+        assert_eq!(snapshot.hourly_timeline.len(), 2);
+        assert_eq!(
+            snapshot.hourly_timeline[0].timestamp,
+            parse_timestamp("2026-06-10T00:00:00Z").expect("first hour")
+        );
+        assert_eq!(snapshot.hourly_timeline[0].tokens, 100);
+        assert_eq!(snapshot.hourly_timeline[0].calls, 1);
+        assert_eq!(
+            snapshot.hourly_timeline[1].timestamp,
+            parse_timestamp("2026-06-10T01:00:00Z").expect("second hour")
+        );
+        assert_eq!(snapshot.hourly_timeline[1].tokens, 200);
+        assert_eq!(snapshot.hourly_timeline[1].calls, 1);
 
         let _ = fs::remove_dir_all(root);
     }
