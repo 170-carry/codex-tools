@@ -1,0 +1,13 @@
+model = "gpt-5.5"
+model_provider = "mycodex"
+model_reasoning_effort = "medium"
+
+[model_providers.mycodex]
+name = "Local MyCodex"
+base_url = "http://127.0.0.1:8787/v1"
+wire_api = "responses"             # this codex build rejects "chat"; forces POST {base_url}/responses
+requires_openai_auth = false       # the proxy does no inbound auth; any/dummy bearer works
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+

@@ -1,3 +1,8 @@
+start:
+	@trap 'kill 0' INT TERM EXIT; \
+	bun run dev & \
+	./app
+
 dd:
 	@exec ./damon-codex.sh
 
