@@ -78,6 +78,18 @@ The seven-day cost uses the previous seven completed local calendar days. The cu
 
 7 日成本采用前 7 个完整本地自然日，当日结束前不纳入该项成本比较。滚动预警与热力图仍会包含当天活动。
 
+The comparison below is a controlled visual simulation, not two live screenshots from different periods. Both images use the same deterministic 168-hour Token fixture, the same `658,728,321` maximum, the same layout, and the same labels (fixture fingerprint: `f0cdf89b94cf`). The only changed variable is the coloring algorithm: the `main` branch's linear relative opacity versus the modified nine-level logarithmic relative scale.
+
+下方对比是受控视觉模拟，不是两个不同时段的实时截图。两张图使用完全相同的 168 小时固定 Token 数据、相同的最大值 `658,728,321`、相同布局及标签（数据指纹：`f0cdf89b94cf`）；唯一变化的是染色算法，即 `main` 分支的线性相对透明度与修改版的九档对数相对色阶。
+
+| Before / 修改前 |
+| --- |
+| ![Controlled heatmap simulation before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-controlled-before.png) |
+
+| After / 修改后 |
+| --- |
+| ![Controlled heatmap simulation after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-controlled-after.png) |
+
 ### 4. Cached account data and freshness / 账号缓存与数据新鲜度
 
 When the app opens, locally stored accounts and their last quota snapshots render first while remote quota refresh starts concurrently. During first-load work, the UI distinguishes cached data from an in-progress refresh; after a successful refresh the freshness badge disappears. Failed or unavailable states remain visible, with a concise failure cause and the full error in hover text.
