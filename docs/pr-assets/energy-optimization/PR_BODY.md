@@ -22,23 +22,23 @@ The status item now uses the color application icon, defaults to one-week remain
 
 | Before / 修改前 | After / 修改后 |
 | --- | --- |
-| ![Status item before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-item-before.png) | ![Status item after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-item-after.png) |
+| ![Status item before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/status-item-before.png) | ![Status item after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/status-item-after.png) |
 
 #### Settings / 设置
 
 | Before / 修改前 |
 | --- |
-| ![Status settings before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-before.png) |
+| ![Status settings before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-before.png) |
 
 | After / 修改后 |
 | --- |
-| ![Status settings after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-after.png) |
+| ![Status settings after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/status-settings-after.png) |
 
 #### Usage-window labels / 用量周期标签
 
 | Before / 修改前 | After / 修改后 |
 | --- | --- |
-| ![Usage labels before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-before.png) | ![Usage labels after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-after.png) |
+| ![Usage labels before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-before.png) | ![Usage labels after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/usage-labels-after.png) |
 
 ### 2. Background energy use / 后台耗电
 
@@ -50,7 +50,7 @@ Detailed analytics uses this incremental path automatically every 60 seconds. Op
 
 详细分析固定每 60 秒自动执行一次上述增量刷新；进入分析页不会额外触发刷新，同时保留“刷新分析”用于立即手动更新。
 
-![Background work before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/background-work-before-after.png)
+![Background work before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/background-work-before-after.png)
 
 Test setup: the modified build and the clean v2.4.0 `main` build were measured on the same Mac in A-B-B-A order, using isolated app data and the same credential-free 229-file log corpus. Each valid round ran for 10 minutes with one Token event appended per minute; the modified build consumed all 9 appended events in both rounds. Values are ordered `main → modified`:
 
@@ -84,11 +84,11 @@ The comparison below is a controlled visual simulation, not two live screenshots
 
 | Before / 修改前 |
 | --- |
-| ![Controlled heatmap simulation before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-controlled-before.png) |
+| ![Controlled heatmap simulation before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-controlled-before.png) |
 
 | After / 修改后 |
 | --- |
-| ![Controlled heatmap simulation after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-controlled-after.png) |
+| ![Controlled heatmap simulation after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-controlled-after.png) |
 
 ### 4. Cached account data and freshness / 账号缓存与数据新鲜度
 
@@ -98,11 +98,11 @@ When the app opens, locally stored accounts and their last quota snapshots rende
 
 | Before / 修改前 |
 | --- |
-| ![Account usage loading before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-usage-loading-before.png) |
+| ![Account usage loading before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/account-usage-loading-before.png) |
 
 | After / 修改后 |
 | --- |
-| ![Account usage loading after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-usage-loading-after.png) |
+| ![Account usage loading after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/account-usage-loading-after.png) |
 
 ### 5. Plus-to-Pro startup and status-bar account resolution / Plus 升级 PRO 后的启动与状态栏账号识别
 
@@ -114,7 +114,7 @@ On startup and manual quota refresh, a known mismatch between the live quota pla
 
 启动和手动刷新额度时，如果实时额度套餐与 ID token 套餐均已知且不一致，应用会在冷却时间约束下执行一次受控令牌刷新，避免反复轮换凭据。若普通刷新仍返回陈旧的套餐元数据，则需要完整 OAuth 重新授权。当前账号重新授权后，新凭据现在也会同步写入 `auth.json`，避免下一次额度刷新恢复旧快照。
 
-![Plus-to-Pro account resolution before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-resolution-before-after.png)
+![Plus-to-Pro account resolution before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/account-resolution-before-after.png)
 
 ### 6. Reference-only membership expiry / 仅供参考的会员到期时间
 
