@@ -122,6 +122,18 @@ The account detail card now shows the future `chatgpt_subscription_active_until`
 
 账号详情现在会在存在有效未来数值时，显示 ID token 中的 `chatgpt_subscription_active_until` 会员到期声明。由于该私有声明在套餐变化后可能仍然陈旧，已过期数值会隐藏，界面也明确标注该日期**仅供参考**。现有 `main` 界面已经显示可用重置卡数量及每张卡的过期时间；新增的独立会员到期日期补齐了 Issue #136 请求的账号生命周期信息。
 
+The controlled UI comparison below keeps the account, Pro plan, layout, and right-hand field unchanged. The only changed field is the left-hand metadata: the previous five-hour quota `reset_at` is replaced by the reference-only membership-expiry claim.
+
+下方受控界面对比保持账号、PRO 套餐、布局及右侧字段不变；唯一变化的是左侧元数据，由原来的 5 小时额度 `reset_at` 改为仅供参考的会员到期声明。
+
+| Before / 修改前 |
+| --- |
+| ![Controlled membership expiry comparison before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/membership-expiry-controlled-before.png) |
+
+| After / 修改后 |
+| --- |
+| ![Controlled membership expiry comparison after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/membership-expiry-controlled-after.png) |
+
 ### 7. Optional release descriptions / 可选的更新说明
 
 When bilingual changelog notes exist, the release workflow reuses them for GitHub Release and the in-app updater. Missing notes only produce a warning and generated fallback text; they do not block a release. Debug-only redacted auth diagnostics remain excluded from release builds.
