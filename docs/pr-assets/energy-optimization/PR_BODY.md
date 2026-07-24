@@ -1,13 +1,14 @@
 <!-- PR title / PR 标题: [EN/ZH] Improve the macOS status bar and reduce background energy use / 优化 macOS 状态栏并降低后台耗电 -->
 
-> **Draft status / 草稿状态:** The latest account-membership, account-freshness, and analytics refinements are verified locally but not yet pushed to this PR; the four comparison images are available on the PR branch. / 最新的会员信息、账号新鲜度与分析页改动已在本地验证，但尚未推送到本 PR；四张对比图已发布到 PR 分支。
+> **Draft status / 草稿状态:** The latest account-membership, account-freshness, and analytics refinements are verified locally but not yet pushed to this PR; the comparison images referenced below are available on the PR branch. / 最新的会员信息、账号新鲜度与分析页改动已在本地验证，但尚未推送到本 PR；下文引用的对比图已发布到 PR 分支。
 
 ## Summary / 摘要
 
 - **Significantly reduce background energy and system resource use / 大幅降低后台耗电和系统资源占用:** remove inference keepalive work and repeated full log scans, reuse unchanged files, tail-read appended log bytes, and refresh detailed analytics incrementally every minute without a separate page-entry refresh.
 - **Improve the macOS status item / 优化 macOS 状态栏:** use the color app icon, add clearer display modes and optional `5h / 1w` labels, and fully hide the status item when disabled.
 - **Show useful account data sooner / 更早显示可用账号数据:** render cached accounts first, refresh remote quota in the background, show freshness only during first-load work, and keep concise failure or unavailable states when attention is needed.
-- **Correct account identity, authorization, and analytics / 修复账号识别、授权与分析:** resolve Plus-to-Pro accounts by stable identity, preserve refreshed credentials for the active account, show membership expiry as reference-only data, and use one consistent local-log Token and cost algorithm.
+- **Correct account identity, authorization, and analytics / 修复账号识别、授权与分析:** resolve Plus-to-Pro accounts by stable identity, preserve refreshed credentials for the active account, and use one consistent local-log Token and cost algorithm.
+- **Show membership expiry as reference-only data / 显示仅供参考的会员到期时间:** display a future membership-expiry claim when available, while hiding stale past values.
 
 ## Changes / 改动
 
@@ -77,14 +78,6 @@ The seven-day cost uses the previous seven completed local calendar days. The cu
 
 7 日成本采用前 7 个完整本地自然日，当日结束前不纳入该项成本比较。滚动预警与热力图仍会包含当天活动。
 
-| Before / 修改前 |
-| --- |
-| ![Analytics heatmap before](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-before.png) |
-
-| After / 修改后 |
-| --- |
-| ![Analytics heatmap after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/analytics-heatmap-after.png) |
-
 ### 4. Cached account data and freshness / 账号缓存与数据新鲜度
 
 When the app opens, locally stored accounts and their last quota snapshots render first while remote quota refresh starts concurrently. During first-load work, the UI distinguishes cached data from an in-progress refresh; after a successful refresh the freshness badge disappears. Failed or unavailable states remain visible, with a concise failure cause and the full error in hover text.
@@ -99,23 +92,25 @@ When the app opens, locally stored accounts and their last quota snapshots rende
 | --- |
 | ![Account usage loading after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-usage-loading-after.png) |
 
-### 5. Plus-to-Pro account resolution and membership metadata / Plus 升级 PRO 后的账号识别与会员信息
+### 5. Plus-to-Pro startup and status-bar account resolution / Plus 升级 PRO 后的启动与状态栏账号识别
 
 Account identity is now matched before mutable plan metadata is considered. If `auth.json` still reports Plus while the stored account and quota snapshot are already Pro, startup reuses the cached Pro record instead of creating an empty Plus variant. This keeps the last quota visible during the background refresh and lets the status bar select the current account correctly.
 
-On startup and manual quota refresh, a known mismatch between the live quota plan and the ID-token plan can trigger one controlled token refresh, with a cooldown to avoid repeated credential rotation. The account detail card can show the future `chatgpt_subscription_active_until` claim as **reference-only** membership-expiry data; past values are hidden because this private claim can remain stale after an upgrade. If an ordinary refresh still returns a stale claim, full OAuth reauthorization is required. Reauthorizing the active account now also writes the new credentials to `auth.json`, preventing the next quota refresh from restoring the old snapshot.
+On startup and manual quota refresh, a known mismatch between the live quota plan and the ID-token plan can trigger one controlled token refresh, with a cooldown to avoid repeated credential rotation. If an ordinary refresh still returns stale plan metadata, full OAuth reauthorization is required. Reauthorizing the active account now also writes the new credentials to `auth.json`, preventing the next quota refresh from restoring the old snapshot.
 
 账号会先按稳定身份匹配，再处理可变化的套餐元数据。如果 `auth.json` 仍显示 Plus，而本地账号及额度快照已经是 PRO，启动时会复用带缓存的 PRO 记录，不再创建空白 Plus 变体。这样后台刷新期间仍会显示上次额度，状态栏也能正确选中当前账号。
 
-启动和手动刷新额度时，如果实时额度套餐与 ID token 套餐均已知且不一致，应用会在冷却时间约束下执行一次受控令牌刷新，避免反复轮换凭据。账号详情可将未来的 `chatgpt_subscription_active_until` 声明显示为**仅供参考**的会员到期时间；已过期数值会隐藏，因为该私有声明在套餐升级后可能仍然陈旧。若普通刷新仍返回旧声明，则需要完整 OAuth 重新授权。当前账号重新授权后，新凭据现在也会同步写入 `auth.json`，避免下一次额度刷新恢复旧快照。
-
-The existing `main` UI already shows the available reset-card count and each card's expiry. This PR adds the separate reference-only membership expiry, completing the account-lifecycle information requested in Issue #136.
-
-现有 `main` 界面已经显示可用重置卡数量及每张卡的过期时间；本 PR 补充独立的、仅供参考的会员到期时间，从而完整覆盖 Issue #136 请求的账号生命周期信息。
+启动和手动刷新额度时，如果实时额度套餐与 ID token 套餐均已知且不一致，应用会在冷却时间约束下执行一次受控令牌刷新，避免反复轮换凭据。若普通刷新仍返回陈旧的套餐元数据，则需要完整 OAuth 重新授权。当前账号重新授权后，新凭据现在也会同步写入 `auth.json`，避免下一次额度刷新恢复旧快照。
 
 ![Plus-to-Pro account resolution before and after](https://raw.githubusercontent.com/Nonex111/codex-tools/refs/heads/codex/energy-optimization/docs/pr-assets/energy-optimization/account-resolution-before-after.png)
 
-### 6. Optional release descriptions / 可选的更新说明
+### 6. Reference-only membership expiry / 仅供参考的会员到期时间
+
+The account detail card now shows the future `chatgpt_subscription_active_until` ID-token claim as membership-expiry data when available. Past values are hidden because this private claim may remain stale after a plan change, and the UI explicitly labels the date as **for reference only**. The existing `main` UI already shows the available reset-card count and each card's expiry; this separate membership date completes the account-lifecycle information requested in Issue #136.
+
+账号详情现在会在存在有效未来数值时，显示 ID token 中的 `chatgpt_subscription_active_until` 会员到期声明。由于该私有声明在套餐变化后可能仍然陈旧，已过期数值会隐藏，界面也明确标注该日期**仅供参考**。现有 `main` 界面已经显示可用重置卡数量及每张卡的过期时间；新增的独立会员到期日期补齐了 Issue #136 请求的账号生命周期信息。
+
+### 7. Optional release descriptions / 可选的更新说明
 
 When bilingual changelog notes exist, the release workflow reuses them for GitHub Release and the in-app updater. Missing notes only produce a warning and generated fallback text; they do not block a release. Debug-only redacted auth diagnostics remain excluded from release builds.
 
