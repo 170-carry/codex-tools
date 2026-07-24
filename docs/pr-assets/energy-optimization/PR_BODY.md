@@ -128,11 +128,11 @@ The controlled UI comparison below keeps the account, Pro plan, layout, and righ
 
 | Before / 修改前 |
 | --- |
-| ![Controlled membership expiry comparison before](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/membership-expiry-controlled-before.png) |
+| ![Controlled membership expiry comparison before](https://raw.githubusercontent.com/Nonex111/codex-tools/44e52c7c387954e0fdb8aa3a8b9f304da2cfd3fa/docs/pr-assets/energy-optimization/membership-expiry-controlled-before.png) |
 
 | After / 修改后 |
 | --- |
-| ![Controlled membership expiry comparison after](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/energy-optimization/docs/pr-assets/energy-optimization/membership-expiry-controlled-after.png) |
+| ![Controlled membership expiry comparison after](https://raw.githubusercontent.com/Nonex111/codex-tools/44e52c7c387954e0fdb8aa3a8b9f304da2cfd3fa/docs/pr-assets/energy-optimization/membership-expiry-controlled-after.png) |
 
 ### 7. Optional release descriptions / 可选的更新说明
 
