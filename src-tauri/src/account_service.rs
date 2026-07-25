@@ -16,6 +16,7 @@ use zip::CompressionMethod;
 use crate::app_paths;
 use crate::auth::account_group_key;
 use crate::auth::account_variant_key;
+use crate::auth::auth_last_refresh_unix_seconds;
 use crate::auth::auth_tokens_need_keepalive_refresh;
 use crate::auth::current_auth_account_key;
 use crate::auth::current_auth_variant_key;
@@ -27,6 +28,7 @@ use crate::auth::normalize_plan_type_key;
 use crate::auth::read_current_codex_auth;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::refresh_chatgpt_auth_tokens;
+use crate::auth::write_active_codex_auth;
 use crate::models::dedupe_account_variants;
 use crate::models::mark_current_account_summary;
 use crate::models::AccountSourceKind;
@@ -64,6 +66,7 @@ const KEEPALIVE_REFRESH_WINDOW_SECS: i64 = 10 * 60;
 // 不同账号按稳定 hash 分布在 7-8 天窗口内刷新，避免同一批导入账号集中打到刷新端点。
 const KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS: i64 = 7 * 24 * 60 * 60;
 const KEEPALIVE_LAST_REFRESH_JITTER_SECS: i64 = 24 * 60 * 60;
+const PLAN_CHANGE_AUTH_REFRESH_COOLDOWN_SECS: i64 = 15 * 60;
 const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
 // 账号刷新主要等待外部 HTTP 响应，因此按 CPU 给 2 倍并发；同时用可用内存做下限保护。
 const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
@@ -249,12 +252,18 @@ pub(crate) async fn reauthorize_account_internal(
         return Err("未找到要重新授权的账号".to_string());
     };
 
+    let should_sync_current_auth =
+        current_auth_account_key().as_deref() == Some(existing.account_key().as_str());
     validate_reauthorization_target(existing, &prepared)?;
     apply_reauthorized_account(existing, prepared);
+    let reauthorized_auth_json = existing.auth_json.clone();
     let store_path = account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
     profile_files::sync_account_profile_in_store_path(&store_path, existing)?;
     dedupe_account_variants(&mut store.accounts);
     save_store(app, &store)?;
+    if should_sync_current_auth {
+        write_active_codex_auth(&reauthorized_auth_json)?;
+    }
 
     Ok(ImportAccountsResult {
         total_count: 1,
@@ -1114,6 +1123,53 @@ async fn refresh_usage_for_target(
         }
     }
 
+    if force_auth_refresh
+        && !auth_refreshed
+        && !auth_refresh_blocked
+        && fetch_result.as_ref().ok().is_some_and(|usage| {
+            should_refresh_membership_auth(
+                &working_auth_json,
+                usage.plan_type.as_deref(),
+                now_unix_seconds(),
+            )
+        })
+    {
+        match refresh_account_auth_with_operation_guard(
+            app,
+            state,
+            &target.account_key,
+            &working_auth_json,
+        )
+        .await
+        {
+            Ok(success) => {
+                working_auth_json = success.auth_json;
+                auth_refreshed = true;
+                auth_refresh_blocked = false;
+                auth_refresh_error = None;
+                if let Some(err) = success.persist_error {
+                    log::warn!(
+                        "会员信息刷新成功但写回失败 account_key={}: {}",
+                        target.account_key,
+                        err
+                    );
+                }
+                extracted = extract_auth(&working_auth_json);
+            }
+            Err(failure) => {
+                auth_refresh_blocked = failure.auth_refresh_blocked;
+                auth_refresh_error = failure.auth_refresh_error;
+                if let Some(err) = failure.refresh_error {
+                    log::warn!(
+                        "会员信息刷新失败，继续使用现有额度结果 account_key={}: {}",
+                        target.account_key,
+                        err
+                    );
+                }
+            }
+        }
+    }
+
     let (auth_plan_type, auth_email) = match &extracted {
         Ok(auth) => (auth.plan_type.clone(), auth.email.clone()),
         Err(_) => (None, None),
@@ -1147,6 +1203,24 @@ async fn refresh_usage_for_target(
         auth_refresh_blocked,
         auth_refresh_error,
     }
+}
+
+fn should_refresh_membership_auth(
+    auth_json: &serde_json::Value,
+    live_plan_type: Option<&str>,
+    now: i64,
+) -> bool {
+    let last_refresh_age = auth_last_refresh_unix_seconds(auth_json)
+        .map(|timestamp| now.saturating_sub(timestamp).max(0))
+        .unwrap_or(i64::MAX);
+    let stored_plan_type = extract_auth(auth_json).ok().and_then(|auth| auth.plan_type);
+    let stored_plan_key = normalize_plan_type_key(stored_plan_type.as_deref());
+    let live_plan_key = normalize_plan_type_key(live_plan_type);
+    let plan_changed = stored_plan_key != "unknown"
+        && live_plan_key != "unknown"
+        && stored_plan_key != live_plan_key;
+
+    plan_changed && last_refresh_age >= PLAN_CHANGE_AUTH_REFRESH_COOLDOWN_SECS
 }
 
 async fn handle_refresh_failure(
@@ -1905,6 +1979,7 @@ mod tests {
     use super::normalize_usage_error_message;
     use super::refresh_usage_worker_count_from_resources;
     use super::resolve_usage_first_plan_type;
+    use super::should_refresh_membership_auth;
     use super::should_retry_with_token_refresh;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
@@ -1918,7 +1993,36 @@ mod tests {
     use crate::models::TestApiAccountConnectionInput;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
     use serde_json::json;
+
+    fn membership_auth_json(
+        plan_type: &str,
+        active_until: i64,
+        last_refresh: i64,
+    ) -> serde_json::Value {
+        let id_token = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(
+                json!({
+                    "https://api.openai.com/auth": {
+                        "chatgpt_account_id": "account-1",
+                        "chatgpt_plan_type": plan_type,
+                        "chatgpt_subscription_active_until": active_until
+                    }
+                })
+                .to_string()
+            )
+        );
+        json!({
+            "last_refresh": last_refresh,
+            "tokens": {
+                "access_token": "access-token",
+                "id_token": id_token
+            }
+        })
+    }
 
     fn test_api_input(
         base_url: &str,
@@ -2398,5 +2502,25 @@ mod tests {
         );
 
         assert!(should_retry_with_token_refresh(&fetch_result));
+    }
+
+    #[test]
+    fn plan_change_refreshes_membership_after_cooldown() {
+        let now = 2_000_000_000;
+        let auth_json = membership_auth_json("plus", now + 30 * 24 * 60 * 60, now - 901);
+
+        assert!(should_refresh_membership_auth(&auth_json, Some("pro"), now));
+    }
+
+    #[test]
+    fn recent_plan_change_does_not_repeat_token_refresh() {
+        let now = 2_000_000_000;
+        let auth_json = membership_auth_json("plus", now + 30 * 24 * 60 * 60, now - 60);
+
+        assert!(!should_refresh_membership_auth(
+            &auth_json,
+            Some("pro"),
+            now
+        ));
     }
 }

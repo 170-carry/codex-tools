@@ -6,7 +6,9 @@ use serde_json::Value;
 
 use crate::auth::account_group_key;
 use crate::auth::account_variant_key;
+use crate::auth::chatgpt_subscription_active_until;
 use crate::auth::extract_auth;
+use crate::utils::now_unix_seconds;
 
 pub(crate) const DEFAULT_API_PROXY_MODEL: &str = "gpt-5.6-sol";
 pub(crate) const DEFAULT_API_PROXY_REASONING_EFFORT: &str = "xhigh";
@@ -126,6 +128,7 @@ pub(crate) struct AccountSummary {
     pub(crate) account_key: String,
     pub(crate) account_id: String,
     pub(crate) plan_type: Option<String>,
+    pub(crate) subscription_active_until: Option<i64>,
     pub(crate) api_base_url: Option<String>,
     pub(crate) model_name: Option<String>,
     pub(crate) balance_text: Option<String>,
@@ -777,6 +780,8 @@ impl StoredAccount {
             account_key,
             account_id: self.account_id.clone(),
             plan_type: self.resolved_plan_type(),
+            subscription_active_until: chatgpt_subscription_active_until(&self.auth_json)
+                .filter(|active_until| *active_until > now_unix_seconds()),
             api_base_url: self.api_base_url.clone(),
             model_name: self.model_name.clone(),
             balance_text: self.balance_text.clone(),

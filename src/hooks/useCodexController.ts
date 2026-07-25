@@ -51,7 +51,6 @@ import {
 } from "../utils/changelog";
 
 const REFRESH_MS = 30_000;
-const TOKEN_USAGE_REFRESH_MS = 60_000;
 const COST_ANALYTICS_REFRESH_MS = 60_000;
 const EDITOR_SCAN_MS = 60_000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
@@ -208,6 +207,10 @@ export function useCodexController() {
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [usageRefreshInFlight, setUsageRefreshInFlight] = useState(false);
+  const [initialUsageRefreshPending, setInitialUsageRefreshPending] =
+    useState(true);
+  const [usageRefreshError, setUsageRefreshError] = useState<string | null>(null);
   const [refreshingTokenUsage, setRefreshingTokenUsage] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [reauthorizeAccount, setReauthorizeAccount] =
@@ -300,6 +303,7 @@ export function useCodexController() {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [installedEditorApps, setInstalledEditorApps] = useState<
     InstalledEditorApp[]
@@ -311,6 +315,9 @@ export function useCodexController() {
   const apiProxyUsageLoadSeqRef = useRef(0);
   const apiProxyUsagePollInFlightRef = useRef(false);
   const tokenUsageRefreshInFlightRef = useRef(false);
+  const usageRefreshCountRef = useRef(0);
+  const usageRefreshSequenceRef = useRef(0);
+  const costAnalyticsProgressVisibleRef = useRef(false);
   const reloginPromptedAccountKeysRef = useRef<Set<string>>(new Set());
   const profileIntegrityPromptedRef = useRef(false);
   const switchInFlightRef = useRef(false);
@@ -462,9 +469,13 @@ export function useCodexController() {
   );
 
   const loadSettings = useCallback(async () => {
-    const data = await invoke<AppSettings>("get_app_settings");
-    settingsRef.current = data;
-    setSettings(data);
+    try {
+      const data = await invoke<AppSettings>("get_app_settings");
+      settingsRef.current = data;
+      setSettings(data);
+    } finally {
+      setSettingsLoaded(true);
+    }
   }, []);
 
   const loadInstalledEditorApps = useCallback(async () => {
@@ -630,7 +641,17 @@ export function useCodexController() {
   );
 
   const refreshUsage = useCallback(
-    async (quiet = false, forceAuthRefresh = !quiet) => {
+    async (
+      quiet = false,
+      forceAuthRefresh = !quiet,
+      initialRefresh = false,
+    ) => {
+      const requestId = usageRefreshSequenceRef.current + 1;
+      usageRefreshSequenceRef.current = requestId;
+      usageRefreshCountRef.current += 1;
+      setUsageRefreshInFlight(true);
+      setUsageRefreshError(null);
+
       try {
         if (!quiet) {
           setRefreshing(true);
@@ -639,17 +660,34 @@ export function useCodexController() {
           forceAuthRefresh,
         });
         const promptedRelogin = applyAccounts(data);
+        if (requestId === usageRefreshSequenceRef.current) {
+          setUsageRefreshError(null);
+        }
         if (!quiet && !promptedRelogin) {
           setNotice({ type: "ok", message: copy.notices.usageRefreshed });
         }
       } catch (error) {
+        const localizedError = localizeError(String(error));
+        if (requestId === usageRefreshSequenceRef.current) {
+          setUsageRefreshError(localizedError);
+        }
         if (!quiet) {
           setNotice({
             type: "error",
-            message: copy.notices.refreshFailed(localizeError(String(error))),
+            message: copy.notices.refreshFailed(localizedError),
           });
         }
       } finally {
+        if (initialRefresh) {
+          setInitialUsageRefreshPending(false);
+        }
+        usageRefreshCountRef.current = Math.max(
+          0,
+          usageRefreshCountRef.current - 1,
+        );
+        if (usageRefreshCountRef.current === 0) {
+          setUsageRefreshInFlight(false);
+        }
         if (!quiet) {
           setRefreshing(false);
         }
@@ -727,15 +765,21 @@ export function useCodexController() {
 
   const refreshCostAnalytics = useCallback(
     async (quiet = false) => {
+      if (costAnalyticsRefreshInFlightRef.current) {
+        return null;
+      }
       costAnalyticsRefreshInFlightRef.current = true;
-      setCostAnalyticsLoading(true);
-      setCostAnalyticsProgress({
-        stage: "scanning",
-        processedFiles: 0,
-        totalFiles: 0,
-        percent: 0,
-        currentPath: null,
-      });
+      costAnalyticsProgressVisibleRef.current = !quiet;
+      if (!quiet) {
+        setCostAnalyticsLoading(true);
+        setCostAnalyticsProgress({
+          stage: "scanning",
+          processedFiles: 0,
+          totalFiles: 0,
+          percent: 0,
+          currentPath: null,
+        });
+      }
       try {
         const data = await invoke<CodexCostAnalyticsSnapshot>(
           "refresh_codex_cost_analytics",
@@ -755,8 +799,13 @@ export function useCodexController() {
         return null;
       } finally {
         costAnalyticsRefreshInFlightRef.current = false;
+        const shouldClearVisibleProgress =
+          costAnalyticsProgressVisibleRef.current;
+        costAnalyticsProgressVisibleRef.current = false;
         setCostAnalyticsLoading(false);
-        window.setTimeout(() => setCostAnalyticsProgress(null), 600);
+        if (shouldClearVisibleProgress) {
+          window.setTimeout(() => setCostAnalyticsProgress(null), 600);
+        }
       }
     },
     [copy.notices, localizeError],
@@ -1094,12 +1143,6 @@ export function useCodexController() {
 
       // 这些任务不影响已有账号和缓存用量的展示。并行执行可避免一个
       // 慢速网络请求（用量刷新上限为 18 秒）拖住其他初始化任务。
-      const loadOrRefreshCostAnalytics = async () => {
-        const cachedCostAnalytics = await loadCostAnalytics(true);
-        if (!cachedCostAnalytics) {
-          await refreshCostAnalytics(true);
-        }
-      };
       const settingsTask = loadSettings();
       void Promise.allSettled([
         settingsTask,
@@ -1114,9 +1157,9 @@ export function useCodexController() {
         // A clean installation has no cached usage yet. Allow this one silent
         // startup refresh to renew stale auth tokens, while periodic refreshes
         // remain lightweight and do not rotate credentials unnecessarily.
-        refreshUsage(true, true),
+        refreshUsage(true, true, true),
         refreshTokenUsage(true),
-        loadOrRefreshCostAnalytics(),
+        loadCostAnalytics(true),
         settingsTask.then(() => checkForAppUpdate(true)),
       ]);
     };
@@ -1140,7 +1183,6 @@ export function useCodexController() {
     loadOpencodeDesktopAppInstalled,
     loadSettings,
     maybeShowProfileIntegrityNotice,
-    refreshCostAnalytics,
     refreshTokenUsage,
     refreshUsage,
   ]);
@@ -1154,14 +1196,6 @@ export function useCodexController() {
       void refreshUsage(true);
     }, REFRESH_MS);
 
-    const tokenUsageTimer = setInterval(() => {
-      void refreshTokenUsage(true);
-    }, TOKEN_USAGE_REFRESH_MS);
-
-    const costAnalyticsTimer = setInterval(() => {
-      void loadCostAnalytics(true);
-    }, COST_ANALYTICS_REFRESH_MS);
-
     const editorTimer = setInterval(() => {
       void loadInstalledEditorApps();
       void loadOpencodeDesktopAppInstalled();
@@ -1173,20 +1207,29 @@ export function useCodexController() {
 
     return () => {
       clearInterval(usageTimer);
-      clearInterval(tokenUsageTimer);
-      clearInterval(costAnalyticsTimer);
       clearInterval(editorTimer);
       clearInterval(updateTimer);
     };
   }, [
     checkForAppUpdate,
-    loadCostAnalytics,
     loadInstalledEditorApps,
     loadOpencodeDesktopAppInstalled,
     mainWindowVisible,
-    refreshTokenUsage,
     refreshUsage,
   ]);
+
+  useEffect(() => {
+    if (!settingsLoaded) {
+      return;
+    }
+
+    void refreshCostAnalytics(true);
+    const timer = window.setInterval(() => {
+      void refreshCostAnalytics(true);
+    }, COST_ANALYTICS_REFRESH_MS);
+
+    return () => window.clearInterval(timer);
+  }, [refreshCostAnalytics, settingsLoaded]);
 
   useEffect(() => {
     if (loading) {
@@ -1368,7 +1411,7 @@ export function useCodexController() {
     void listen<CodexCostAnalyticsProgress>(
       "codex-cost-analytics-progress",
       (event) => {
-        if (!disposed) {
+        if (!disposed && costAnalyticsProgressVisibleRef.current) {
           setCostAnalyticsProgress(event.payload);
         }
       },
@@ -2761,8 +2804,12 @@ export function useCodexController() {
     tokenUsageError,
     costAnalytics,
     costAnalyticsError,
+    mainWindowVisible,
     loading,
     refreshing,
+    usageRefreshInFlight,
+    initialUsageRefreshPending,
+    usageRefreshError,
     refreshingTokenUsage,
     addDialogOpen,
     importingAccounts,

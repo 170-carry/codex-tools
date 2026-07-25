@@ -187,6 +187,19 @@ export type MessageCatalog = {
   accountsGrid: {
     emptyTitle: string;
     emptyDescription: string;
+    usageRefreshing: string;
+    usageRefreshingCached: (updatedAt: string) => string;
+    usageUpdatedAt: (updatedAt: string) => string;
+    usageRefreshFailed: (reason: string) => string;
+    usageRefreshFailedCached: (reason: string, updatedAt: string) => string;
+    usageFailureTimeout: string;
+    usageFailureNetwork: string;
+    usageFailureAuthorization: string;
+    usageFailureRateLimited: string;
+    usageFailureServer: string;
+    usageFailureInvalidResponse: string;
+    usageFailureUnknown: string;
+    usageUnavailable: string;
   };
   bottomDock: {
     ariaLabel: string;
@@ -221,6 +234,8 @@ export type MessageCatalog = {
     sessionsDescription: string;
     heatmapTitle: string;
     heatmapDescription: string;
+    heatmapAriaLabel: string;
+    heatmapTooltip: (weekday: string, time: string, tokens: string) => string;
     topPromptsTitle: string;
     topPromptsDescription: string;
     budgetTitle: string;
@@ -234,9 +249,12 @@ export type MessageCatalog = {
     budgetWarning: string;
     budgetDanger: string;
     pricingEstimate: string;
+    costSourceLocal: string;
     sourceFiles: string;
     tokenEvents: string;
     failedSources: string;
+    unresolvedForks: string;
+    usageAnomalies: string;
     project: string;
     cost: string;
     prompts: string;
@@ -744,9 +762,30 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       description: (label) =>
         fillTemplate(raw.accountDeleteDialog.description, { label }),
     },
-    accountsGrid: raw.accountsGrid,
+    accountsGrid: {
+      ...raw.accountsGrid,
+      usageRefreshingCached: (updatedAt) =>
+        fillTemplate(raw.accountsGrid.usageRefreshingCached, { updatedAt }),
+      usageUpdatedAt: (updatedAt) =>
+        fillTemplate(raw.accountsGrid.usageUpdatedAt, { updatedAt }),
+      usageRefreshFailed: (reason) =>
+        fillTemplate(raw.accountsGrid.usageRefreshFailed, { reason }),
+      usageRefreshFailedCached: (reason, updatedAt) =>
+        fillTemplate(raw.accountsGrid.usageRefreshFailedCached, {
+          reason,
+          updatedAt,
+        }),
+    },
     bottomDock: raw.bottomDock,
-    analytics: raw.analytics,
+    analytics: {
+      ...raw.analytics,
+      heatmapTooltip: (weekday, time, tokens) =>
+        fillTemplate(raw.analytics.heatmapTooltip, {
+          weekday,
+          time,
+          tokens,
+        }),
+    },
     apiProxy: {
       ...raw.apiProxy,
       remoteDeployProgressTitle: (label) =>

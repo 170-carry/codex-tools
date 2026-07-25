@@ -745,6 +745,7 @@ mod tests {
             account_key: "account-key".to_string(),
             account_id: "account-id".to_string(),
             plan_type: Some("pro".to_string()),
+            subscription_active_until: None,
             api_base_url: None,
             model_name: None,
             balance_text: None,

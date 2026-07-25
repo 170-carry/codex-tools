@@ -61,9 +61,9 @@
   <circle cx="858" cy="167" r="13" fill="#2fa66f"/>
   <path d="M851 167l5 5 10-12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <text class="panel-title" x="884" y="176" fill="#19784e">After · 修改后</text>
-  <text class="panel-subtitle" x="884" y="207">Do work only when it is useful</text>
-  <rect x="1401" y="151" width="115" height="35" rx="18" fill="#dff5e9"/>
-  <text class="tag" x="1458.5" y="174" text-anchor="middle" fill="#19784e">ON DEMAND</text>
+  <text class="panel-subtitle" x="884" y="207">Repeat only lightweight incremental work</text>
+  <rect x="1390" y="151" width="126" height="35" rx="18" fill="#dff5e9"/>
+  <text class="tag" x="1453" y="174" text-anchor="middle" fill="#19784e">INCREMENTAL</text>
 
   <g>
     <rect x="86" y="267" width="652" height="87" rx="17" fill="#fff8f6" stroke="#f0c4bb"/>
@@ -123,8 +123,8 @@
     <rect x="862" y="624" width="652" height="87" rx="17" fill="#f5fcf8" stroke="#b7dfca"/>
     <circle cx="898" cy="667" r="22" fill="#dff5e9"/>
     <text x="898" y="674" text-anchor="middle" font-size="20" font-weight="750" fill="#19784e">4</text>
-    <text class="node-title" x="936" y="659">Parse changed logs only</text>
-    <text class="node-subtitle" x="936" y="685">文件指纹缓存、跳过无 token_count 的行、避免重叠扫描</text>
+    <text class="node-title" x="936" y="659">Refresh logs incrementally every minute</text>
+    <text class="node-subtitle" x="936" y="685">Token 汇总与成本分析每分钟复用缓存、尾读新增字节</text>
 
     <rect x="862" y="745" width="652" height="55" rx="16" fill="#e8f8f0"/>
     <text class="footer-main" x="1188" y="769" text-anchor="middle" fill="#19784e">Lower idle CPU · disk I/O · network activity</text>

@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "npm:sync-packages": "node scripts/sync-npm-package-version.mjs",
     "preview": "vite preview",
+    "test:usage-errors": "node --test tests/usageRefreshError.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {

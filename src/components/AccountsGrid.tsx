@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { AccountSummary, CodexTokenUsageSnapshot, UsageWindow } from "../types/app";
 import { useI18n } from "../i18n/I18nProvider";
 import { compareAccountsByRemaining } from "../utils/accountRanking";
+import { classifyUsageRefreshError } from "../utils/usageRefreshError";
 import {
   formatPlan,
   formatTokenCount,
@@ -49,6 +50,7 @@ type UiCopy = {
   weekUsage: string;
   remainingSuffix: (value: string) => string;
   resetTime: string;
+  membershipPeriodEnds: string;
   resetCreditsTitle: string;
   resetCreditsAvailable: (count: number | null) => string;
   resetCreditsExpiresAt: string;
@@ -80,6 +82,9 @@ type AccountsGridProps = {
   tokenUsage: CodexTokenUsageSnapshot | null;
   tokenUsageError: string | null;
   loading: boolean;
+  usageRefreshing: boolean;
+  showInitialUsageRefresh: boolean;
+  usageRefreshError: string | null;
   exportingAccounts: boolean;
   authBusy: boolean;
   switchingId: string | null;
@@ -205,6 +210,7 @@ function getUiCopy(locale: string): UiCopy {
       weekUsage: "周使用率",
       remainingSuffix: (value) => `剩余 ${value}`,
       resetTime: "重置时间",
+      membershipPeriodEnds: "会员到期时间（仅供参考）",
       resetCreditsTitle: "重置卡",
       resetCreditsAvailable: (count) => (count === null ? "可用数量未知" : `可用 ${count} 张`),
       resetCreditsExpiresAt: "过期时间（系统本地时间）",
@@ -249,6 +255,7 @@ function getUiCopy(locale: string): UiCopy {
     weekUsage: "Weekly usage",
     remainingSuffix: (value) => `${value} remaining`,
     resetTime: "Reset time",
+    membershipPeriodEnds: "Membership expiry (for reference only)",
     resetCreditsTitle: "Reset cards",
     resetCreditsAvailable: (count) => (count === null ? "Available count unknown" : `${count} available`),
     resetCreditsExpiresAt: "Expires (system local time)",
@@ -317,6 +324,105 @@ function formatFullDate(epochSec: number | null | undefined, locale: string, emp
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+type UsageFreshnessCopy = {
+  usageRefreshing: string;
+  usageRefreshingCached: (updatedAt: string) => string;
+  usageRefreshFailed: (reason: string) => string;
+  usageRefreshFailedCached: (reason: string, updatedAt: string) => string;
+  usageFailureTimeout: string;
+  usageFailureNetwork: string;
+  usageFailureAuthorization: string;
+  usageFailureRateLimited: string;
+  usageFailureServer: string;
+  usageFailureInvalidResponse: string;
+  usageFailureUnknown: string;
+  usageUnavailable: string;
+};
+
+type UsageFreshnessTone = "refreshing" | "error" | "unknown";
+
+function summarizeUsageRefreshError(
+  error: string,
+  copy: UsageFreshnessCopy,
+): string {
+  switch (classifyUsageRefreshError(error)) {
+    case "timeout":
+      return copy.usageFailureTimeout;
+    case "network":
+      return copy.usageFailureNetwork;
+    case "authorization":
+      return copy.usageFailureAuthorization;
+    case "rateLimited":
+      return copy.usageFailureRateLimited;
+    case "server":
+      return copy.usageFailureServer;
+    case "invalidResponse":
+      return copy.usageFailureInvalidResponse;
+    case "unknown":
+      return copy.usageFailureUnknown;
+  }
+}
+
+function formatUsageFetchedAt(epochSec: number | null | undefined, locale: string): string | null {
+  if (!epochSec) {
+    return null;
+  }
+
+  return new Date(epochSec * 1000).toLocaleString(locale, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function UsageFreshnessBadge({
+  account,
+  refreshing,
+  showInitialRefresh,
+  refreshError,
+  locale,
+  copy,
+}: {
+  account: AccountSummary;
+  refreshing: boolean;
+  showInitialRefresh: boolean;
+  refreshError: string | null;
+  locale: string;
+  copy: UsageFreshnessCopy;
+}) {
+  const fetchedAt = formatUsageFetchedAt(account.usage?.fetchedAt, locale);
+  const error = account.usageError || refreshError;
+  let tone: UsageFreshnessTone = "unknown";
+  let label = copy.usageUnavailable;
+
+  if (showInitialRefresh && refreshing) {
+    tone = "refreshing";
+    label = fetchedAt
+      ? copy.usageRefreshingCached(fetchedAt)
+      : copy.usageRefreshing;
+  } else if (error) {
+    tone = "error";
+    const reason = summarizeUsageRefreshError(error, copy);
+    label = fetchedAt
+      ? copy.usageRefreshFailedCached(reason, fetchedAt)
+      : copy.usageRefreshFailed(reason);
+  } else if (fetchedAt) {
+    return null;
+  }
+
+  return (
+    <span
+      className={`usageFreshnessBadge tone-${tone}`}
+      title={error ?? label}
+      aria-label={label}
+    >
+      <span className="usageFreshnessDot" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function hasResetCredits(account: AccountSummary): boolean {
@@ -574,6 +680,9 @@ export function AccountsGrid({
   tokenUsage,
   tokenUsageError,
   loading,
+  usageRefreshing,
+  showInitialUsageRefresh,
+  usageRefreshError,
   exportingAccounts,
   authBusy,
   switchingId,
@@ -909,15 +1018,25 @@ export function AccountsGrid({
                             {accountAddress}
                           </button>
                         </span>
-                        <span
-                          className={`statusText status-${status}`}
-                          title={status === "issue" ? (issueReason ?? text.issueFallbackReason) : statusLabel(status, text)}
-                        >
-                          <span className="statusDot" />
-                          <span className="statusLabel">{statusLabel(status, text)}</span>
-                          {status === "issue" ? (
-                            <span className="statusReason">{issueReason ?? text.issueFallbackReason}</span>
-                          ) : null}
+                        <span className="accountStateLine">
+                          <span
+                            className={`statusText status-${status}`}
+                            title={status === "issue" ? (issueReason ?? text.issueFallbackReason) : statusLabel(status, text)}
+                          >
+                            <span className="statusDot" />
+                            <span className="statusLabel">{statusLabel(status, text)}</span>
+                            {status === "issue" ? (
+                              <span className="statusReason">{issueReason ?? text.issueFallbackReason}</span>
+                            ) : null}
+                          </span>
+                          <UsageFreshnessBadge
+                            account={account}
+                            refreshing={usageRefreshing}
+                            showInitialRefresh={showInitialUsageRefresh}
+                            refreshError={usageRefreshError}
+                            locale={locale}
+                            copy={copy.accountsGrid}
+                          />
                         </span>
                       </span>
                     </div>
@@ -1094,7 +1213,17 @@ export function AccountsGrid({
             </header>
 
             <section className="detailCard">
-              <h3>{text.usageOverview}</h3>
+              <div className="detailCardTitle">
+                <h3>{text.usageOverview}</h3>
+                <UsageFreshnessBadge
+                  account={selectedRow.account}
+                  refreshing={usageRefreshing}
+                  showInitialRefresh={showInitialUsageRefresh}
+                  refreshError={usageRefreshError}
+                  locale={locale}
+                  copy={copy.accountsGrid}
+                />
+              </div>
               <UsageMeter
                 label={text.fiveHourUsage}
                 windowLabel="5h"
@@ -1111,8 +1240,14 @@ export function AccountsGrid({
 
             <section className="detailMetaGrid">
               <div>
-                <span>{text.resetTime}</span>
-                <strong>{formatFullDate(selectedRow.account.usage?.fiveHour?.resetAt, locale, text.emptyValue)}</strong>
+                <span>{text.membershipPeriodEnds}</span>
+                <strong>
+                  {formatFullDate(
+                    selectedRow.account.subscriptionActiveUntil,
+                    locale,
+                    text.emptyValue,
+                  )}
+                </strong>
               </div>
               <div>
                 <span>{text.planType}</span>

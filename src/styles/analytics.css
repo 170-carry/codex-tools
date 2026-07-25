@@ -336,7 +336,7 @@
 
 .analyticsHeatmap {
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
 .analyticsHeatmapHeader,
@@ -353,11 +353,89 @@
   font: 750 0.66rem/1 var(--font-ui);
 }
 
-.analyticsHeatmapRow i {
+.analyticsHeatmapCell {
+  --heatmap-color-mix: 8%;
+
+  position: relative;
+  display: block;
+  box-sizing: border-box;
   aspect-ratio: 1;
   min-height: 10px;
-  border-radius: 3px;
-  background: var(--brand);
+  border-radius: 4px;
+  background: color-mix(
+    in srgb,
+    var(--brand) var(--heatmap-color-mix),
+    var(--section-surface)
+  );
+  cursor: default;
+}
+
+.analyticsHeatmapCell.level1 {
+  --heatmap-color-mix: 20%;
+}
+
+.analyticsHeatmapCell.level2 {
+  --heatmap-color-mix: 28.5%;
+}
+
+.analyticsHeatmapCell.level3 {
+  --heatmap-color-mix: 37%;
+}
+
+.analyticsHeatmapCell.level4 {
+  --heatmap-color-mix: 45.5%;
+}
+
+.analyticsHeatmapCell.level5 {
+  --heatmap-color-mix: 54%;
+}
+
+.analyticsHeatmapCell.level6 {
+  --heatmap-color-mix: 62.5%;
+}
+
+.analyticsHeatmapCell.level7 {
+  --heatmap-color-mix: 71%;
+}
+
+.analyticsHeatmapCell.level8 {
+  --heatmap-color-mix: 79.5%;
+}
+
+.analyticsHeatmapCell.level9 {
+  --heatmap-color-mix: 88%;
+}
+
+.analyticsHeatmapCell::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  z-index: 40;
+  max-width: 240px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--surface-highlight-strong) 20%, transparent);
+  border-radius: 7px;
+  background: #172033;
+  box-shadow: 0 8px 18px rgba(8, 16, 30, 0.2);
+  color: #f8fafc;
+  content: attr(data-tooltip);
+  font: 700 0.68rem/1.2 var(--font-ui);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.analyticsHeatmapCell:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.analyticsHeatmapRow .analyticsHeatmapCell:nth-last-child(-n + 4)::after {
+  right: 0;
+  left: auto;
+  transform: none;
 }
 
 .analyticsTableWrap {

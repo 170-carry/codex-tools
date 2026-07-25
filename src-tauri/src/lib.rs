@@ -732,11 +732,16 @@ async fn get_codex_cost_analytics(
         .await?
         .codex_analytics_weekly_budget_usd;
     let cache_path = codex_cost_analytics_cache_path(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        load_or_refresh_codex_cost_analytics_cache(&cache_path, budget)
+    let cached = tauri::async_runtime::spawn_blocking(move || {
+        load_cached_codex_cost_analytics_from_path(&cache_path, budget)
     })
     .await
-    .map_err(|error| format!("统计 Codex 成本分析失败: {error}"))?
+    .map_err(|error| format!("读取 Codex 成本分析缓存失败: {error}"))??;
+    if let Some(cached) = cached {
+        return Ok(cached);
+    }
+
+    refresh_codex_cost_analytics_internal(&app, budget, false).await
 }
 
 #[tauri::command]
@@ -763,47 +768,7 @@ async fn refresh_codex_cost_analytics(
     let budget = settings_service::get_app_settings_internal(&app, state.inner())
         .await?
         .codex_analytics_weekly_budget_usd;
-    let cache_path = codex_cost_analytics_cache_path(&app)?;
-    let progress_app = app.clone();
-
-    tauri::async_runtime::spawn_blocking(
-        move || -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
-            let snapshot = token_usage::collect_codex_cost_analytics_snapshot_with_progress(
-                budget,
-                |progress| {
-                    let _ = progress_app.emit(CODEX_COST_ANALYTICS_PROGRESS_EVENT, progress);
-                },
-            )?;
-
-            let _ = progress_app.emit(
-                CODEX_COST_ANALYTICS_PROGRESS_EVENT,
-                token_usage::CodexCostAnalyticsProgress {
-                    stage: "caching".to_string(),
-                    processed_files: snapshot.source_path_count,
-                    total_files: snapshot.source_path_count,
-                    percent: 100,
-                    current_path: Some(cache_path.to_string_lossy().to_string()),
-                },
-            );
-            write_codex_cost_analytics_cache_to_path(&cache_path, &snapshot)?;
-
-            let cached = load_cached_codex_cost_analytics_from_path(&cache_path, budget)?
-                .unwrap_or(snapshot);
-            let _ = progress_app.emit(
-                CODEX_COST_ANALYTICS_PROGRESS_EVENT,
-                token_usage::CodexCostAnalyticsProgress {
-                    stage: "complete".to_string(),
-                    processed_files: cached.source_path_count,
-                    total_files: cached.source_path_count,
-                    percent: 100,
-                    current_path: None,
-                },
-            );
-            Ok(cached)
-        },
-    )
-    .await
-    .map_err(|error| format!("刷新 Codex 成本分析失败: {error}"))?
+    refresh_codex_cost_analytics_internal(&app, budget, true).await
 }
 
 #[tauri::command]
@@ -820,15 +785,75 @@ async fn export_codex_cost_analytics(
         .await?
         .codex_analytics_weekly_budget_usd;
     let cache_path = codex_cost_analytics_cache_path(&app)?;
+    let cached = tauri::async_runtime::spawn_blocking(move || {
+        load_cached_codex_cost_analytics_from_path(&cache_path, budget)
+    })
+    .await
+    .map_err(|error| format!("读取 Codex 成本分析缓存失败: {error}"))??;
+    let snapshot = match cached {
+        Some(snapshot) => snapshot,
+        None => refresh_codex_cost_analytics_internal(&app, budget, false).await?,
+    };
 
     tauri::async_runtime::spawn_blocking(move || {
-        let snapshot = load_or_refresh_codex_cost_analytics_cache(&cache_path, budget)?;
         let bytes =
             token_usage::serialize_codex_cost_analytics_export(&snapshot, &normalized_format)?;
         export_codex_cost_analytics_file(&normalized_format, &bytes)
     })
     .await
     .map_err(|error| format!("导出 Codex 成本分析失败: {error}"))?
+}
+
+async fn refresh_codex_cost_analytics_internal(
+    app: &AppHandle,
+    budget: Option<f64>,
+    emit_progress: bool,
+) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
+    let cache_path = codex_cost_analytics_cache_path(app)?;
+    let progress_app = app.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        token_usage::collect_codex_cost_analytics_snapshot_with_progress(budget, |progress| {
+            if emit_progress {
+                let _ = progress_app.emit(CODEX_COST_ANALYTICS_PROGRESS_EVENT, progress);
+            }
+        })
+    })
+    .await
+    .map_err(|error| format!("刷新 Codex 成本分析失败: {error}"))??;
+
+    if emit_progress {
+        let _ = app.emit(
+            CODEX_COST_ANALYTICS_PROGRESS_EVENT,
+            token_usage::CodexCostAnalyticsProgress {
+                stage: "caching".to_string(),
+                processed_files: snapshot.source_path_count,
+                total_files: snapshot.source_path_count,
+                percent: 100,
+                current_path: Some(cache_path.to_string_lossy().to_string()),
+            },
+        );
+    }
+    let write_path = cache_path.clone();
+    let write_snapshot = snapshot.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        write_codex_cost_analytics_cache_to_path(&write_path, &write_snapshot)
+    })
+    .await
+    .map_err(|error| format!("写入 Codex 成本分析缓存失败: {error}"))??;
+
+    if emit_progress {
+        let _ = app.emit(
+            CODEX_COST_ANALYTICS_PROGRESS_EVENT,
+            token_usage::CodexCostAnalyticsProgress {
+                stage: "complete".to_string(),
+                processed_files: snapshot.source_path_count,
+                total_files: snapshot.source_path_count,
+                percent: 100,
+                current_path: None,
+            },
+        );
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -946,19 +971,6 @@ fn load_cached_codex_cost_analytics_from_path(
             cache_path.display()
         )),
     }
-}
-
-fn load_or_refresh_codex_cost_analytics_cache(
-    cache_path: &std::path::Path,
-    budget: Option<f64>,
-) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
-    if let Some(snapshot) = load_cached_codex_cost_analytics_from_path(cache_path, budget)? {
-        return Ok(snapshot);
-    }
-
-    let snapshot = token_usage::collect_codex_cost_analytics_snapshot(budget)?;
-    write_codex_cost_analytics_cache_to_path(cache_path, &snapshot)?;
-    Ok(load_cached_codex_cost_analytics_from_path(cache_path, budget)?.unwrap_or(snapshot))
 }
 
 fn write_codex_cost_analytics_cache_to_path(

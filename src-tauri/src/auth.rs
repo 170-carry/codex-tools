@@ -591,6 +591,23 @@ pub(crate) fn normalize_plan_type_key(plan_type: Option<&str>) -> String {
     value.to_ascii_lowercase()
 }
 
+pub(crate) fn chatgpt_subscription_active_until(auth_json: &Value) -> Option<i64> {
+    let tokens = auth_token_object(auth_json)?;
+    let id_token = tokens.get("id_token").and_then(Value::as_str)?;
+    let claims = decode_jwt_payload(id_token).ok()?;
+    claims
+        .get("https://api.openai.com/auth")
+        .and_then(Value::as_object)
+        .and_then(|claim| claim.get("chatgpt_subscription_active_until"))
+        .and_then(last_refresh_unix_seconds)
+}
+
+pub(crate) fn auth_last_refresh_unix_seconds(auth_json: &Value) -> Option<i64> {
+    auth_json
+        .get("last_refresh")
+        .and_then(last_refresh_unix_seconds)
+}
+
 pub(crate) fn account_group_key(principal_id: &str, account_id: &str) -> String {
     format!("{}|{}", principal_id.trim(), account_id.trim())
 }
@@ -1314,6 +1331,42 @@ mod tests {
             .to_string(),
         );
         format!("header.{payload}.signature")
+    }
+
+    #[test]
+    fn extracts_subscription_active_until_from_id_token() {
+        let auth_json = json!({
+            "tokens": {
+                "id_token": jwt_with_payload(json!({
+                    "https://api.openai.com/auth": {
+                        "chatgpt_subscription_active_until": "2026-07-29T12:09:00Z"
+                    }
+                }))
+            }
+        });
+
+        assert_eq!(
+            chatgpt_subscription_active_until(&auth_json),
+            Some(1_785_326_940)
+        );
+    }
+
+    #[test]
+    fn subscription_active_until_accepts_millisecond_timestamp() {
+        let auth_json = json!({
+            "tokens": {
+                "id_token": jwt_with_payload(json!({
+                    "https://api.openai.com/auth": {
+                        "chatgpt_subscription_active_until": 1_775_045_340_000_i64
+                    }
+                }))
+            }
+        });
+
+        assert_eq!(
+            chatgpt_subscription_active_until(&auth_json),
+            Some(1_775_045_340)
+        );
     }
 
     fn spawn_flaky_token_exchange_server(id_token: String) -> (String, thread::JoinHandle<usize>) {

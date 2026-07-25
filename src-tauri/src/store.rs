@@ -9,6 +9,7 @@ use uuid::Uuid;
 use tauri::AppHandle;
 
 use crate::app_paths;
+use crate::auth::account_group_key;
 use crate::auth::account_variant_key;
 use crate::auth::current_auth_account_key;
 use crate::auth::extract_auth;
@@ -44,7 +45,8 @@ pub(crate) fn save_store(app: &AppHandle, store: &AccountsStore) -> Result<(), S
 }
 
 /// 启动时自动同步当前登录账号：
-/// 若本机已有 `~/.codex/auth.json` 且相同“账号 + 套餐态”不在列表中，则自动写入存储。
+/// 若本机已有 `~/.codex/auth.json` 且相同稳定账号身份不在列表中，则自动写入存储。
+/// 套餐是可变化状态，不能仅因 auth 仍携带旧套餐而创建一个没有缓存用量的新变体。
 #[cfg(feature = "desktop")]
 pub(crate) fn sync_current_auth_account_on_startup(app: &AppHandle) -> Result<(), String> {
     sync_current_auth_account_on_startup_in_path(&account_store_path(app)?)
@@ -126,6 +128,13 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
         None => return Ok(()),
     };
 
+    sync_current_auth_account_on_startup_with_auth(path, auth_json)
+}
+
+fn sync_current_auth_account_on_startup_with_auth(
+    path: &Path,
+    auth_json: serde_json::Value,
+) -> Result<(), String> {
     let extracted = match extract_auth(&auth_json) {
         Ok(value) => value,
         Err(err) => {
@@ -135,16 +144,62 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
     };
 
     let mut store = load_store_from_path(path)?;
-    let extracted_variant_key = account_variant_key(
-        &extracted.principal_id,
-        &extracted.account_id,
-        extracted.plan_type.as_deref(),
-    );
-    let already_exists = store
+    let extracted_account_key = account_group_key(&extracted.principal_id, &extracted.account_id);
+    let has_matching_account = store
         .accounts
         .iter()
-        .any(|account| account.variant_key() == extracted_variant_key);
-    if already_exists {
+        .any(|account| account.account_key() == extracted_account_key);
+    if has_matching_account {
+        let extracted_variant_key = account_variant_key(
+            &extracted.principal_id,
+            &extracted.account_id,
+            extracted.plan_type.as_deref(),
+        );
+        let cached_account_id = store
+            .accounts
+            .iter()
+            .filter(|account| {
+                account.account_key() == extracted_account_key && account.usage.is_some()
+            })
+            .max_by_key(|account| {
+                account
+                    .usage
+                    .as_ref()
+                    .map(|usage| usage.fetched_at)
+                    .unwrap_or_default()
+            })
+            .map(|account| account.id.clone());
+        let empty_current_variant_ids = store
+            .accounts
+            .iter()
+            .filter(|account| {
+                account.account_key() == extracted_account_key
+                    && account.variant_key() == extracted_variant_key
+                    && account.usage.is_none()
+            })
+            .map(|account| account.id.clone())
+            .collect::<Vec<_>>();
+
+        if let Some(cached_account_id) = cached_account_id {
+            if empty_current_variant_ids.is_empty() {
+                return Ok(());
+            }
+
+            store.accounts.retain(|account| {
+                !empty_current_variant_ids
+                    .iter()
+                    .any(|account_id| account_id == &account.id)
+            });
+            if store
+                .settings
+                .active_account_id
+                .as_ref()
+                .is_some_and(|active_id| empty_current_variant_ids.contains(active_id))
+            {
+                store.settings.active_account_id = Some(cached_account_id);
+            }
+            save_store_to_path(path, &store)?;
+        }
         return Ok(());
     }
 
@@ -591,11 +646,16 @@ fn backup_corrupted_store_file(path: &Path, raw: &str) -> Result<PathBuf, String
 mod tests {
     use super::load_store_from_path;
     use super::save_store_to_path;
+    use super::sync_current_auth_account_on_startup_with_auth;
     use super::LAST_GOOD_BACKUP_FILE_NAME;
     use super::PREVIOUS_GOOD_BACKUP_FILE_NAME;
     use crate::models::AccountSourceKind;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
+    use crate::models::UsageSnapshot;
+    use crate::models::UsageWindow;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -640,6 +700,146 @@ mod tests {
             }],
             settings: Default::default(),
         }
+    }
+
+    fn usage_snapshot(plan_type: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            fetched_at: 20,
+            plan_type: Some(plan_type.to_string()),
+            five_hour: Some(UsageWindow {
+                used_percent: 28.0,
+                window_seconds: 18_000,
+                reset_at: Some(30),
+            }),
+            one_week: Some(UsageWindow {
+                used_percent: 28.0,
+                window_seconds: 604_800,
+                reset_at: Some(40),
+            }),
+            credits: None,
+            reset_credits: None,
+        }
+    }
+
+    fn chatgpt_auth(email: &str, account_id: &str, plan_type: &str) -> serde_json::Value {
+        let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none","typ":"JWT"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "email": email,
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": account_id,
+                    "chatgpt_plan_type": plan_type
+                }
+            }))
+            .expect("serialize token payload"),
+        );
+
+        json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": "test-access-token",
+                "id_token": format!("{header}.{payload}.signature"),
+                "account_id": account_id,
+                "refresh_token": "test-refresh-token"
+            }
+        })
+    }
+
+    #[test]
+    fn startup_sync_reuses_stable_account_when_auth_plan_is_stale() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut store = sample_store("upgraded", "workspace-1", 10);
+        store.accounts[0].plan_type = Some("pro".to_string());
+        store.accounts[0].usage = Some(usage_snapshot("pro"));
+        store.accounts[0].auth_json = chatgpt_auth("upgraded@example.com", "workspace-1", "pro");
+        let original_id = store.accounts[0].id.clone();
+        save_store_to_path(&store_path, &store).expect("save account store");
+
+        sync_current_auth_account_on_startup_with_auth(
+            &store_path,
+            chatgpt_auth("upgraded@example.com", "workspace-1", "plus"),
+        )
+        .expect("sync stale plan auth");
+
+        let loaded = load_store_from_path(&store_path).expect("load synced store");
+        assert_eq!(loaded.accounts.len(), 1);
+        assert_eq!(loaded.accounts[0].id, original_id);
+        assert_eq!(
+            loaded.accounts[0].resolved_plan_type().as_deref(),
+            Some("pro")
+        );
+        assert_eq!(
+            loaded.accounts[0]
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.five_hour.as_ref())
+                .map(|window| window.used_percent),
+            Some(28.0)
+        );
+    }
+
+    #[test]
+    fn startup_sync_removes_an_empty_stale_plan_variant_when_cache_exists() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut store = sample_store("upgraded", "workspace-1", 10);
+        store.accounts[0].plan_type = Some("pro".to_string());
+        store.accounts[0].usage = Some(usage_snapshot("pro"));
+        store.accounts[0].auth_json = chatgpt_auth("upgraded@example.com", "workspace-1", "pro");
+        let cached_id = store.accounts[0].id.clone();
+
+        let mut empty_plus = store.accounts[0].clone();
+        empty_plus.id = "empty-plus".to_string();
+        empty_plus.plan_type = Some("plus".to_string());
+        empty_plus.auth_json = chatgpt_auth("upgraded@example.com", "workspace-1", "plus");
+        empty_plus.usage = None;
+        empty_plus.added_at = 20;
+        empty_plus.updated_at = 20;
+        store.accounts.push(empty_plus);
+        store.settings.active_account_id = Some("empty-plus".to_string());
+        save_store_to_path(&store_path, &store).expect("save account variants");
+
+        sync_current_auth_account_on_startup_with_auth(
+            &store_path,
+            chatgpt_auth("upgraded@example.com", "workspace-1", "plus"),
+        )
+        .expect("sync stale plan auth");
+
+        let loaded = load_store_from_path(&store_path).expect("load reconciled store");
+        assert_eq!(loaded.accounts.len(), 1);
+        assert_eq!(loaded.accounts[0].id, cached_id);
+        assert_eq!(
+            loaded.accounts[0].resolved_plan_type().as_deref(),
+            Some("pro")
+        );
+        assert!(loaded.accounts[0].usage.is_some());
+        assert_eq!(
+            loaded.settings.active_account_id.as_deref(),
+            Some(cached_id.as_str())
+        );
+    }
+
+    #[test]
+    fn startup_sync_still_imports_a_new_stable_account_identity() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        save_store_to_path(&store_path, &AccountsStore::default()).expect("save empty store");
+
+        sync_current_auth_account_on_startup_with_auth(
+            &store_path,
+            chatgpt_auth("new@example.com", "workspace-new", "plus"),
+        )
+        .expect("sync new account");
+
+        let loaded = load_store_from_path(&store_path).expect("load synced store");
+        assert_eq!(loaded.accounts.len(), 1);
+        assert_eq!(loaded.accounts[0].email.as_deref(), Some("new@example.com"));
+        assert_eq!(
+            loaded.accounts[0].resolved_plan_type().as_deref(),
+            Some("plus")
+        );
+        assert!(loaded.accounts[0].usage.is_none());
     }
 
     #[test]
