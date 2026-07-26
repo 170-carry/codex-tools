@@ -26,12 +26,12 @@ use axum::extract::DefaultBodyLimit;
 use axum::extract::Multipart;
 use axum::extract::Request;
 use axum::extract::State;
-use axum::middleware::Next;
 use axum::http::HeaderMap;
 use axum::http::Method;
 use axum::http::Response;
 use axum::http::StatusCode;
 use axum::http::Uri;
+use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::routing::any;
 use axum::routing::get;
@@ -68,16 +68,16 @@ use crate::auth::refresh_chatgpt_auth_tokens_serialized;
 use crate::models::normalize_api_proxy_sequential_five_hour_limit_percent;
 use crate::models::ApiProxyKey;
 use crate::models::ApiProxyKeyUsageLogEntry;
+use crate::models::ApiProxyLoadBalanceMode;
 use crate::models::ApiProxyRequestLogEntry;
 use crate::models::ApiProxyRequestLogHeader;
-use crate::models::RequestLogBodySummary;
-use crate::models::ApiProxyLoadBalanceMode;
 use crate::models::ApiProxyStatus;
 use crate::models::ApiProxyUsagePoint;
 use crate::models::ApiProxyUsageSeries;
 use crate::models::ApiProxyUsageStats;
 use crate::models::AppSettings;
 use crate::models::CreateApiProxyKeyInput;
+use crate::models::RequestLogBodySummary;
 use crate::models::StoredAccount;
 use crate::models::UpdateApiProxyKeyInput;
 use crate::models::UsageSnapshot;
@@ -112,6 +112,8 @@ const CODEX_CLIENT_VERSION: &str = "0.125.0";
 const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const ANTHROPIC_MESSAGES_REQUIRED_VERSION: &str = "2023-06-01";
+const ANTHROPIC_COMPACTION_BETA: &str = "compact-2026-01-12";
+const ANTHROPIC_COMPACTION_EDIT_TYPE: &str = "compact_20260112";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
@@ -825,7 +827,9 @@ pub(crate) async fn get_api_proxy_request_logs_with_storage(
     storage: &ProxyStorageContext,
     limit: Option<usize>,
 ) -> Result<Vec<ApiProxyRequestLogEntry>, String> {
-    let limit = limit.unwrap_or(API_PROXY_REQUEST_LOG_MAX_ENTRIES).clamp(1, 1_000);
+    let limit = limit
+        .unwrap_or(API_PROXY_REQUEST_LOG_MAX_ENTRIES)
+        .clamp(1, 1_000);
     let _guard = storage.store_lock.lock().await;
     let path = api_proxy_request_log_path(storage)?;
     let mut store = load_api_proxy_request_log_store_from_path(&path)?;
@@ -926,7 +930,10 @@ pub(crate) async fn get_api_proxy_request_body_with_storage(
         Ok(b) => b,
         Err(error) => {
             eprintln!("[proxy][get_body] fs::read failed: {error}");
-            return Err(format!("读取请求 body 失败 {}: {error}", canonical.display()));
+            return Err(format!(
+                "读取请求 body 失败 {}: {error}",
+                canonical.display()
+            ));
         }
     };
     eprintln!("[proxy][get_body] read {} bytes, returning", bytes.len());
@@ -958,7 +965,12 @@ fn load_api_proxy_request_log_store_from_path(
 
     let raw = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(error) => return Err(format!("读取 API 反代请求日志失败 {}: {error}", path.display())),
+        Err(error) => {
+            return Err(format!(
+                "读取 API 反代请求日志失败 {}: {error}",
+                path.display()
+            ))
+        }
     };
     if raw.trim().is_empty() {
         return Ok(ApiProxyRequestLogStore::default());
@@ -1004,9 +1016,7 @@ fn save_api_proxy_request_log_store_to_path(
 
 fn prune_api_proxy_request_log_entries(entries: &mut Vec<ApiProxyRequestLogEntry>) {
     entries.retain(|entry| {
-        !entry.method.trim().is_empty()
-            && !entry.path.trim().is_empty()
-            && entry.timestamp > 0
+        !entry.method.trim().is_empty() && !entry.path.trim().is_empty() && entry.timestamp > 0
     });
 }
 
@@ -1032,11 +1042,7 @@ fn extract_body_summary(body: &Bytes) -> RequestLogBodySummary {
     summary.max_tokens = object
         .get("max_tokens")
         .and_then(Value::as_i64)
-        .or_else(|| {
-            object
-                .get("max_output_tokens")
-                .and_then(Value::as_i64)
-        });
+        .or_else(|| object.get("max_output_tokens").and_then(Value::as_i64));
     summary.temperature = object
         .get("temperature")
         .and_then(Value::as_f64)
@@ -1562,14 +1568,12 @@ async fn request_log_middleware(
             "\x1b[31m<none>\x1b[0m".to_string()
         },
     );
-    let resolved_key = if path.starts_with("/v1/claude")
-        || path == "/v1/messages"
-        || path == "/v1/models"
-    {
-        authorize_anthropic_proxy_request(&headers, &context.api_keys).ok()
-    } else {
-        authorize_proxy_request(&headers, &context.api_keys).ok()
-    };
+    let resolved_key =
+        if path.starts_with("/v1/claude") || path == "/v1/messages" || path == "/v1/models" {
+            authorize_anthropic_proxy_request(&headers, &context.api_keys).ok()
+        } else {
+            authorize_proxy_request(&headers, &context.api_keys).ok()
+        };
     let headers_for_log = headers.clone();
     let new_request = Request::from_parts(parts, axum::body::Body::from(body_bytes.clone()));
     let started_at = now_unix_seconds();
@@ -2076,6 +2080,7 @@ async fn anthropic_messages_handler(
         Ok(value) => value,
         Err(response) => return response,
     };
+    log_anthropic_compaction_headers(&headers);
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
@@ -2158,6 +2163,7 @@ async fn claude_messages_handler(
         Ok(value) => value,
         Err(response) => return response,
     };
+    log_anthropic_compaction_headers(&headers);
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (mut upstream_payload, downstream_stream) =
@@ -2303,36 +2309,63 @@ async fn claude_models_handler(
 }
 
 fn estimate_anthropic_input_tokens(request: &serde_json::Value) -> u32 {
-    let mut chars = 0usize;
+    let mut weighted_chars = 0usize;
     if let Some(system) = request.get("system") {
-        accumulate_anthropic_text(system, &mut chars);
+        accumulate_anthropic_text(system, &mut weighted_chars);
     }
     if let Some(messages) = request.get("messages").and_then(|v| v.as_array()) {
         for message in messages {
             if let Some(content) = message.get("content") {
-                accumulate_anthropic_text(content, &mut chars);
+                accumulate_anthropic_text(content, &mut weighted_chars);
             }
         }
     }
-    // 粗估:约 4 字符/token,至少 1。
-    ((chars / 4).max(1)) as u32
+    if let Some(tools) = request.get("tools") {
+        accumulate_anthropic_text(tools, &mut weighted_chars);
+    }
+    if let Some(context_management) = request.get("context_management") {
+        accumulate_anthropic_text(context_management, &mut weighted_chars);
+    }
+
+    // Claude Code 用该值决定何时触发压缩；最终消耗在 Codex，因此这里保守高估，避免太晚压缩。
+    ((weighted_chars / 3).max(1)) as u32
 }
 
-fn accumulate_anthropic_text(value: &serde_json::Value, chars: &mut usize) {
+fn accumulate_anthropic_text(value: &serde_json::Value, weighted_chars: &mut usize) {
     match value {
         serde_json::Value::String(text) => {
-            *chars += text.chars().count();
+            *weighted_chars += weighted_anthropic_text_chars(text);
         }
         serde_json::Value::Array(items) => {
             for item in items {
-                // content block 形如 {"type":"text","text":"..."} —— 累加 text 字段
-                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                    *chars += text.chars().count();
+                accumulate_anthropic_text(item, weighted_chars);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            match object.get("type").and_then(Value::as_str) {
+                Some("image" | "image_url") => {
+                    *weighted_chars += 4_000;
                 }
+                Some("document" | "file") => {
+                    *weighted_chars += 8_000;
+                }
+                Some("redacted_thinking") => {
+                    *weighted_chars += 1_000;
+                }
+                _ => {}
+            }
+            for value in object.values() {
+                accumulate_anthropic_text(value, weighted_chars);
             }
         }
         _ => {}
     }
+}
+
+fn weighted_anthropic_text_chars(text: &str) -> usize {
+    text.chars()
+        .map(|ch| if ch.is_ascii() { 1 } else { 2 })
+        .sum()
 }
 
 async fn image_generations_handler(
@@ -3203,6 +3236,7 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
         .and_then(Value::as_array)
         .ok_or_else(|| "Anthropic Messages 请求缺少 messages 数组".to_string())?;
     let downstream_stream = bool_field(request_object, "stream", false);
+    log_anthropic_compaction_request(request_object);
 
     let mut root = Map::new();
     root.insert("model".to_string(), Value::String(model));
@@ -3330,6 +3364,67 @@ fn copy_anthropic_passthrough_field(
     }
 }
 
+fn log_anthropic_compaction_request(request_object: &Map<String, Value>) {
+    let beta_requested = request_object
+        .get("betas")
+        .and_then(Value::as_array)
+        .map(|betas| {
+            betas.iter().any(|value| {
+                value
+                    .as_str()
+                    .map(|value| value == ANTHROPIC_COMPACTION_BETA)
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+
+    let mut compact_edits = 0usize;
+    if let Some(edits) = request_object
+        .get("context_management")
+        .and_then(|value| value.get("edits"))
+        .and_then(Value::as_array)
+    {
+        for edit in edits {
+            if edit.get("type").and_then(Value::as_str) == Some(ANTHROPIC_COMPACTION_EDIT_TYPE) {
+                compact_edits += 1;
+            } else if let Some(edit_type) = edit.get("type").and_then(Value::as_str) {
+                log::info!(
+                    "Anthropic Messages 兼容层忽略 context_management edit type={edit_type}: Codex 上游不支持该 Anthropic 专用编辑"
+                );
+            } else {
+                log::info!(
+                    "Anthropic Messages 兼容层忽略缺少 type 的 context_management edit: Codex 上游不支持该 Anthropic 专用编辑"
+                );
+            }
+        }
+    }
+
+    if beta_requested || compact_edits > 0 {
+        log::info!(
+            "Anthropic Messages 兼容层检测到 Claude Code compaction 请求 beta_requested={beta_requested} compact_edits={compact_edits}; context_management 不会透传给 Codex，上下文将通过普通文本 block 兼容"
+        );
+    }
+}
+
+fn log_anthropic_compaction_headers(headers: &HeaderMap) {
+    let beta_requested = headers
+        .get("anthropic-beta")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .any(|item| item == ANTHROPIC_COMPACTION_BETA)
+        })
+        .unwrap_or(false);
+
+    if beta_requested {
+        log::info!(
+            "Anthropic Messages 兼容层检测到 header anthropic-beta={ANTHROPIC_COMPACTION_BETA}; 该 Anthropic compaction beta 不会透传为 Codex 原生能力"
+        );
+    }
+}
+
 fn split_anthropic_content_for_codex(
     role: &str,
     content: Option<&Value>,
@@ -3354,6 +3449,7 @@ fn split_anthropic_content_for_codex(
         Some(Value::Array(items)) => {
             for item in items {
                 let Some(item_object) = item.as_object() else {
+                    log::warn!("Anthropic Messages 兼容层忽略非对象 content block role={role}");
                     continue;
                 };
                 match item_object
@@ -3394,14 +3490,98 @@ fn split_anthropic_content_for_codex(
                             "output": stringify_anthropic_tool_result_content(item_object.get("content")),
                         }));
                     }
-                    _ => {}
+                    "compaction" => {
+                        log::info!(
+                            "Anthropic Messages 兼容层将 compaction content block 转为 Codex 文本上下文 role={role}"
+                        );
+                        content_parts.push(json!({
+                            "type": text_type,
+                            "text": anthropic_compaction_block_to_text(item_object),
+                        }));
+                    }
+                    "thinking" => {
+                        let thinking = item_object
+                            .get("thinking")
+                            .and_then(Value::as_str)
+                            .or_else(|| item_object.get("text").and_then(Value::as_str))
+                            .unwrap_or_default()
+                            .trim();
+                        if thinking.is_empty() {
+                            log::info!(
+                                "Anthropic Messages 兼容层跳过空 thinking content block role={role}"
+                            );
+                        } else {
+                            log::info!(
+                                "Anthropic Messages 兼容层将 thinking 摘要转为 Codex 文本上下文 role={role}"
+                            );
+                            content_parts.push(json!({
+                                "type": text_type,
+                                "text": format!("[Anthropic thinking summary preserved for Codex continuation]\n{thinking}"),
+                            }));
+                        }
+                    }
+                    "redacted_thinking" => {
+                        log::info!(
+                            "Anthropic Messages 兼容层跳过 redacted_thinking content block role={role}: 无可读内容可转发"
+                        );
+                    }
+                    block_type => {
+                        let display_type = if block_type.is_empty() {
+                            "<missing>"
+                        } else {
+                            block_type
+                        };
+                        log::warn!(
+                            "Anthropic Messages 兼容层遇到未知 content block type={display_type} role={role}; 已转为 JSON 文本保留"
+                        );
+                        content_parts.push(json!({
+                            "type": text_type,
+                            "text": anthropic_unknown_block_to_text(display_type, item),
+                        }));
+                    }
                 }
             }
         }
-        _ => {}
+        Some(other) => {
+            log::warn!(
+                "Anthropic Messages 兼容层遇到非字符串/数组 content role={role}; 已转为 JSON 文本保留"
+            );
+            content_parts.push(json!({
+                "type": text_type,
+                "text": format!(
+                    "[Unsupported Anthropic message content preserved as JSON for Codex continuation]\n{}",
+                    serde_json::to_string(other).unwrap_or_default()
+                ),
+            }));
+        }
+        None => {}
     }
 
     (content_parts, special_items)
+}
+
+fn anthropic_compaction_block_to_text(block: &Map<String, Value>) -> String {
+    for key in ["summary", "text", "content"] {
+        let text = stringify_message_content(block.get(key));
+        if !text.trim().is_empty() {
+            return format!(
+                "[Claude Code compacted previous context; preserved for Codex continuation]\n{}",
+                text.trim()
+            );
+        }
+    }
+
+    format!(
+        "[Claude Code compaction block preserved as JSON for Codex continuation]\n{}",
+        serde_json::to_string(&Value::Object(block.clone())).unwrap_or_default()
+    )
+}
+
+fn anthropic_unknown_block_to_text(block_type: &str, block: &Value) -> String {
+    format!(
+        "[Unsupported Anthropic content block type={block_type} preserved as JSON for Codex continuation]\n{}",
+        serde_json::to_string(block).unwrap_or_default()
+    )
 }
 
 fn anthropic_image_source_to_codex_url(source: Option<&Value>) -> Option<String> {
@@ -5008,9 +5188,7 @@ fn should_replace_proxy_candidate(existing: &ProxyCandidate, candidate: &ProxyCa
 }
 
 fn log_proxy_request_route(route: &str) {
-    log::info!(
-        "\x1b[36mAPI proxy\x1b[0m 请求来了 route=\x1b[33m{route}\x1b[0m",
-    );
+    log::info!("\x1b[36mAPI proxy\x1b[0m 请求来了 route=\x1b[33m{route}\x1b[0m",);
 }
 
 fn log_proxy_response_route(route: &str, status: StatusCode) {
@@ -5026,9 +5204,7 @@ fn log_proxy_response_route(route: &str, status: StatusCode) {
     } else {
         code.to_string()
     };
-    log::info!(
-        "\x1b[36m响应\x1b[0m route=\x1b[33m{route}\x1b[0m status={status_painted}\n",
-    );
+    log::info!("\x1b[36m响应\x1b[0m route=\x1b[33m{route}\x1b[0m status={status_painted}\n",);
 }
 
 fn order_proxy_candidates_for_request(
@@ -8002,7 +8178,6 @@ fn parse_proxy_request_body_limit_mib(value: Option<&str>) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use axum::body::Bytes;
     use super::account_to_proxy_candidate;
     use super::api_proxy_disabled_model_set;
     use super::api_proxy_requested_models_from_payload;
@@ -8072,6 +8247,7 @@ mod tests {
     use crate::models::UsageWindow;
     use crate::state::ApiProxyRuntimeSnapshot;
     use crate::state::ApiProxySessionAffinity;
+    use axum::body::Bytes;
     use axum::http::HeaderMap;
     use axum::http::HeaderValue;
     use serde_json::json;
@@ -8255,9 +8431,11 @@ mod tests {
     #[test]
     fn extract_last_user_message_preview_truncates_long_text_with_ellipsis() {
         let long_text = "啊".repeat(500);
-        let body = format!(r#"{{"input":[{{"role":"user","content":"{}"}}]}}"#, long_text);
-        let preview =
-            super::extract_last_user_message_preview(&Bytes::from(body), 50).unwrap();
+        let body = format!(
+            r#"{{"input":[{{"role":"user","content":"{}"}}]}}"#,
+            long_text
+        );
+        let preview = super::extract_last_user_message_preview(&Bytes::from(body), 50).unwrap();
         // 50 个字符 + 末尾省略号
         assert!(preview.ends_with('…'));
         assert!(preview.chars().count() <= 51);
@@ -9047,6 +9225,82 @@ mod tests {
                 .and_then(Value::as_str),
             Some("lookup")
         );
+    }
+
+    #[test]
+    fn preserves_anthropic_compaction_and_unknown_blocks_as_text() {
+        let request = json!({
+            "model": "claude-opus-5",
+            "context_management": {
+                "edits": [{ "type": "compact_20260112" }]
+            },
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "compaction",
+                            "summary": "Earlier task summary"
+                        },
+                        {
+                            "type": "thinking",
+                            "thinking": "Visible thinking summary"
+                        },
+                        {
+                            "type": "redacted_thinking",
+                            "data": "opaque"
+                        },
+                        {
+                            "type": "future_block",
+                            "payload": { "important": true }
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let (payload, _) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+        let content = payload
+            .get("input")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("content"))
+            .and_then(Value::as_array)
+            .expect("message content should be present");
+        let text = content
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Earlier task summary"));
+        assert!(text.contains("Visible thinking summary"));
+        assert!(text.contains("future_block"));
+        assert!(!text.contains("redacted_thinking"));
+    }
+
+    #[test]
+    fn count_tokens_includes_tools_and_non_text_blocks_conservatively() {
+        let request = json!({
+            "system": "系统提示",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "hello" },
+                    { "type": "image", "source": { "type": "url", "url": "https://example.test/a.png" } },
+                    { "type": "compaction", "summary": "历史摘要" }
+                ]
+            }],
+            "tools": [{
+                "name": "lookup",
+                "input_schema": { "type": "object", "properties": { "q": { "type": "string" } } }
+            }]
+        });
+
+        let count = super::estimate_anthropic_input_tokens(&request);
+
+        assert!(count > 1_000);
     }
 
     #[test]

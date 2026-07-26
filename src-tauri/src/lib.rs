@@ -2272,7 +2272,9 @@ pub fn run() {
             // 把磁盘上的 settings 灌进 AppState 内存锁,让运行中的代理在请求路径上读到最新值
             {
                 let state = app.state::<AppState>();
-                if let Err(err) = settings_service::hydrate_settings_from_store(app.handle(), &state) {
+                if let Err(err) =
+                    settings_service::hydrate_settings_from_store(app.handle(), &state)
+                {
                     log::warn!("启动时加载 settings 失败: {err}");
                 }
             }

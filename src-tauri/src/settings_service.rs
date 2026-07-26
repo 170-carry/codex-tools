@@ -13,10 +13,7 @@ use crate::store::save_store;
 
 /// 应用启动时把磁盘上的 settings 灌进 `AppState.settings`,
 /// 供运行中的代理等组件即时读取最新配置。
-pub(crate) fn hydrate_settings_from_store(
-    app: &AppHandle,
-    state: &AppState,
-) -> Result<(), String> {
+pub(crate) fn hydrate_settings_from_store(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let store = load_store(app)?;
     let mut settings = store.settings;
     if settings
@@ -28,9 +25,10 @@ pub(crate) fn hydrate_settings_from_store(
     }
     settings.api_proxy_request_body_dir =
         normalize_request_body_dir(settings.api_proxy_request_body_dir);
-    *state.settings.write().map_err(|error| {
-        format!("写入内存设置锁失败: {error}")
-    })? = settings;
+    *state
+        .settings
+        .write()
+        .map_err(|error| format!("写入内存设置锁失败: {error}"))? = settings;
     Ok(())
 }
 
@@ -118,8 +116,7 @@ pub(crate) async fn update_app_settings_internal(
             store.settings.api_proxy_request_body_enabled = value;
         }
         if let Some(value) = patch.api_proxy_request_body_dir {
-            store.settings.api_proxy_request_body_dir =
-                normalize_request_body_dir(value);
+            store.settings.api_proxy_request_body_dir = normalize_request_body_dir(value);
         }
         if let Some(value) = patch.codex_analytics_weekly_budget_usd {
             store.settings.codex_analytics_weekly_budget_usd = normalize_weekly_budget(value);
