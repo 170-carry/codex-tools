@@ -77,10 +77,12 @@ const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
 const APP_MENU_OPEN_SETTINGS_EVENT: &str = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT: &str = "app-menu-check-update";
 const CODEX_COST_ANALYTICS_PROGRESS_EVENT: &str = "codex-cost-analytics-progress";
+const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT: &str = "main-window-visibility-changed";
 const CODEX_COST_ANALYTICS_CACHE_FILE: &str = "codex-cost-analytics-cache.json";
 const APP_MENU_SETTINGS_ID: &str = "app_menu_settings";
 const APP_MENU_CHECK_UPDATES_ID: &str = "app_menu_check_updates";
-const AUTH_KEEPALIVE_INTERVAL_SECS: u64 = 300;
+#[cfg(not(target_os = "macos"))]
+const BACKGROUND_USAGE_REFRESH_INTERVAL_SECS: u64 = 300;
 const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
 
 #[cfg(target_os = "macos")]
@@ -730,11 +732,16 @@ async fn get_codex_cost_analytics(
         .await?
         .codex_analytics_weekly_budget_usd;
     let cache_path = codex_cost_analytics_cache_path(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        load_or_refresh_codex_cost_analytics_cache(&cache_path, budget)
+    let cached = tauri::async_runtime::spawn_blocking(move || {
+        load_cached_codex_cost_analytics_from_path(&cache_path, budget)
     })
     .await
-    .map_err(|error| format!("统计 Codex 成本分析失败: {error}"))?
+    .map_err(|error| format!("读取 Codex 成本分析缓存失败: {error}"))??;
+    if let Some(cached) = cached {
+        return Ok(cached);
+    }
+
+    refresh_codex_cost_analytics_internal(&app, budget, false).await
 }
 
 #[tauri::command]
@@ -761,47 +768,7 @@ async fn refresh_codex_cost_analytics(
     let budget = settings_service::get_app_settings_internal(&app, state.inner())
         .await?
         .codex_analytics_weekly_budget_usd;
-    let cache_path = codex_cost_analytics_cache_path(&app)?;
-    let progress_app = app.clone();
-
-    tauri::async_runtime::spawn_blocking(
-        move || -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
-            let snapshot = token_usage::collect_codex_cost_analytics_snapshot_with_progress(
-                budget,
-                |progress| {
-                    let _ = progress_app.emit(CODEX_COST_ANALYTICS_PROGRESS_EVENT, progress);
-                },
-            )?;
-
-            let _ = progress_app.emit(
-                CODEX_COST_ANALYTICS_PROGRESS_EVENT,
-                token_usage::CodexCostAnalyticsProgress {
-                    stage: "caching".to_string(),
-                    processed_files: snapshot.source_path_count,
-                    total_files: snapshot.source_path_count,
-                    percent: 100,
-                    current_path: Some(cache_path.to_string_lossy().to_string()),
-                },
-            );
-            write_codex_cost_analytics_cache_to_path(&cache_path, &snapshot)?;
-
-            let cached = load_cached_codex_cost_analytics_from_path(&cache_path, budget)?
-                .unwrap_or(snapshot);
-            let _ = progress_app.emit(
-                CODEX_COST_ANALYTICS_PROGRESS_EVENT,
-                token_usage::CodexCostAnalyticsProgress {
-                    stage: "complete".to_string(),
-                    processed_files: cached.source_path_count,
-                    total_files: cached.source_path_count,
-                    percent: 100,
-                    current_path: None,
-                },
-            );
-            Ok(cached)
-        },
-    )
-    .await
-    .map_err(|error| format!("刷新 Codex 成本分析失败: {error}"))?
+    refresh_codex_cost_analytics_internal(&app, budget, true).await
 }
 
 #[tauri::command]
@@ -818,15 +785,75 @@ async fn export_codex_cost_analytics(
         .await?
         .codex_analytics_weekly_budget_usd;
     let cache_path = codex_cost_analytics_cache_path(&app)?;
+    let cached = tauri::async_runtime::spawn_blocking(move || {
+        load_cached_codex_cost_analytics_from_path(&cache_path, budget)
+    })
+    .await
+    .map_err(|error| format!("读取 Codex 成本分析缓存失败: {error}"))??;
+    let snapshot = match cached {
+        Some(snapshot) => snapshot,
+        None => refresh_codex_cost_analytics_internal(&app, budget, false).await?,
+    };
 
     tauri::async_runtime::spawn_blocking(move || {
-        let snapshot = load_or_refresh_codex_cost_analytics_cache(&cache_path, budget)?;
         let bytes =
             token_usage::serialize_codex_cost_analytics_export(&snapshot, &normalized_format)?;
         export_codex_cost_analytics_file(&normalized_format, &bytes)
     })
     .await
     .map_err(|error| format!("导出 Codex 成本分析失败: {error}"))?
+}
+
+async fn refresh_codex_cost_analytics_internal(
+    app: &AppHandle,
+    budget: Option<f64>,
+    emit_progress: bool,
+) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
+    let cache_path = codex_cost_analytics_cache_path(app)?;
+    let progress_app = app.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        token_usage::collect_codex_cost_analytics_snapshot_with_progress(budget, |progress| {
+            if emit_progress {
+                let _ = progress_app.emit(CODEX_COST_ANALYTICS_PROGRESS_EVENT, progress);
+            }
+        })
+    })
+    .await
+    .map_err(|error| format!("刷新 Codex 成本分析失败: {error}"))??;
+
+    if emit_progress {
+        let _ = app.emit(
+            CODEX_COST_ANALYTICS_PROGRESS_EVENT,
+            token_usage::CodexCostAnalyticsProgress {
+                stage: "caching".to_string(),
+                processed_files: snapshot.source_path_count,
+                total_files: snapshot.source_path_count,
+                percent: 100,
+                current_path: Some(cache_path.to_string_lossy().to_string()),
+            },
+        );
+    }
+    let write_path = cache_path.clone();
+    let write_snapshot = snapshot.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        write_codex_cost_analytics_cache_to_path(&write_path, &write_snapshot)
+    })
+    .await
+    .map_err(|error| format!("写入 Codex 成本分析缓存失败: {error}"))??;
+
+    if emit_progress {
+        let _ = app.emit(
+            CODEX_COST_ANALYTICS_PROGRESS_EVENT,
+            token_usage::CodexCostAnalyticsProgress {
+                stage: "complete".to_string(),
+                processed_files: snapshot.source_path_count,
+                total_files: snapshot.source_path_count,
+                percent: 100,
+                current_path: None,
+            },
+        );
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -944,19 +971,6 @@ fn load_cached_codex_cost_analytics_from_path(
             cache_path.display()
         )),
     }
-}
-
-fn load_or_refresh_codex_cost_analytics_cache(
-    cache_path: &std::path::Path,
-    budget: Option<f64>,
-) -> Result<token_usage::CodexCostAnalyticsSnapshot, String> {
-    if let Some(snapshot) = load_cached_codex_cost_analytics_from_path(cache_path, budget)? {
-        return Ok(snapshot);
-    }
-
-    let snapshot = token_usage::collect_codex_cost_analytics_snapshot(budget)?;
-    write_codex_cost_analytics_cache_to_path(cache_path, &snapshot)?;
-    Ok(load_cached_codex_cost_analytics_from_path(cache_path, budget)?.unwrap_or(snapshot))
 }
 
 fn write_codex_cost_analytics_cache_to_path(
@@ -1274,7 +1288,6 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             api_proxy_enabled: true,
-            codex_keepalive_last_at: None,
         }
     }
 
@@ -2421,6 +2434,10 @@ fn handle_window_close_to_background(window: &tauri::Window, event: &WindowEvent
         api.prevent_close();
         if let Err(err) = window.hide() {
             log::warn!("隐藏窗口失败: {err}");
+        } else {
+            let _ = window
+                .app_handle()
+                .emit(MAIN_WINDOW_VISIBILITY_CHANGED_EVENT, false);
         }
         #[cfg(target_os = "macos")]
         {
@@ -2443,6 +2460,7 @@ pub(crate) fn restore_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit(MAIN_WINDOW_VISIBILITY_CHANGED_EVENT, true);
     }
 }
 
@@ -2473,19 +2491,30 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
     }
 }
 
-fn start_auth_keepalive_loop(app: AppHandle) {
+#[cfg(not(target_os = "macos"))]
+fn start_background_usage_refresh_loop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
+            tokio::time::sleep(Duration::from_secs(BACKGROUND_USAGE_REFRESH_INTERVAL_SECS)).await;
+            let main_window_visible = app
+                .get_webview_window("main")
+                .and_then(|window| window.is_visible().ok())
+                .unwrap_or(false);
+            if main_window_visible {
+                continue;
+            }
+
+            // Windows 没有 macOS 状态栏刷新循环。窗口隐藏时保留一条低频兜底，
+            // 仅刷新真实用量并按需更新 OAuth 令牌，绝不调用 Codex 推理接口。
             let state = app.state::<AppState>();
             match account_service::refresh_all_usage_internal(&app, state.inner(), true).await {
                 Ok(summaries) => {
                     let _ = tray::update_macos_tray_snapshot(&app, &summaries);
                 }
                 Err(error) => {
-                    log::warn!("后台账号保活失败: {error}");
+                    log::warn!("后台账号认证检查失败: {error}");
                 }
             }
-            tokio::time::sleep(Duration::from_secs(AUTH_KEEPALIVE_INTERVAL_SECS)).await;
         }
     });
 }
@@ -2685,6 +2714,9 @@ pub fn run() {
                 )?;
             }
 
+            #[cfg(debug_assertions)]
+            auth::log_current_auth_parse_diagnostic("startup");
+
             if let Err(err) = settings_service::sync_autostart_from_store(app.handle()) {
                 log::warn!("启动时同步开机启动状态失败: {err}");
             }
@@ -2692,7 +2724,8 @@ pub fn run() {
             store::sync_current_auth_account_on_startup(app.handle())?;
             setup_macos_app_menu(app.handle())?;
             tray::setup_system_tray(app.handle())?;
-            start_auth_keepalive_loop(app.handle().clone());
+            #[cfg(not(target_os = "macos"))]
+            start_background_usage_refresh_loop(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

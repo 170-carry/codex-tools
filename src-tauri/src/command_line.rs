@@ -17,6 +17,7 @@ use crate::account_service;
 use crate::app_paths;
 use crate::auth;
 use crate::cli;
+use crate::models::mark_current_account_summary;
 use crate::models::AccountSourceKind;
 use crate::models::AccountSummary;
 use crate::models::AccountsStore;
@@ -416,13 +417,11 @@ fn account_summaries(store: &AccountsStore) -> Vec<AccountSummary> {
         })
         .collect::<Vec<_>>();
 
-    if !summaries.iter().any(|account| account.is_current) {
-        if let Some(active_id) = store.settings.active_account_id.as_deref() {
-            if let Some(account) = summaries.iter_mut().find(|account| account.id == active_id) {
-                account.is_current = true;
-            }
-        }
-    }
+    mark_current_account_summary(
+        &mut summaries,
+        current_account_key.as_deref(),
+        store.settings.active_account_id.as_deref(),
+    );
 
     summaries
 }

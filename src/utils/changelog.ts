@@ -5,6 +5,8 @@ export type ChangelogEntry = {
   items: string[];
 };
 
+type ReleaseNotesLocale = string | null | undefined;
+
 type DraftChangelogEntry = {
   version: string;
   lines: string[];
@@ -12,9 +14,11 @@ type DraftChangelogEntry = {
 
 const VERSION_HEADING_PATTERN =
   /^\s*-\s*v?([0-9]+(?:\.[0-9]+){1,3}(?:[-+][^\s:：]+)?)(?:\s*[:：-]\s*(.*))?\s*$/i;
+const UNRELEASED_HEADING_PATTERN = /^\s*###\s+(?:unreleased|未发布)\s*$/i;
 
 export function getChangelogEntryForVersion(
   version: string,
+  locale?: ReleaseNotesLocale,
   source = changelogSource,
 ): ChangelogEntry | null {
   const targetVersion = normalizeVersion(version);
@@ -24,7 +28,7 @@ export function getChangelogEntryForVersion(
     const headingMatch = line.match(VERSION_HEADING_PATTERN);
     if (headingMatch) {
       if (activeEntry && normalizeVersion(activeEntry.version) === targetVersion) {
-        return finalizeEntry(activeEntry);
+        return finalizeEntry(activeEntry, locale);
       }
 
       activeEntry = {
@@ -42,20 +46,23 @@ export function getChangelogEntryForVersion(
   }
 
   if (activeEntry && normalizeVersion(activeEntry.version) === targetVersion) {
-    return finalizeEntry(activeEntry);
+    return finalizeEntry(activeEntry, locale);
   }
 
   return null;
 }
 
-export function getLatestChangelogEntry(source = changelogSource): ChangelogEntry | null {
+export function getLatestChangelogEntry(
+  locale?: ReleaseNotesLocale,
+  source = changelogSource,
+): ChangelogEntry | null {
   let activeEntry: DraftChangelogEntry | null = null;
 
   for (const line of source.split(/\r?\n/)) {
     const headingMatch = line.match(VERSION_HEADING_PATTERN);
     if (headingMatch) {
       if (activeEntry) {
-        return finalizeEntry(activeEntry);
+        return finalizeEntry(activeEntry, locale);
       }
 
       activeEntry = {
@@ -72,22 +79,78 @@ export function getLatestChangelogEntry(source = changelogSource): ChangelogEntr
     activeEntry?.lines.push(line);
   }
 
-  return activeEntry ? finalizeEntry(activeEntry) : null;
+  return activeEntry ? finalizeEntry(activeEntry, locale) : null;
 }
 
-export function normalizeReleaseNoteItems(body: string | null | undefined): string[] {
-  return (body ?? "")
-    .split(/\r?\n/)
-    .map(normalizeChangelogLine)
-    .filter((item): item is string => Boolean(item));
+export function getUnreleasedChangelogEntry(
+  locale?: ReleaseNotesLocale,
+  source = changelogSource,
+): ChangelogEntry | null {
+  const lines: string[] = [];
+  let collecting = false;
+
+  for (const line of source.split(/\r?\n/)) {
+    if (UNRELEASED_HEADING_PATTERN.test(line)) {
+      collecting = true;
+      continue;
+    }
+    if (!collecting) {
+      continue;
+    }
+    if (VERSION_HEADING_PATTERN.test(line) || /^\s*###\s+/.test(line)) {
+      break;
+    }
+    lines.push(line);
+  }
+
+  const items = normalizeReleaseNoteItems(lines.join("\n"), locale);
+  return items.length > 0 ? { version: "Next", items } : null;
 }
 
-function finalizeEntry(entry: DraftChangelogEntry): ChangelogEntry {
+export function normalizeReleaseNoteItems(
+  body: string | null | undefined,
+  locale?: ReleaseNotesLocale,
+): string[] {
+  const sections = new Map<string, string[]>();
+  const unscoped: string[] = [];
+  let activeLanguage: "en" | "zh" | null = null;
+
+  for (const line of (body ?? "").split(/\r?\n/)) {
+    const language = releaseNotesHeadingLanguage(line);
+    if (language) {
+      activeLanguage = language;
+      if (!sections.has(language)) {
+        sections.set(language, []);
+      }
+      continue;
+    }
+
+    const item = normalizeChangelogLine(line);
+    if (!item) {
+      continue;
+    }
+    if (activeLanguage) {
+      sections.get(activeLanguage)?.push(item);
+    } else {
+      unscoped.push(item);
+    }
+  }
+
+  if (sections.size === 0) {
+    return unscoped;
+  }
+
+  const preferredLanguage = locale?.toLowerCase().startsWith("zh") ? "zh" : "en";
+  return sections.get(preferredLanguage) ?? sections.get("en") ?? sections.get("zh") ?? unscoped;
+}
+
+function finalizeEntry(
+  entry: DraftChangelogEntry,
+  locale?: ReleaseNotesLocale,
+): ChangelogEntry {
   return {
     version: entry.version,
-    items: entry.lines
-      .map(normalizeChangelogLine)
-      .filter((item): item is string => Boolean(item)),
+    items: normalizeReleaseNoteItems(entry.lines.join("\n"), locale),
   };
 }
 
@@ -96,10 +159,30 @@ function normalizeVersion(version: string): string {
 }
 
 function normalizeChangelogLine(line: string): string | null {
+  if (/^\s*#{1,6}\s+/.test(line)) {
+    return null;
+  }
   const item = line
     .trim()
     .replace(/^(?:\d+[.)、]|[-*+])\s*/, "")
     .trim();
 
   return item.length > 0 ? item : null;
+}
+
+function releaseNotesHeadingLanguage(line: string): "en" | "zh" | null {
+  const normalized = line
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/[:：]\s*$/, "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "english" || normalized === "en") {
+    return "en";
+  }
+  if (normalized === "中文" || normalized === "简体中文" || normalized === "zh") {
+    return "zh";
+  }
+  return null;
 }

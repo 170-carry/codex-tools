@@ -20,6 +20,7 @@ import { useThemeMode } from "./hooks/useThemeMode";
 type AppTab = "accounts" | "analytics" | "proxy" | "settings";
 const APP_MENU_OPEN_SETTINGS_EVENT = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT = "app-menu-check-update";
+const TOKEN_USAGE_FRESHNESS_MS = 5 * 60 * 1000;
 
 function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
@@ -30,8 +31,12 @@ function App() {
     tokenUsageError,
     costAnalytics,
     costAnalyticsError,
+    mainWindowVisible,
     loading,
     refreshing,
+    usageRefreshInFlight,
+    initialUsageRefreshPending,
+    usageRefreshError,
     refreshingTokenUsage,
     addDialogOpen,
     reauthorizeAccount,
@@ -212,6 +217,19 @@ function App() {
     };
   }, [checkForAppUpdate]);
 
+  useEffect(() => {
+    if (activeTab !== "accounts" || !mainWindowVisible) {
+      return;
+    }
+
+    const updatedAtMs = (tokenUsage?.updatedAt ?? 0) * 1000;
+    if (updatedAtMs > 0 && Date.now() < updatedAtMs + TOKEN_USAGE_FRESHNESS_MS) {
+      return;
+    }
+
+    void refreshTokenUsage(true);
+  }, [activeTab, mainWindowVisible, refreshTokenUsage, tokenUsage]);
+
   const refreshAccountsView = () => {
     if (activeTab === "analytics") {
       void refreshCostAnalytics(false);
@@ -299,6 +317,9 @@ function App() {
                 tokenUsage={tokenUsage}
                 tokenUsageError={tokenUsageError}
                 loading={loading}
+                usageRefreshing={usageRefreshInFlight}
+                showInitialUsageRefresh={initialUsageRefreshPending}
+                usageRefreshError={usageRefreshError}
                 exportingAccounts={exportingAccounts}
                 authBusy={authBusy}
                 switchingId={switchingId}

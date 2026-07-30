@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
+import { tokenHeatmapLevel } from "../utils/heatmapScale";
 import type {
   CodexBudgetAlert,
   CodexCostAnalyticsProgress,
@@ -24,7 +25,7 @@ type AnalyticsPanelProps = {
   onUpdateWeeklyBudget: (value: number | null) => Promise<void>;
 };
 
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+type AnalyticsCopy = ReturnType<typeof useI18n>["copy"]["analytics"];
 
 function formatUsd(value: number, locale: string) {
   const digits = Math.abs(value) < 1 ? 4 : 2;
@@ -41,6 +42,31 @@ function formatNumber(value: number, locale: string) {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+function formatWholeNumber(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatTokenCount(value: number, locale: string) {
+  const absoluteValue = Math.abs(value);
+  const scale =
+    absoluteValue >= 999_950
+      ? { divisor: 1_000_000, suffix: "M" }
+      : absoluteValue >= 1_000
+        ? { divisor: 1_000, suffix: "K" }
+        : null;
+
+  if (!scale) {
+    return formatWholeNumber(value, locale);
+  }
+
+  const formatted = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+  }).format(value / scale.divisor);
+  return `${formatted}${scale.suffix}`;
 }
 
 function formatDateTime(value: number | null, locale: string) {
@@ -83,12 +109,17 @@ function alertLabel(
   return copy.budgetUnset;
 }
 
-function statCard(label: string, value: string, detail?: string) {
+function statCard(
+  label: string,
+  value: string,
+  detail?: string,
+  detailTitle?: string,
+) {
   return (
     <article className="analyticsStatCard">
       <span>{label}</span>
       <strong>{value}</strong>
-      {detail ? <small>{detail}</small> : null}
+      {detail ? <small title={detailTitle}>{detail}</small> : null}
     </article>
   );
 }
@@ -106,47 +137,73 @@ function progressStageLabel(
   return copy.progressScanning;
 }
 
+function costSourceDetail(
+  analytics: CodexCostAnalyticsSnapshot | null,
+  copy: AnalyticsCopy,
+  locale: string,
+) {
+  if (!analytics) {
+    return { label: copy.pricingEstimate, title: undefined };
+  }
+
+  const updatedAt = formatDateTime(analytics.costSourceUpdatedAt, locale);
+  return {
+    label: `${copy.costSourceLocal} · ${updatedAt}`,
+    title: undefined,
+  };
+}
+
 function Heatmap({
   buckets,
   locale,
+  copy,
 }: {
   buckets: CodexHourlyCostBucket[];
   locale: string;
+  copy: Pick<AnalyticsCopy, "heatmapAriaLabel" | "heatmapTooltip">;
 }) {
   const byKey = new Map(
     buckets.map((bucket) => [`${bucket.weekday}:${bucket.hour}`, bucket]),
   );
   const maxTokens = Math.max(...buckets.map((bucket) => bucket.tokens), 1);
+  const weekdayFormatter = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+  const weekdayLabels = Array.from({ length: 7 }, (_, weekday) =>
+    weekdayFormatter.format(new Date(Date.UTC(2024, 0, 7 + weekday, 12))),
+  );
   const hourLabels = Array.from({ length: 24 }, (_, hour) => hour);
 
   return (
     <div
       className="analyticsHeatmap"
       role="img"
-      aria-label="Codex token activity heatmap"
+      aria-label={copy.heatmapAriaLabel}
     >
       <div className="analyticsHeatmapHeader" aria-hidden="true">
         <span />
         {hourLabels.map((hour) => (
-          <b key={hour}>{hour % 6 === 0 ? hour : ""}</b>
+          <b key={hour}>{hour % 6 === 0 ? `${hour}:00` : ""}</b>
         ))}
       </div>
-      {WEEKDAY_LABELS.map((label, weekday) => (
+      {weekdayLabels.map((label, weekday) => (
         <div key={label} className="analyticsHeatmapRow">
           <span>{label}</span>
           {hourLabels.map((hour) => {
             const bucket = byKey.get(`${weekday}:${hour}`);
-            const intensity = bucket
-              ? Math.max(0.08, bucket.tokens / maxTokens)
-              : 0;
-            const title = `${label} ${hour}:00, ${formatNumber(bucket?.tokens ?? 0, locale)} tokens`;
+            const tokens = bucket?.tokens ?? 0;
+            const level = tokenHeatmapLevel(tokens, maxTokens);
+            const tooltip = copy.heatmapTooltip(
+              label,
+              `${hour}:00`,
+              formatTokenCount(tokens, locale),
+            );
             return (
               <i
                 key={hour}
-                title={title}
-                style={{
-                  opacity: intensity === 0 ? 0.18 : 0.24 + intensity * 0.76,
-                }}
+                className={`analyticsHeatmapCell level${level}`}
+                data-tooltip={tooltip}
               />
             );
           })}
@@ -406,6 +463,7 @@ export function AnalyticsPanel({
   );
 
   const budgetPercent = analytics?.weeklyBudgetPercent ?? null;
+  const costSource = costSourceDetail(analytics, text, locale);
   const hasData = analytics !== null && analytics.eventCount > 0;
   const showProgress = loading || progress !== null;
   const progressPercent = Math.max(
@@ -484,12 +542,13 @@ export function AnalyticsPanel({
           {statCard(
             text.totalCost,
             analytics ? formatUsd(analytics.totalCostUsd, locale) : "--",
-            text.pricingEstimate,
+            costSource.label,
           )}
           {statCard(
             text.last7dCost,
             analytics ? formatUsd(analytics.last7dCostUsd, locale) : "--",
-            `${analytics?.weeklyBudgetPercent ?? 0}%`,
+            costSource.label,
+            costSource.title,
           )}
           {statCard(
             text.totalTokens,
@@ -583,7 +642,11 @@ export function AnalyticsPanel({
                   <p>{text.heatmapDescription}</p>
                 </div>
               </div>
-              <Heatmap buckets={analytics.heatmap} locale={locale} />
+              <Heatmap
+                buckets={analytics.heatmap}
+                locale={locale}
+                copy={text}
+              />
             </section>
 
             <section className="analyticsBlock analyticsBlockSessions">
@@ -632,6 +695,16 @@ export function AnalyticsPanel({
             <span>
               {text.failedSources}: {analytics.failedPathCount}
             </span>
+            {analytics.unresolvedForkCount > 0 ? (
+              <span>
+                {text.unresolvedForks}: {analytics.unresolvedForkCount}
+              </span>
+            ) : null}
+            {analytics.unresolvedUsageEventCount > 0 ? (
+              <span>
+                {text.usageAnomalies}: {analytics.unresolvedUsageEventCount}
+              </span>
+            ) : null}
             <span>{analytics.pricingSource}</span>
           </footer>
         ) : null}

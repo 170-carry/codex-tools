@@ -591,6 +591,23 @@ pub(crate) fn normalize_plan_type_key(plan_type: Option<&str>) -> String {
     value.to_ascii_lowercase()
 }
 
+pub(crate) fn chatgpt_subscription_active_until(auth_json: &Value) -> Option<i64> {
+    let tokens = auth_token_object(auth_json)?;
+    let id_token = tokens.get("id_token").and_then(Value::as_str)?;
+    let claims = decode_jwt_payload(id_token).ok()?;
+    claims
+        .get("https://api.openai.com/auth")
+        .and_then(Value::as_object)
+        .and_then(|claim| claim.get("chatgpt_subscription_active_until"))
+        .and_then(last_refresh_unix_seconds)
+}
+
+pub(crate) fn auth_last_refresh_unix_seconds(auth_json: &Value) -> Option<i64> {
+    auth_json
+        .get("last_refresh")
+        .and_then(last_refresh_unix_seconds)
+}
+
 pub(crate) fn account_group_key(principal_id: &str, account_id: &str) -> String {
     format!("{}|{}", principal_id.trim(), account_id.trim())
 }
@@ -620,6 +637,79 @@ pub(crate) fn current_auth_variant_key() -> Option<String> {
     read_current_codex_auth()
         .ok()
         .and_then(|auth_json| auth_variant_key(&auth_json))
+}
+
+/// Emits a redacted startup diagnostic for the current Codex auth file.
+///
+/// This is deliberately compiled only for debug builds. It reports parser stages and
+/// field presence, never token contents or account identifiers.
+#[cfg(debug_assertions)]
+pub(crate) fn log_current_auth_parse_diagnostic(context: &str) {
+    let path = match codex_auth_path() {
+        Ok(path) => path,
+        Err(_) => {
+            log::warn!("AUTH_DIAG auth context={context} stage=auth_path_unavailable");
+            return;
+        }
+    };
+
+    if !path.exists() {
+        log::warn!("AUTH_DIAG auth context={context} stage=file_missing");
+        return;
+    }
+
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            log::warn!(
+                "AUTH_DIAG auth context={context} stage=file_read_failed error_kind={:?}",
+                error.kind()
+            );
+            return;
+        }
+    };
+    let byte_len = raw.len();
+    let auth_json: Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!(
+                "AUTH_DIAG auth context={context} stage=json_parse_failed bytes={byte_len} line={} column={}",
+                error.line(),
+                error.column()
+            );
+            return;
+        }
+    };
+
+    let tokens = auth_token_object(&auth_json);
+    let access_token_present = tokens
+        .and_then(|tokens| tokens.get("access_token"))
+        .and_then(Value::as_str)
+        .is_some();
+    let id_token = tokens
+        .and_then(|tokens| tokens.get("id_token"))
+        .and_then(Value::as_str);
+    let direct_account_id_present = tokens
+        .and_then(|tokens| tokens.get("account_id"))
+        .and_then(Value::as_str)
+        .is_some();
+    let id_token_present = id_token.is_some();
+    let id_token_payload_decodable = id_token
+        .map(|token| decode_jwt_payload(token).is_ok())
+        .unwrap_or(false);
+    let strict_parse_error = extract_auth(&auth_json).err();
+    let strict_parse_status = strict_parse_error.as_deref().unwrap_or("ok");
+
+    log::info!(
+        "AUTH_DIAG auth context={context} stage=shape_checked bytes={byte_len} root_object={} auth_mode_present={} tokens_present={} access_token_present={} id_token_present={} id_token_payload_decodable={} direct_account_id_present={} strict_parse={strict_parse_status}",
+        auth_json.is_object(),
+        auth_json.get("auth_mode").and_then(Value::as_str).is_some(),
+        tokens.is_some(),
+        access_token_present,
+        id_token_present,
+        id_token_payload_decodable,
+        direct_account_id_present,
+    );
 }
 
 fn normalize_principal_key(value: &str) -> Option<String> {
@@ -1241,6 +1331,42 @@ mod tests {
             .to_string(),
         );
         format!("header.{payload}.signature")
+    }
+
+    #[test]
+    fn extracts_subscription_active_until_from_id_token() {
+        let auth_json = json!({
+            "tokens": {
+                "id_token": jwt_with_payload(json!({
+                    "https://api.openai.com/auth": {
+                        "chatgpt_subscription_active_until": "2026-07-29T12:09:00Z"
+                    }
+                }))
+            }
+        });
+
+        assert_eq!(
+            chatgpt_subscription_active_until(&auth_json),
+            Some(1_785_326_940)
+        );
+    }
+
+    #[test]
+    fn subscription_active_until_accepts_millisecond_timestamp() {
+        let auth_json = json!({
+            "tokens": {
+                "id_token": jwt_with_payload(json!({
+                    "https://api.openai.com/auth": {
+                        "chatgpt_subscription_active_until": 1_775_045_340_000_i64
+                    }
+                }))
+            }
+        });
+
+        assert_eq!(
+            chatgpt_subscription_active_until(&auth_json),
+            Some(1_775_045_340)
+        );
     }
 
     fn spawn_flaky_token_exchange_server(id_token: String) -> (String, thread::JoinHandle<usize>) {

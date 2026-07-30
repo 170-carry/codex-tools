@@ -518,6 +518,77 @@ button.accountTokenExportButton {
   font: 700 0.76rem/1 var(--font-ui);
 }
 
+.accountStateLine {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.accountStateLine > .statusText {
+  flex: 0 0 7.5rem;
+}
+
+:root:lang(zh-CN) .accountStateLine > .statusText {
+  flex-basis: 4.5rem;
+}
+
+.usageFreshnessBadge {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--subtle);
+  background: color-mix(in srgb, var(--surface-tint) 58%, transparent 42%);
+  font: 650 0.6rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.usageFreshnessBadge > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usageFreshnessDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--subtle);
+}
+
+.usageFreshnessBadge.tone-refreshing {
+  border-color: color-mix(in srgb, var(--brand) 18%, transparent 82%);
+  color: color-mix(in srgb, var(--brand) 72%, var(--ink) 28%);
+  background: color-mix(in srgb, var(--brand-soft) 58%, transparent 42%);
+}
+
+.usageFreshnessBadge.tone-refreshing .usageFreshnessDot {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--brand) 28%, transparent 72%);
+  border-top-color: var(--brand);
+  background: transparent;
+  animation: iconSpin 800ms linear infinite;
+}
+
+.usageFreshnessBadge.tone-error {
+  border-color: color-mix(in srgb, var(--danger) 18%, transparent 82%);
+  color: color-mix(in srgb, var(--danger) 76%, var(--ink) 24%);
+  background: color-mix(in srgb, var(--danger) 8%, transparent 92%);
+}
+
+.usageFreshnessBadge.tone-error .usageFreshnessDot {
+  background: var(--danger);
+}
+
 .statusLabel {
   flex: 0 0 auto;
 }
@@ -902,6 +973,14 @@ button.accountTokenExportButton {
   margin: 0;
   color: var(--ink);
   font: 850 0.9rem/1.15 var(--font-ui);
+}
+
+.detailCardTitle {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .detailMetaGrid {

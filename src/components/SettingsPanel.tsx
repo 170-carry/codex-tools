@@ -126,43 +126,83 @@ export function SettingsPanel({
             <ThemeSwitch themeMode={themeMode} onToggle={onToggleTheme} />
           </div>
 
-          <div className="settingRow">
+          <div className="settingRow settingRowTrayUsage">
             <div className="settingMeta">
               <strong>{copy.settings.trayUsageDisplay.label}</strong>
             </div>
-            <div className="modeGroup" role="radiogroup" aria-label={copy.settings.trayUsageDisplay.groupAriaLabel}>
-              <button
-                className={settings.trayUsageDisplayMode === "remaining" ? "primary" : "ghost"}
-                disabled={savingSettings}
-                onClick={() => onUpdateSettings({ trayUsageDisplayMode: "remaining" })}
-                aria-pressed={settings.trayUsageDisplayMode === "remaining"}
+            <div className="trayUsageSettingsControls">
+              <div
+                className="modeGroup trayUsageModeGroup"
+                role="radiogroup"
+                aria-label={copy.settings.trayUsageDisplay.groupAriaLabel}
               >
-                {copy.settings.trayUsageDisplay.remaining}
-              </button>
-              <button
-                className={settings.trayUsageDisplayMode === "used" ? "primary" : "ghost"}
-                disabled={savingSettings}
-                onClick={() => onUpdateSettings({ trayUsageDisplayMode: "used" })}
-                aria-pressed={settings.trayUsageDisplayMode === "used"}
+                <button
+                  className={settings.trayUsageDisplayMode === "remaining" ? "primary" : "ghost"}
+                  disabled={savingSettings}
+                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "remaining" })}
+                  aria-pressed={settings.trayUsageDisplayMode === "remaining"}
+                >
+                  {copy.settings.trayUsageDisplay.remaining}
+                </button>
+                <button
+                  className={settings.trayUsageDisplayMode === "used" ? "primary" : "ghost"}
+                  disabled={savingSettings}
+                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "used" })}
+                  aria-pressed={settings.trayUsageDisplayMode === "used"}
+                >
+                  {copy.settings.trayUsageDisplay.used}
+                </button>
+                <button
+                  className={settings.trayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
+                  disabled={savingSettings}
+                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "fiveHourRemaining" })}
+                  aria-pressed={settings.trayUsageDisplayMode === "fiveHourRemaining"}
+                >
+                  {copy.settings.trayUsageDisplay.fiveHourRemaining}
+                </button>
+                <button
+                  className={settings.trayUsageDisplayMode === "oneWeekRemaining" ? "primary" : "ghost"}
+                  disabled={savingSettings}
+                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "oneWeekRemaining" })}
+                  aria-pressed={settings.trayUsageDisplayMode === "oneWeekRemaining"}
+                >
+                  {copy.settings.trayUsageDisplay.oneWeekRemaining}
+                </button>
+                <button
+                  className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
+                  disabled={savingSettings}
+                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
+                  aria-pressed={settings.trayUsageDisplayMode === "hidden"}
+                >
+                  {copy.settings.trayUsageDisplay.hidden}
+                </button>
+              </div>
+              <label
+                className="themeSwitch trayUsageTitleSwitch"
+                aria-label={copy.settings.trayUsageTitleWindowLabels.label}
+                title={
+                  settings.trayUsageTitleShowWindowLabels
+                    ? copy.settings.trayUsageTitleWindowLabels.checkedText
+                    : copy.settings.trayUsageTitleWindowLabels.uncheckedText
+                }
               >
-                {copy.settings.trayUsageDisplay.used}
-              </button>
-              <button
-                className={settings.trayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
-                disabled={savingSettings}
-                onClick={() => onUpdateSettings({ trayUsageDisplayMode: "fiveHourRemaining" })}
-                aria-pressed={settings.trayUsageDisplayMode === "fiveHourRemaining"}
-              >
-                {copy.settings.trayUsageDisplay.fiveHourRemaining}
-              </button>
-              <button
-                className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
-                disabled={savingSettings}
-                onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
-                aria-pressed={settings.trayUsageDisplayMode === "hidden"}
-              >
-                {copy.settings.trayUsageDisplay.hidden}
-              </button>
+                <span className="trayUsageTitleSwitchLabel">
+                  {copy.settings.trayUsageTitleWindowLabels.label}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.trayUsageTitleShowWindowLabels}
+                  disabled={savingSettings}
+                  onChange={(event) =>
+                    onUpdateSettings({
+                      trayUsageTitleShowWindowLabels: event.target.checked,
+                    })
+                  }
+                />
+                <span className="themeSwitchTrack" aria-hidden="true">
+                  <span className="themeSwitchThumb" />
+                </span>
+              </label>
             </div>
           </div>
         </div>

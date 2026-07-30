@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Background work before and after energy optimization</title>
+  <desc id="desc">A before-and-after comparison of startup, polling, network, and token log processing.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="1" stop-color="#edf2f8"/>
+    </linearGradient>
+    <linearGradient id="beforeHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff3f0"/>
+      <stop offset="1" stop-color="#fff8f6"/>
+    </linearGradient>
+    <linearGradient id="afterHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e9f9f1"/>
+      <stop offset="1" stop-color="#f4fcf8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#26364d" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowBefore" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M1 1l9 5-9 5z" fill="#de6a59"/>
+    </marker>
+    <marker id="arrowAfter" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M1 1l9 5-9 5z" fill="#2b9b69"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+      .title { font-size: 40px; font-weight: 750; fill: #172033; }
+      .subtitle { font-size: 20px; font-weight: 500; fill: #657189; }
+      .panel-title { font-size: 26px; font-weight: 750; }
+      .panel-subtitle { font-size: 17px; font-weight: 550; fill: #657189; }
+      .node-title { font-size: 20px; font-weight: 700; fill: #1f2b40; }
+      .node-subtitle { font-size: 15px; font-weight: 520; fill: #6d788d; }
+      .tag { font-size: 15px; font-weight: 700; }
+      .footer-main { font-size: 19px; font-weight: 720; }
+      .footer-sub { font-size: 15px; font-weight: 550; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#page)"/>
+  <text class="title" x="56" y="62">Background work · 后台任务</text>
+  <text class="subtitle" x="56" y="96">Startup, polling, network requests, and token-log processing</text>
+  <text class="subtitle" x="1544" y="96" text-anchor="end">启动、轮询、网络请求与 Token 日志处理</text>
+
+  <g filter="url(#shadow)">
+    <rect x="48" y="126" width="728" height="710" rx="28" fill="#fff"/>
+    <rect x="824" y="126" width="728" height="710" rx="28" fill="#fff"/>
+  </g>
+
+  <rect x="48" y="126" width="728" height="104" rx="28" fill="url(#beforeHead)"/>
+  <path d="M48 202h728v28H48z" fill="url(#beforeHead)"/>
+  <circle cx="82" cy="167" r="13" fill="#e16f5c"/>
+  <path d="M76 161l12 12m0-12l-12 12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <text class="panel-title" x="108" y="176" fill="#a63f32">Before · 修改前</text>
+  <text class="panel-subtitle" x="108" y="207">Work continues regardless of visibility</text>
+  <rect x="625" y="151" width="115" height="35" rx="18" fill="#ffe4df"/>
+  <text class="tag" x="682.5" y="174" text-anchor="middle" fill="#b54a3b">HIGH LOAD</text>
+
+  <rect x="824" y="126" width="728" height="104" rx="28" fill="url(#afterHead)"/>
+  <path d="M824 202h728v28H824z" fill="url(#afterHead)"/>
+  <circle cx="858" cy="167" r="13" fill="#2fa66f"/>
+  <path d="M851 167l5 5 10-12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="panel-title" x="884" y="176" fill="#19784e">After · 修改后</text>
+  <text class="panel-subtitle" x="884" y="207">Repeat only lightweight incremental work</text>
+  <rect x="1390" y="151" width="126" height="35" rx="18" fill="#dff5e9"/>
+  <text class="tag" x="1453" y="174" text-anchor="middle" fill="#19784e">INCREMENTAL</text>
+
+  <g>
+    <rect x="86" y="267" width="652" height="87" rx="17" fill="#fff8f6" stroke="#f0c4bb"/>
+    <circle cx="122" cy="310" r="22" fill="#ffe4df"/>
+    <text x="122" y="317" text-anchor="middle" font-size="20" font-weight="750" fill="#b54a3b">1</text>
+    <text class="node-title" x="160" y="302">Immediate serial startup refresh</text>
+    <text class="node-subtitle" x="160" y="328">启动时立即串行刷新，完整界面出现较晚</text>
+
+    <path d="M412 354v25" stroke="#de6a59" stroke-width="2.5" marker-end="url(#arrowBefore)"/>
+    <rect x="86" y="386" width="652" height="87" rx="17" fill="#fff8f6" stroke="#f0c4bb"/>
+    <circle cx="122" cy="429" r="22" fill="#ffe4df"/>
+    <text x="122" y="436" text-anchor="middle" font-size="20" font-weight="750" fill="#b54a3b">2</text>
+    <text class="node-title" x="160" y="421">Inference keepalive request</text>
+    <text class="node-subtitle" x="160" y="447">后台向 /codex/responses 发送推理请求</text>
+
+    <path d="M412 473v25" stroke="#de6a59" stroke-width="2.5" marker-end="url(#arrowBefore)"/>
+    <rect x="86" y="505" width="652" height="87" rx="17" fill="#fff8f6" stroke="#f0c4bb"/>
+    <circle cx="122" cy="548" r="22" fill="#ffe4df"/>
+    <text x="122" y="555" text-anchor="middle" font-size="20" font-weight="750" fill="#b54a3b">3</text>
+    <text class="node-title" x="160" y="540">Polling continues while hidden</text>
+    <text class="node-subtitle" x="160" y="566">主窗口隐藏后，前端与托盘仍重复刷新</text>
+
+    <path d="M412 592v25" stroke="#de6a59" stroke-width="2.5" marker-end="url(#arrowBefore)"/>
+    <rect x="86" y="624" width="652" height="87" rx="17" fill="#fff8f6" stroke="#f0c4bb"/>
+    <circle cx="122" cy="667" r="22" fill="#ffe4df"/>
+    <text x="122" y="674" text-anchor="middle" font-size="20" font-weight="750" fill="#b54a3b">4</text>
+    <text class="node-title" x="160" y="659">Rescan every token log</text>
+    <text class="node-subtitle" x="160" y="685">每轮重新解析全部 JSONL 文件与无关行</text>
+
+    <rect x="86" y="745" width="652" height="55" rx="16" fill="#fff0ed"/>
+    <text class="footer-main" x="412" y="769" text-anchor="middle" fill="#a63f32">Repeated CPU · disk I/O · network pressure</text>
+    <text class="footer-sub" x="412" y="790" text-anchor="middle" fill="#ba6154">持续占用 CPU、磁盘与网络</text>
+  </g>
+
+  <g>
+    <rect x="862" y="267" width="652" height="87" rx="17" fill="#f5fcf8" stroke="#b7dfca"/>
+    <circle cx="898" cy="310" r="22" fill="#dff5e9"/>
+    <text x="898" y="317" text-anchor="middle" font-size="20" font-weight="750" fill="#19784e">1</text>
+    <text class="node-title" x="936" y="302">Show cached accounts first</text>
+    <text class="node-subtitle" x="936" y="328">先展示缓存，再并行启动非关键任务</text>
+
+    <path d="M1188 354v25" stroke="#2b9b69" stroke-width="2.5" marker-end="url(#arrowAfter)"/>
+    <rect x="862" y="386" width="652" height="87" rx="17" fill="#f5fcf8" stroke="#b7dfca"/>
+    <circle cx="898" cy="429" r="22" fill="#dff5e9"/>
+    <text x="898" y="436" text-anchor="middle" font-size="20" font-weight="750" fill="#19784e">2</text>
+    <text class="node-title" x="936" y="421">No inference keepalive request</text>
+    <text class="node-subtitle" x="936" y="447">仅刷新真实用量与必要认证，不产生推理请求</text>
+
+    <path d="M1188 473v25" stroke="#2b9b69" stroke-width="2.5" marker-end="url(#arrowAfter)"/>
+    <rect x="862" y="505" width="652" height="87" rx="17" fill="#f5fcf8" stroke="#b7dfca"/>
+    <circle cx="898" cy="548" r="22" fill="#dff5e9"/>
+    <text x="898" y="555" text-anchor="middle" font-size="20" font-weight="750" fill="#19784e">3</text>
+    <text class="node-title" x="936" y="540">Pause foreground polling when hidden</text>
+    <text class="node-subtitle" x="936" y="566">窗口隐藏时停止前端轮询，仅保留一条托盘刷新链路</text>
+
+    <path d="M1188 592v25" stroke="#2b9b69" stroke-width="2.5" marker-end="url(#arrowAfter)"/>
+    <rect x="862" y="624" width="652" height="87" rx="17" fill="#f5fcf8" stroke="#b7dfca"/>
+    <circle cx="898" cy="667" r="22" fill="#dff5e9"/>
+    <text x="898" y="674" text-anchor="middle" font-size="20" font-weight="750" fill="#19784e">4</text>
+    <text class="node-title" x="936" y="659">Refresh logs incrementally every minute</text>
+    <text class="node-subtitle" x="936" y="685">Token 汇总与成本分析每分钟复用缓存、尾读新增字节</text>
+
+    <rect x="862" y="745" width="652" height="55" rx="16" fill="#e8f8f0"/>
+    <text class="footer-main" x="1188" y="769" text-anchor="middle" fill="#19784e">Lower idle CPU · disk I/O · network activity</text>
+    <text class="footer-sub" x="1188" y="790" text-anchor="middle" fill="#2f8a61">降低空闲耗电与额度消耗风险</text>
+  </g>
+</svg>

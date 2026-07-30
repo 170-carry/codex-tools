@@ -49,6 +49,9 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.tray_usage_display_mode {
             store.settings.tray_usage_display_mode = value;
         }
+        if let Some(value) = patch.tray_usage_title_show_window_labels {
+            store.settings.tray_usage_title_show_window_labels = value;
+        }
         if let Some(value) = patch.launch_codex_after_switch {
             store.settings.launch_codex_after_switch = value;
         }

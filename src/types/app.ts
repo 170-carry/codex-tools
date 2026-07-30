@@ -49,6 +49,8 @@ export type CodexTokenUsageSnapshot = {
   updatedAt: number;
   sourcePathCount: number;
   failedPathCount: number;
+  unresolvedForkCount: number;
+  unresolvedUsageEventCount: number;
   eventCount: number;
   last24h: CodexTokenTotals;
   last3d: CodexTokenTotals;
@@ -117,11 +119,20 @@ export type CodexCostAnalyticsSnapshot = {
   pricingSource: string;
   sourcePathCount: number;
   failedPathCount: number;
+  unresolvedForkCount: number;
+  unresolvedUsageEventCount: number;
   eventCount: number;
   total: CodexTokenTotals;
   totalCostUsd: number;
+  localTotalCostUsd: number;
   last7d: CodexTokenTotals;
   last7dCostUsd: number;
+  localLast7dCostUsd: number;
+  budgetPeriodCostUsd: number;
+  localBudgetPeriodCostUsd: number;
+  costSource: "local_estimate" | string;
+  costSourceUpdatedAt: number | null;
+  costSourceError: string | null;
   weeklyBudgetUsd: number | null;
   weeklyBudgetPercent: number | null;
   weeklyBudgetAlert: CodexBudgetAlert;
@@ -132,7 +143,7 @@ export type CodexCostAnalyticsSnapshot = {
 };
 
 export type CodexCostAnalyticsProgress = {
-  stage: "scanning" | "caching" | "complete" | string;
+  stage: "scanning" | "official" | "caching" | "complete" | string;
   processedFiles: number;
   totalFiles: number;
   percent: number;
@@ -149,6 +160,7 @@ export type AccountSummary = {
   accountKey: string;
   accountId: string;
   planType: string | null;
+  subscriptionActiveUntil: number | null;
   apiBaseUrl: string | null;
   modelName: string | null;
   balanceText: string | null;
@@ -401,7 +413,7 @@ export type PendingUpdateInfo = {
 
 export type ThemeMode = "light" | "dark";
 
-export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "hidden";
+export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "oneWeekRemaining" | "hidden";
 
 export type ApiProxyLoadBalanceMode = "average" | "sequential";
 
@@ -422,6 +434,7 @@ export type InstalledEditorApp = {
 export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
+  trayUsageTitleShowWindowLabels: boolean;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;
