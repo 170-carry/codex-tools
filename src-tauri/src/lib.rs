@@ -1037,8 +1037,16 @@ fn write_private_file(path: &std::path::Path, payload: &[u8], label: &str) -> Re
     ));
 
     let write_result = (|| -> Result<(), String> {
-        std::fs::write(&temp_path, payload)
+        let mut temp_file = utils::private_create_new_options()
+            .open(&temp_path)
+            .map_err(|error| format!("创建{label}临时文件失败 {}: {error}", temp_path.display()))?;
+        temp_file
+            .write_all(payload)
             .map_err(|error| format!("写入{label}临时文件失败 {}: {error}", temp_path.display()))?;
+        temp_file
+            .sync_all()
+            .map_err(|error| format!("刷新{label}临时文件失败 {}: {error}", temp_path.display()))?;
+        drop(temp_file);
         utils::set_private_permissions(&temp_path);
         std::fs::rename(&temp_path, path)
             .map_err(|error| format!("保存{label}文件失败 {}: {error}", path.display()))?;
@@ -1690,6 +1698,14 @@ async fn switch_account_and_launch(
         {
             let _guard = state.store_lock.lock().await;
             let mut latest_store = store::load_store(&app)?;
+            let store_path =
+                store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?);
+            if let Some(active_id) = latest_store.settings.active_account_id.as_deref() {
+                if active_id != id {
+                    // 先保存当前账号在 Codex 内产生的配置改动，再应用目标 profile。
+                    profile_files::capture_current_config_for_profile(&store_path, active_id)?;
+                }
+            }
             let stored_account = latest_store
                 .accounts
                 .iter_mut()
@@ -1701,10 +1717,7 @@ async fn switch_account_and_launch(
                 stored_account.auth_refresh_blocked = false;
                 stored_account.auth_refresh_error = None;
             }
-            profile_files::sync_account_profile_in_store_path(
-                &store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?),
-                stored_account,
-            )?;
+            profile_files::sync_account_profile_in_store_path(&store_path, stored_account)?;
             profile_files::apply_account_profile(stored_account)?;
             latest_store.settings.active_account_id = Some(stored_account.id.clone());
             account = stored_account.clone();

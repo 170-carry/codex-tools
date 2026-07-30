@@ -31,6 +31,21 @@ pub(crate) fn set_private_permissions(path: &Path) {
     let _ = try_set_private_permissions(path);
 }
 
+/// 构造“仅新建”的私有文件选项；Unix 必须在创建瞬间使用 0600，
+/// 避免先按默认权限创建、再 chmod 之间出现敏感内容可读的时间窗口。
+pub(crate) fn private_create_new_options() -> fs::OpenOptions {
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).write(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    options
+}
+
 pub(crate) fn try_set_private_permissions(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -282,9 +297,41 @@ fn preferred_executable_dir_candidates() -> Vec<PathBuf> {
         ] {
             push_unique_candidate(&mut dirs, dir);
         }
+
+        #[cfg(target_os = "windows")]
+        add_winget_package_executable_dirs(&mut dirs, &home);
     }
 
     dirs
+}
+
+#[cfg(target_os = "windows")]
+fn add_winget_package_executable_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
+    let packages_dir = home
+        .join("AppData")
+        .join("Local")
+        .join("Microsoft")
+        .join("WinGet")
+        .join("Packages");
+    let Ok(packages) = fs::read_dir(packages_dir) else {
+        return;
+    };
+
+    for package in packages.flatten() {
+        let package_path = package.path();
+        let Some(package_name) = package_path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !package_name.starts_with("zig.zig_") {
+            continue;
+        }
+        push_unique_candidate(dirs, package_path.clone());
+        if let Ok(children) = fs::read_dir(package_path) {
+            for child in children.flatten() {
+                push_unique_candidate(dirs, child.path());
+            }
+        }
+    }
 }
 
 fn push_unique_dir(dirs: &mut Vec<PathBuf>, candidate: PathBuf) {

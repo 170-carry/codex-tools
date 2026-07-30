@@ -1145,6 +1145,17 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
+    source:
+      "当前会话数据不包含 refresh_token，无法生成可持续使用的 Codex 登录态。请改用 OAuth 登录或导入完整 auth.json。",
+    target: phrases(
+      "当前会话数据不包含 refresh_token，无法生成可持续使用的 Codex 登录态。请改用 OAuth 登录或导入完整 auth.json。",
+      "This session data has no refresh_token, so it cannot create a durable Codex sign-in. Use OAuth or import a complete auth.json instead.",
+      "このセッションデータには refresh_token がないため、継続利用できる Codex ログインを作成できません。OAuth を使用するか、完全な auth.json をインポートしてください。",
+      "이 세션 데이터에는 refresh_token이 없어 지속 가능한 Codex 로그인 상태를 만들 수 없습니다. OAuth를 사용하거나 완전한 auth.json을 가져오세요.",
+      "В данных сеанса нет refresh_token, поэтому создать устойчивый вход Codex невозможно. Используйте OAuth или импортируйте полный auth.json."
+    ),
+  },
+  {
     source: "auth.json 缺少 refresh_token",
     target: phrases(
       "auth.json 缺少 refresh_token",

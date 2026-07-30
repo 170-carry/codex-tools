@@ -316,11 +316,20 @@ export type ApiProxyUsageSeries = {
   points: ApiProxyUsagePoint[];
 };
 
+export type ApiProxyUsageKeySeries = {
+  keyId: string;
+  keyLabel: string;
+  totalCalls: number;
+  totalTokens: number;
+  points: ApiProxyUsagePoint[];
+};
+
 export type ApiProxyUsageStats = {
   updatedAt: number;
   rangeSeconds: number;
   bucketSeconds: number;
   series: ApiProxyUsageSeries[];
+  keySeries: ApiProxyUsageKeySeries[];
 };
 
 export type RemoteAuthMode = "keyContent" | "keyFile" | "keyPath" | "password";

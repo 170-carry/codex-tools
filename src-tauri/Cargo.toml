@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.4.0"
+version = "2.5.0"
 description = "Codex Tools"
 authors = ["you"]
 license = "MIT"
@@ -50,6 +50,7 @@ if-addrs = "0.13"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 toml_edit = "0.22"
 rusqlite = { version = "0.32", features = ["backup", "bundled"] }
+constant_time_eq = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

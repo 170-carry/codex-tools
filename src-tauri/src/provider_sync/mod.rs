@@ -916,9 +916,7 @@ fn write_bytes_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut temp_file = utils::private_create_new_options()
             .open(&temp_path)
             .map_err(|error| format!("创建临时文件失败 {}: {error}", temp_path.display()))?;
         temp_file

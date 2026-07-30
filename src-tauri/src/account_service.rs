@@ -52,6 +52,7 @@ use crate::store::save_store_to_path;
 use crate::store::update_account_group_refresh_state_in_path;
 use crate::usage::fetch_usage_snapshot;
 use crate::utils::now_unix_seconds;
+use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
 use crate::utils::short_account;
 
@@ -1357,6 +1358,7 @@ async fn prepare_auth_json_import(
     auth_json: serde_json::Value,
     label: Option<String>,
 ) -> Result<PreparedImport, String> {
+    ensure_import_has_refresh_token(&auth_json)?;
     let extracted = extract_auth(&auth_json)?;
 
     // 用量拉取失败不阻断导入流程，避免账号无法入库。
@@ -1385,6 +1387,7 @@ async fn prepare_import_candidate(candidate: ImportCandidate) -> Result<Prepared
         ..
     } = candidate;
 
+    ensure_import_has_refresh_token(&auth_json)?;
     let extracted = extract_auth(&auth_json)?;
 
     // 用量拉取失败不阻断导入流程；若来自账号库备份，则保留备份内已有快照。
@@ -1402,6 +1405,24 @@ async fn prepare_import_candidate(candidate: ImportCandidate) -> Result<Prepared
         usage,
         label,
     })
+}
+
+fn ensure_import_has_refresh_token(auth_json: &serde_json::Value) -> Result<(), String> {
+    let refresh_token = auth_json
+        .get("tokens")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|tokens| tokens.get("refresh_token"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if refresh_token.is_some() {
+        return Ok(());
+    }
+
+    Err(
+        "当前会话数据不包含 refresh_token，无法生成可持续使用的 Codex 登录态。请改用 OAuth 登录或导入完整 auth.json。"
+            .to_string(),
+    )
 }
 
 async fn commit_prepared_import(
@@ -1479,9 +1500,7 @@ fn write_accounts_zip_archive(path: &Path, export_payload: &[u8]) -> Result<(), 
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let archive_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let archive_file = private_create_new_options()
             .open(&temp_path)
             .map_err(|error| format!("创建导出临时文件失败 {}: {error}", temp_path.display()))?;
         let mut archive = zip::ZipWriter::new(archive_file);

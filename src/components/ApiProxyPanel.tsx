@@ -381,15 +381,17 @@ function formatApiProxyKeyLogTime(locale: string, timestamp: number | null) {
     return "--";
   }
 
+  // 后端统一返回 Unix 秒；Date/Intl 接收毫秒，必须在展示边界转换。
+  const timestampMs = timestamp * 1000;
   try {
     return new Intl.DateTimeFormat(locale, {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    }).format(timestamp);
+    }).format(timestampMs);
   } catch {
-    return new Date(timestamp).toLocaleString();
+    return new Date(timestampMs).toLocaleString();
   }
 }
 
@@ -489,6 +491,8 @@ type ApiProxyUsageChartMotion = {
   offset: number;
 };
 
+type ApiProxyUsageDimension = "model" | "key";
+
 type ApiProxyUsageChartProps = {
   copy: MessageCatalog["apiProxy"];
   locale: string;
@@ -535,6 +539,12 @@ function hashUsageModel(model: string) {
     hash = (Math.imul(31, hash) + model.charCodeAt(index)) >>> 0;
   }
   return hash;
+}
+
+function formatUsageKeySeriesLabel(label: string, keyId: string) {
+  const normalizedLabel = label.trim() || "Unnamed key";
+  const shortId = keyId.trim().slice(0, 8);
+  return shortId ? `${normalizedLabel} (${shortId})` : normalizedLabel;
 }
 
 function normalizeDisabledProxyModels(disabledModels: string[], supportedModels: string[]) {
@@ -1092,6 +1102,7 @@ function ApiProxyUsageChart({
   const frameRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const [dimension, setDimension] = useState<ApiProxyUsageDimension>("model");
   const [hoverState, setHoverState] = useState<ApiProxyUsageHoverState | null>(null);
   const [contextMenu, setContextMenu] = useState<ApiProxyUsageContextMenu | null>(null);
   const [chartMotion, setChartMotion] = useState<ApiProxyUsageChartMotion>({
@@ -1108,7 +1119,18 @@ function ApiProxyUsageChart({
   const selectedRangeSeconds = API_PROXY_USAGE_RANGE_SECONDS[range];
 
   const chartData = useMemo(() => {
-    const ordered = [...(stats?.series ?? [])].sort((left, right) => left.model.localeCompare(right.model));
+    const sourceSeries =
+      dimension === "key"
+        ? (stats?.keySeries ?? []).map((item) => ({
+            model: formatUsageKeySeriesLabel(item.keyLabel, item.keyId),
+            totalCalls: item.totalCalls,
+            totalTokens: item.totalTokens,
+            points: item.points,
+          }))
+        : (stats?.series ?? []);
+    const ordered = [...sourceSeries].sort((left, right) =>
+      left.model.localeCompare(right.model),
+    );
     const latestPointTimestamp = ordered.reduce((max, item) => {
       const latestPoint = item.points.reduce((pointMax, point) => Math.max(pointMax, point.timestamp), 0);
       return Math.max(max, latestPoint);
@@ -1237,7 +1259,16 @@ function ApiProxyUsageChart({
       maxValue,
       endTimestamp,
     };
-  }, [metric, margins.left, margins.top, plotHeight, plotWidth, selectedRangeSeconds, stats]);
+  }, [
+    dimension,
+    metric,
+    margins.left,
+    margins.top,
+    plotHeight,
+    plotWidth,
+    selectedRangeSeconds,
+    stats,
+  ]);
 
   const series = chartData.series;
   const bucketSeconds = chartData.bucketSeconds ?? Math.max(1, selectedRangeSeconds);
@@ -1451,6 +1482,23 @@ function ApiProxyUsageChart({
       </div>
 
       <div className="proxyUsageControls">
+        <div className="proxyUsageGroup" role="group" aria-label={copy.chartDimensionLabel}>
+          {([
+            { value: "model", label: copy.chartByModel },
+            { value: "key", label: copy.chartByKey },
+          ] as const).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`proxyUsageChip${dimension === option.value ? " isActive" : ""}`}
+              aria-pressed={dimension === option.value}
+              onClick={() => setDimension(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
         <div className="proxyUsageGroup" role="group" aria-label={copy.chartRangeLabel}>
           {rangeOptions.map((option) => (
             <button

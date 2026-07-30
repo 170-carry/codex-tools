@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- v2.5.0
+
 #### English
 
 1. Improve the macOS status bar and usage labels: use the color app icon, default to showing one-week remaining usage, optionally show 5h / 1w labels, hide the entire status item when disabled, and keep the account meters labeled 5h / 1w even when both values are currently identical.
@@ -9,6 +11,11 @@
 3. Improve first-launch account feedback: show stored accounts and the last saved quota snapshot immediately, refresh remote quota and non-critical startup work concurrently, show freshness only during first-load work, and hide the freshness badge after a successful refresh. Failed or unavailable states remain visible; failures show a concise cause while retaining the full error on hover.
 4. Fix startup and the macOS status bar after a Plus-to-Pro upgrade: reuse the cached Pro account when stale auth metadata still says Plus, keep the last quota visible during refresh, and correctly select the current account.
 5. Unify local Token analytics and the 7-day heatmap: derive actual increments from cumulative Token snapshots, ignore unchanged rebroadcasts, and exclude verified parent-history replays from forked sessions. Hourly buckets use local time, retain useful color contrast, localize labels, and show exact Token counts immediately on hover. Total, seven-day, project, session, prompt, and heatmap costs now share the same local-log model pricing. The seven-day card uses the previous seven completed local calendar days, while the cost alert uses the rolling latest 168 hours. Analytics no longer requests or caches official Profile activity.
+6. Preserve shared Codex configuration when switching accounts: MCP servers, hooks, features, pet settings, and other user-managed keys now follow the active configuration, while model-provider fields remain account-specific.
+7. Reject session imports without a usable refresh token and direct users to OAuth or a complete `auth.json`, preventing accounts that cannot refresh from being saved.
+8. Improve API proxy observability: fix Unix-second timestamps in recent logs and allow usage charts to switch between model and API-key dimensions.
+9. Harden sensitive files and credentials: create private files with restrictive permissions, compare proxy keys in constant time, and avoid printing the full proxy key in daemon output.
+10. Keep deployed remote proxies synchronized after account changes and discover Zig installed through WinGet on Windows.
 
 #### 中文
 
@@ -17,6 +24,11 @@
 3. 改善首次启动账号反馈：立即显示本地账号与上次保存的额度快照，并发刷新远端额度和非关键启动任务；新鲜度提示仅在首次加载期间出现，刷新成功后自动隐藏。失败或暂无数据状态仍会保留，其中失败提示直接显示简短原因，悬停时仍可查看完整错误。
 4. 修复 Plus 升级为 PRO 后的启动与状态栏账号识别：当认证元数据仍显示 Plus 时复用带缓存的 PRO 账号，刷新期间继续显示上次额度，并正确选中当前账号。
 5. 统一本机 Token 分析与 7 日热力图：根据累计 Token 快照计算实际增量，忽略累计值未变化的重复广播，并排除 fork 会话中已验证的父会话历史回放。小时数据按本地时间分桶，保留有效色阶，标签跟随界面语言，并在悬停时立即显示精确 Token 数量。总成本、7 日成本、项目、会话、prompt 与热力图现共用相同的本机日志模型计价。7 日成本采用前 7 个完整本地自然日，成本预警采用滚动最近 168 小时。分析页不再请求或缓存官方 Profile 活动量。
+6. 切换账号时保留共享 Codex 配置：MCP、hooks、features、宠物设置及其他用户配置跟随当前配置保存，模型供应商字段仍按账号隔离。
+7. 拒绝导入缺少有效 refresh token 的会话，并引导使用 OAuth 或完整 `auth.json`，避免保存后无法刷新的账号。
+8. 改善 API 反代可观测性：修复近期日志 Unix 秒级时间戳显示错误，并支持用量图表按模型或 API Key 两种维度查看。
+9. 加固敏感文件与凭证：敏感文件创建即使用严格权限，代理密钥采用常量时间比较，守护进程不再输出完整代理密钥。
+10. 账号变化后自动同步已部署的远程代理，并在 Windows 上发现通过 WinGet 安装的 Zig。
 
 - v2.4.0
   1. macOS 支持启动新版 `ChatGPT.app`，并继续兼容旧版 `Codex.app`、`Codex Desktop.app` 与 `codex app` 回退
