@@ -139,12 +139,13 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "async-stream",
  "axum",
  "base64 0.22.1",
  "clap",
+ "constant_time_eq",
  "dirs 6.0.0",
  "futures-util",
  "if-addrs",
@@ -885,6 +886,12 @@ checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
 ]
+
+[[package]]
+name = "constant_time_eq"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "convert_case"

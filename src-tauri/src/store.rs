@@ -21,6 +21,7 @@ use crate::models::AccountsStore;
 use crate::models::StoredAccount;
 use crate::profile_files;
 use crate::utils::now_unix_seconds;
+use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
 use crate::utils::short_account;
 
@@ -404,9 +405,7 @@ fn write_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut temp_file = private_create_new_options()
             .open(&temp_path)
             .map_err(|e| format!("创建临时存储文件失败 {}: {e}", temp_path.display()))?;
         temp_file

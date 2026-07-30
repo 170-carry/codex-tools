@@ -276,6 +276,9 @@ export type MessageCatalog = {
     chartKicker: string;
     chartTitle: string;
     chartDescription: string;
+    chartDimensionLabel: string;
+    chartByModel: string;
+    chartByKey: string;
     chartRangeLabel: string;
     chartMetricLabel: string;
     chartCalls: string;

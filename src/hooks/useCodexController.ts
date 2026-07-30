@@ -314,6 +314,9 @@ export function useCodexController() {
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const apiProxyUsageLoadSeqRef = useRef(0);
   const apiProxyUsagePollInFlightRef = useRef(false);
+  const remoteProxyStatusesRawRef = useRef<Record<string, RemoteProxyStatus>>({});
+  const remoteProxyAutoRedeployInFlightRef = useRef(false);
+  const remoteProxyAutoRedeployRef = useRef<() => Promise<void>>(async () => {});
   const tokenUsageRefreshInFlightRef = useRef(false);
   const usageRefreshCountRef = useRef(0);
   const usageRefreshSequenceRef = useRef(0);
@@ -441,6 +444,10 @@ export function useCodexController() {
       ),
     [localizeRemoteProxyStatus, remoteProxyStatusesRaw],
   );
+
+  useEffect(() => {
+    remoteProxyStatusesRawRef.current = remoteProxyStatusesRaw;
+  }, [remoteProxyStatusesRaw]);
 
   const loadAccounts = useCallback(async () => {
     const data = await invoke<AccountSummary[]>("list_accounts");
@@ -877,6 +884,7 @@ export function useCodexController() {
       const successCount = result.importedCount + result.updatedCount;
       if (successCount > 0) {
         await loadAccounts();
+        void remoteProxyAutoRedeployRef.current();
       }
 
       if (successCount > 0 && result.failures.length === 0) {
@@ -1562,6 +1570,7 @@ export function useCodexController() {
       });
       await refreshUsage(true);
       await loadAccounts();
+      void remoteProxyAutoRedeployRef.current();
       setAddDialogOpen(false);
       setNotice({
         type: "ok",
@@ -1625,6 +1634,7 @@ export function useCodexController() {
       try {
         await invoke<AccountSummary>("create_api_account", { input });
         await loadAccounts();
+        void remoteProxyAutoRedeployRef.current();
         setAddDialogOpen(false);
         setNotice({
           type: "ok",
@@ -2174,6 +2184,83 @@ export function useCodexController() {
     ],
   );
 
+  async function redeployDeployedRemoteProxiesAfterAccountChange() {
+    if (remoteProxyAutoRedeployInFlightRef.current || deployingRemoteProxyId !== null) {
+      return;
+    }
+
+    const statuses = remoteProxyStatusesRawRef.current;
+    const deployedServers = settingsRef.current.remoteServers.filter((server) => {
+      const status = statuses[server.id];
+      return Boolean(
+        status?.installed ||
+          status?.serviceInstalled ||
+          status?.running ||
+          status?.enabled,
+      );
+    });
+    if (deployedServers.length === 0) {
+      return;
+    }
+
+    remoteProxyAutoRedeployInFlightRef.current = true;
+    const failures: Array<{ server: RemoteServerConfig; error: string }> = [];
+    try {
+      // 远程实例包含账号快照，账号增删改切换后必须串行重部署，避免远端继续使用旧授权。
+      for (const server of deployedServers) {
+        if (!(await ensureRemoteLocalDependency(server))) {
+          continue;
+        }
+        setDeployingRemoteProxyId(server.id);
+        setRemoteDeployProgress({
+          serverId: server.id,
+          label: server.label,
+          stage: "validating",
+          progress: 6,
+          detail: null,
+        });
+        try {
+          const status = await invoke<RemoteProxyStatus>("deploy_remote_proxy", {
+            input: { server },
+          });
+          setRemoteProxyStatusesRaw((current) => ({
+            ...current,
+            [server.id]: status,
+          }));
+        } catch (error) {
+          const rawError = String(error);
+          failures.push({ server, error: rawError });
+          setRemoteProxyStatusesRaw((current) => ({
+            ...current,
+            [server.id]: buildRemoteProxyFallback(server, rawError),
+          }));
+        } finally {
+          setRemoteDeployProgress((current) =>
+            current?.serverId === server.id ? null : current,
+          );
+          setDeployingRemoteProxyId((current) =>
+            current === server.id ? null : current,
+          );
+        }
+      }
+    } finally {
+      remoteProxyAutoRedeployInFlightRef.current = false;
+    }
+
+    if (failures.length > 0) {
+      const first = failures[0];
+      setNotice({
+        type: "error",
+        message: copy.notices.remoteProxyDeployFailed(
+          first.server.label,
+          localizeError(first.error),
+        ),
+      });
+    }
+  }
+  remoteProxyAutoRedeployRef.current =
+    redeployDeployedRemoteProxiesAfterAccountChange;
+
   const onStartRemoteProxy = useCallback(
     async (server: RemoteServerConfig) => {
       if (startingRemoteProxyId === server.id) {
@@ -2578,6 +2665,7 @@ export function useCodexController() {
       try {
         await invoke<void>("delete_account", { id: account.id });
         setAccounts((prev) => prev.filter((item) => item.id !== account.id));
+        void remoteProxyAutoRedeployRef.current();
         setDeleteCandidate(null);
         setNotice({ type: "ok", message: copy.notices.accountDeleted });
       } catch (error) {
@@ -2635,6 +2723,8 @@ export function useCodexController() {
           }
           return false;
         }
+
+        void remoteProxyAutoRedeployRef.current();
 
         let baseNotice: Notice;
         if (!settings.launchCodexAfterSwitch) {

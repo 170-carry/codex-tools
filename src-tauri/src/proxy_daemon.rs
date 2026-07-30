@@ -62,7 +62,8 @@ pub async fn run_proxy_daemon(options: ProxyDaemonOptions) -> Result<(), String>
     println!("data_dir={}", options.data_dir.display());
     println!("listen=http://{}:{port}/v1", options.host);
     if let Some(api_key) = status.api_key.as_deref() {
-        println!("api_key={api_key}");
+        let preview = api_key.chars().take(8).collect::<String>();
+        println!("api_key_preview={preview}... (full key stored in data_dir/api-proxy.key)");
     }
     println!("upstream=codex");
 

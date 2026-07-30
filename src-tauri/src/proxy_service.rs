@@ -69,6 +69,7 @@ use crate::models::ApiProxyKey;
 use crate::models::ApiProxyKeyUsageLogEntry;
 use crate::models::ApiProxyLoadBalanceMode;
 use crate::models::ApiProxyStatus;
+use crate::models::ApiProxyUsageKeySeries;
 use crate::models::ApiProxyUsagePoint;
 use crate::models::ApiProxyUsageSeries;
 use crate::models::ApiProxyUsageStats;
@@ -93,6 +94,7 @@ use crate::store::save_store_to_path;
 use crate::store::update_account_group_refresh_state_in_path;
 use crate::usage::resolve_chatgpt_base_origin;
 use crate::utils::now_unix_seconds;
+use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
 use crate::utils::truncate_for_error;
 
@@ -5229,7 +5231,10 @@ fn read_authorized_api_proxy_key(
     let token = api_proxy_request_token(headers)?;
     let keys = api_keys.read().ok()?;
     keys.iter()
-        .find(|key| key.enabled && key.key == token)
+        // 平台 Key 属于认证凭据，统一使用常量时间比较，避免响应耗时泄漏前缀信息。
+        .find(|key| {
+            key.enabled && constant_time_eq::constant_time_eq(key.key.as_bytes(), token.as_bytes())
+        })
         .cloned()
 }
 
@@ -5528,6 +5533,7 @@ fn build_api_proxy_usage_stats(
         api_proxy_usage_bucket_timestamps(first_bucket, last_bucket, bucket_seconds);
 
     let mut by_model = BTreeMap::<String, ApiProxyUsageSeriesAccumulator>::new();
+    let mut by_key = BTreeMap::<String, (String, ApiProxyUsageSeriesAccumulator)>::new();
     for event in events {
         if event.timestamp < start || event.timestamp > now {
             continue;
@@ -5549,6 +5555,34 @@ fn build_api_proxy_usage_stats(
         let point = accumulator.points.entry(bucket).or_insert((0, 0));
         point.0 += calls;
         point.1 += tokens;
+
+        if let Some(key_id) = event
+            .key_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let key_label = event
+                .key_label
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("Unnamed key");
+            let (stored_label, key_accumulator) =
+                by_key.entry(key_id.to_string()).or_insert_with(|| {
+                    (
+                        key_label.to_string(),
+                        ApiProxyUsageSeriesAccumulator::default(),
+                    )
+                });
+            // Key ID 是稳定身份；名称发生修改时采用最近事件中的名称，避免拆成两条曲线。
+            *stored_label = key_label.to_string();
+            key_accumulator.total_calls += calls;
+            key_accumulator.total_tokens += tokens;
+            let key_point = key_accumulator.points.entry(bucket).or_insert((0, 0));
+            key_point.0 += calls;
+            key_point.1 += tokens;
+        }
     }
 
     let mut series = by_model
@@ -5583,11 +5617,47 @@ fn build_api_proxy_usage_stats(
             .then_with(|| left.model.cmp(&right.model))
     });
 
+    let mut key_series = by_key
+        .into_iter()
+        .map(
+            |(key_id, (key_label, accumulator))| ApiProxyUsageKeySeries {
+                key_id,
+                key_label,
+                total_calls: accumulator.total_calls,
+                total_tokens: accumulator.total_tokens,
+                points: bucket_timestamps
+                    .iter()
+                    .map(|timestamp| {
+                        let (calls, tokens) = accumulator
+                            .points
+                            .get(timestamp)
+                            .copied()
+                            .unwrap_or_default();
+                        ApiProxyUsagePoint {
+                            timestamp: *timestamp,
+                            calls,
+                            tokens,
+                        }
+                    })
+                    .collect(),
+            },
+        )
+        .collect::<Vec<_>>();
+    key_series.sort_by(|left, right| {
+        right
+            .total_calls
+            .cmp(&left.total_calls)
+            .then_with(|| right.total_tokens.cmp(&left.total_tokens))
+            .then_with(|| left.key_label.cmp(&right.key_label))
+            .then_with(|| left.key_id.cmp(&right.key_id))
+    });
+
     ApiProxyUsageStats {
         updated_at: now,
         range_seconds,
         bucket_seconds,
         series,
+        key_series,
     }
 }
 
@@ -5723,9 +5793,7 @@ fn write_private_named_file_atomically(
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut temp_file = private_create_new_options()
             .open(&temp_path)
             .map_err(|error| {
                 format!(

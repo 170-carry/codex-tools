@@ -1,6 +1,6 @@
 [package]
 name = "codex-tools-proxyd"
-version = "2.4.0"
+version = "2.5.0"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -17,6 +17,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "gzi
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 base64 = "0.22"
+constant_time_eq = "0.3"
 axum = { version = "0.7", features = ["multipart", "ws"] }
 async-stream = "0.3"
 futures-util = "0.3"

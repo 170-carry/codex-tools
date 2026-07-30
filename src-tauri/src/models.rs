@@ -459,11 +459,22 @@ pub(crate) struct ApiProxyUsageSeries {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct ApiProxyUsageKeySeries {
+    pub(crate) key_id: String,
+    pub(crate) key_label: String,
+    pub(crate) total_calls: i64,
+    pub(crate) total_tokens: i64,
+    pub(crate) points: Vec<ApiProxyUsagePoint>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ApiProxyUsageStats {
     pub(crate) updated_at: i64,
     pub(crate) range_seconds: i64,
     pub(crate) bucket_seconds: i64,
     pub(crate) series: Vec<ApiProxyUsageSeries>,
+    pub(crate) key_series: Vec<ApiProxyUsageKeySeries>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

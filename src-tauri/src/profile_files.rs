@@ -21,6 +21,7 @@ use crate::models::DEFAULT_API_PROXY_MODEL;
 use crate::models::DEFAULT_API_PROXY_REASONING_EFFORT;
 use crate::models::DEFAULT_API_PROXY_SERVICE_TIER;
 use crate::utils;
+use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
 
 const PROFILE_DIR_NAME: &str = "profiles";
@@ -116,8 +117,11 @@ pub(crate) fn sync_account_profile_in_store_path(
         )
     })?;
 
-    let config_template =
-        read_optional_text(&config_path)?.or(read_current_codex_config_optional()?);
+    let profile_config = read_optional_text(&config_path)?;
+    let current_config = read_current_codex_config_optional()?;
+    // MCP、hooks、features、宠物等用户配置属于共享设置；账号专属的 provider 字段
+    // 仍以目标 profile 为准，避免从当前账号泄漏 Base URL 或模型配置。
+    let config_template = merge_shared_config(profile_config.as_deref(), current_config.as_deref());
     let config_text = match account.source_kind {
         AccountSourceKind::Chatgpt => build_chatgpt_profile_config(config_template.as_deref()),
         AccountSourceKind::Relay => build_relay_profile_config(
@@ -154,6 +158,17 @@ pub(crate) fn sync_account_profile_in_store_path(
     account.profile_config_ready = true;
     account.profile_integrity_error = None;
     Ok(())
+}
+
+pub(crate) fn capture_current_config_for_profile(
+    store_path: &Path,
+    account_id: &str,
+) -> Result<(), String> {
+    let Some(current_config) = read_current_codex_config_optional()? else {
+        return Ok(());
+    };
+    let profile_path = profile_config_path_from_store_path(store_path, account_id);
+    write_file_atomically(&profile_path, current_config.as_bytes())
 }
 
 pub(crate) fn apply_account_profile(account: &StoredAccount) -> Result<(), String> {
@@ -486,6 +501,25 @@ fn build_codex_proxy_config(current_config: Option<&str>, base_url: &str) -> Str
     document.to_string()
 }
 
+fn merge_shared_config(
+    profile_config: Option<&str>,
+    current_config: Option<&str>,
+) -> Option<String> {
+    let mut target = parse_config_or_default(profile_config.or(current_config));
+    let Some(current) = current_config.and_then(|raw| raw.parse::<DocumentMut>().ok()) else {
+        return profile_config.map(str::to_string);
+    };
+
+    for (key, item) in current.iter() {
+        // 这些字段由账号 profile 管理，其余顶层表和设置都应跨账号保留。
+        if matches!(key, "openai_base_url" | "model" | "model_provider") {
+            continue;
+        }
+        target[key] = item.clone();
+    }
+    Some(target.to_string())
+}
+
 fn set_missing_string_default(document: &mut DocumentMut, key: &str, default_value: &str) {
     let has_value = document
         .get(key)
@@ -676,9 +710,7 @@ fn write_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     ));
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
+        let mut temp_file = private_create_new_options()
             .open(&temp_path)
             .map_err(|error| format!("创建临时文件失败 {}: {error}", temp_path.display()))?;
         temp_file
