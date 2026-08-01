@@ -1,0 +1,1275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude-Codex Protocol Oscilloscope</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09111f;
+      --panel: #101a2c;
+      --panel-2: #0d1728;
+      --line: #24344f;
+      --line-strong: #3b4f73;
+      --text: #d9e6f7;
+      --muted: #91a4bf;
+      --violet: #9b7cff;
+      --cyan: #29d3ff;
+      --green: #55d48b;
+      --yellow: #f3c969;
+      --vermilion: #ff5a4e;
+      --shadow: rgba(0, 0, 0, 0.32);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #0b1424;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .topbar {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 18px 20px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 720;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-auto-flow: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .metric {
+      min-width: 92px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 2px;
+      font: 700 13px/1.2 var(--mono);
+      white-space: nowrap;
+    }
+
+    main {
+      max-width: 1680px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px 20px 26px;
+      display: grid;
+      grid-template-columns: minmax(320px, 390px) minmax(420px, 1fr) minmax(380px, 0.95fr);
+      gap: 14px;
+    }
+
+    section {
+      min-width: 0;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      box-shadow: 0 18px 40px var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: #0f1a2d;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      font-size: 13px;
+      font-weight: 720;
+      color: #eef5ff;
+    }
+
+    .stage {
+      font: 700 11px/1 var(--mono);
+      color: var(--cyan);
+      border: 1px solid rgba(41, 211, 255, 0.4);
+      padding: 4px 6px;
+      border-radius: 4px;
+    }
+
+    .panel-body {
+      padding: 14px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: #071020;
+      color: var(--text);
+      padding: 9px 10px;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+      font: 12px/1.55 var(--mono);
+      tab-size: 2;
+    }
+
+    .payload-editor {
+      min-height: 520px;
+    }
+
+    .headers-editor {
+      min-height: 130px;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #0b1628;
+    }
+
+    .toggle input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--cyan);
+    }
+
+    .templates {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .template-button {
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0b1628;
+      color: var(--text);
+      padding: 10px;
+      cursor: pointer;
+    }
+
+    .template-button:hover,
+    .template-button[aria-pressed="true"] {
+      border-color: var(--violet);
+      background: #151d35;
+    }
+
+    .template-button strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .template-button span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .btn {
+      min-height: 38px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: #101c30;
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 680;
+      font-size: 13px;
+    }
+
+    .btn:hover { border-color: var(--cyan); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.primary { background: #132845; border-color: var(--cyan); }
+    .btn.danger { border-color: rgba(255, 90, 78, 0.7); color: #ffd1cd; }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .mono {
+      font-family: var(--mono);
+    }
+
+    .timeline {
+      position: relative;
+      padding: 12px 12px 12px 34px;
+      min-height: 300px;
+      max-height: 720px;
+      overflow: auto;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      top: 16px;
+      bottom: 16px;
+      left: 18px;
+      width: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 18px rgba(41, 211, 255, 0.34);
+    }
+
+    .event {
+      position: relative;
+      border: 1px solid var(--line);
+      background: #0b1628;
+      border-radius: 6px;
+      padding: 10px 10px 10px 12px;
+      margin-bottom: 10px;
+    }
+
+    .event::before {
+      content: "";
+      position: absolute;
+      left: -24px;
+      top: 15px;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--cyan);
+      background: var(--panel);
+      border-radius: 50%;
+    }
+
+    .event.error { border-color: rgba(255, 90, 78, 0.65); }
+    .event.error::before { border-color: var(--vermilion); }
+    .event.stop::before { border-color: var(--green); }
+    .event.delta::before { border-color: var(--violet); }
+
+    .event-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      color: var(--muted);
+      font: 12px/1.4 var(--mono);
+    }
+
+    .event-type {
+      color: var(--text);
+      font-weight: 760;
+    }
+
+    .event-body {
+      margin-top: 8px;
+      color: #cfe0f7;
+      font: 12px/1.55 var(--mono);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .chip {
+      border: 1px solid var(--line-strong);
+      border-radius: 4px;
+      padding: 3px 6px;
+      color: var(--muted);
+      font: 11px/1.2 var(--mono);
+    }
+
+    .summary {
+      display: grid;
+      gap: 10px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #0b1628;
+    }
+
+    .preview-card {
+      display: grid;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #0b1628;
+    }
+
+    .preview-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .summary-card h3,
+    .preview-card h3 {
+      margin: 0 0 6px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 680;
+    }
+
+    pre {
+      margin: 0;
+      overflow: auto;
+      color: #dfeeff;
+      font: 12px/1.55 var(--mono);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .empty {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      border: 1px dashed var(--line-strong);
+      border-radius: 6px;
+      padding: 18px;
+      background: #0a1424;
+    }
+
+    .error-text { color: var(--vermilion); }
+    .ok-text { color: var(--green); }
+    .warn-text { color: var(--yellow); }
+
+    @media (max-width: 1180px) {
+      main {
+        grid-template-columns: 1fr 1fr;
+      }
+      .left {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+      .status-strip {
+        grid-auto-flow: row;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      main {
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+      .row,
+      .actions {
+        grid-template-columns: 1fr;
+      }
+      .payload-editor {
+        min-height: 360px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition: none !important;
+        animation: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="topbar">
+        <div>
+          <h1>Claude-Codex 协议示波器</h1>
+          <div class="subtitle">同源调试 Anthropic Messages 到 Codex Responses 的请求、SSE 事件与非流式响应。</div>
+        </div>
+        <div class="status-strip" aria-live="polite">
+          <div class="metric"><span>状态</span><strong id="statusValue">idle</strong></div>
+          <div class="metric"><span>HTTP</span><strong id="httpValue">-</strong></div>
+          <div class="metric"><span>耗时</span><strong id="latencyValue">-</strong></div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="left panel" aria-labelledby="configTitle">
+        <div class="panel-head">
+          <h2 id="configTitle" class="panel-title"><span class="stage">SETUP</span> 请求配置</h2>
+        </div>
+        <div class="panel-body grid">
+          <label>Proxy Base URL
+            <input id="baseUrl" class="mono" autocomplete="off" spellcheck="false">
+          </label>
+          <label>API Key
+            <input id="apiKey" class="mono" type="password" autocomplete="off" spellcheck="false" placeholder="仅保存在当前页面内存">
+          </label>
+          <label>Route
+            <select id="route">
+              <option value="/v1/claude/v1/messages">/v1/claude/v1/messages</option>
+              <option value="/v1/claude/messages">/v1/claude/messages</option>
+              <option value="/v1/messages">/v1/messages</option>
+            </select>
+          </label>
+          <div class="row">
+            <label>Model
+              <input id="model" class="mono" autocomplete="off" spellcheck="false" value="gpt-5.5">
+            </label>
+            <label class="toggle">Stream
+              <input id="stream" type="checkbox" checked>
+            </label>
+          </div>
+          <label>Headers JSON
+            <textarea id="headersJson" class="headers-editor" spellcheck="false"></textarea>
+          </label>
+          <div>
+            <div class="hint" style="margin-bottom: 8px;">场景模板</div>
+            <div id="templates" class="templates"></div>
+          </div>
+          <div class="actions">
+            <button id="sendBtn" class="btn primary" type="button">发送</button>
+            <button id="previewBtn" class="btn" type="button">预览上游</button>
+            <button id="abortBtn" class="btn danger" type="button" disabled>中止</button>
+            <button id="clearBtn" class="btn" type="button">清空</button>
+            <button id="copyReqBtn" class="btn" type="button">复制请求</button>
+          </div>
+          <div class="actions">
+            <button id="copyRespBtn" class="btn" type="button">复制响应</button>
+            <button id="exportBtn" class="btn" type="button">导出 JSON</button>
+          </div>
+          <div class="hint">API Key 不会写入浏览器持久存储、时间线或导出文件。跨域 Base URL 可能被浏览器 CORS 策略拦截。</div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="payloadTitle">
+        <div class="panel-head">
+          <h2 id="payloadTitle" class="panel-title"><span class="stage">FRAME</span> Payload JSON</h2>
+          <span id="jsonState" class="hint">valid</span>
+        </div>
+        <div class="panel-body">
+          <textarea id="payloadJson" class="payload-editor" spellcheck="false"></textarea>
+        </div>
+      </section>
+
+      <section class="grid" aria-label="响应">
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title"><span class="stage">UPSTREAM</span> Preview</h2>
+            <span id="previewState" class="hint">not requested</span>
+          </div>
+          <div id="upstreamPreview" class="panel-body summary">
+            <div class="empty">点击“预览上游”查看不会发起真实上游请求的 Codex 调用。</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title"><span class="stage">SSE</span> 信号轨</h2>
+            <span id="eventCount" class="hint">0 events</span>
+          </div>
+          <div id="timeline" class="timeline">
+            <div class="empty">发送流式请求后，事件会按到达顺序沿信号轨展开。</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title"><span class="stage">RESULT</span> 摘要与原文</h2>
+          </div>
+          <div id="summary" class="panel-body summary">
+            <div class="empty">尚无响应。</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const redactValue = "[redacted]";
+    const sensitiveHeaderNames = new Set(["authorization", "x-api-key", "openai-authorization", "cookie", "proxy-authorization"]);
+    const state = {
+      abortController: null,
+      startedAt: 0,
+      events: [],
+      responseText: "",
+      responseJson: null,
+      summary: null,
+      upstreamPreview: null,
+      activeTemplate: "basic",
+    };
+
+    const templates = {
+      basic: {
+        title: "基础消息",
+        desc: "单轮 user 文本，适合验证鉴权、模型映射与普通文本增量。",
+        payload: {
+          model: "gpt-5.5",
+          max_tokens: 256,
+          stream: true,
+          messages: [{ role: "user", content: "用一句中文解释 Codex 和 Claude 协议转换的关键风险。" }],
+        },
+      },
+      toolPrompt: {
+        title: "工具定义 / 使用提示",
+        desc: "声明一个 lookup_symbol 工具并要求模型选择工具。",
+        payload: {
+          model: "gpt-5.5",
+          max_tokens: 512,
+          stream: true,
+          tools: [{
+            name: "lookup_symbol",
+            description: "查询代码符号的文件位置和简短说明。",
+            input_schema: {
+              type: "object",
+              properties: { symbol: { type: "string" } },
+              required: ["symbol"],
+            },
+          }],
+          tool_choice: { type: "auto" },
+          messages: [{ role: "user", content: "请查找 proxy_service.rs 里处理 Anthropic Messages 的入口函数。" }],
+        },
+      },
+      toolResult: {
+        title: "tool_result 回放",
+        desc: "包含 assistant tool_use 与后续 user tool_result，校验工具结果转换。",
+        payload: {
+          model: "gpt-5.5",
+          max_tokens: 512,
+          stream: true,
+          messages: [
+            { role: "user", content: "查一下调试页面路由。" },
+            { role: "assistant", content: [{ type: "tool_use", id: "call_route_1", name: "lookup_route", input: { path: "/debug/claude-codex" } }] },
+            { role: "user", content: [{ type: "tool_result", tool_use_id: "call_route_1", content: [{ type: "text", text: "GET /debug/claude-codex serves public/claude-codex-debugger.html." }] }] },
+            { role: "user", content: "请用一句话总结结果。" },
+          ],
+        },
+      },
+      parallelTools: {
+        title: "并行工具",
+        desc: "允许并行工具调用，观察多个 content_block 的 index 与 delta。",
+        payload: {
+          model: "gpt-5.5",
+          max_tokens: 768,
+          stream: true,
+          parallel_tool_calls: true,
+          tools: [
+            {
+              name: "read_route",
+              description: "读取代理路由信息。",
+              input_schema: { type: "object", properties: { route: { type: "string" } }, required: ["route"] },
+            },
+            {
+              name: "read_docs",
+              description: "读取文档片段。",
+              input_schema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] },
+            },
+          ],
+          messages: [{ role: "user", content: "同时检查调试路由和文档说明，然后说明是否一致。" }],
+        },
+      },
+      compaction: {
+        title: "Context Management",
+        desc: "携带有效下游 max_tokens、truncation 与 clear_thinking edit；转发 Codex 时会移除 max_output_tokens 和 truncation。",
+        payload: {
+          model: "gpt-5.5",
+          max_tokens: 512,
+          truncation: "auto",
+          stream: true,
+          betas: ["compact-2026-01-12", "context-management-2025-06-27"],
+          context_management: {
+            edits: [
+              { type: "compact_20260112" },
+              { type: "clear_thinking_20251015", keep: { type: "thinking_turns", value: 1 } },
+            ],
+          },
+          messages: [
+            { role: "user", content: [{ type: "compaction", summary: "此前讨论确认调试页必须同源、不得持久化 API key，并要解析 Anthropic SSE。" }] },
+            { role: "user", content: "基于压缩上下文，列出接下来最该检查的两个协议字段。" },
+          ],
+        },
+      },
+      invalid: {
+        title: "非法协议输入",
+        desc: "故意把 tool_result 放在 assistant 消息中，验证严格校验错误。",
+        payload: {
+          model: "gpt-5.5",
+          max_tokens: 128,
+          stream: true,
+          messages: [{ role: "assistant", content: [{ type: "tool_result", tool_use_id: "bad_call", content: "wrong role" }] }],
+        },
+      },
+    };
+
+    function pretty(value) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    function setStatus(status, http, latency) {
+      $("statusValue").textContent = status;
+      $("httpValue").textContent = http || "-";
+      $("latencyValue").textContent = latency || "-";
+    }
+
+    function renderTemplates() {
+      const wrap = $("templates");
+      wrap.innerHTML = "";
+      for (const [key, template] of Object.entries(templates)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "template-button";
+        button.setAttribute("aria-pressed", String(key === state.activeTemplate));
+        button.innerHTML = `<strong>${escapeHtml(template.title)}</strong><span>${escapeHtml(template.desc)}</span>`;
+        button.addEventListener("click", () => applyTemplate(key));
+        wrap.appendChild(button);
+      }
+    }
+
+    function applyTemplate(key) {
+      state.activeTemplate = key;
+      const payload = structuredClone(templates[key].payload);
+      payload.model = $("model").value.trim() || payload.model;
+      payload.stream = $("stream").checked;
+      $("payloadJson").value = pretty(payload);
+      renderTemplates();
+      validatePayload();
+    }
+
+    function defaultHeaders() {
+      return {
+        "content-type": "application/json",
+        "anthropic-version": "2023-06-01",
+      };
+    }
+
+    function init() {
+      $("baseUrl").value = location.origin && location.origin !== "null" ? location.origin : "http://127.0.0.1:8787";
+      $("headersJson").value = pretty(defaultHeaders());
+      renderTemplates();
+      applyTemplate("basic");
+      $("sendBtn").addEventListener("click", sendRequest);
+      $("previewBtn").addEventListener("click", requestUpstreamPreview);
+      $("abortBtn").addEventListener("click", abortRequest);
+      $("clearBtn").addEventListener("click", clearOutput);
+      $("copyReqBtn").addEventListener("click", () => copyText(pretty(buildRedactedRequestSnapshot())));
+      $("copyRespBtn").addEventListener("click", () => copyText(state.responseText || pretty({ events: state.events, summary: state.summary })));
+      $("exportBtn").addEventListener("click", exportJson);
+      $("payloadJson").addEventListener("input", validatePayload);
+      $("stream").addEventListener("change", syncStreamToPayload);
+      $("model").addEventListener("change", syncModelToPayload);
+      setStatus("idle");
+    }
+
+    function syncStreamToPayload() {
+      updatePayload((payload) => {
+        payload.stream = $("stream").checked;
+      });
+    }
+
+    function syncModelToPayload() {
+      updatePayload((payload) => {
+        payload.model = $("model").value.trim() || "gpt-5.5";
+      });
+    }
+
+    function updatePayload(mutator) {
+      try {
+        const payload = JSON.parse($("payloadJson").value);
+        mutator(payload);
+        $("payloadJson").value = pretty(payload);
+        validatePayload();
+      } catch (_) {
+        validatePayload();
+      }
+    }
+
+    function validatePayload() {
+      try {
+        JSON.parse($("payloadJson").value);
+        $("jsonState").textContent = "valid";
+        $("jsonState").className = "hint ok-text";
+      } catch (error) {
+        $("jsonState").textContent = error.message;
+        $("jsonState").className = "hint error-text";
+      }
+    }
+
+    function buildUrl() {
+      const rawBase = $("baseUrl").value.trim() || location.origin;
+      const route = $("route").value.trim();
+      const base = new URL(rawBase, location.origin);
+      if (!["http:", "https:"].includes(base.protocol)) {
+        throw new Error("Base URL 只支持 http/https。");
+      }
+      const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
+      const url = new URL(normalizedRoute, base);
+      url.username = "";
+      url.password = "";
+      return url;
+    }
+
+    function buildHeaders() {
+      const headers = JSON.parse($("headersJson").value || "{}");
+      const key = $("apiKey").value;
+      const normalized = {};
+      for (const [name, value] of Object.entries(headers)) {
+        if (value !== undefined && value !== null && String(name).trim()) {
+          normalized[name] = String(value);
+        }
+      }
+      if (key.trim()) {
+        normalized["x-api-key"] = key.trim();
+      }
+      return normalized;
+    }
+
+    function buildPayload() {
+      const payload = JSON.parse($("payloadJson").value);
+      payload.model = $("model").value.trim() || payload.model || "gpt-5.5";
+      payload.stream = $("stream").checked;
+      return payload;
+    }
+
+    function buildRedactedRequestSnapshot() {
+      let url = "";
+      let headers = {};
+      let payload = null;
+      try { url = buildUrl().toString(); } catch (error) { url = `invalid: ${error.message}`; }
+      try { headers = redactHeaders(buildHeaders()); } catch (error) { headers = { error: error.message }; }
+      try { payload = buildPayload(); } catch (error) { payload = { error: error.message }; }
+      return {
+        method: "POST",
+        url,
+        route: $("route").value,
+        headers,
+        payload,
+      };
+    }
+
+    function buildPreviewUrl() {
+      const rawBase = $("baseUrl").value.trim() || location.origin;
+      const base = new URL(rawBase, location.origin);
+      if (!["http:", "https:"].includes(base.protocol)) {
+        throw new Error("Base URL 只支持 http/https。");
+      }
+      const url = new URL("/debug/claude-codex/preview", base);
+      url.username = "";
+      url.password = "";
+      return url;
+    }
+
+    async function requestUpstreamPreview() {
+      let url;
+      let headers;
+      let payload;
+      try {
+        url = buildPreviewUrl();
+        headers = buildHeaders();
+        payload = buildPayload();
+        $("payloadJson").value = pretty(payload);
+      } catch (error) {
+        showPreviewError(error);
+        return;
+      }
+
+      $("previewBtn").disabled = true;
+      $("previewState").textContent = "loading";
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            route: $("route").value,
+            headers: buildPreviewSemanticHeaders(headers),
+            payload,
+          }),
+        });
+        const text = await response.text();
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch (_) {
+          json = { error: { message: text || `HTTP ${response.status}` } };
+        }
+        if (!response.ok) {
+          throw new Error(json?.error?.message || json?.message || `HTTP ${response.status}`);
+        }
+        state.upstreamPreview = json;
+        renderUpstreamPreview();
+        $("previewState").textContent = json.upstream?.transport || "ready";
+        $("previewState").className = "hint ok-text";
+      } catch (error) {
+        showPreviewError(error);
+      } finally {
+        $("previewBtn").disabled = false;
+      }
+    }
+
+    function renderUpstreamPreview() {
+      const preview = state.upstreamPreview;
+      if (!preview) {
+        $("upstreamPreview").innerHTML = '<div class="empty">点击“预览上游”查看不会发起真实上游请求的 Codex 调用。</div>';
+        return;
+      }
+      const upstream = preview.upstream || {};
+      const note = upstream.note ? `<div class="chip">${escapeHtml(upstream.note)}</div>` : "";
+      const curlBlock = upstream.curl
+        ? `<div class="preview-card"><h3>Copy-ready curl</h3><pre>${escapeHtml(upstream.curl)}</pre></div>`
+        : `<div class="preview-card"><h3>Copy-ready curl</h3><pre>${escapeHtml(upstream.note || "WebSocket transport selected; no HTTP curl available.")}</pre></div>`;
+      $("upstreamPreview").innerHTML = `
+        <div class="preview-card">
+          <div class="preview-meta">
+            <span class="chip">${escapeHtml(preview.downstream?.method || "POST")} ${escapeHtml(preview.downstream?.path || "")}</span>
+            <span class="chip">${escapeHtml(upstream.transport || "-")}</span>
+            <span class="chip">${escapeHtml(upstream.method || "-")}</span>
+          </div>
+          ${note}
+          <h3>Endpoint</h3>
+          <pre>${escapeHtml(upstream.url || "")}</pre>
+        </div>
+        <div class="preview-card"><h3>Protocol headers</h3><pre>${escapeHtml(pretty(upstream.headers || {}))}</pre></div>
+        <div class="preview-card"><h3>Final body</h3><pre>${escapeHtml(pretty(upstream.body || {}))}</pre></div>
+        ${curlBlock}
+        <div class="actions">
+          <button id="copyPreviewJsonBtn" class="btn" type="button">复制上游 JSON</button>
+          <button id="copyPreviewCurlBtn" class="btn" type="button"${upstream.curl ? "" : " disabled"}>复制 curl</button>
+        </div>
+      `;
+      $("copyPreviewJsonBtn").addEventListener("click", () => copyText(pretty(preview)));
+      $("copyPreviewCurlBtn").addEventListener("click", () => copyText(upstream.curl || ""));
+    }
+
+    function showPreviewError(error) {
+      state.upstreamPreview = null;
+      $("previewState").textContent = "error";
+      $("previewState").className = "hint error-text";
+      $("upstreamPreview").innerHTML = `<div class="empty error-text">${escapeHtml(error.message)}</div>`;
+    }
+
+    function buildPreviewSemanticHeaders(headers) {
+      const previewHeaders = {};
+      for (const [name, value] of Object.entries(headers)) {
+        if (!sensitiveHeaderNames.has(name.toLowerCase())) {
+          previewHeaders[name] = value;
+        }
+      }
+      return previewHeaders;
+    }
+
+    async function sendRequest() {
+      clearOutput();
+      let url;
+      let headers;
+      let payload;
+      try {
+        url = buildUrl();
+        headers = buildHeaders();
+        payload = buildPayload();
+        $("payloadJson").value = pretty(payload);
+      } catch (error) {
+        showError(error);
+        return;
+      }
+
+      state.abortController = new AbortController();
+      state.startedAt = performance.now();
+      $("sendBtn").disabled = true;
+      $("abortBtn").disabled = false;
+      setStatus("sending", "-", "-");
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: state.abortController.signal,
+        });
+        const latency = `${Math.round(performance.now() - state.startedAt)} ms`;
+        setStatus(response.ok ? "receiving" : "http-error", String(response.status), latency);
+        const contentType = response.headers.get("content-type") || "";
+        if (payload.stream && response.body && contentType.includes("text/event-stream")) {
+          await readSse(response);
+        } else {
+          await readJsonLike(response);
+        }
+        setStatus(response.ok ? "done" : "http-error", String(response.status), `${Math.round(performance.now() - state.startedAt)} ms`);
+      } catch (error) {
+        if (error.name === "AbortError") {
+          setStatus("aborted", "-", `${Math.round(performance.now() - state.startedAt)} ms`);
+          appendEvent({ event: "client_abort", data: "Request aborted by user.", receivedAt: new Date().toISOString(), tags: ["client"] });
+        } else {
+          showError(error);
+        }
+      } finally {
+        state.abortController = null;
+        $("sendBtn").disabled = false;
+        $("abortBtn").disabled = true;
+      }
+    }
+
+    function abortRequest() {
+      if (state.abortController) {
+        state.abortController.abort();
+      }
+    }
+
+    async function readSse(response) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const parser = createSseRecordParser(parseSseRecord);
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        parser.push(decoder.decode(value, { stream: true }));
+      }
+      parser.push(decoder.decode());
+      parser.finish();
+      renderSummaryFromEvents(response);
+    }
+
+    function createSseRecordParser(onRecord) {
+      return {
+        lines: [],
+        line: "",
+        skipNextLf: false,
+        push(text) {
+          for (const char of text) {
+            if (this.skipNextLf) {
+              this.skipNextLf = false;
+              if (char === "\n") continue;
+            }
+            if (char === "\r") {
+              this.finishLine();
+              this.skipNextLf = true;
+              continue;
+            }
+            if (char === "\n") {
+              this.finishLine();
+              continue;
+            }
+            this.line += char;
+          }
+        },
+        finish() {
+          if (this.line.length || this.lines.length) {
+            this.finishLine();
+            this.dispatch();
+          }
+        },
+        finishLine() {
+          if (this.line === "") {
+            this.dispatch();
+            return;
+          }
+          this.lines.push(this.line);
+          this.line = "";
+        },
+        dispatch() {
+          if (!this.lines.length) return;
+          onRecord(this.lines.join("\n"));
+          this.lines = [];
+          this.line = "";
+        },
+      };
+    }
+
+    window.__claudeCodexSseParser = { createSseRecordParser };
+
+    function parseSseRecord(raw) {
+      const event = { event: "message", data: "", raw, receivedAt: new Date().toISOString(), tags: [] };
+      const dataLines = [];
+      for (const line of raw.split("\n")) {
+        if (!line || line.startsWith(":")) continue;
+        const colon = line.indexOf(":");
+        const field = colon === -1 ? line : line.slice(0, colon);
+        let value = colon === -1 ? "" : line.slice(colon + 1);
+        if (value.startsWith(" ")) value = value.slice(1);
+        if (field === "event") event.event = value || "message";
+        if (field === "data") dataLines.push(value);
+        if (field === "id") event.id = value;
+        if (field === "retry") event.retry = value;
+      }
+      event.data = dataLines.join("\n");
+      enrichSseEvent(event);
+      appendEvent(event);
+    }
+
+    function enrichSseEvent(event) {
+      if (event.data === "[DONE]") {
+        event.tags.push("done");
+        return;
+      }
+      try {
+        event.json = JSON.parse(event.data);
+      } catch (_) {
+        event.preview = event.data;
+        return;
+      }
+      const json = event.json;
+      event.type = json.type || event.event;
+      if (Number.isInteger(json.index)) event.contentIndex = json.index;
+      if (Number.isInteger(json.content_block?.index)) event.contentIndex = json.content_block.index;
+      if (Number.isInteger(json.delta?.index)) event.contentIndex = json.delta.index;
+      if (json.delta?.text) event.delta = json.delta.text;
+      if (json.delta?.partial_json) event.delta = json.delta.partial_json;
+      if (json.content_block?.text) event.delta = json.content_block.text;
+      if (json.content_block?.type === "tool_use") event.tool = `${json.content_block.name || "tool"}#${json.content_block.id || "?"}`;
+      if (json.delta?.type === "input_json_delta") event.tags.push("tool-delta");
+      if (json.stop_reason || json.delta?.stop_reason) event.stopReason = json.stop_reason || json.delta.stop_reason;
+      if (json.error) event.error = json.error.message || JSON.stringify(json.error);
+      if (json.usage || json.message?.usage) event.usage = json.usage || json.message.usage;
+      if ((event.type || "").includes("delta")) event.tags.push("delta");
+      if ((event.type || "").includes("stop")) event.tags.push("stop");
+      if (event.type === "error" || event.error) event.tags.push("error");
+    }
+
+    function appendEvent(event) {
+      state.events.push(event);
+      renderTimeline();
+    }
+
+    async function readJsonLike(response) {
+      const text = await response.text();
+      state.responseText = text;
+      try {
+        state.responseJson = JSON.parse(text);
+      } catch (_) {
+        state.responseJson = null;
+      }
+      renderSummaryFromJson(response);
+    }
+
+    function renderTimeline() {
+      $("eventCount").textContent = `${state.events.length} events`;
+      if (!state.events.length) {
+        $("timeline").innerHTML = '<div class="empty">发送流式请求后，事件会按到达顺序沿信号轨展开。</div>';
+        return;
+      }
+      $("timeline").innerHTML = state.events.map((event, index) => {
+        const klass = event.tags.includes("error") ? "error" : event.tags.includes("stop") ? "stop" : event.tags.includes("delta") ? "delta" : "";
+        const title = event.type || event.event;
+        const body = event.delta || event.error || event.preview || event.data || "";
+        const chips = [];
+        chips.push(`event=${event.event}`);
+        if (event.contentIndex !== undefined) chips.push(`index=${event.contentIndex}`);
+        if (event.tool) chips.push(`tool=${event.tool}`);
+        if (event.stopReason) chips.push(`stop=${event.stopReason}`);
+        if (event.usage) chips.push(`usage=${compactJson(event.usage)}`);
+        return `<article class="event ${klass}">
+          <div class="event-head"><span><span class="event-type">${escapeHtml(title)}</span> #${index + 1}</span><span>${escapeHtml(event.receivedAt.split("T")[1].replace("Z", "Z"))}</span></div>
+          <div class="chips">${chips.map((chip) => `<span class="chip">${escapeHtml(chip)}</span>`).join("")}</div>
+          <div class="event-body">${escapeHtml(body || compactJson(event.json || event.raw))}</div>
+        </article>`;
+      }).join("");
+      $("timeline").scrollTop = $("timeline").scrollHeight;
+    }
+
+    function renderSummaryFromEvents(response) {
+      const text = state.events.map((event) => event.delta || "").join("");
+      const stop = [...state.events].reverse().find((event) => event.stopReason)?.stopReason || "-";
+      const usageEvent = [...state.events].reverse().find((event) => event.usage);
+      state.summary = {
+        mode: "stream",
+        httpStatus: response.status,
+        eventCount: state.events.length,
+        stopReason: stop,
+        text,
+        usage: usageEvent?.usage || null,
+      };
+      state.responseText = pretty({ events: state.events, summary: state.summary });
+      renderSummary();
+    }
+
+    function renderSummaryFromJson(response) {
+      const json = state.responseJson;
+      const content = Array.isArray(json?.content)
+        ? json.content.map((block) => block.text || block.input || compactJson(block)).join("\n")
+        : "";
+      state.summary = {
+        mode: "json",
+        httpStatus: response.status,
+        id: json?.id || null,
+        stopReason: json?.stop_reason || null,
+        usage: json?.usage || null,
+        content,
+      };
+      renderSummary();
+    }
+
+    function renderSummary() {
+      const raw = state.responseJson ? pretty(state.responseJson) : state.responseText;
+      $("summary").innerHTML = `
+        <div class="summary-card"><h3>协议摘要</h3><pre>${escapeHtml(pretty(state.summary || {}))}</pre></div>
+        <div class="summary-card"><h3>响应原文</h3><pre>${escapeHtml(raw || "")}</pre></div>
+      `;
+    }
+
+    function clearOutput() {
+      state.events = [];
+      state.responseText = "";
+      state.responseJson = null;
+      state.summary = null;
+      renderTimeline();
+      $("summary").innerHTML = '<div class="empty">尚无响应。</div>';
+      setStatus("idle", "-", "-");
+    }
+
+    function showError(error) {
+      setStatus("error", "-", state.startedAt ? `${Math.round(performance.now() - state.startedAt)} ms` : "-");
+      appendEvent({ event: "client_error", type: "client_error", data: error.message, error: error.message, receivedAt: new Date().toISOString(), tags: ["error"] });
+      state.responseText = error.stack || error.message;
+      state.summary = { mode: "client-error", message: error.message };
+      renderSummary();
+    }
+
+    function redactHeaders(headers) {
+      const redacted = {};
+      for (const [name, value] of Object.entries(headers)) {
+        redacted[name] = sensitiveHeaderNames.has(name.toLowerCase()) ? redactValue : value;
+      }
+      return redacted;
+    }
+
+    function exportJson() {
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        request: buildRedactedRequestSnapshot(),
+        status: {
+          state: $("statusValue").textContent,
+          http: $("httpValue").textContent,
+          latency: $("latencyValue").textContent,
+        },
+        events: state.events,
+        summary: state.summary,
+        response: state.responseJson || state.responseText,
+      };
+      const blob = new Blob([pretty(exportData)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `claude-codex-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function copyText(text) {
+      await navigator.clipboard.writeText(text);
+    }
+
+    function compactJson(value) {
+      try {
+        return JSON.stringify(value);
+      } catch (_) {
+        return String(value);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -2,6 +2,8 @@
 
 本文说明当前项目中的 API 反代实现。目标是让你从入口到上游返回，完整看懂这条链路现在是怎么工作的。
 
+需要逐个接口查看“下游请求 → Codex 上游结果 → 下游响应处理”的详细流程和 Mermaid 图，请参阅 [API 代理接口链路文档集](./api-proxy-flows/README.md)。
+
 当前版本已经只保留一种反代方式：
 
 - 本地对外暴露 OpenAI 兼容接口
@@ -16,10 +18,14 @@
 ### 本地入口
 
 - `GET /health`
+- `GET /debug/claude-codex`
+- `POST /debug/claude-codex/preview`
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `POST /v1/messages`
+- `POST /v1/claude/v1/messages`
+- `POST /v1/claude/messages`
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`
 - `POST /v1/images/variations`
@@ -135,10 +141,14 @@ Tauri 命令入口在：
 6. 启动一个 `axum` HTTP 服务
 7. 注册以下路由：
    - `/health`
+   - `/debug/claude-codex`
+   - `/debug/claude-codex/preview`
    - `/v1/models`
    - `/v1/chat/completions`
    - `/v1/responses`
    - `/v1/messages`
+   - `/v1/claude/v1/messages`
+   - `/v1/claude/messages`
    - `/v1/images/generations`
    - `/v1/images/edits`
    - `/v1/images/variations`
@@ -194,6 +204,8 @@ Tauri 命令入口在：
 行为：
 
 - 请求体不做大的协议改写，只做必要归一化
+- 支持 Responses 常见字段透传/归一化，例如 `input`、`instructions`、`tools`、`tool_choice`、`parallel_tool_calls`、`reasoning`、`include`、`temperature`、`top_p`、`service_tier` 等
+- ChatGPT Codex 上游当前拒绝 `max_output_tokens` 和 `truncation`；代理会在 Responses HTTP/WebSocket 与 Anthropic/Claude 转换路径中统一删除这两个字段
 - 上游仍然统一发到 Codex `responses`
 - `stream: true` 时近似透传 SSE
 - `stream: false` 时从 SSE 中提取 `response.completed`，返回标准 JSON
@@ -212,6 +224,10 @@ Tauri 命令入口在：
 - 非流式时转回 Anthropic Message JSON
 - 认证推荐使用 `x-api-key: sk-...`
 - 需要带 `anthropic-version: 2023-06-01`
+- 严格校验 `messages` 中的 `role`、`tool_use` 和 `tool_result`：接受 `system`/`user`/`assistant`，其中 `system` 会合并到 Codex `instructions`；工具调用/结果必须在对应 role 中出现，且 ID/name 必须非空
+- `tool_result` 的文本、图片、结构化/未知 content block 以及 `is_error` 会转换成 Codex function output 文本，避免静默丢内容
+- Codex 返回的非空 `function_call.arguments` 必须是 JSON 对象；非法 JSON 或非对象会作为协议错误返回，不再静默变成 `{}`
+- Claude Code context management 仅做本地兼容：代理不会调用未公开的 `/responses/compact`，只会校验 `context_management.edits`，支持 `compact_20260112` 和 `clear_thinking_20251015`，不会把 `context_management` 透传给 Codex，并会把 compaction/thinking/redacted_thinking block 转成安全文本上下文
 
 当前兼容字段：
 
@@ -226,6 +242,31 @@ Tauri 命令入口在：
 - `tools`
 - `tool_choice`
 - `thinking.type = enabled`
+- `context_management.edits[].type = compact_20260112`
+- `context_management.edits[].type = clear_thinking_20251015`，其中 `keep` 可省略、为字符串 `"all"`，或为 `{ "type": "thinking_turns", "value": 正整数 }`
+
+`/v1/claude/v1/messages` 和 `/v1/claude/messages` 是给 Claude Code 直连本地代理使用的 Anthropic 兼容别名，最终也会转成 Codex `responses` payload 并转发到上游 `/responses`。转换后的最终 payload 会打印到 stdout，格式为 `[claude-codex-payload] route=/v1/claude`。
+
+#### Claude 兼容别名的上下文/输出配置
+
+- Anthropic 入参 `max_tokens` 是有效下游输入，但不会转发为 Responses/Codex `max_output_tokens`
+- Codex 上游当前会拒绝 `max_output_tokens` 和 `truncation`，因此 `/v1/messages` 和 Claude 兼容别名都会确保最终 Codex payload 不包含这两个字段
+- 上下文窗口上限由模型/上游决定；Claude 兼容层不再提供 `truncation` 环境变量覆盖
+- 可用实时验证命令：
+
+```bash
+CODEX_TOOLS_LIVE_ACCESS_TOKEN=... \
+CODEX_TOOLS_LIVE_ACCOUNT_ID=... \
+CODEX_TOOLS_LIVE_BASE_ORIGIN=https://chatgpt.com \
+cargo test --manifest-path src-tauri/Cargo.toml live_codex_upstream_accepts_anthropic_converted_payload --lib -- --ignored --nocapture
+```
+
+#### Anthropic SSE 兼容边界
+
+- 文本、reasoning summary、工具调用、完成和错误事件会转换成 Anthropic SSE 事件
+- reasoning summary 会作为普通 `text` block 保留；代理不会伪造 Anthropic extended thinking 的签名字段
+- 并行/交错 function call stream 按 Responses item/output index 跟踪，确保 `content_block_start`、`content_block_delta`、`content_block_stop` 的 index 有效
+- 如果上游 SSE 在 `response.completed`/失败类终止事件前 EOF，代理会发送 Anthropic `error` SSE 事件，而不是伪造正常完成
 
 其中 `2023-06-01` 是 Anthropic 当前公开的 API version，不是模型版本日期。Anthropic 官方版本文档目前仍把它作为 Messages API 的最新版本示例与版本历史项。
 
@@ -719,6 +760,27 @@ curl http://127.0.0.1:8787/v1/chat/completions \
 ```bash
 curl http://127.0.0.1:8787/health
 ```
+
+### 打开 Claude-Codex 协议示波器
+
+浏览器打开：
+
+```text
+http://127.0.0.1:8787/debug/claude-codex
+```
+
+这个页面由本地 Axum 代理通过 `GET /debug/claude-codex` 直接返回，和 `/v1/claude/v1/messages`、`/v1/claude/messages`、`/v1/messages` 同源，因此默认不需要额外 CORS 配置，也没有添加宽松 CORS 层。
+
+页面中的“预览上游”按钮会调用本地 `POST /debug/claude-codex/preview`。该接口需要正常的本地代理 `x-api-key` 与 `anthropic-version`，但只执行 Anthropic 请求转换和 Claude 兼容修正，不选择账号、不读取 access token、不发起 Codex 上游请求。返回内容包含下游 method/path、上游 transport/method、配置的 `{upstream_base_url}/responses`、脱敏协议头、最终 Codex body，以及使用占位凭据的 copy-ready curl；如果最终 payload 会走 WebSocket，则显示 transport 与说明而不是 HTTP curl。
+
+安全行为：
+
+- 页面是 `public/claude-codex-debugger.html` 的单文件静态 HTML/CSS/vanilla JS，无外部网络资源和新增依赖。
+- 默认 `Proxy Base URL` 使用当前 `location.origin`，也就是代理自身源。
+- API Key 只保存在当前页面内存中，不写入浏览器持久存储。
+- 上游预览只使用 `Authorization: Bearer <access-token>` 与 `ChatGPT-Account-Id: <account-id>` 占位符，绝不返回真实 Codex 凭据。
+- 复制请求、导出 JSON 和 SSE 时间线会隐藏 `x-api-key`、`authorization` 等敏感请求头。
+- 如果手动改成跨域 Base URL，浏览器仍可能按目标服务的 CORS 策略拦截请求。
 
 ### 看模型列表
 

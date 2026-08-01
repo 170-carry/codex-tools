@@ -4,20 +4,20 @@
 
 `codex-tools` exposes Anthropic-compatible `/v1/messages` and related endpoints so Claude Code can talk to the local proxy, while the actual inference and quota consumption happen on the Codex upstream. The proxy is therefore not a true Anthropic Messages API backend; it is a compatibility layer that translates Claude Code requests into Codex/OpenAI-style requests.
 
-Claude Code can trigger Anthropic Messages context compaction when the conversation gets large. Native Anthropic compaction relies on Anthropic-only request fields and content blocks, especially `context_management` with `compact_20260112` and response/history content blocks such as `compaction`. Codex upstream does not understand these blocks.
+Claude Code can trigger Anthropic Messages context management when the conversation gets large. Native Anthropic context management relies on Anthropic-only request fields and content blocks, including `context_management` edits such as `compact_20260112` and `clear_thinking_20251015`, plus response/history content blocks such as `compaction`. Codex upstream does not understand these fields or blocks.
 
 The proxy must therefore implement a compatibility shim: consume Claude Code's Anthropic-only context-management signals, preserve their useful information, and translate them into plain text that Codex can use as continuation context.
 
-## Current issue
+## Compatibility risks
 
-The Anthropic-to-Codex converter currently only handles a small set of content blocks:
+The Anthropic-to-Codex converter must handle both standard blocks and Anthropic-only context blocks:
 
 - `text`
 - `image`
 - `tool_use`
 - `tool_result`
 
-Other Anthropic content blocks can be silently ignored. That is risky after Claude Code compacts a conversation: if a `compaction`, `thinking`, `redacted_thinking`, or future Anthropic-only block is dropped, the Codex request loses continuation context and debugging is difficult because nothing visible records what was skipped.
+If a `compaction`, `thinking`, `redacted_thinking`, or future Anthropic-only block is dropped, the Codex request loses continuation context and debugging is difficult because nothing visible records what was skipped.
 
 ## Design goals
 
@@ -32,9 +32,13 @@ Other Anthropic content blocks can be silently ignored. That is risky after Clau
 
 ### Request field handling
 
-When `/v1/messages` receives `context_management.edits` containing `compact_20260112`, the proxy should:
+When `/v1/messages` receives `context_management.edits`, the proxy should:
 
-- Log that Claude Code requested compaction.
+- Log that Claude Code requested context management.
+- Accept `compact_20260112` locally.
+- Accept `clear_thinking_20251015` locally without forwarding it to Codex.
+- Validate `clear_thinking_20251015.keep` exactly as documented: absent is allowed, string `"all"` is allowed, or object `{ "type": "thinking_turns", "value": positive integer }` is allowed.
+- Reject malformed `keep` values and unknown edit types with explicit request-path errors.
 - Keep treating `context_management` as Anthropic-only; do not forward it to Codex.
 - Use the signal as future input for local proxy-side compaction if needed.
 
@@ -55,7 +59,8 @@ This keeps Codex-compatible input while avoiding hidden data loss.
 
 Logs should identify:
 
-- When Claude Code requested compact context management.
+- When Claude Code requested compact or clear-thinking context management.
+- Counts for accepted `compact_20260112` and `clear_thinking_20251015` edits.
 - Which Anthropic content block types were translated.
 - Which Anthropic content block types were skipped and why.
 - Which unknown content block types were preserved as JSON.
@@ -87,4 +92,4 @@ After implementation:
 - Run Rust formatting.
 - Run targeted Rust tests if available.
 - If no targeted tests cover this proxy path, run `cargo test --manifest-path src-tauri/Cargo.toml` or at least `cargo check --manifest-path src-tauri/Cargo.toml`.
-- Manually inspect logs with a Claude Code request that includes `context_management.compact_20260112` or synthetic `compaction` content.
+- Manually inspect logs with a Claude Code request that includes `context_management.edits` using `compact_20260112`, `clear_thinking_20251015`, or synthetic `compaction` content.

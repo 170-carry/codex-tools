@@ -1,3 +1,8 @@
+
+dev-start:
+	cargo run --manifest-path src-tauri/Cargo.toml --bin codex-tools-proxyd
+
+
 start:
 	@trap 'kill 0' INT TERM EXIT; \
 	bun run dev & \

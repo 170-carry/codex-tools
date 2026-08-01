@@ -112,8 +112,12 @@ const CODEX_CLIENT_VERSION: &str = "0.125.0";
 const CODEX_USER_AGENT: &str = "codex_cli_rs/0.125.0";
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const ANTHROPIC_MESSAGES_REQUIRED_VERSION: &str = "2023-06-01";
+const ANTHROPIC_CONTEXT_MANAGEMENT_BETA: &str = "context-management-2025-06-27";
 const ANTHROPIC_COMPACTION_BETA: &str = "compact-2026-01-12";
 const ANTHROPIC_COMPACTION_EDIT_TYPE: &str = "compact_20260112";
+const ANTHROPIC_CLEAR_THINKING_EDIT_TYPE: &str = "clear_thinking_20251015";
+const ANTHROPIC_CLEAR_THINKING_KEEP_ALL: &str = "all";
+const ANTHROPIC_CLEAR_THINKING_KEEP_THINKING_TURNS: &str = "thinking_turns";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
@@ -131,7 +135,12 @@ const RESPONSE_MODEL_NORMALIZATIONS: &[(&str, &str)] = &[
     ("gpt5.4", "gpt-5.4"),
     ("gpt-5-4", "gpt-5.4"),
 ];
-const UNSUPPORTED_RESPONSES_REQUEST_FIELDS: &[&str] = &["metadata", "prompt_cache_retention"];
+const UNSUPPORTED_RESPONSES_REQUEST_FIELDS: &[&str] = &[
+    "metadata",
+    "prompt_cache_retention",
+    "max_output_tokens",
+    "truncation",
+];
 const API_PROXY_USAGE_FILE_NAME: &str = "api-proxy-usage.json";
 const API_PROXY_USAGE_STORE_VERSION: u8 = 1;
 const API_PROXY_KEYS_FILE_NAME: &str = "api-proxy-keys.json";
@@ -142,6 +151,9 @@ const API_PROXY_REQUEST_LOG_STORE_VERSION: u8 = 2;
 const API_PROXY_REQUEST_LOG_MAX_ENTRIES: usize = 200;
 const API_PROXY_REQUEST_LOG_BODY_DIR: &str = "proxy-request-bodies";
 const API_PROXY_REQUEST_LOG_USER_PREVIEW_CHARS: usize = 200;
+const CLAUDE_CODEX_DEBUGGER_ROUTE: &str = "/debug/claude-codex";
+const CLAUDE_CODEX_PREVIEW_ROUTE: &str = "/debug/claude-codex/preview";
+const CLAUDE_CODEX_DEBUGGER_HTML: &str = include_str!("../../public/claude-codex-debugger.html");
 const API_PROXY_REQUEST_LOG_HEADER_DENY_LIST: &[&str] = &[
     "authorization",
     "x-api-key",
@@ -463,9 +475,16 @@ struct AnthropicStreamState {
     model: String,
     content_index: i64,
     open_text_index: Option<i64>,
-    open_tool_index: Option<i64>,
+    open_tools: BTreeMap<String, AnthropicOpenToolBlock>,
+    tool_aliases: BTreeMap<String, String>,
     saw_tool_use: bool,
-    has_received_tool_arguments_delta: bool,
+    reasoning_prefix_sent: bool,
+    terminal_sent: bool,
+}
+
+struct AnthropicOpenToolBlock {
+    index: i64,
+    has_received_arguments_delta: bool,
 }
 
 impl Default for AnthropicStreamState {
@@ -476,11 +495,18 @@ impl Default for AnthropicStreamState {
             // Anthropic content block indices are zero-based.
             content_index: -1,
             open_text_index: None,
-            open_tool_index: None,
+            open_tools: BTreeMap::new(),
+            tool_aliases: BTreeMap::new(),
             saw_tool_use: false,
-            has_received_tool_arguments_delta: false,
+            reasoning_prefix_sent: false,
+            terminal_sent: false,
         }
     }
+}
+
+struct AnthropicStopInfo {
+    reason: &'static str,
+    sequence: Value,
 }
 
 pub(crate) fn new_proxy_storage_context(
@@ -1705,6 +1731,14 @@ pub(crate) async fn start_api_proxy_with_runtime(
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let router = Router::new()
         .route("/health", get(health_handler))
+        .route(
+            CLAUDE_CODEX_DEBUGGER_ROUTE,
+            get(claude_codex_debugger_handler),
+        )
+        .route(
+            CLAUDE_CODEX_PREVIEW_ROUTE,
+            post(claude_codex_preview_handler),
+        )
         .route("/v1/models", get(models_handler))
         .route("/v1/chat/completions", post(chat_completions_handler))
         .route("/v1/images/generations", post(image_generations_handler))
@@ -1854,6 +1888,40 @@ pub(crate) async fn refresh_api_proxy_key_with_runtime(
 
 async fn health_handler() -> impl IntoResponse {
     Json(json!({ "ok": true }))
+}
+
+async fn claude_codex_debugger_handler() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/html; charset=utf-8")
+        .body(Body::from(CLAUDE_CODEX_DEBUGGER_HTML))
+        .unwrap_or_else(|_| {
+            json_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "构建 Claude-Codex 调试页面响应失败",
+            )
+        })
+}
+
+async fn claude_codex_preview_handler(
+    State(context): State<Arc<ProxyContext>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let _proxy_key = match authorize_anthropic_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
+
+    let wrapper = match parse_json_request(&body) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+
+    match build_claude_codex_preview(&context, &headers, &wrapper) {
+        Ok(preview) => Json(preview).into_response(),
+        Err(message) => invalid_request_response(&message),
+    }
 }
 
 pub(crate) fn get_api_proxy_supported_models_internal() -> Vec<String> {
@@ -2134,9 +2202,14 @@ async fn anthropic_messages_handler(
         };
         record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &completed).await;
 
-        let body = match serde_json::to_vec(&convert_completed_response_to_anthropic_message(
-            &completed,
-        )) {
+        let converted = match convert_completed_response_to_anthropic_message(&completed) {
+            Ok(value) => value,
+            Err(message) => {
+                update_proxy_error(&context, Some(message.clone())).await;
+                return anthropic_error_response(StatusCode::BAD_GATEWAY, &message);
+            }
+        };
+        let body = match serde_json::to_vec(&converted) {
             Ok(bytes) => Bytes::from(bytes),
             Err(error) => {
                 let message = format!("序列化 Anthropic Messages 响应失败: {error}");
@@ -2147,6 +2220,210 @@ async fn anthropic_messages_handler(
 
         build_json_proxy_response(StatusCode::OK, &upstream_headers, body)
     }
+}
+
+fn print_claude_codex_payload_to_stdout(route: &str, payload: &Value) {
+    match serde_json::to_string_pretty(payload) {
+        Ok(json) => println!("[claude-codex-payload] route={route}\n{json}"),
+        Err(error) => println!(
+            "[claude-codex-payload] route={route} failed_to_serialize={error} payload={payload}"
+        ),
+    }
+}
+
+fn apply_claude_compat_options(payload: &mut Value) -> Result<(), String> {
+    let object = payload
+        .as_object_mut()
+        .ok_or_else(|| "Claude 兼容 payload 必须是 JSON 对象".to_string())?;
+
+    let need_model_fallback = object
+        .get("model")
+        .and_then(Value::as_str)
+        .map(|model| !MODELS.contains(&model))
+        .unwrap_or(true);
+    if need_model_fallback {
+        object.insert("model".to_string(), json!("gpt-5.5"));
+    }
+
+    object.remove("max_output_tokens");
+    object.remove("truncation");
+
+    Ok(())
+}
+
+fn build_claude_codex_preview(
+    context: &ProxyContext,
+    incoming_headers: &HeaderMap,
+    wrapper: &Value,
+) -> Result<Value, String> {
+    let object = wrapper
+        .as_object()
+        .ok_or_else(|| "Claude-Codex preview 请求必须是 JSON 对象".to_string())?;
+    let downstream_path = required_string(object, "route")?;
+    if !matches!(
+        downstream_path.as_str(),
+        "/v1/messages" | "/v1/claude/v1/messages" | "/v1/claude/messages"
+    ) {
+        return Err(format!(
+            "Claude-Codex preview route 不支持 {downstream_path}; 仅支持 /v1/messages、/v1/claude/v1/messages、/v1/claude/messages"
+        ));
+    }
+    let request_payload = object
+        .get("payload")
+        .ok_or_else(|| "Claude-Codex preview 缺少 payload".to_string())?;
+    let (mut upstream_payload, _) = convert_anthropic_messages_request_to_codex(request_payload)?;
+    if downstream_path != "/v1/messages" {
+        apply_claude_compat_options(&mut upstream_payload)?;
+    }
+
+    let preview_headers = object.get("headers").and_then(Value::as_object);
+    let upstream_url = format!("{}/responses", context.upstream_base_url);
+    let version = preview_header_value(preview_headers, incoming_headers, "version")
+        .unwrap_or_else(|| CODEX_CLIENT_VERSION.to_string());
+    let user_agent = preview_header_value(preview_headers, incoming_headers, "user-agent")
+        .unwrap_or_else(|| CODEX_USER_AGENT.to_string());
+    let session_id = preview_header_value(preview_headers, incoming_headers, "session_id")
+        .unwrap_or_else(|| "<generated-session-id>".to_string());
+    let websocket = should_use_responses_websocket(&upstream_payload);
+    let transport = if websocket { "websocket" } else { "http" };
+    let protocol_headers =
+        build_claude_codex_preview_protocol_headers(websocket, &version, &user_agent, &session_id);
+    let curl = if websocket {
+        Value::Null
+    } else {
+        Value::String(build_claude_codex_preview_curl(
+            &upstream_url,
+            &protocol_headers,
+            &upstream_payload,
+        )?)
+    };
+    let note = if websocket {
+        Some("Final payload selects Codex Responses WebSocket transport; no HTTP curl is shown because production would open a WebSocket and send response.create.")
+    } else {
+        None
+    };
+
+    Ok(json!({
+        "downstream": {
+            "method": "POST",
+            "path": downstream_path,
+        },
+        "upstream": {
+            "transport": transport,
+            "method": if websocket { "WEBSOCKET" } else { "POST" },
+            "url": upstream_url,
+            "headers": protocol_headers,
+            "body": upstream_payload,
+            "curl": curl,
+            "note": note,
+        }
+    }))
+}
+
+fn preview_header_value(
+    preview_headers: Option<&Map<String, Value>>,
+    incoming_headers: &HeaderMap,
+    name: &str,
+) -> Option<String> {
+    preview_headers
+        .and_then(|headers| {
+            headers.iter().find_map(|(key, value)| {
+                key.eq_ignore_ascii_case(name)
+                    .then(|| value.as_str().map(str::trim))
+                    .flatten()
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string)
+            })
+        })
+        .or_else(|| {
+            incoming_headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+}
+
+fn build_claude_codex_preview_protocol_headers(
+    websocket: bool,
+    version: &str,
+    user_agent: &str,
+    session_id: &str,
+) -> Map<String, Value> {
+    let mut headers = Map::new();
+    headers.insert(
+        "Authorization".to_string(),
+        Value::String("Bearer <access-token>".to_string()),
+    );
+    headers.insert(
+        "ChatGPT-Account-Id".to_string(),
+        Value::String("<account-id>".to_string()),
+    );
+    if !websocket {
+        headers.insert(
+            "Accept".to_string(),
+            Value::String("text/event-stream".to_string()),
+        );
+        headers.insert(
+            "Content-Type".to_string(),
+            Value::String("application/json".to_string()),
+        );
+    }
+    headers.insert(
+        "Originator".to_string(),
+        Value::String("codex_cli_rs".to_string()),
+    );
+    headers.insert("Version".to_string(), Value::String(version.to_string()));
+    headers.insert(
+        "Session_id".to_string(),
+        Value::String(session_id.to_string()),
+    );
+    if websocket {
+        headers.insert(
+            "x-client-request-id".to_string(),
+            Value::String(session_id.to_string()),
+        );
+        headers.insert(
+            "OpenAI-Beta".to_string(),
+            Value::String(RESPONSES_WEBSOCKETS_BETA.to_string()),
+        );
+    }
+    headers.insert(
+        "User-Agent".to_string(),
+        Value::String(user_agent.to_string()),
+    );
+    if !websocket {
+        headers.insert(
+            "Connection".to_string(),
+            Value::String("Keep-Alive".to_string()),
+        );
+    }
+    headers
+}
+
+fn build_claude_codex_preview_curl(
+    upstream_url: &str,
+    headers: &Map<String, Value>,
+    payload: &Value,
+) -> Result<String, String> {
+    let mut command = format!("curl -N -X POST {}", shell_quote(upstream_url));
+    for (name, value) in headers {
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        command.push_str(" \\\n  -H ");
+        command.push_str(&shell_quote(&format!("{name}: {value}")));
+    }
+    let body = serde_json::to_string_pretty(payload)
+        .map_err(|error| format!("序列化 Claude-Codex preview curl payload 失败: {error}"))?;
+    command.push_str(" \\\n  -d ");
+    command.push_str(&shell_quote(&body));
+    Ok(command)
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 async fn claude_messages_handler(
@@ -2172,21 +2449,10 @@ async fn claude_messages_handler(
             Err(message) => return invalid_request_response(&message),
         };
 
-    // 方案 A:删除 max_output_tokens 字段,绕过上游 FastAPI relay 不支持该字段的限制。
-    // 幂等:键不存在也不报错,且不影响原 /v1/messages 路径(convert 函数与既有测试一字未改)。
-    if let Some(obj) = upstream_payload.as_object_mut() {
-        obj.remove("max_output_tokens");
-        // 模型名兜底:Claude Code 默认发 claude-*,上游只认 gpt-*;
-        // 若转换后的 model 不在支持列表(或缺失),回落到 gpt-5.5,避免上游 4xx。
-        let need_fallback = obj
-            .get("model")
-            .and_then(|v| v.as_str())
-            .map(|m| !MODELS.contains(&m))
-            .unwrap_or(true);
-        if need_fallback {
-            obj.insert("model".to_string(), json!("gpt-5.5"));
-        }
+    if let Err(message) = apply_claude_compat_options(&mut upstream_payload) {
+        return invalid_request_response(&message);
     }
+    print_claude_codex_payload_to_stdout("/v1/claude", &upstream_payload);
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -2233,9 +2499,14 @@ async fn claude_messages_handler(
         };
         record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &completed).await;
 
-        let body = match serde_json::to_vec(&convert_completed_response_to_anthropic_message(
-            &completed,
-        )) {
+        let converted = match convert_completed_response_to_anthropic_message(&completed) {
+            Ok(value) => value,
+            Err(message) => {
+                update_proxy_error(&context, Some(message.clone())).await;
+                return anthropic_error_response(StatusCode::BAD_GATEWAY, &message);
+            }
+        };
+        let body = match serde_json::to_vec(&converted) {
             Ok(bytes) => Bytes::from(bytes),
             Err(error) => {
                 let message = format!("序列化 Anthropic Messages 响应失败: {error}");
@@ -2830,7 +3101,7 @@ async fn unsupported_proxy_handler(
     json_error_response(
         StatusCode::NOT_FOUND,
         &format!(
-            "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/claude/v1/messages、POST /v1/claude/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 {method} {}",
+            "当前反代只支持 GET /health、GET /debug/claude-codex、POST /debug/claude-codex/preview、GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/claude/v1/messages、POST /v1/claude/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 {method} {}",
             uri.path()
         ),
     )
@@ -3236,18 +3507,14 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
         .and_then(Value::as_array)
         .ok_or_else(|| "Anthropic Messages 请求缺少 messages 数组".to_string())?;
     let downstream_stream = bool_field(request_object, "stream", false);
+    validate_anthropic_context_management(request_object)?;
     log_anthropic_compaction_request(request_object);
 
     let mut root = Map::new();
     root.insert("model".to_string(), Value::String(model));
     root.insert("stream".to_string(), Value::Bool(true));
     root.insert("store".to_string(), Value::Bool(false));
-    root.insert(
-        "instructions".to_string(),
-        Value::String(anthropic_system_to_instructions(
-            request_object.get("system"),
-        )),
-    );
+    let mut instructions = anthropic_system_to_instructions(request_object.get("system"));
     root.insert(
         "parallel_tool_calls".to_string(),
         Value::Bool(bool_field(request_object, "parallel_tool_calls", true)),
@@ -3266,19 +3533,11 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
         }),
     );
 
-    if let Some(max_tokens) = request_object
-        .get("max_tokens")
-        .and_then(integer_field_value)
-    {
-        root.insert(
-            "max_output_tokens".to_string(),
-            Value::Number(serde_json::Number::from(max_tokens)),
-        );
-    }
     copy_anthropic_passthrough_field(request_object, &mut root, "temperature", "temperature");
     copy_anthropic_passthrough_field(request_object, &mut root, "top_p", "top_p");
     copy_anthropic_passthrough_field(request_object, &mut root, "service_tier", "service_tier");
     if let Some(stop_sequences) = request_object.get("stop_sequences") {
+        validate_anthropic_stop_sequences(stop_sequences)?;
         root.insert("stop".to_string(), stop_sequences.clone());
     }
 
@@ -3288,13 +3547,28 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
             .as_object()
             .ok_or_else(|| "Anthropic Messages 的 messages 数组每一项都必须是对象".to_string())?;
         let role = required_string(message_object, "role")?;
-        let codex_role = if role == "assistant" {
-            "assistant"
-        } else {
-            "user"
+        if role == "system" {
+            let message_instructions =
+                anthropic_system_to_instructions(message_object.get("content"));
+            if !message_instructions.is_empty() {
+                if !instructions.is_empty() {
+                    instructions.push_str("\n\n");
+                }
+                instructions.push_str(&message_instructions);
+            }
+            continue;
+        }
+        let codex_role = match role.as_str() {
+            "assistant" => "assistant",
+            "user" => "user",
+            _ => {
+                return Err(format!(
+                    "Anthropic Messages 仅支持 system/user/assistant role，收到: {role}"
+                ));
+            }
         };
         let (content_parts, special_items) =
-            split_anthropic_content_for_codex(&role, message_object.get("content"));
+            split_anthropic_content_for_codex(&role, message_object.get("content"))?;
 
         // 普通文本和图片仍按 message 传给上游，工具结果和工具调用则拆成 Responses 专用 item。
         if !content_parts.is_empty() || special_items.is_empty() {
@@ -3306,18 +3580,21 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
         }
         input.extend(special_items);
     }
+    root.insert("instructions".to_string(), Value::String(instructions));
     root.insert("input".to_string(), Value::Array(input));
 
-    if let Some(tools) = request_object.get("tools").and_then(Value::as_array) {
-        let converted = convert_anthropic_tools_to_codex(tools);
+    if let Some(tools_value) = request_object.get("tools") {
+        let tools = tools_value
+            .as_array()
+            .ok_or_else(|| "Anthropic Messages tools 必须是数组".to_string())?;
+        let converted = convert_anthropic_tools_to_codex(tools)?;
         if !converted.is_empty() {
             root.insert("tools".to_string(), Value::Array(converted));
         }
     }
     if let Some(tool_choice) = request_object.get("tool_choice") {
-        if let Some(converted) = convert_anthropic_tool_choice_to_codex(tool_choice) {
-            root.insert("tool_choice".to_string(), converted);
-        }
+        let converted = convert_anthropic_tool_choice_to_codex(tool_choice)?;
+        root.insert("tool_choice".to_string(), converted);
     }
 
     Ok((Value::Object(root), downstream_stream))
@@ -3364,8 +3641,97 @@ fn copy_anthropic_passthrough_field(
     }
 }
 
+fn validate_anthropic_context_management(
+    request_object: &Map<String, Value>,
+) -> Result<(), String> {
+    let Some(context_management) = request_object.get("context_management") else {
+        return Ok(());
+    };
+    let object = context_management
+        .as_object()
+        .ok_or_else(|| "Anthropic context_management 必须是对象".to_string())?;
+    let Some(edits) = object.get("edits") else {
+        return Ok(());
+    };
+    let edits = edits
+        .as_array()
+        .ok_or_else(|| "Anthropic context_management.edits 必须是数组".to_string())?;
+    for (index, edit) in edits.iter().enumerate() {
+        let edit_object = edit
+            .as_object()
+            .ok_or_else(|| format!("Anthropic context_management.edits[{index}] 必须是对象"))?;
+        let edit_type = required_string(edit_object, "type")
+            .map_err(|_| format!("Anthropic context_management.edits[{index}].type 不能为空"))?;
+        match edit_type.as_str() {
+            ANTHROPIC_COMPACTION_EDIT_TYPE => {}
+            ANTHROPIC_CLEAR_THINKING_EDIT_TYPE => {
+                validate_anthropic_clear_thinking_keep(edit_object, index)?;
+            }
+            _ => {
+                return Err(format!(
+                    "不支持的 Anthropic context_management edit type={edit_type}; 当前仅支持本地兼容 {ANTHROPIC_COMPACTION_EDIT_TYPE} 和 {ANTHROPIC_CLEAR_THINKING_EDIT_TYPE}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_anthropic_clear_thinking_keep(
+    edit_object: &Map<String, Value>,
+    edit_index: usize,
+) -> Result<(), String> {
+    let Some(keep) = edit_object.get("keep") else {
+        return Ok(());
+    };
+    let path = format!("Anthropic context_management.edits[{edit_index}].keep");
+    match keep {
+        Value::String(value) if value == ANTHROPIC_CLEAR_THINKING_KEEP_ALL => Ok(()),
+        Value::String(_) => Err(format!("{path} 字符串值必须是 \"all\"")),
+        Value::Object(object) => validate_anthropic_clear_thinking_keep_object(object, &path),
+        _ => Err(format!(
+            "{path} 必须是字符串 \"all\" 或对象 {{type:\"thinking_turns\", value: 正整数}}"
+        )),
+    }
+}
+
+fn validate_anthropic_clear_thinking_keep_object(
+    keep_object: &Map<String, Value>,
+    path: &str,
+) -> Result<(), String> {
+    let keep_type = required_string(keep_object, "type")
+        .map_err(|_| format!("{path}.type 必须是 \"thinking_turns\""))?;
+    if keep_type != ANTHROPIC_CLEAR_THINKING_KEEP_THINKING_TURNS {
+        return Err(format!("{path}.type 必须是 \"thinking_turns\""));
+    }
+
+    let Some(value) = keep_object.get("value") else {
+        return Err(format!("{path}.value 必须是正整数"));
+    };
+    if value.as_u64().is_some_and(|value| value > 0) {
+        Ok(())
+    } else {
+        Err(format!("{path}.value 必须是正整数"))
+    }
+}
+
+fn validate_anthropic_stop_sequences(stop_sequences: &Value) -> Result<(), String> {
+    let items = stop_sequences
+        .as_array()
+        .ok_or_else(|| "Anthropic stop_sequences 必须是字符串数组".to_string())?;
+    for (index, value) in items.iter().enumerate() {
+        let Some(text) = value.as_str() else {
+            return Err(format!("Anthropic stop_sequences[{index}] 必须是字符串"));
+        };
+        if text.is_empty() {
+            return Err(format!("Anthropic stop_sequences[{index}] 不能为空"));
+        }
+    }
+    Ok(())
+}
+
 fn log_anthropic_compaction_request(request_object: &Map<String, Value>) {
-    let beta_requested = request_object
+    let compaction_beta_requested = request_object
         .get("betas")
         .and_then(Value::as_array)
         .map(|betas| {
@@ -3377,50 +3743,68 @@ fn log_anthropic_compaction_request(request_object: &Map<String, Value>) {
             })
         })
         .unwrap_or(false);
+    let context_management_beta_requested = request_object
+        .get("betas")
+        .and_then(Value::as_array)
+        .map(|betas| {
+            betas.iter().any(|value| {
+                value
+                    .as_str()
+                    .map(|value| value == ANTHROPIC_CONTEXT_MANAGEMENT_BETA)
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
 
     let mut compact_edits = 0usize;
+    let mut clear_thinking_edits = 0usize;
     if let Some(edits) = request_object
         .get("context_management")
         .and_then(|value| value.get("edits"))
         .and_then(Value::as_array)
     {
         for edit in edits {
-            if edit.get("type").and_then(Value::as_str) == Some(ANTHROPIC_COMPACTION_EDIT_TYPE) {
-                compact_edits += 1;
-            } else if let Some(edit_type) = edit.get("type").and_then(Value::as_str) {
-                log::info!(
-                    "Anthropic Messages 兼容层忽略 context_management edit type={edit_type}: Codex 上游不支持该 Anthropic 专用编辑"
-                );
-            } else {
-                log::info!(
-                    "Anthropic Messages 兼容层忽略缺少 type 的 context_management edit: Codex 上游不支持该 Anthropic 专用编辑"
-                );
+            match edit.get("type").and_then(Value::as_str) {
+                Some(ANTHROPIC_COMPACTION_EDIT_TYPE) => compact_edits += 1,
+                Some(ANTHROPIC_CLEAR_THINKING_EDIT_TYPE) => clear_thinking_edits += 1,
+                _ => {}
             }
         }
     }
 
-    if beta_requested || compact_edits > 0 {
+    if compaction_beta_requested
+        || context_management_beta_requested
+        || compact_edits > 0
+        || clear_thinking_edits > 0
+    {
         log::info!(
-            "Anthropic Messages 兼容层检测到 Claude Code compaction 请求 beta_requested={beta_requested} compact_edits={compact_edits}; context_management 不会透传给 Codex，上下文将通过普通文本 block 兼容"
+            "Anthropic Messages 兼容层检测到 context_management 请求 compaction_beta_requested={compaction_beta_requested} context_management_beta_requested={context_management_beta_requested} compact_edits={compact_edits} clear_thinking_edits={clear_thinking_edits}; context_management 不会透传给 Codex，上下文将通过普通文本 block 兼容"
         );
     }
 }
 
 fn log_anthropic_compaction_headers(headers: &HeaderMap) {
-    let beta_requested = headers
+    let (compaction_beta_requested, context_management_beta_requested) = headers
         .get("anthropic-beta")
         .and_then(|value| value.to_str().ok())
         .map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .any(|item| item == ANTHROPIC_COMPACTION_BETA)
+            let mut compaction = false;
+            let mut context_management = false;
+            for item in value.split(',').map(str::trim) {
+                if item == ANTHROPIC_COMPACTION_BETA {
+                    compaction = true;
+                }
+                if item == ANTHROPIC_CONTEXT_MANAGEMENT_BETA {
+                    context_management = true;
+                }
+            }
+            (compaction, context_management)
         })
-        .unwrap_or(false);
+        .unwrap_or((false, false));
 
-    if beta_requested {
+    if compaction_beta_requested || context_management_beta_requested {
         log::info!(
-            "Anthropic Messages 兼容层检测到 header anthropic-beta={ANTHROPIC_COMPACTION_BETA}; 该 Anthropic compaction beta 不会透传为 Codex 原生能力"
+            "Anthropic Messages 兼容层检测到 header anthropic-beta compaction_beta_requested={compaction_beta_requested} context_management_beta_requested={context_management_beta_requested}; Anthropic context management beta 不会透传为 Codex 原生能力"
         );
     }
 }
@@ -3428,7 +3812,7 @@ fn log_anthropic_compaction_headers(headers: &HeaderMap) {
 fn split_anthropic_content_for_codex(
     role: &str,
     content: Option<&Value>,
-) -> (Vec<Value>, Vec<Value>) {
+) -> Result<(Vec<Value>, Vec<Value>), String> {
     let mut content_parts = Vec::new();
     let mut special_items = Vec::new();
     let text_type = if role == "assistant" {
@@ -3449,21 +3833,23 @@ fn split_anthropic_content_for_codex(
         Some(Value::Array(items)) => {
             for item in items {
                 let Some(item_object) = item.as_object() else {
-                    log::warn!("Anthropic Messages 兼容层忽略非对象 content block role={role}");
-                    continue;
+                    return Err(format!(
+                        "Anthropic Messages content block 必须是对象 role={role}"
+                    ));
                 };
-                match item_object
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                {
+                let block_type = required_string(item_object, "type").map_err(|_| {
+                    format!("Anthropic Messages content block.type 不能为空 role={role}")
+                })?;
+                match block_type.as_str() {
                     "text" => {
-                        if let Some(text) = item_object.get("text").and_then(Value::as_str) {
-                            content_parts.push(json!({
-                                "type": text_type,
-                                "text": text,
-                            }));
-                        }
+                        let text = item_object
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| "Anthropic text block 缺少 text 字符串".to_string())?;
+                        content_parts.push(json!({
+                            "type": text_type,
+                            "text": text,
+                        }));
                     }
                     "image" if role == "user" => {
                         if let Some(image_url) =
@@ -3473,22 +3859,51 @@ fn split_anthropic_content_for_codex(
                                 "type": "input_image",
                                 "image_url": image_url,
                             }));
+                        } else {
+                            return Err(
+                                "Anthropic image block source 必须是有效 base64 或 url".to_string()
+                            );
                         }
                     }
                     "tool_use" if role == "assistant" => {
+                        let call_id = required_string(item_object, "id")
+                            .map_err(|_| "Anthropic tool_use.id 不能为空".to_string())?;
+                        let name = required_string(item_object, "name")
+                            .map_err(|_| "Anthropic tool_use.name 不能为空".to_string())?;
+                        let arguments = match item_object.get("input") {
+                            Some(value) if value.is_object() => stringify_json_field(Some(value)),
+                            Some(_) => {
+                                return Err("Anthropic tool_use.input 必须是对象".to_string())
+                            }
+                            None => "{}".to_string(),
+                        };
                         special_items.push(json!({
                             "type": "function_call",
-                            "call_id": item_object.get("id").and_then(Value::as_str).unwrap_or_default(),
-                            "name": item_object.get("name").and_then(Value::as_str).unwrap_or_default(),
-                            "arguments": stringify_json_field(item_object.get("input")),
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": arguments,
                         }));
                     }
+                    "tool_use" => {
+                        return Err(
+                            "Anthropic tool_use content block 只能出现在 assistant 消息中"
+                                .to_string(),
+                        );
+                    }
                     "tool_result" if role == "user" => {
+                        let call_id =
+                            required_string(item_object, "tool_use_id").map_err(|_| {
+                                "Anthropic tool_result.tool_use_id 不能为空".to_string()
+                            })?;
                         special_items.push(json!({
                             "type": "function_call_output",
-                            "call_id": item_object.get("tool_use_id").and_then(Value::as_str).unwrap_or_default(),
-                            "output": stringify_anthropic_tool_result_content(item_object.get("content")),
+                            "call_id": call_id,
+                            "output": stringify_anthropic_tool_result_content(item_object),
                         }));
+                    }
+                    "tool_result" => {
+                        return Err("Anthropic tool_result content block 只能出现在 user 消息中"
+                            .to_string());
                     }
                     "compaction" => {
                         log::info!(
@@ -3522,21 +3937,20 @@ fn split_anthropic_content_for_codex(
                     }
                     "redacted_thinking" => {
                         log::info!(
-                            "Anthropic Messages 兼容层跳过 redacted_thinking content block role={role}: 无可读内容可转发"
-                        );
-                    }
-                    block_type => {
-                        let display_type = if block_type.is_empty() {
-                            "<missing>"
-                        } else {
-                            block_type
-                        };
-                        log::warn!(
-                            "Anthropic Messages 兼容层遇到未知 content block type={display_type} role={role}; 已转为 JSON 文本保留"
+                            "Anthropic Messages 兼容层将 redacted_thinking 转为 redacted 文本占位 role={role}"
                         );
                         content_parts.push(json!({
                             "type": text_type,
-                            "text": anthropic_unknown_block_to_text(display_type, item),
+                            "text": anthropic_redacted_thinking_block_to_text(item_object),
+                        }));
+                    }
+                    block_type => {
+                        log::warn!(
+                            "Anthropic Messages 兼容层遇到未知 content block type={block_type} role={role}; 已转为 JSON 文本保留"
+                        );
+                        content_parts.push(json!({
+                            "type": text_type,
+                            "text": anthropic_unknown_block_to_text(block_type, item),
                         }));
                     }
                 }
@@ -3557,7 +3971,7 @@ fn split_anthropic_content_for_codex(
         None => {}
     }
 
-    (content_parts, special_items)
+    Ok((content_parts, special_items))
 }
 
 fn anthropic_compaction_block_to_text(block: &Map<String, Value>) -> String {
@@ -3584,6 +3998,19 @@ fn anthropic_unknown_block_to_text(block_type: &str, block: &Value) -> String {
     )
 }
 
+fn anthropic_redacted_thinking_block_to_text(block: &Map<String, Value>) -> String {
+    let mut redacted = block.clone();
+    for key in ["data", "signature", "encrypted_content"] {
+        if redacted.contains_key(key) {
+            redacted.insert(key.to_string(), Value::String("[redacted]".to_string()));
+        }
+    }
+    format!(
+        "[Anthropic redacted_thinking block preserved without revealing opaque payload]\n{}",
+        serde_json::to_string(&Value::Object(redacted)).unwrap_or_default()
+    )
+}
+
 fn anthropic_image_source_to_codex_url(source: Option<&Value>) -> Option<String> {
     let source = source?.as_object()?;
     match source.get("type").and_then(Value::as_str) {
@@ -3603,63 +4030,85 @@ fn anthropic_image_source_to_codex_url(source: Option<&Value>) -> Option<String>
     }
 }
 
-fn stringify_anthropic_tool_result_content(content: Option<&Value>) -> String {
-    match content {
+fn stringify_anthropic_tool_result_content(block: &Map<String, Value>) -> String {
+    let mut parts = Vec::new();
+    if block
+        .get("is_error")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        parts.push("[Anthropic tool_result is_error=true]".to_string());
+    }
+    let text = match block.get("content") {
         Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter_map(|item| {
-                item.as_object()
+        Some(Value::Array(items)) => {
+            for item in items {
+                if let Some(text) = item
+                    .as_object()
                     .and_then(|object| object.get("text"))
                     .and_then(Value::as_str)
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
+                {
+                    parts.push(text.to_string());
+                } else {
+                    parts.push(format!(
+                        "[Anthropic tool_result content block preserved as JSON]\n{}",
+                        serde_json::to_string(item).unwrap_or_default()
+                    ));
+                }
+            }
+            return parts.join("\n");
+        }
         Some(other) => serde_json::to_string(other).unwrap_or_default(),
         None => String::new(),
+    };
+    if !text.is_empty() {
+        parts.push(text);
     }
+    parts.join("\n")
 }
 
-fn convert_anthropic_tools_to_codex(tools: &[Value]) -> Vec<Value> {
+fn convert_anthropic_tools_to_codex(tools: &[Value]) -> Result<Vec<Value>, String> {
     let mut converted = Vec::new();
-    for tool in tools {
-        let Some(tool_object) = tool.as_object() else {
-            continue;
-        };
-        let Some(name) = tool_object.get("name").and_then(Value::as_str) else {
-            continue;
-        };
+    for (index, tool) in tools.iter().enumerate() {
+        let tool_object = tool
+            .as_object()
+            .ok_or_else(|| format!("Anthropic tools[{index}] 必须是对象"))?;
+        let name = required_string(tool_object, "name")
+            .map_err(|_| format!("Anthropic tools[{index}].name 不能为空"))?;
         let mut converted_tool = Map::new();
         converted_tool.insert("type".to_string(), Value::String("function".to_string()));
         converted_tool.insert("name".to_string(), Value::String(name.to_string()));
         if let Some(description) = tool_object.get("description") {
             converted_tool.insert("description".to_string(), description.clone());
         }
-        converted_tool.insert(
-            "parameters".to_string(),
-            tool_object
-                .get("input_schema")
-                .cloned()
-                .unwrap_or_else(|| json!({ "type": "object" })),
-        );
+        let parameters = match tool_object.get("input_schema") {
+            Some(value) if value.is_object() => value.clone(),
+            Some(_) => return Err(format!("Anthropic tools[{index}].input_schema 必须是对象")),
+            None => json!({ "type": "object" }),
+        };
+        converted_tool.insert("parameters".to_string(), parameters);
         converted.push(Value::Object(converted_tool));
     }
-    converted
+    Ok(converted)
 }
 
-fn convert_anthropic_tool_choice_to_codex(tool_choice: &Value) -> Option<Value> {
-    let tool_choice = tool_choice.as_object()?;
-    match tool_choice.get("type").and_then(Value::as_str)? {
-        "auto" => Some(Value::String("auto".to_string())),
-        "any" => Some(Value::String("required".to_string())),
-        "none" => Some(Value::String("none".to_string())),
-        "tool" => tool_choice.get("name").and_then(Value::as_str).map(|name| {
-            json!({
+fn convert_anthropic_tool_choice_to_codex(tool_choice: &Value) -> Result<Value, String> {
+    let tool_choice = tool_choice
+        .as_object()
+        .ok_or_else(|| "Anthropic tool_choice 必须是对象".to_string())?;
+    match required_string(tool_choice, "type")?.as_str() {
+        "auto" => Ok(Value::String("auto".to_string())),
+        "any" => Ok(Value::String("required".to_string())),
+        "none" => Ok(Value::String("none".to_string())),
+        "tool" => {
+            let name = required_string(tool_choice, "name")
+                .map_err(|_| "Anthropic tool_choice.name 不能为空".to_string())?;
+            Ok(json!({
                 "type": "function",
                 "name": name,
-            })
-        }),
-        _ => None,
+            }))
+        }
+        other => Err(format!("不支持的 Anthropic tool_choice.type={other}")),
     }
 }
 
@@ -4747,6 +5196,7 @@ async fn send_codex_request_over_candidates(
     Err(json_error_response(StatusCode::BAD_GATEWAY, &merged_error))
 }
 
+// 请求codex接口
 async fn forward_codex_request_with_candidate(
     context: &ProxyContext,
     candidate: &ProxyCandidate,
@@ -6750,6 +7200,15 @@ fn build_anthropic_streaming_response(
                 yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&value));
             }
         }
+
+        if !state.terminal_sent {
+            for value in stop_all_anthropic_content_blocks(&mut state) {
+                yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&value));
+            }
+            yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&anthropic_stream_error_event(
+                "上游 Anthropic 流式响应在 message_stop 前结束",
+            )));
+        }
     };
 
     let mut response = Response::builder().status(StatusCode::OK);
@@ -7258,7 +7717,7 @@ fn build_openai_usage(usage: &Value) -> Value {
     Value::Object(root)
 }
 
-fn convert_completed_response_to_anthropic_message(response: &Value) -> Value {
+fn convert_completed_response_to_anthropic_message(response: &Value) -> Result<Value, String> {
     let response_object = response.as_object().cloned().unwrap_or_default();
     let mut content = Vec::new();
     let mut saw_tool_use = false;
@@ -7273,6 +7732,14 @@ fn convert_completed_response_to_anthropic_message(response: &Value) -> Value {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
             {
+                "reasoning" => {
+                    for summary in collect_reasoning_summary_texts(item_object) {
+                        content.push(json!({
+                            "type": "text",
+                            "text": format!("[Codex reasoning summary preserved for Anthropic compatibility]\n{summary}"),
+                        }));
+                    }
+                }
                 "message" => {
                     if let Some(parts) = item_object.get("content").and_then(Value::as_array) {
                         for part in parts {
@@ -7297,16 +7764,31 @@ fn convert_completed_response_to_anthropic_message(response: &Value) -> Value {
                 }
                 "function_call" => {
                     saw_tool_use = true;
+                    let call_id = item_object
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| {
+                            "Codex function_call 缺少非空 call_id，无法转换为 Anthropic tool_use"
+                                .to_string()
+                        })?;
+                    let name = item_object
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| {
+                            "Codex function_call 缺少非空 name，无法转换为 Anthropic tool_use"
+                                .to_string()
+                        })?;
+                    let arguments = item_object
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
                     content.push(json!({
                         "type": "tool_use",
-                        "id": item_object.get("call_id").and_then(Value::as_str).unwrap_or_default(),
-                        "name": item_object.get("name").and_then(Value::as_str).unwrap_or_default(),
-                        "input": parse_tool_arguments_json(
-                            item_object
-                                .get("arguments")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        ),
+                        "id": call_id,
+                        "name": name,
+                        "input": parse_tool_arguments_json(arguments)?,
                     }));
                 }
                 _ => {}
@@ -7314,7 +7796,8 @@ fn convert_completed_response_to_anthropic_message(response: &Value) -> Value {
         }
     }
 
-    json!({
+    let stop = anthropic_stop_info_from_response(response, saw_tool_use);
+    Ok(json!({
         "id": response_object
             .get("id")
             .cloned()
@@ -7327,33 +7810,97 @@ fn convert_completed_response_to_anthropic_message(response: &Value) -> Value {
             .map(normalize_model_for_client)
             .unwrap_or_default(),
         "content": content,
-        "stop_reason": anthropic_stop_reason_from_response(response, saw_tool_use),
-        "stop_sequence": Value::Null,
+        "stop_reason": stop.reason,
+        "stop_sequence": stop.sequence,
         "usage": build_anthropic_usage(response_object.get("usage")),
-    })
+    }))
 }
 
-fn parse_tool_arguments_json(arguments: &str) -> Value {
+fn collect_reasoning_summary_texts(item_object: &Map<String, Value>) -> Vec<String> {
+    item_object
+        .get("summary")
+        .and_then(Value::as_array)
+        .map(|summary| {
+            summary
+                .iter()
+                .filter_map(|summary_item| {
+                    if summary_item.get("type").and_then(Value::as_str) == Some("summary_text") {
+                        summary_item.get("text").and_then(Value::as_str)
+                    } else {
+                        None
+                    }
+                })
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_tool_arguments_json(arguments: &str) -> Result<Value, String> {
     if arguments.trim().is_empty() {
-        return json!({});
+        return Ok(json!({}));
     }
-    serde_json::from_str::<Value>(arguments).unwrap_or_else(|_| json!({}))
+    let parsed = serde_json::from_str::<Value>(arguments).map_err(|error| {
+        format!("Codex function_call.arguments 不是合法 JSON，无法转换为 Anthropic tool_use.input: {error}")
+    })?;
+    if !parsed.is_object() {
+        return Err(
+            "Codex function_call.arguments 必须解析为 JSON 对象，无法转换为 Anthropic tool_use.input"
+                .to_string(),
+        );
+    }
+    Ok(parsed)
 }
 
-fn anthropic_stop_reason_from_response(response: &Value, saw_tool_use: bool) -> &'static str {
+fn anthropic_stop_info_from_response(response: &Value, saw_tool_use: bool) -> AnthropicStopInfo {
+    if is_max_output_tokens_incomplete_response(response) {
+        return AnthropicStopInfo {
+            reason: "max_tokens",
+            sequence: Value::Null,
+        };
+    }
     if saw_tool_use {
-        return "tool_use";
+        return AnthropicStopInfo {
+            reason: "tool_use",
+            sequence: Value::Null,
+        };
     }
-    let is_max_tokens = response
-        .get("incomplete_details")
-        .and_then(|value| value.get("reason"))
+    if response
+        .get("stop_reason")
         .and_then(Value::as_str)
-        == Some("max_output_tokens");
-    if is_max_tokens || response.get("status").and_then(Value::as_str) == Some("incomplete") {
-        "max_tokens"
-    } else {
-        "end_turn"
+        .or_else(|| response.get("finish_reason").and_then(Value::as_str))
+        == Some("stop_sequence")
+    {
+        return AnthropicStopInfo {
+            reason: "stop_sequence",
+            sequence: response
+                .get("stop_sequence")
+                .cloned()
+                .unwrap_or(Value::Null),
+        };
     }
+    if response.get("status").and_then(Value::as_str) == Some("incomplete") {
+        AnthropicStopInfo {
+            reason: "max_tokens",
+            sequence: Value::Null,
+        }
+    } else {
+        AnthropicStopInfo {
+            reason: "end_turn",
+            sequence: Value::Null,
+        }
+    }
+}
+
+fn is_max_output_tokens_incomplete_response(response: &Value) -> bool {
+    response.get("status").and_then(Value::as_str) == Some("incomplete")
+        && response
+            .get("incomplete_details")
+            .and_then(|value| value.get("reason"))
+            .and_then(Value::as_str)
+            == Some("max_output_tokens")
 }
 
 fn build_anthropic_usage(usage: Option<&Value>) -> Value {
@@ -7426,6 +7973,53 @@ fn translate_sse_event_to_anthropic_event(
                 }
             })]
         }
+        "response.reasoning_summary_text.delta" => {
+            let Some(delta) = parsed.get("delta").and_then(Value::as_str) else {
+                return Vec::new();
+            };
+            let mut events = ensure_anthropic_text_block(state);
+            if !state.reasoning_prefix_sent {
+                state.reasoning_prefix_sent = true;
+                if let Some(index) = state.open_text_index {
+                    events.push(json!({
+                        "type": "content_block_delta",
+                        "index": index,
+                        "delta": {
+                            "type": "text_delta",
+                            "text": "[Codex reasoning summary preserved for Anthropic compatibility]\n",
+                        }
+                    }));
+                }
+            }
+            if let Some(index) = state.open_text_index {
+                events.push(json!({
+                    "type": "content_block_delta",
+                    "index": index,
+                    "delta": {
+                        "type": "text_delta",
+                        "text": delta,
+                    }
+                }));
+            }
+            events
+        }
+        "response.reasoning_summary_text.done" => {
+            if !state.reasoning_prefix_sent {
+                return Vec::new();
+            }
+            let mut events = Vec::new();
+            if let Some(index) = state.open_text_index {
+                events.push(json!({
+                    "type": "content_block_delta",
+                    "index": index,
+                    "delta": {
+                        "type": "text_delta",
+                        "text": "\n\n",
+                    }
+                }));
+            }
+            events
+        }
         "response.output_text.delta" => {
             let Some(delta) = parsed.get("delta").and_then(Value::as_str) else {
                 return Vec::new();
@@ -7451,41 +8045,56 @@ fn translate_sse_event_to_anthropic_event(
             if item.get("type").and_then(Value::as_str) != Some("function_call") {
                 return Vec::new();
             }
-            let mut events = stop_anthropic_text_block(state);
-            events.extend(start_anthropic_tool_block(state, item, None));
-            events
+            match start_anthropic_tool_block(state, &parsed, item, None) {
+                Ok(events) => events,
+                Err(message) => vec![anthropic_stream_error_event(&message)],
+            }
         }
         "response.function_call_arguments.delta" => {
-            state.has_received_tool_arguments_delta = true;
-            state
-                .open_tool_index
-                .map(|index| {
-                    vec![json!({
-                        "type": "content_block_delta",
-                        "index": index,
-                        "delta": {
-                            "type": "input_json_delta",
-                            "partial_json": parsed.get("delta").and_then(Value::as_str).unwrap_or_default(),
-                        }
-                    })]
-                })
-                .unwrap_or_default()
+            let Some(key) = resolve_anthropic_tool_event_key(state, &parsed) else {
+                return vec![anthropic_stream_error_event(
+                    "Codex function_call_arguments.delta 缺少 item_id 或 output_index",
+                )];
+            };
+            let Some(open_tool) = state.open_tools.get_mut(&key) else {
+                return vec![anthropic_stream_error_event(
+                    "Codex function_call_arguments.delta 没有对应的 function_call start",
+                )];
+            };
+            open_tool.has_received_arguments_delta = true;
+            vec![json!({
+                "type": "content_block_delta",
+                "index": open_tool.index,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": parsed.get("delta").and_then(Value::as_str).unwrap_or_default(),
+                }
+            })]
         }
         "response.function_call_arguments.done" => {
             let mut events = Vec::new();
-            if !state.has_received_tool_arguments_delta {
-                if let Some(index) = state.open_tool_index {
+            let Some(key) = resolve_anthropic_tool_event_key(state, &parsed) else {
+                return vec![anthropic_stream_error_event(
+                    "Codex function_call_arguments.done 缺少 item_id 或 output_index",
+                )];
+            };
+            if let Some(open_tool) = state.open_tools.get(&key) {
+                if !open_tool.has_received_arguments_delta {
                     events.push(json!({
                         "type": "content_block_delta",
-                        "index": index,
+                        "index": open_tool.index,
                         "delta": {
                             "type": "input_json_delta",
                             "partial_json": parsed.get("arguments").and_then(Value::as_str).unwrap_or_default(),
                         }
                     }));
                 }
+            } else {
+                events.push(anthropic_stream_error_event(
+                    "Codex function_call_arguments.done 没有对应的 function_call start",
+                ));
             }
-            events.extend(stop_anthropic_tool_block(state));
+            events.extend(stop_anthropic_tool_block(state, &key));
             events
         }
         "response.output_item.done" => {
@@ -7495,50 +8104,60 @@ fn translate_sse_event_to_anthropic_event(
             if item.get("type").and_then(Value::as_str) != Some("function_call") {
                 return Vec::new();
             }
-            if state.open_tool_index.is_some() {
-                return stop_anthropic_tool_block(state);
+            let Some(key) = anthropic_tool_item_key(&parsed, item) else {
+                return vec![anthropic_stream_error_event(
+                    "Codex response.output_item.done 缺少 function_call item_id/call_id/output_index",
+                )];
+            };
+            if let Some(existing_key) = resolve_anthropic_tool_item_key(state, &parsed, item) {
+                return stop_anthropic_tool_block(state, &existing_key);
             }
-            let mut events = stop_anthropic_text_block(state);
             let arguments = item
                 .get("arguments")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            events.extend(start_anthropic_tool_block(
-                state,
-                item,
-                Some(parse_tool_arguments_json(arguments)),
-            ));
-            events.extend(stop_anthropic_tool_block(state));
+            let input = match parse_tool_arguments_json(arguments) {
+                Ok(value) => value,
+                Err(message) => return vec![anthropic_stream_error_event(&message)],
+            };
+            let mut events = match start_anthropic_tool_block(state, &parsed, item, Some(input)) {
+                Ok(events) => events,
+                Err(message) => return vec![anthropic_stream_error_event(&message)],
+            };
+            let stop_key = resolve_anthropic_tool_item_key(state, &parsed, item).unwrap_or(key);
+            events.extend(stop_anthropic_tool_block(state, &stop_key));
             events
         }
         "response.completed" => {
             let response = parsed.get("response");
-            let mut events = stop_anthropic_text_block(state);
-            events.extend(stop_anthropic_tool_block(state));
-            events.push(json!({
-                "type": "message_delta",
-                "delta": {
-                    "stop_reason": anthropic_stop_reason_from_response(
-                        response.unwrap_or(&Value::Null),
-                        state.saw_tool_use,
-                    ),
-                    "stop_sequence": Value::Null,
-                },
-                "usage": build_anthropic_usage(response.and_then(|value| value.get("usage"))),
-            }));
-            events.push(json!({
-                "type": "message_stop",
-            }));
+            emit_anthropic_terminal_events(state, response, state.saw_tool_use)
+        }
+        "response.incomplete" => {
+            let response = parsed.get("response");
+            if response
+                .map(is_max_output_tokens_incomplete_response)
+                .unwrap_or(false)
+            {
+                emit_anthropic_terminal_events(state, response, false)
+            } else {
+                state.terminal_sent = true;
+                let mut events = stop_all_anthropic_content_blocks(state);
+                events.push(anthropic_stream_error_event(
+                    &response_error_message_from_value(&parsed)
+                        .unwrap_or_else(|| "Anthropic Messages 请求未完成".to_string()),
+                ));
+                events
+            }
+        }
+        "response.failed" | "response.cancelled" | "response.canceled" => {
+            state.terminal_sent = true;
+            let mut events = stop_all_anthropic_content_blocks(state);
+            events.push(anthropic_stream_error_event(
+                &response_error_message_from_value(&parsed)
+                    .unwrap_or_else(|| "Anthropic Messages 请求失败".to_string()),
+            ));
             events
         }
-        "response.failed" => vec![json!({
-            "type": "error",
-            "error": {
-                "type": "api_error",
-                "message": response_error_message_from_value(&parsed)
-                    .unwrap_or_else(|| "Anthropic Messages 请求失败".to_string()),
-            }
-        })],
         _ => {
             let _ = &event.event;
             Vec::new()
@@ -7550,7 +8169,7 @@ fn ensure_anthropic_text_block(state: &mut AnthropicStreamState) -> Vec<Value> {
     if state.open_text_index.is_some() {
         return Vec::new();
     }
-    let mut events = stop_anthropic_tool_block(state);
+    let mut events = Vec::new();
     state.content_index += 1;
     let index = state.content_index;
     state.open_text_index = Some(index);
@@ -7580,39 +8199,215 @@ fn stop_anthropic_text_block(state: &mut AnthropicStreamState) -> Vec<Value> {
 
 fn start_anthropic_tool_block(
     state: &mut AnthropicStreamState,
+    parsed: &Value,
     item: &Map<String, Value>,
     complete_input: Option<Value>,
-) -> Vec<Value> {
-    let mut events = stop_anthropic_tool_block(state);
+) -> Result<Vec<Value>, String> {
+    let aliases = anthropic_tool_item_aliases(parsed, item);
+    let key = aliases
+        .first()
+        .cloned()
+        .ok_or_else(|| "Codex function_call 缺少 item_id/call_id/output_index".to_string())?;
+    if resolve_anthropic_tool_alias(state, &aliases).is_some() {
+        return Ok(Vec::new());
+    }
+    let call_id = item
+        .get("call_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Codex function_call.call_id 不能为空".to_string())?;
+    let name = item
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Codex function_call.name 不能为空".to_string())?;
+    let mut events = Vec::new();
     state.content_index += 1;
     let index = state.content_index;
-    state.open_tool_index = Some(index);
     state.saw_tool_use = true;
-    state.has_received_tool_arguments_delta = false;
+    state.open_tools.insert(
+        key.clone(),
+        AnthropicOpenToolBlock {
+            index,
+            has_received_arguments_delta: false,
+        },
+    );
+    for alias in aliases {
+        state.tool_aliases.insert(alias, key.clone());
+    }
     events.push(json!({
         "type": "content_block_start",
         "index": index,
         "content_block": {
             "type": "tool_use",
-            "id": item.get("call_id").and_then(Value::as_str).unwrap_or_default(),
-            "name": item.get("name").and_then(Value::as_str).unwrap_or_default(),
+            "id": call_id,
+            "name": name,
             "input": complete_input.unwrap_or_else(|| json!({})),
         }
     }));
+    Ok(events)
+}
+
+fn stop_anthropic_tool_block(state: &mut AnthropicStreamState, key: &str) -> Vec<Value> {
+    let canonical = state
+        .tool_aliases
+        .get(key)
+        .cloned()
+        .unwrap_or_else(|| key.to_string());
+    let removed = state
+        .open_tools
+        .remove(&canonical)
+        .map(|tool| vec![anthropic_content_block_stop_event(tool.index)])
+        .unwrap_or_default();
+    state.tool_aliases.retain(|_, value| value != &canonical);
+    removed
+}
+
+fn stop_all_anthropic_tool_blocks(state: &mut AnthropicStreamState) -> Vec<Value> {
+    let mut tools = std::mem::take(&mut state.open_tools)
+        .into_values()
+        .collect::<Vec<_>>();
+    state.tool_aliases.clear();
+    tools.sort_by_key(|tool| tool.index);
+    tools
+        .into_iter()
+        .map(|tool| anthropic_content_block_stop_event(tool.index))
+        .collect()
+}
+
+fn stop_all_anthropic_content_blocks(state: &mut AnthropicStreamState) -> Vec<Value> {
+    let mut events = stop_anthropic_text_block(state);
+    events.extend(stop_all_anthropic_tool_blocks(state));
     events
 }
 
-fn stop_anthropic_tool_block(state: &mut AnthropicStreamState) -> Vec<Value> {
-    state
-        .open_tool_index
-        .take()
-        .map(|index| {
-            vec![json!({
-                "type": "content_block_stop",
-                "index": index,
-            })]
-        })
-        .unwrap_or_default()
+fn anthropic_content_block_stop_event(index: i64) -> Value {
+    json!({
+        "type": "content_block_stop",
+        "index": index,
+    })
+}
+
+fn anthropic_tool_item_key(parsed: &Value, item: &Map<String, Value>) -> Option<String> {
+    anthropic_tool_item_aliases(parsed, item).into_iter().next()
+}
+
+fn resolve_anthropic_tool_item_key(
+    state: &AnthropicStreamState,
+    parsed: &Value,
+    item: &Map<String, Value>,
+) -> Option<String> {
+    resolve_anthropic_tool_alias(state, &anthropic_tool_item_aliases(parsed, item))
+}
+
+fn resolve_anthropic_tool_event_key(
+    state: &AnthropicStreamState,
+    parsed: &Value,
+) -> Option<String> {
+    resolve_anthropic_tool_alias(state, &anthropic_tool_event_aliases(parsed))
+}
+
+fn resolve_anthropic_tool_alias(
+    state: &AnthropicStreamState,
+    aliases: &[String],
+) -> Option<String> {
+    for alias in aliases {
+        if state.open_tools.contains_key(alias) {
+            return Some(alias.clone());
+        }
+        if let Some(canonical) = state.tool_aliases.get(alias) {
+            return Some(canonical.clone());
+        }
+    }
+    None
+}
+
+fn anthropic_tool_item_aliases(parsed: &Value, item: &Map<String, Value>) -> Vec<String> {
+    let mut aliases = Vec::new();
+    push_tool_alias_from_str(&mut aliases, "item", item.get("id").and_then(Value::as_str));
+    push_tool_alias_from_str(
+        &mut aliases,
+        "item",
+        parsed.get("item_id").and_then(Value::as_str),
+    );
+    push_tool_alias_from_str(
+        &mut aliases,
+        "call",
+        item.get("call_id").and_then(Value::as_str),
+    );
+    push_tool_alias_from_i64(
+        &mut aliases,
+        "output_index",
+        parsed.get("output_index").and_then(integer_field_value),
+    );
+    aliases
+}
+
+fn anthropic_tool_event_aliases(parsed: &Value) -> Vec<String> {
+    let mut aliases = Vec::new();
+    push_tool_alias_from_str(
+        &mut aliases,
+        "item",
+        parsed.get("item_id").and_then(Value::as_str),
+    );
+    push_tool_alias_from_i64(
+        &mut aliases,
+        "output_index",
+        parsed.get("output_index").and_then(integer_field_value),
+    );
+    aliases
+}
+
+fn push_tool_alias_from_str(aliases: &mut Vec<String>, prefix: &str, value: Option<&str>) {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    push_unique_tool_alias(aliases, format!("{prefix}:{value}"));
+}
+
+fn push_tool_alias_from_i64(aliases: &mut Vec<String>, prefix: &str, value: Option<i64>) {
+    if let Some(value) = value {
+        push_unique_tool_alias(aliases, format!("{prefix}:{value}"));
+    }
+}
+
+fn push_unique_tool_alias(aliases: &mut Vec<String>, alias: String) {
+    if !aliases.iter().any(|existing| existing == &alias) {
+        aliases.push(alias);
+    }
+}
+
+fn emit_anthropic_terminal_events(
+    state: &mut AnthropicStreamState,
+    response: Option<&Value>,
+    saw_tool_use: bool,
+) -> Vec<Value> {
+    let mut events = stop_anthropic_text_block(state);
+    events.extend(stop_all_anthropic_tool_blocks(state));
+    let stop = anthropic_stop_info_from_response(response.unwrap_or(&Value::Null), saw_tool_use);
+    events.push(json!({
+        "type": "message_delta",
+        "delta": {
+            "stop_reason": stop.reason,
+            "stop_sequence": stop.sequence,
+        },
+        "usage": build_anthropic_usage(response.and_then(|value| value.get("usage"))),
+    }));
+    events.push(json!({
+        "type": "message_stop",
+    }));
+    state.terminal_sent = true;
+    events
+}
+
+fn anthropic_stream_error_event(message: &str) -> Value {
+    json!({
+        "type": "error",
+        "error": {
+            "type": "api_error",
+            "message": message,
+        }
+    })
 }
 
 fn translate_sse_event_to_chat_chunk(event: &SseEvent, state: &mut ChatStreamState) -> Vec<Value> {
@@ -8187,6 +8982,7 @@ mod tests {
     use super::api_proxy_visible_models;
     use super::api_proxy_visible_models_for_key;
     use super::append_api_proxy_usage_event;
+    use super::build_anthropic_streaming_response;
     use super::build_api_proxy_usage_stats;
     use super::convert_anthropic_messages_request_to_codex;
     use super::convert_completed_response_to_anthropic_message;
@@ -8229,11 +9025,13 @@ mod tests {
     use super::AnthropicStreamState;
     use super::ApiProxyUsageEvent;
     use super::ChatStreamState;
+    use super::CodexUpstreamResponse;
     use super::ImageMultipartRequest;
     use super::ProxyCandidate;
     use super::ProxyLoadBalanceConfig;
     use super::ProxyStorageContext;
     use super::SseEvent;
+    use super::UpstreamByteStream;
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RETENTION_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
@@ -8248,8 +9046,10 @@ mod tests {
     use crate::state::ApiProxyRuntimeSnapshot;
     use crate::state::ApiProxySessionAffinity;
     use axum::body::Bytes;
+    use axum::extract::State;
     use axum::http::HeaderMap;
     use axum::http::HeaderValue;
+    use axum::http::StatusCode;
     use serde_json::json;
     use serde_json::Value;
     use std::path::PathBuf;
@@ -8273,6 +9073,240 @@ mod tests {
             auth_refresh_blocked,
             "team",
         )
+    }
+
+    #[tokio::test]
+    async fn claude_codex_debugger_handler_serves_embedded_html() {
+        assert_eq!(super::CLAUDE_CODEX_DEBUGGER_ROUTE, "/debug/claude-codex");
+
+        let response = super::claude_codex_debugger_handler().await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/html; charset=utf-8")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("debugger html body should collect");
+        let html = String::from_utf8(body.to_vec()).expect("debugger html should be UTF-8");
+
+        assert!(html.contains("Claude-Codex 协议示波器"));
+        assert!(html.contains("/v1/claude/v1/messages"));
+        assert!(html.contains("response.body.getReader()"));
+        assert!(!html.contains("localStorage"));
+        assert!(!html.contains("sessionStorage"));
+    }
+
+    fn preview_test_context(api_keys: Vec<ApiProxyKey>) -> Arc<super::ProxyContext> {
+        let (storage, _data_dir) = temp_proxy_storage_context("claude-codex-preview");
+        Arc::new(super::ProxyContext {
+            storage,
+            api_keys: Arc::new(RwLock::new(api_keys)),
+            upstream_base_url: "https://example.invalid/backend-api/codex".to_string(),
+            client: reqwest::Client::new(),
+            shared: Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default())),
+        })
+    }
+
+    fn preview_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("sk-test"));
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert("version", HeaderValue::from_static("0.125.0-test"));
+        headers.insert("session_id", HeaderValue::from_static("session-test"));
+        headers.insert("user-agent", HeaderValue::from_static("preview-test"));
+        headers
+    }
+
+    async fn preview_json_response(
+        context: Arc<super::ProxyContext>,
+        headers: HeaderMap,
+        wrapper: Value,
+    ) -> (StatusCode, Value) {
+        let response = super::claude_codex_preview_handler(
+            State(context),
+            headers,
+            Bytes::from(wrapper.to_string()),
+        )
+        .await;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("preview body should collect");
+        let json = serde_json::from_slice(&body).expect("preview response should be JSON");
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn claude_codex_preview_rejects_unauthorized_requests() {
+        let context = preview_test_context(Vec::new());
+        let wrapper = json!({
+            "route": "/v1/messages",
+            "payload": {
+                "model": "gpt-5.5",
+                "messages": [{ "role": "user", "content": "hi" }]
+            }
+        });
+
+        let (status, body) = preview_json_response(context, preview_headers(), wrapper).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("invalid API key"));
+    }
+
+    #[tokio::test]
+    async fn claude_codex_preview_returns_exact_route_and_converted_body_without_network() {
+        let context = preview_test_context(vec![api_proxy_key(
+            vec!["gpt-5.5"],
+            vec!["medium", "high"],
+            vec!["auto"],
+        )]);
+        let wrapper = json!({
+            "route": "/v1/claude/v1/messages",
+            "headers": {
+                "version": "0.125.0-preview",
+                "user-agent": "preview-agent",
+                "session_id": "session-preview"
+            },
+            "payload": {
+                "model": "claude-sonnet-4-5",
+                "max_tokens": 128,
+                "truncation": "auto",
+                "stream": true,
+                "context_management": {
+                    "edits": [{ "type": "clear_thinking_20251015", "keep": "all" }]
+                },
+                "messages": [{ "role": "user", "content": "hi" }]
+            }
+        });
+
+        let (status, body) = preview_json_response(context, preview_headers(), wrapper).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.pointer("/downstream/method").and_then(Value::as_str),
+            Some("POST")
+        );
+        assert_eq!(
+            body.pointer("/downstream/path").and_then(Value::as_str),
+            Some("/v1/claude/v1/messages")
+        );
+        assert_eq!(
+            body.pointer("/upstream/transport").and_then(Value::as_str),
+            Some("http")
+        );
+        assert_eq!(
+            body.pointer("/upstream/method").and_then(Value::as_str),
+            Some("POST")
+        );
+        assert_eq!(
+            body.pointer("/upstream/url").and_then(Value::as_str),
+            Some("https://example.invalid/backend-api/codex/responses")
+        );
+        assert_eq!(
+            body.pointer("/upstream/body/model").and_then(Value::as_str),
+            Some("gpt-5.5")
+        );
+        assert!(body.pointer("/upstream/body/max_output_tokens").is_none());
+        assert!(body.pointer("/upstream/body/truncation").is_none());
+        assert!(body.pointer("/upstream/body/context_management").is_none());
+        assert_eq!(
+            body.pointer("/upstream/headers/Version")
+                .and_then(Value::as_str),
+            Some("0.125.0-preview")
+        );
+        assert_eq!(
+            body.pointer("/upstream/headers/User-Agent")
+                .and_then(Value::as_str),
+            Some("preview-agent")
+        );
+        assert_eq!(
+            body.pointer("/upstream/headers/Session_id")
+                .and_then(Value::as_str),
+            Some("session-preview")
+        );
+    }
+
+    #[tokio::test]
+    async fn claude_codex_preview_strips_anthropic_only_and_sensitive_fields() {
+        let context = preview_test_context(vec![api_proxy_key(
+            vec!["gpt-5.5"],
+            vec!["medium", "high"],
+            vec!["auto"],
+        )]);
+        let wrapper = json!({
+            "route": "/v1/claude/messages",
+            "payload": {
+                "model": "gpt-5.5",
+                "max_tokens": 128,
+                "truncation": "auto",
+                "context_management": {
+                    "edits": [{ "type": "compact_20260112" }]
+                },
+                "messages": [{ "role": "user", "content": "hi" }]
+            }
+        });
+
+        let (status, body) = preview_json_response(context, preview_headers(), wrapper).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.pointer("/upstream/body/max_output_tokens").is_none());
+        assert!(body.pointer("/upstream/body/truncation").is_none());
+        assert!(body.pointer("/upstream/body/context_management").is_none());
+        assert_eq!(
+            body.pointer("/upstream/headers/Authorization")
+                .and_then(Value::as_str),
+            Some("Bearer <access-token>")
+        );
+        assert_eq!(
+            body.pointer("/upstream/headers/ChatGPT-Account-Id")
+                .and_then(Value::as_str),
+            Some("<account-id>")
+        );
+        let serialized = body.to_string();
+        assert!(!serialized.contains("sk-test"));
+        assert!(body
+            .pointer("/upstream/curl")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("Bearer <access-token>"));
+    }
+
+    #[tokio::test]
+    async fn claude_codex_preview_uses_generated_session_placeholder_when_absent() {
+        let context = preview_test_context(vec![api_proxy_key(
+            vec!["gpt-5.5"],
+            vec!["medium", "high"],
+            vec!["auto"],
+        )]);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("sk-test"));
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        let wrapper = json!({
+            "route": "/v1/messages",
+            "payload": {
+                "model": "gpt-5.5",
+                "messages": [{ "role": "user", "content": "hi" }]
+            }
+        });
+
+        let (status, body) = preview_json_response(context, headers, wrapper).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.pointer("/upstream/headers/Session_id")
+                .and_then(Value::as_str),
+            Some("<generated-session-id>")
+        );
     }
 
     fn proxy_candidate_with_plan(
@@ -9120,6 +10154,7 @@ mod tests {
             "model": "gpt-5-4",
             "system": "You are terse.",
             "max_tokens": 128,
+            "truncation": "auto",
             "stream": false,
             "messages": [
                 {
@@ -9185,10 +10220,8 @@ mod tests {
             payload.get("instructions").and_then(Value::as_str),
             Some("You are terse.")
         );
-        assert_eq!(
-            payload.get("max_output_tokens").and_then(Value::as_i64),
-            Some(128)
-        );
+        assert!(payload.get("max_output_tokens").is_none());
+        assert!(payload.get("truncation").is_none());
         assert_eq!(
             payload.get("input").and_then(Value::as_array).map(Vec::len),
             Some(3)
@@ -9277,7 +10310,301 @@ mod tests {
         assert!(text.contains("Earlier task summary"));
         assert!(text.contains("Visible thinking summary"));
         assert!(text.contains("future_block"));
-        assert!(!text.contains("redacted_thinking"));
+        assert!(text.contains("redacted_thinking"));
+        assert!(text.contains("[redacted]"));
+        assert!(!text.contains("\"data\":\"opaque\""));
+    }
+
+    #[test]
+    fn merges_anthropic_system_messages_into_instructions() {
+        let request = json!({
+            "model": "gpt-5.5",
+            "system": "Top-level system prompt.",
+            "messages": [
+                { "role": "system", "content": "Message system prompt." },
+                { "role": "user", "content": "hello" }
+            ]
+        });
+
+        let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+            .expect("system message should convert");
+
+        assert_eq!(
+            payload.get("instructions").and_then(Value::as_str),
+            Some("Top-level system prompt.\n\nMessage system prompt.")
+        );
+        assert_eq!(
+            payload.get("input").and_then(Value::as_array).map(Vec::len),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_anthropic_roles_and_tool_blocks() {
+        let bad_role = json!({
+            "model": "gpt-5.4",
+            "messages": [{ "role": "developer", "content": "not allowed here" }]
+        });
+        assert!(convert_anthropic_messages_request_to_codex(&bad_role)
+            .expect_err("developer role should be rejected")
+            .contains("system/user/assistant"));
+
+        let missing_tool_id = json!({
+            "model": "gpt-5.4",
+            "messages": [{
+                "role": "assistant",
+                "content": [{ "type": "tool_use", "id": "", "name": "lookup", "input": {} }]
+            }]
+        });
+        assert!(
+            convert_anthropic_messages_request_to_codex(&missing_tool_id)
+                .expect_err("empty tool id should be rejected")
+                .contains("tool_use.id")
+        );
+
+        let misplaced_tool_result = json!({
+            "model": "gpt-5.4",
+            "messages": [{
+                "role": "assistant",
+                "content": [{ "type": "tool_result", "tool_use_id": "call_1", "content": "ok" }]
+            }]
+        });
+        assert!(
+            convert_anthropic_messages_request_to_codex(&misplaced_tool_result)
+                .expect_err("tool_result role should be rejected")
+                .contains("只能出现在 user")
+        );
+    }
+
+    #[test]
+    fn preserves_structured_anthropic_tool_result_content() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "call_123",
+                    "is_error": true,
+                    "content": [
+                        { "type": "text", "text": "failed" },
+                        { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "AAAA" } },
+                        { "type": "json", "value": { "code": 7 } }
+                    ]
+                }]
+            }]
+        });
+
+        let (payload, _) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+        let output = payload
+            .get("input")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("output"))
+            .and_then(Value::as_str)
+            .expect("tool output should exist");
+
+        assert!(output.contains("is_error=true"));
+        assert!(output.contains("failed"));
+        assert!(output.contains("\"type\":\"image\""));
+        assert!(output.contains("\"code\":7"));
+    }
+
+    fn anthropic_context_management_request(edits: Value) -> Value {
+        json!({
+            "model": "gpt-5.4",
+            "context_management": {
+                "edits": edits
+            },
+            "messages": [{ "role": "user", "content": "hi" }]
+        })
+    }
+
+    #[test]
+    fn accepts_anthropic_clear_thinking_without_keep() {
+        let request = anthropic_context_management_request(json!([
+            { "type": "clear_thinking_20251015" }
+        ]));
+
+        let (payload, _) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+
+        assert!(payload.get("context_management").is_none());
+    }
+
+    #[test]
+    fn accepts_anthropic_clear_thinking_keep_all() {
+        let request = anthropic_context_management_request(json!([
+            { "type": "clear_thinking_20251015", "keep": "all" }
+        ]));
+
+        let (payload, _) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+
+        assert!(payload.get("context_management").is_none());
+    }
+
+    #[test]
+    fn accepts_anthropic_clear_thinking_keep_thinking_turns() {
+        let request = anthropic_context_management_request(json!([
+            {
+                "type": "clear_thinking_20251015",
+                "keep": { "type": "thinking_turns", "value": 2 }
+            }
+        ]));
+
+        let (payload, _) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+
+        assert!(payload.get("context_management").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_anthropic_clear_thinking_keep() {
+        let zero = anthropic_context_management_request(json!([
+            {
+                "type": "clear_thinking_20251015",
+                "keep": { "type": "thinking_turns", "value": 0 }
+            }
+        ]));
+        assert!(convert_anthropic_messages_request_to_codex(&zero)
+            .expect_err("zero keep value should be rejected")
+            .contains("context_management.edits[0].keep.value 必须是正整数"));
+
+        let wrong_type = anthropic_context_management_request(json!([
+            { "type": "clear_thinking_20251015", "keep": true }
+        ]));
+        assert!(convert_anthropic_messages_request_to_codex(&wrong_type)
+            .expect_err("wrong keep type should be rejected")
+            .contains("context_management.edits[0].keep 必须是字符串"));
+    }
+
+    #[test]
+    fn accepts_anthropic_clear_thinking_with_compaction_edit() {
+        let request = anthropic_context_management_request(json!([
+            { "type": "compact_20260112" },
+            {
+                "type": "clear_thinking_20251015",
+                "keep": { "type": "thinking_turns", "value": 1 }
+            }
+        ]));
+
+        let (payload, _) =
+            convert_anthropic_messages_request_to_codex(&request).expect("payload should convert");
+
+        assert!(payload.get("context_management").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_anthropic_context_management_edits() {
+        let request = anthropic_context_management_request(json!([{ "type": "unknown_edit" }]));
+
+        assert!(convert_anthropic_messages_request_to_codex(&request)
+            .expect_err("unknown context edit should be rejected")
+            .contains("context_management edit type=unknown_edit"));
+    }
+
+    #[test]
+    fn applies_claude_compat_options_strips_unsupported_fields() {
+        let mut payload = json!({
+            "model": "claude-sonnet-4-5",
+            "max_output_tokens": 128,
+            "truncation": "auto"
+        });
+
+        super::apply_claude_compat_options(&mut payload).expect("valid options should apply");
+
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.5")
+        );
+        assert!(payload.get("max_output_tokens").is_none());
+        assert!(payload.get("truncation").is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live Codex credentials and consumes quota; run with CODEX_TOOLS_LIVE_ACCESS_TOKEN=... CODEX_TOOLS_LIVE_ACCOUNT_ID=... cargo test --manifest-path src-tauri/Cargo.toml live_codex_upstream_accepts_anthropic_converted_payload --lib -- --ignored --nocapture"]
+    async fn live_codex_upstream_accepts_anthropic_converted_payload() {
+        let access_token = std::env::var("CODEX_TOOLS_LIVE_ACCESS_TOKEN")
+            .expect("CODEX_TOOLS_LIVE_ACCESS_TOKEN must be set");
+        let account_id = std::env::var("CODEX_TOOLS_LIVE_ACCOUNT_ID")
+            .expect("CODEX_TOOLS_LIVE_ACCOUNT_ID must be set");
+        let base_origin = std::env::var("CODEX_TOOLS_LIVE_BASE_ORIGIN")
+            .unwrap_or_else(|_| "https://chatgpt.com".to_string());
+        let upstream_url = format!(
+            "{}/backend-api/codex/responses",
+            base_origin.trim_end_matches('/')
+        );
+        let request = json!({
+            "model": "gpt-5.5",
+            "max_tokens": 64,
+            "truncation": "auto",
+            "stream": false,
+            "context_management": {
+                "edits": [{
+                    "type": "clear_thinking_20251015",
+                    "keep": { "type": "thinking_turns", "value": 1 }
+                }]
+            },
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Follow the user response format exactly."
+                },
+                {
+                    "role": "user",
+                    "content": "Reply with the word OK only."
+                }
+            ]
+        });
+
+        let (mut payload, _) = convert_anthropic_messages_request_to_codex(&request)
+            .expect("Anthropic request should convert");
+        super::apply_claude_compat_options(&mut payload).expect("Claude compat should apply");
+
+        assert!(payload.get("max_output_tokens").is_none());
+        assert!(payload.get("truncation").is_none());
+        assert!(payload.get("context_management").is_none());
+        assert_eq!(
+            payload.get("instructions").and_then(Value::as_str),
+            Some("Follow the user response format exactly.")
+        );
+
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let response = reqwest::Client::new()
+            .post(&upstream_url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("ChatGPT-Account-Id", account_id)
+            .header("Accept", "text/event-stream")
+            .header("Content-Type", "application/json")
+            .header("Originator", "codex_cli_rs")
+            .header("Version", super::CODEX_CLIENT_VERSION)
+            .header("Session_id", &session_id)
+            .header("User-Agent", super::CODEX_USER_AGENT)
+            .header("Connection", "Keep-Alive")
+            .json(&payload)
+            .send()
+            .await
+            .expect("live Codex request should complete");
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .expect("live Codex response body should be readable");
+
+        assert!(
+            status.is_success(),
+            "live Codex returned HTTP status {status}; body length={}",
+            body.len()
+        );
+        assert!(
+            body.contains("response.completed")
+                || body.contains("\"status\":\"completed\"")
+                || body.contains("\"status\": \"completed\""),
+            "live Codex SSE did not contain response.completed/completed status; body length={}",
+            body.len()
+        );
     }
 
     #[test]
@@ -9355,7 +10682,9 @@ mod tests {
             },
             "prompt_cache_retention": {
                 "scope": "tool_call"
-            }
+            },
+            "max_output_tokens": 128,
+            "truncation": "auto"
         });
 
         let (payload, _) =
@@ -9363,6 +10692,8 @@ mod tests {
 
         assert!(payload.get("metadata").is_none());
         assert!(payload.get("prompt_cache_retention").is_none());
+        assert!(payload.get("max_output_tokens").is_none());
+        assert!(payload.get("truncation").is_none());
     }
 
     #[test]
@@ -10017,7 +11348,8 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
             }
         });
 
-        let converted = convert_completed_response_to_anthropic_message(&response);
+        let converted = convert_completed_response_to_anthropic_message(&response)
+            .expect("Anthropic message should convert");
 
         assert_eq!(
             converted.get("type").and_then(Value::as_str),
@@ -10055,6 +11387,51 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 .and_then(Value::as_i64),
             Some(3)
         );
+    }
+
+    #[test]
+    fn rejects_nonempty_invalid_codex_function_arguments_for_anthropic() {
+        let response = json!({
+            "id": "resp_123",
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_123",
+                "name": "lookup",
+                "arguments": "{not-json"
+            }]
+        });
+
+        assert!(convert_completed_response_to_anthropic_message(&response)
+            .expect_err("invalid nonempty arguments should fail")
+            .contains("不是合法 JSON"));
+    }
+
+    #[test]
+    fn preserves_codex_reasoning_summary_as_anthropic_text() {
+        let response = json!({
+            "id": "resp_123",
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [{
+                "type": "reasoning",
+                "summary": [{ "type": "summary_text", "text": "Checked constraints." }]
+            }]
+        });
+
+        let converted = convert_completed_response_to_anthropic_message(&response)
+            .expect("reasoning summary should convert");
+        let text = converted
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|content| content.first())
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        assert!(text.contains("Checked constraints."));
+        assert!(text.contains("reasoning summary"));
     }
 
     #[test]
@@ -10172,6 +11549,206 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 .and_then(Value::as_str),
             Some("message_stop")
         );
+    }
+
+    #[test]
+    fn anthropic_streaming_handles_interleaved_parallel_tool_calls() {
+        let mut state = AnthropicStreamState::default();
+        let add_a = SseEvent {
+            event: Some("response.output_item.added".to_string()),
+            data: json!({
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {
+                    "id": "item_a",
+                    "type": "function_call",
+                    "call_id": "call_a",
+                    "name": "lookup_a"
+                }
+            })
+            .to_string(),
+        };
+        let add_b = SseEvent {
+            event: Some("response.output_item.added".to_string()),
+            data: json!({
+                "type": "response.output_item.added",
+                "output_index": 1,
+                "item": {
+                    "id": "item_b",
+                    "type": "function_call",
+                    "call_id": "call_b",
+                    "name": "lookup_b"
+                }
+            })
+            .to_string(),
+        };
+        let delta_b = SseEvent {
+            event: Some("response.function_call_arguments.delta".to_string()),
+            data: json!({
+                "type": "response.function_call_arguments.delta",
+                "item_id": "item_b",
+                "output_index": 1,
+                "delta": "{\"b\":"
+            })
+            .to_string(),
+        };
+        let delta_a = SseEvent {
+            event: Some("response.function_call_arguments.delta".to_string()),
+            data: json!({
+                "type": "response.function_call_arguments.delta",
+                "item_id": "item_a",
+                "output_index": 0,
+                "delta": "{\"a\":"
+            })
+            .to_string(),
+        };
+
+        let start_a = translate_sse_event_to_anthropic_event(&add_a, &mut state);
+        let start_b = translate_sse_event_to_anthropic_event(&add_b, &mut state);
+        let b = translate_sse_event_to_anthropic_event(&delta_b, &mut state);
+        let a = translate_sse_event_to_anthropic_event(&delta_a, &mut state);
+
+        assert_eq!(start_a[0].get("index").and_then(Value::as_i64), Some(0));
+        assert_eq!(start_b[0].get("index").and_then(Value::as_i64), Some(1));
+        assert_eq!(b[0].get("index").and_then(Value::as_i64), Some(1));
+        assert_eq!(a[0].get("index").and_then(Value::as_i64), Some(0));
+    }
+
+    #[test]
+    fn anthropic_streaming_incomplete_max_tokens_is_terminal() {
+        let mut state = AnthropicStreamState::default();
+        let delta = SseEvent {
+            event: Some("response.output_text.delta".to_string()),
+            data: json!({
+                "type": "response.output_text.delta",
+                "delta": "partial"
+            })
+            .to_string(),
+        };
+        let incomplete = SseEvent {
+            event: Some("response.incomplete".to_string()),
+            data: json!({
+                "type": "response.incomplete",
+                "response": {
+                    "id": "resp_123",
+                    "model": "gpt-5.4",
+                    "status": "incomplete",
+                    "incomplete_details": {
+                        "reason": "max_output_tokens"
+                    },
+                    "usage": {
+                        "input_tokens": 5,
+                        "output_tokens": 10
+                    }
+                }
+            })
+            .to_string(),
+        };
+
+        let text = translate_sse_event_to_anthropic_event(&delta, &mut state);
+        let terminal = translate_sse_event_to_anthropic_event(&incomplete, &mut state);
+
+        assert_eq!(
+            text[0].get("type").and_then(Value::as_str),
+            Some("content_block_start")
+        );
+        assert_eq!(
+            terminal[0].get("type").and_then(Value::as_str),
+            Some("content_block_stop")
+        );
+        assert_eq!(
+            terminal
+                .iter()
+                .find(|event| event.get("type").and_then(Value::as_str) == Some("message_delta"))
+                .and_then(|event| event.get("delta"))
+                .and_then(|delta| delta.get("stop_reason"))
+                .and_then(Value::as_str),
+            Some("max_tokens")
+        );
+        assert_eq!(
+            terminal
+                .last()
+                .and_then(|event| event.get("type"))
+                .and_then(Value::as_str),
+            Some("message_stop")
+        );
+        assert!(state.terminal_sent);
+    }
+
+    #[test]
+    fn anthropic_streaming_incomplete_other_reason_is_error() {
+        let mut state = AnthropicStreamState::default();
+        let incomplete = SseEvent {
+            event: Some("response.incomplete".to_string()),
+            data: json!({
+                "type": "response.incomplete",
+                "response": {
+                    "id": "resp_123",
+                    "model": "gpt-5.4",
+                    "status": "incomplete",
+                    "incomplete_details": {
+                        "reason": "content_filter"
+                    }
+                }
+            })
+            .to_string(),
+        };
+
+        let events = translate_sse_event_to_anthropic_event(&incomplete, &mut state);
+
+        assert_eq!(events[0].get("type").and_then(Value::as_str), Some("error"));
+        assert!(state.terminal_sent);
+    }
+
+    #[test]
+    fn anthropic_streaming_rejects_delta_without_tool_start() {
+        let mut state = AnthropicStreamState::default();
+        let delta = SseEvent {
+            event: Some("response.function_call_arguments.delta".to_string()),
+            data: json!({
+                "type": "response.function_call_arguments.delta",
+                "output_index": 0,
+                "delta": "{}"
+            })
+            .to_string(),
+        };
+
+        let events = translate_sse_event_to_anthropic_event(&delta, &mut state);
+
+        assert_eq!(events[0].get("type").and_then(Value::as_str), Some("error"));
+    }
+
+    #[tokio::test]
+    async fn anthropic_streaming_response_reports_eof_without_terminal_event() {
+        let (storage, data_dir) = temp_proxy_storage_context("anthropic-stream-eof");
+        let stream: UpstreamByteStream = Box::pin(futures_util::stream::iter(vec![Ok(Bytes::from(
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"model\":\"gpt-5.4\"}}\n\n",
+        ))]));
+        let upstream = CodexUpstreamResponse::WebSocket {
+            headers: HeaderMap::new(),
+            stream,
+        };
+
+        let response = build_anthropic_streaming_response(
+            upstream,
+            storage,
+            super::ApiProxyUsageMetadata {
+                key_id: None,
+                key_label: None,
+                model: "gpt-5.4".to_string(),
+                route: "/v1/messages".to_string(),
+                reasoning_effort: None,
+                service_tier: None,
+            },
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("stream body should collect");
+        let text = String::from_utf8(body.to_vec()).expect("SSE should be UTF-8");
+
+        assert!(text.contains("message_start"));
+        assert!(text.contains("\"type\":\"error\""));
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 
     #[test]
