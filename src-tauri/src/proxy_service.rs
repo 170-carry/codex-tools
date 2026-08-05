@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fs;
+use std::io::Read;
 use std::io::Write;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -38,6 +39,8 @@ use axum::Json;
 use axum::Router;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use flate2::read::DeflateDecoder;
+use flate2::read::GzDecoder;
 use futures_util::SinkExt;
 use futures_util::Stream;
 use futures_util::StreamExt;
@@ -118,6 +121,8 @@ const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
 const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "priority";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
+const COMPACT_SSE_KEEPALIVE: &str = ": keepalive\n\n";
+const COMPACT_SSE_KEEPALIVE_INTERVAL_SECS: u64 = 10;
 const MODELS: &[&str] = &[
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -209,10 +214,13 @@ pub(crate) struct ProxyStorageContext {
 struct ProxyCandidate {
     id: String,
     label: String,
+    source_kind: AccountSourceKind,
     account_key: String,
     account_id: String,
     access_token: String,
     auth_json: Value,
+    api_base_url: Option<String>,
+    model_name: Option<String>,
     variant_key: String,
     plan_type: Option<String>,
     usage: Option<UsageSnapshot>,
@@ -900,6 +908,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
             "/v1/responses",
             post(responses_handler).get(responses_websocket_handler),
         )
+        .route("/v1/responses/compact", post(responses_compact_handler))
         .route("/v1/messages", post(anthropic_messages_handler))
         .fallback(any(unsupported_proxy_handler))
         .layer(DefaultBodyLimit::max(request_body_limit))
@@ -1089,7 +1098,7 @@ async fn chat_completions_handler(
         Err(response) => return response,
     };
 
-    let request_json = match parse_json_request(&body) {
+    let request_json = match parse_json_request(&headers, body) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -1105,6 +1114,7 @@ async fn chat_completions_handler(
         &context,
         &proxy_key,
         "/v1/chat/completions",
+        CodexUpstreamEndpoint::Responses,
         &headers,
         &upstream_payload,
         session_affinity_key.as_deref(),
@@ -1170,10 +1180,26 @@ async fn responses_handler(
         Err(response) => return response,
     };
 
-    let request_json = match parse_json_request(&body) {
+    let request_json = match parse_json_request(&headers, body) {
         Ok(value) => value,
         Err(response) => return response,
     };
+
+    // remote_compaction_v2 may post a compaction_trigger on /v1/responses with
+    // stream:true. Upstream compact is unary JSON, so bridge it onto the
+    // /responses/compact path and synthesize SSE for the client when needed.
+    if request_has_compaction_trigger(&request_json) {
+        return handle_responses_compact(
+            context,
+            proxy_key,
+            headers,
+            request_json,
+            true,
+            "/v1/responses",
+        )
+        .await;
+    }
+
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
@@ -1186,6 +1212,7 @@ async fn responses_handler(
         &context,
         &proxy_key,
         "/v1/responses",
+        CodexUpstreamEndpoint::Responses,
         &headers,
         &upstream_payload,
         session_affinity_key.as_deref(),
@@ -1237,6 +1264,345 @@ async fn responses_handler(
     }
 }
 
+async fn responses_compact_handler(
+    State(context): State<Arc<ProxyContext>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
+        Ok(proxy_key) => proxy_key,
+        Err(response) => return response,
+    };
+
+    let request_json = match parse_json_request(&headers, body) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let client_wants_stream = request_json
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    handle_responses_compact(
+        context,
+        proxy_key,
+        headers,
+        request_json,
+        client_wants_stream,
+        "/v1/responses/compact",
+    )
+    .await
+}
+
+async fn handle_responses_compact(
+    context: Arc<ProxyContext>,
+    proxy_key: ApiProxyKey,
+    headers: HeaderMap,
+    request_json: Value,
+    client_wants_stream: bool,
+    route: &'static str,
+) -> Response<Body> {
+    let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+
+    let upstream_payload = match normalize_openai_compact_request(request_json) {
+        Ok(value) => value,
+        Err(message) => return invalid_request_response(&message),
+    };
+
+    if client_wants_stream {
+        return stream_compact_response_with_optional_keepalive(
+            context,
+            proxy_key,
+            headers,
+            upstream_payload,
+            session_affinity_key,
+            route,
+        )
+        .await;
+    }
+
+    match fetch_compact_upstream_response(
+        &context,
+        &proxy_key,
+        route,
+        &headers,
+        &upstream_payload,
+        session_affinity_key.as_deref(),
+    )
+    .await
+    {
+        Ok((candidate, compact_response, upstream_headers)) => {
+            finish_compact_success(
+                &context,
+                &proxy_key,
+                route,
+                &upstream_payload,
+                candidate,
+                compact_response,
+                Some(upstream_headers),
+                false,
+            )
+            .await
+        }
+        Err(error) => {
+            update_proxy_error(&context, Some(error.clone())).await;
+            json_error_response(StatusCode::BAD_GATEWAY, &error)
+        }
+    }
+}
+
+async fn stream_compact_response_with_optional_keepalive(
+    context: Arc<ProxyContext>,
+    proxy_key: ApiProxyKey,
+    headers: HeaderMap,
+    upstream_payload: Value,
+    session_affinity_key: Option<String>,
+    route: &'static str,
+) -> Response<Body> {
+    let context_for_work = context.clone();
+    let proxy_key_for_work = proxy_key.clone();
+    let headers_for_work = headers.clone();
+    let payload_for_work = upstream_payload.clone();
+    let mut work = tokio::spawn(async move {
+        fetch_compact_upstream_response(
+            &context_for_work,
+            &proxy_key_for_work,
+            route,
+            &headers_for_work,
+            &payload_for_work,
+            session_affinity_key.as_deref(),
+        )
+        .await
+    });
+
+    // First beat is delayed so fast failures can still return JSON status codes.
+    tokio::select! {
+        join_result = &mut work => {
+            match flatten_compact_join_result(join_result) {
+                Ok((candidate, compact_response, upstream_headers)) => {
+                    finish_compact_success(
+                        &context,
+                        &proxy_key,
+                        route,
+                        &upstream_payload,
+                        candidate,
+                        compact_response,
+                        Some(upstream_headers),
+                        true,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    update_proxy_error(&context, Some(error.clone())).await;
+                    json_error_response(StatusCode::BAD_GATEWAY, &error)
+                }
+            }
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(COMPACT_SSE_KEEPALIVE_INTERVAL_SECS)) => {
+            build_compact_keepalive_stream_response(
+                context,
+                proxy_key,
+                upstream_payload,
+                route,
+                work,
+            )
+        }
+    }
+}
+
+fn flatten_compact_join_result(
+    join_result: Result<Result<(ProxyCandidate, Value, HeaderMap), String>, tokio::task::JoinError>,
+) -> Result<(ProxyCandidate, Value, HeaderMap), String> {
+    match join_result {
+        Ok(result) => result,
+        Err(error) => Err(format!("compact 上游任务异常退出: {error}")),
+    }
+}
+
+fn build_compact_keepalive_stream_response(
+    context: Arc<ProxyContext>,
+    proxy_key: ApiProxyKey,
+    upstream_payload: Value,
+    route: &'static str,
+    mut work: tokio::task::JoinHandle<Result<(ProxyCandidate, Value, HeaderMap), String>>,
+) -> Response<Body> {
+    let output = stream! {
+        yield Ok::<Bytes, Infallible>(Bytes::from_static(COMPACT_SSE_KEEPALIVE.as_bytes()));
+
+        let mut keepalive = tokio::time::interval_at(
+            tokio::time::Instant::now()
+                + std::time::Duration::from_secs(COMPACT_SSE_KEEPALIVE_INTERVAL_SECS),
+            std::time::Duration::from_secs(COMPACT_SSE_KEEPALIVE_INTERVAL_SECS),
+        );
+        keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        let result = loop {
+            tokio::select! {
+                join_result = &mut work => break flatten_compact_join_result(join_result),
+                _ = keepalive.tick() => {
+                    yield Ok(Bytes::from_static(COMPACT_SSE_KEEPALIVE.as_bytes()));
+                }
+            }
+        };
+
+        match result {
+            Ok((candidate, compact_response, _headers)) => {
+                update_proxy_target(&context, &candidate).await;
+                update_proxy_error(&context, None).await;
+                let usage_metadata =
+                    api_proxy_usage_metadata(&proxy_key, &candidate, route, &upstream_payload);
+                record_api_proxy_tokens_from_response(
+                    &context.storage,
+                    &usage_metadata,
+                    &compact_response,
+                )
+                .await;
+
+                let compact_response = rewrite_response_models_for_client(compact_response);
+                match build_compact_sse_response(&compact_response) {
+                    Ok(sse_body) => yield Ok(sse_body),
+                    Err(message) => {
+                        update_proxy_error(&context, Some(message.clone())).await;
+                        yield Ok(build_compact_sse_failure(&message));
+                    }
+                }
+            }
+            Err(message) => {
+                update_proxy_error(&context, Some(message.clone())).await;
+                yield Ok(build_compact_sse_failure(&message));
+            }
+        }
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-cache")
+        .header("connection", "keep-alive")
+        .header("x-accel-buffering", "no")
+        .body(Body::from_stream(output))
+        .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建 compact SSE 响应失败"))
+}
+
+async fn finish_compact_success(
+    context: &ProxyContext,
+    proxy_key: &ApiProxyKey,
+    route: &str,
+    upstream_payload: &Value,
+    candidate: ProxyCandidate,
+    compact_response: Value,
+    upstream_headers: Option<HeaderMap>,
+    as_stream: bool,
+) -> Response<Body> {
+    update_proxy_target(context, &candidate).await;
+    update_proxy_error(context, None).await;
+    let usage_metadata =
+        api_proxy_usage_metadata(proxy_key, &candidate, route, upstream_payload);
+    record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &compact_response)
+        .await;
+
+    let compact_response = rewrite_response_models_for_client(compact_response);
+    if as_stream {
+        match build_compact_sse_response(&compact_response) {
+            Ok(sse_body) => build_sse_bytes_response(StatusCode::OK, sse_body),
+            Err(message) => {
+                update_proxy_error(context, Some(message.clone())).await;
+                json_error_response(StatusCode::BAD_GATEWAY, &message)
+            }
+        }
+    } else {
+        let body = match serde_json::to_vec(&compact_response) {
+            Ok(bytes) => Bytes::from(bytes),
+            Err(error) => {
+                let message = format!("序列化 compact 响应失败: {error}");
+                update_proxy_error(context, Some(message.clone())).await;
+                return json_error_response(StatusCode::BAD_GATEWAY, &message);
+            }
+        };
+        build_json_proxy_response(
+            StatusCode::OK,
+            upstream_headers.as_ref().unwrap_or(&HeaderMap::new()),
+            body,
+        )
+    }
+}
+
+async fn fetch_compact_upstream_response(
+    context: &ProxyContext,
+    proxy_key: &ApiProxyKey,
+    route: &str,
+    headers: &HeaderMap,
+    upstream_payload: &Value,
+    session_affinity_key: Option<&str>,
+) -> Result<(ProxyCandidate, Value, HeaderMap), String> {
+    let (candidate, upstream_response) = match send_codex_request_over_candidates(
+        context,
+        proxy_key,
+        route,
+        CodexUpstreamEndpoint::Compact,
+        headers,
+        upstream_payload,
+        session_affinity_key,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(response) => return Err(proxy_response_error_message(response).await),
+    };
+
+    let (upstream_headers, upstream_body) = upstream_response
+        .into_bytes()
+        .await
+        .map_err(|error| format!("读取 Codex compact 上游响应失败: {error}"))?;
+    let compact_response = parse_compact_upstream_response(&upstream_body)?;
+    Ok((candidate, compact_response, upstream_headers))
+}
+
+async fn proxy_response_error_message(response: Response<Body>) -> String {
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap_or_default();
+    if let Ok(value) = serde_json::from_slice::<Value>(&body) {
+        if let Some(message) = response_error_message_from_value(&value) {
+            return message;
+        }
+        if let Some(message) = value
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return message.to_string();
+        }
+    }
+    let text = String::from_utf8_lossy(&body).trim().to_string();
+    if !text.is_empty() {
+        return truncate_for_error(&text, 240);
+    }
+    format!("compact 上游请求失败: HTTP {}", status.as_u16())
+}
+
+fn build_compact_sse_failure(message: &str) -> Bytes {
+    let payload = json!({
+        "type": "response.failed",
+        "response": {
+            "id": format!("resp_{}", uuid::Uuid::new_v4().simple()),
+            "object": "response",
+            "status": "failed",
+            "output": [],
+            "error": {
+                "code": "upstream_error",
+                "message": message,
+            }
+        }
+    });
+    let data = serde_json::to_string(&payload).unwrap_or_else(|_| {
+        r#"{"type":"response.failed","response":{"status":"failed","output":[],"error":{"code":"upstream_error","message":"compact failed"}}}"#.to_string()
+    });
+    Bytes::from(format!("event: response.failed\ndata: {data}\n\n"))
+}
+
 async fn anthropic_messages_handler(
     State(context): State<Arc<ProxyContext>>,
     headers: HeaderMap,
@@ -1247,7 +1613,7 @@ async fn anthropic_messages_handler(
         Err(response) => return response,
     };
 
-    let request_json = match parse_json_request(&body) {
+    let request_json = match parse_json_request(&headers, body) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -1263,6 +1629,7 @@ async fn anthropic_messages_handler(
         &context,
         &proxy_key,
         "/v1/messages",
+        CodexUpstreamEndpoint::Responses,
         &headers,
         &upstream_payload,
         session_affinity_key.as_deref(),
@@ -1329,7 +1696,7 @@ async fn image_generations_handler(
         Err(response) => return response,
     };
 
-    let request_json = match parse_json_request(&body) {
+    let request_json = match parse_json_request(&headers, body) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -1431,6 +1798,7 @@ async fn forward_image_request(
         &context,
         &proxy_key,
         route,
+        CodexUpstreamEndpoint::Responses,
         &headers,
         &upstream_payload,
         session_affinity_key,
@@ -1464,6 +1832,7 @@ async fn forward_image_request(
                     &context,
                     &proxy_key,
                     route,
+                    CodexUpstreamEndpoint::Responses,
                     &headers,
                     &upstream_payload,
                     session_affinity_key,
@@ -1600,6 +1969,7 @@ async fn handle_responses_websocket(
         &context,
         &proxy_key,
         "/v1/responses websocket",
+        CodexUpstreamEndpoint::Responses,
         &headers,
         &upstream_payload,
         session_affinity_key.as_deref(),
@@ -1802,7 +2172,7 @@ async fn unsupported_proxy_handler(
     json_error_response(
         StatusCode::NOT_FOUND,
         &format!(
-            "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 {method} {}",
+            "当前反代只支持 GET /v1/models、POST /v1/chat/completions、POST /v1/responses、POST /v1/responses/compact、POST /v1/messages、POST /v1/images/generations、POST /v1/images/edits、POST /v1/images/variations，收到的是 {method} {}",
             uri.path()
         ),
     )
@@ -1847,9 +2217,83 @@ fn authorize_anthropic_proxy_request(
     }
 }
 
-fn parse_json_request(body: &Bytes) -> Result<Value, Response<Body>> {
-    serde_json::from_slice::<Value>(body)
-        .map_err(|error| invalid_request_response(&format!("请求体不是合法 JSON: {error}")))
+fn parse_json_request(headers: &HeaderMap, body: Bytes) -> Result<Value, Response<Body>> {
+    let body = decode_proxy_request_body(headers, body)?;
+    if body.is_empty() {
+        return Err(invalid_request_response(
+            "请求体为空。请确认客户端向 POST /v1/responses（或 /v1/chat/completions）发送了 JSON body，且 Base URL 只填到 /v1。",
+        ));
+    }
+    serde_json::from_slice::<Value>(&body).map_err(|error| {
+        let preview = String::from_utf8_lossy(&body[..body.len().min(80)]).replace('\n', "\\n");
+        invalid_request_response(&format!(
+            "请求体不是合法 JSON: {error}; body_len={}; preview={preview:?}",
+            body.len()
+        ))
+    })
+}
+
+fn decode_proxy_request_body(headers: &HeaderMap, body: Bytes) -> Result<Bytes, Response<Body>> {
+    if body.is_empty() {
+        return Ok(body);
+    }
+
+    let encoding = headers
+        .get(axum::http::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty() && value != "identity");
+
+    let encoding = encoding.or_else(|| detect_content_encoding_by_magic(&body));
+    let Some(encoding) = encoding else {
+        return Ok(body);
+    };
+
+    match encoding.as_str() {
+        "gzip" | "x-gzip" => decompress_gzip_body(&body),
+        "deflate" => decompress_deflate_body(&body),
+        "zstd" => decompress_zstd_body(&body),
+        other => Err(invalid_request_response(&format!(
+            "不支持的 Content-Encoding: {other}"
+        ))),
+    }
+}
+
+fn detect_content_encoding_by_magic(body: &[u8]) -> Option<String> {
+    if body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+        return Some("gzip".to_string());
+    }
+    // zstd frame magic: 0xFD2FB528 (little-endian bytes 28 B5 2F FD)
+    if body.len() >= 4 && body[0] == 0x28 && body[1] == 0xb5 && body[2] == 0x2f && body[3] == 0xfd
+    {
+        return Some("zstd".to_string());
+    }
+    None
+}
+
+fn decompress_gzip_body(body: &[u8]) -> Result<Bytes, Response<Body>> {
+    let mut decoder = GzDecoder::new(body);
+    let mut decoded = Vec::new();
+    decoder.read_to_end(&mut decoded).map_err(|error| {
+        invalid_request_response(&format!("gzip 请求体解压失败: {error}"))
+    })?;
+    Ok(Bytes::from(decoded))
+}
+
+fn decompress_deflate_body(body: &[u8]) -> Result<Bytes, Response<Body>> {
+    let mut decoder = DeflateDecoder::new(body);
+    let mut decoded = Vec::new();
+    decoder.read_to_end(&mut decoded).map_err(|error| {
+        invalid_request_response(&format!("deflate 请求体解压失败: {error}"))
+    })?;
+    Ok(Bytes::from(decoded))
+}
+
+fn decompress_zstd_body(body: &[u8]) -> Result<Bytes, Response<Body>> {
+    let decoded = zstd::stream::decode_all(body).map_err(|error| {
+        invalid_request_response(&format!("zstd 请求体解压失败: {error}"))
+    })?;
+    Ok(Bytes::from(decoded))
 }
 
 fn anthropic_error_response(status: StatusCode, message: &str) -> Response<Body> {
@@ -2218,6 +2662,178 @@ fn normalize_openai_responses_request(mut request: Value) -> Result<(Value, bool
     normalize_responses_lite_payload(object)?;
 
     Ok((request, downstream_stream))
+}
+
+const COMPACT_REQUEST_FIELDS: &[&str] = &[
+    "model",
+    "input",
+    "instructions",
+    "tools",
+    "parallel_tool_calls",
+    "reasoning",
+    "text",
+    "previous_response_id",
+];
+
+fn request_has_compaction_trigger(request: &Value) -> bool {
+    request
+        .get("input")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().any(|item| {
+                item.get("type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| value == "compaction_trigger")
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn normalize_openai_compact_request(request: Value) -> Result<Value, String> {
+    let request_object = request
+        .as_object()
+        .ok_or_else(|| "compact 请求必须是 JSON 对象".to_string())?;
+
+    let mut normalized = Map::new();
+    for field in COMPACT_REQUEST_FIELDS {
+        if let Some(value) = request_object.get(*field) {
+            normalized.insert((*field).to_string(), value.clone());
+        }
+    }
+
+    let model = map_client_model_to_upstream(&request_model_or_default(&normalized)?)?;
+    normalized.insert("model".to_string(), Value::String(model));
+
+    if let Some(reasoning) = normalized.get_mut("reasoning") {
+        if reasoning.is_null() {
+            *reasoning = Value::Object(Map::new());
+        } else if !reasoning.is_object() {
+            return Err("reasoning 必须是对象".to_string());
+        }
+        if let Some(reasoning_object) = reasoning.as_object_mut() {
+            if let Some(effort) = reasoning_object.get("effort").and_then(Value::as_str) {
+                reasoning_object.insert(
+                    "effort".to_string(),
+                    Value::String(normalize_api_proxy_reasoning_effort_for_upstream(effort)?),
+                );
+            }
+        }
+    }
+
+    Ok(Value::Object(normalized))
+}
+
+fn normalize_codex_compact_reasoning_effort(mut payload: Value) -> Value {
+    let model = payload
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !model.contains("gpt-5.6") && !model.contains("gpt-5.5") {
+        return payload;
+    }
+    let Some(object) = payload.as_object_mut() else {
+        return payload;
+    };
+    let Some(reasoning) = object.get_mut("reasoning").and_then(Value::as_object_mut) else {
+        return payload;
+    };
+    if reasoning
+        .get("effort")
+        .and_then(Value::as_str)
+        .is_some_and(|effort| effort.eq_ignore_ascii_case("max"))
+    {
+        // ChatGPT compact currently accepts xhigh, not max (Codex Ultra maps to max).
+        reasoning.insert("effort".to_string(), Value::String("xhigh".to_string()));
+    }
+    payload
+}
+
+fn parse_compact_upstream_response(body: &[u8]) -> Result<Value, String> {
+    if body.is_empty() {
+        return Err("compact 上游返回空响应".to_string());
+    }
+
+    if let Ok(value) = serde_json::from_slice::<Value>(body) {
+        if let Some(message) = response_error_message_from_value(&value) {
+            return Err(message);
+        }
+        if value.get("type").and_then(Value::as_str) == Some("response.completed") {
+            return value
+                .get("response")
+                .cloned()
+                .ok_or_else(|| "compact 响应缺少 response 字段".to_string());
+        }
+        if value.get("output").is_some() || value.get("id").is_some() {
+            return Ok(value);
+        }
+    }
+
+    extract_completed_response_from_sse(body)
+}
+
+fn build_compact_sse_response(response: &Value) -> Result<Bytes, String> {
+    let mut response = response.clone();
+    if let Some(object) = response.as_object_mut() {
+        if object
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+        {
+            object.insert(
+                "id".to_string(),
+                Value::String(format!("resp_{}", uuid::Uuid::new_v4().simple())),
+            );
+        }
+        if let Some(usage) = object.get("usage") {
+            if !compact_usage_is_parsable(usage) {
+                object.remove("usage");
+            }
+        }
+    }
+
+    let compact_json = serde_json::to_vec(&response)
+        .map_err(|error| format!("序列化 compact SSE response 失败: {error}"))?;
+    let mut payload = String::new();
+    if let Some(items) = response.get("output").and_then(Value::as_array) {
+        for (index, item) in items.iter().enumerate() {
+            if !item.is_object() {
+                continue;
+            }
+            let event = json!({
+                "type": "response.output_item.done",
+                "output_index": index,
+                "item": item,
+            });
+            let event_json = serde_json::to_string(&event)
+                .map_err(|error| format!("序列化 compact SSE item 失败: {error}"))?;
+            payload.push_str("event: response.output_item.done\ndata: ");
+            payload.push_str(&event_json);
+            payload.push_str("\n\n");
+        }
+    }
+
+    let completed = json!({
+        "type": "response.completed",
+        "response": serde_json::from_slice::<Value>(&compact_json)
+            .map_err(|error| format!("重建 compact completed 失败: {error}"))?,
+    });
+    let completed_json = serde_json::to_string(&completed)
+        .map_err(|error| format!("序列化 compact completed 失败: {error}"))?;
+    payload.push_str("event: response.completed\ndata: ");
+    payload.push_str(&completed_json);
+    payload.push_str("\n\n");
+    Ok(Bytes::from(payload))
+}
+
+fn compact_usage_is_parsable(usage: &Value) -> bool {
+    let Some(object) = usage.as_object() else {
+        return false;
+    };
+    ["input_tokens", "output_tokens", "total_tokens"]
+        .iter()
+        .all(|field| object.get(*field).and_then(Value::as_i64).is_some())
 }
 
 fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value, bool), String> {
@@ -3773,10 +4389,17 @@ fn map_text_settings(root: &mut Map<String, Value>, text: &Value) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodexUpstreamEndpoint {
+    Responses,
+    Compact,
+}
+
 async fn send_codex_request_over_candidates(
     context: &ProxyContext,
     proxy_key: &ApiProxyKey,
     route: &str,
+    endpoint: CodexUpstreamEndpoint,
     headers: &HeaderMap,
     payload: &Value,
     session_affinity_key: Option<&str>,
@@ -3821,16 +4444,21 @@ async fn send_codex_request_over_candidates(
 
         loop {
             log_proxy_request_route(route);
-            let upstream =
-                match forward_codex_request_with_candidate(context, &candidate, headers, payload)
-                    .await
-                {
-                    Ok(response) => response,
-                    Err(error) => {
-                        attempt_errors.push(format!("{}: {}", candidate.label, error));
-                        break;
-                    }
-                };
+            let upstream = match forward_codex_request_with_candidate(
+                context,
+                &candidate,
+                headers,
+                payload,
+                endpoint,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    attempt_errors.push(format!("{}: {}", candidate.label, error));
+                    break;
+                }
+            };
 
             let status = upstream.status();
             log_proxy_response_route(route, status);
@@ -3857,7 +4485,10 @@ async fn send_codex_request_over_candidates(
                 }
             };
 
-            if !did_refresh && should_retry_with_token_refresh(status, &upstream_body) {
+            if !did_refresh
+                && matches!(&candidate.source_kind, AccountSourceKind::Chatgpt)
+                && should_retry_with_token_refresh(status, &upstream_body)
+            {
                 if candidate.auth_refresh_blocked {
                     attempt_errors.push(format!(
                         "{}: {}",
@@ -3925,9 +4556,15 @@ async fn forward_codex_request_with_candidate(
     candidate: &ProxyCandidate,
     headers: &HeaderMap,
     payload: &Value,
+    endpoint: CodexUpstreamEndpoint,
 ) -> Result<CodexUpstreamResponse, String> {
-    let upstream_url = format!("{}/responses", context.upstream_base_url);
-    let upstream_payload = payload_for_upstream(payload);
+    let upstream_url = candidate_upstream_url(context, candidate, endpoint)?;
+    let mut upstream_payload = payload_for_upstream(&payload_for_candidate(candidate, payload));
+    if matches!(endpoint, CodexUpstreamEndpoint::Compact)
+        && matches!(&candidate.source_kind, AccountSourceKind::Chatgpt)
+    {
+        upstream_payload = normalize_codex_compact_reasoning_effort(upstream_payload);
+    }
     let session_id = headers
         .get("session_id")
         .and_then(|value| value.to_str().ok())
@@ -3938,7 +4575,10 @@ async fn forward_codex_request_with_candidate(
     let uses_responses_lite = payload_uses_responses_lite(&upstream_payload);
     let (version, user_agent) = upstream_codex_client_identity(headers, uses_responses_lite);
 
-    if should_use_responses_websocket(&upstream_payload) {
+    if matches!(endpoint, CodexUpstreamEndpoint::Responses)
+        && matches!(&candidate.source_kind, AccountSourceKind::Chatgpt)
+        && should_use_responses_websocket(&upstream_payload)
+    {
         return forward_codex_websocket_request_with_candidate(
             context,
             candidate,
@@ -3953,6 +4593,11 @@ async fn forward_codex_request_with_candidate(
     let serialized = serde_json::to_vec(&upstream_payload)
         .map_err(|error| format!("序列化上游请求失败: {error}"))?;
 
+    let accept = match endpoint {
+        CodexUpstreamEndpoint::Responses => "text/event-stream",
+        CodexUpstreamEndpoint::Compact => "application/json",
+    };
+
     let mut request = context
         .client
         .post(&upstream_url)
@@ -3960,24 +4605,34 @@ async fn forward_codex_request_with_candidate(
             "Authorization",
             format!("Bearer {}", candidate.access_token),
         )
-        .header("ChatGPT-Account-Id", &candidate.account_id)
-        .header("Accept", "text/event-stream")
+        .header("Accept", accept)
         .header("Content-Type", "application/json")
-        .header("Originator", "codex_cli_rs")
-        .header("Version", version)
-        .header("Session_id", session_id)
         .header("User-Agent", user_agent)
         .header("Connection", "Keep-Alive");
-    if uses_responses_lite {
+    if uses_responses_lite && matches!(endpoint, CodexUpstreamEndpoint::Responses) {
         request = request.header(RESPONSES_LITE_HEADER, "true");
     }
+
+    let request = if matches!(&candidate.source_kind, AccountSourceKind::Chatgpt) {
+        let mut request = request
+            .header("ChatGPT-Account-Id", &candidate.account_id)
+            .header("Originator", "codex_cli_rs")
+            .header("Version", version)
+            .header("Session_id", session_id);
+        if matches!(endpoint, CodexUpstreamEndpoint::Compact) {
+            request = request.header("OpenAI-Beta", "responses=experimental");
+        }
+        request
+    } else {
+        request
+    };
 
     request
         .body(serialized)
         .send()
         .await
         .map(CodexUpstreamResponse::Http)
-        .map_err(|error| format!("请求 Codex 上游失败 {upstream_url}: {error}"))
+        .map_err(|error| format!("请求上游失败 {upstream_url}: {error}"))
 }
 
 fn upstream_codex_client_identity(headers: &HeaderMap, uses_responses_lite: bool) -> (&str, &str) {
@@ -4006,7 +4661,7 @@ async fn forward_codex_websocket_request_with_candidate(
     version: &str,
     user_agent: &str,
 ) -> Result<CodexUpstreamResponse, String> {
-    let upstream_url = format!("{}/responses", context.upstream_base_url);
+    let upstream_url = candidate_responses_url(context, candidate)?;
     let websocket_url = websocket_url_from_http_url(&upstream_url)?;
     let mut request = websocket_url
         .as_str()
@@ -4390,28 +5045,107 @@ fn account_to_proxy_candidate(account: StoredAccount) -> Option<ProxyCandidate> 
         return None;
     }
 
-    let extracted = extract_auth(&account.auth_json).ok()?;
     let account_key = account.account_key();
     let variant_key = account.variant_key();
-    Some(ProxyCandidate {
-        id: account.id,
-        label: account.label,
-        account_key,
-        account_id: extracted.account_id,
-        access_token: extracted.access_token,
-        auth_json: account.auth_json,
-        variant_key,
-        plan_type: account
-            .usage
-            .as_ref()
-            .and_then(|usage| usage.plan_type.clone())
-            .or(account.plan_type)
-            .or(extracted.plan_type),
-        usage: account.usage,
-        auth_refresh_blocked: account.auth_refresh_blocked,
-        auth_refresh_error: account.auth_refresh_error,
-        updated_at: account.updated_at,
-    })
+    match account.source_kind.clone() {
+        AccountSourceKind::Chatgpt => {
+            let extracted = extract_auth(&account.auth_json).ok()?;
+            Some(ProxyCandidate {
+                id: account.id,
+                label: account.label,
+                source_kind: AccountSourceKind::Chatgpt,
+                account_key,
+                account_id: extracted.account_id,
+                access_token: extracted.access_token,
+                auth_json: account.auth_json,
+                api_base_url: None,
+                model_name: None,
+                variant_key,
+                plan_type: account
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.plan_type.clone())
+                    .or(account.plan_type)
+                    .or(extracted.plan_type),
+                usage: account.usage,
+                auth_refresh_blocked: account.auth_refresh_blocked,
+                auth_refresh_error: account.auth_refresh_error,
+                updated_at: account.updated_at,
+            })
+        }
+        AccountSourceKind::Relay => {
+            let api_base_url = account
+                .api_base_url
+                .as_deref()
+                .and_then(|value| profile_files::normalize_relay_base_url(value).ok())?;
+            let access_token = account
+                .api_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            let model_name = account
+                .model_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            Some(ProxyCandidate {
+                id: account.id,
+                label: account.label,
+                source_kind: AccountSourceKind::Relay,
+                account_key,
+                account_id: account.account_id,
+                access_token,
+                auth_json: account.auth_json,
+                api_base_url: Some(api_base_url),
+                model_name: Some(model_name),
+                variant_key,
+                plan_type: account.plan_type,
+                usage: account.usage,
+                auth_refresh_blocked: account.auth_refresh_blocked,
+                auth_refresh_error: account.auth_refresh_error,
+                updated_at: account.updated_at,
+            })
+        }
+    }
+}
+
+fn candidate_responses_url(
+    context: &ProxyContext,
+    candidate: &ProxyCandidate,
+) -> Result<String, String> {
+    candidate_upstream_url(context, candidate, CodexUpstreamEndpoint::Responses)
+}
+
+fn candidate_upstream_url(
+    context: &ProxyContext,
+    candidate: &ProxyCandidate,
+    endpoint: CodexUpstreamEndpoint,
+) -> Result<String, String> {
+    let base_url = match &candidate.source_kind {
+        AccountSourceKind::Chatgpt => context.upstream_base_url.as_str(),
+        AccountSourceKind::Relay => candidate
+            .api_base_url
+            .as_deref()
+            .ok_or_else(|| format!("{} 缺少 API Base URL", candidate.label))?,
+    };
+    let suffix = match endpoint {
+        CodexUpstreamEndpoint::Responses => "responses",
+        CodexUpstreamEndpoint::Compact => "responses/compact",
+    };
+    Ok(format!("{}/{suffix}", base_url.trim_end_matches('/')))
+}
+
+fn payload_for_candidate(candidate: &ProxyCandidate, payload: &Value) -> Value {
+    if !matches!(&candidate.source_kind, AccountSourceKind::Relay) {
+        return payload.clone();
+    }
+    let mut payload = payload.clone();
+    if let (Some(model_name), Some(object)) = (&candidate.model_name, payload.as_object_mut()) {
+        object.insert("model".to_string(), Value::String(model_name.clone()));
+    }
+    payload
 }
 
 fn should_replace_proxy_candidate(existing: &ProxyCandidate, candidate: &ProxyCandidate) -> bool {
@@ -4526,12 +5260,14 @@ fn compare_proxy_candidates(left: &ProxyCandidate, right: &ProxyCandidate) -> Or
         ordering => return ordering,
     }
 
-    match usage_window_used_percent(
+    match candidate_usage_window_used_percent(
+        left,
         left.usage
             .as_ref()
             .and_then(|usage| usage.one_week.as_ref()),
     )
-    .total_cmp(&usage_window_used_percent(
+    .total_cmp(&candidate_usage_window_used_percent(
+        right,
         right
             .usage
             .as_ref()
@@ -4541,12 +5277,14 @@ fn compare_proxy_candidates(left: &ProxyCandidate, right: &ProxyCandidate) -> Or
         ordering => return ordering,
     }
 
-    match usage_window_used_percent(
+    match candidate_usage_window_used_percent(
+        left,
         left.usage
             .as_ref()
             .and_then(|usage| usage.five_hour.as_ref()),
     )
-    .total_cmp(&usage_window_used_percent(
+    .total_cmp(&candidate_usage_window_used_percent(
+        right,
         right
             .usage
             .as_ref()
@@ -4580,6 +5318,17 @@ fn usage_window_used_percent(window: Option<&UsageWindow>) -> f64 {
     window
         .and_then(finite_used_percent)
         .unwrap_or(f64::INFINITY)
+}
+
+fn candidate_usage_window_used_percent(
+    candidate: &ProxyCandidate,
+    window: Option<&UsageWindow>,
+) -> f64 {
+    if matches!(&candidate.source_kind, AccountSourceKind::Relay) && window.is_none() {
+        0.0
+    } else {
+        usage_window_used_percent(window)
+    }
 }
 
 fn finite_used_percent(window: &UsageWindow) -> Option<f64> {
@@ -4689,10 +5438,13 @@ fn proxy_candidate_with_auth_json(
     Ok(ProxyCandidate {
         id: candidate.id.clone(),
         label: candidate.label.clone(),
+        source_kind: AccountSourceKind::Chatgpt,
         account_key: candidate.account_key.clone(),
         account_id: extracted.account_id,
         access_token: extracted.access_token,
         auth_json,
+        api_base_url: None,
+        model_name: None,
         variant_key: candidate.variant_key.clone(),
         plan_type: candidate.plan_type.clone().or(extracted.plan_type),
         usage: candidate.usage.clone(),
@@ -5899,6 +6651,16 @@ fn build_json_proxy_response(
     body: Bytes,
 ) -> Response<Body> {
     build_proxy_response(status, upstream_headers, body)
+}
+
+fn build_sse_bytes_response(status: StatusCode, body: Bytes) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-cache")
+        .header("connection", "keep-alive")
+        .body(Body::from(body))
+        .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建 SSE 响应失败"))
 }
 
 fn build_passthrough_sse_response(
@@ -7253,7 +8015,10 @@ async fn update_proxy_target(context: &ProxyContext, candidate: &ProxyCandidate)
         let mut snapshot = context.shared.lock().await;
         snapshot.active_account_key = Some(candidate.account_key.clone());
         snapshot.active_account_id = Some(candidate.account_id.clone());
-        snapshot.active_account_label = Some(candidate.label.clone());
+        snapshot.active_account_label = Some(match &candidate.source_kind {
+            AccountSourceKind::Chatgpt => format!("ChatGPT · {}", candidate.label),
+            AccountSourceKind::Relay => format!("API · {}", candidate.label),
+        });
         snapshot.sequential_account_key = Some(candidate.account_key.clone());
     }
 
@@ -7530,12 +8295,27 @@ mod tests {
     use super::host_matches_no_proxy;
     use super::is_responses_terminal_event;
     use super::list_api_proxy_keys_with_storage;
+    use super::build_compact_sse_failure;
+    use super::build_compact_sse_response;
+    use super::candidate_upstream_url;
+    use super::decode_proxy_request_body;
+    use super::detect_content_encoding_by_magic;
+    use super::parse_json_request;
+    use super::COMPACT_SSE_KEEPALIVE;
+    use super::COMPACT_SSE_KEEPALIVE_INTERVAL_SECS;
+    use super::normalize_codex_compact_reasoning_effort;
+    use super::normalize_openai_compact_request;
     use super::normalize_openai_responses_request;
     use super::normalize_responses_websocket_create;
+    use super::parse_compact_upstream_response;
+    use super::request_has_compaction_trigger;
+    use super::CodexUpstreamEndpoint;
+    use super::ProxyContext;
     use super::now_unix_seconds;
     use super::order_proxy_candidates_for_request;
     use super::parse_http_proxy_config;
     use super::parse_proxy_request_body_limit_mib;
+    use super::payload_for_candidate;
     use super::prune_api_proxy_usage_events;
     use super::regenerate_api_proxy_key_with_runtime;
     use super::request_session_affinity_key;
@@ -7562,6 +8342,7 @@ mod tests {
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RETENTION_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
+    use crate::models::AccountSourceKind;
     use crate::models::ApiProxyKey;
     use crate::models::ApiProxyLoadBalanceMode;
     use crate::models::AppSettings;
@@ -7572,11 +8353,13 @@ mod tests {
     use crate::models::UsageWindow;
     use crate::state::ApiProxyRuntimeSnapshot;
     use crate::state::ApiProxySessionAffinity;
+    use axum::body::Bytes;
     use axum::http::HeaderMap;
     use axum::http::HeaderValue;
     use serde_json::json;
     use serde_json::Value;
     use std::path::PathBuf;
+    use std::sync::RwLock;
     use std::sync::Arc;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
@@ -7609,10 +8392,13 @@ mod tests {
         ProxyCandidate {
             id: account_key.to_string(),
             label: label.to_string(),
+            source_kind: AccountSourceKind::Chatgpt,
             account_key: account_key.to_string(),
             account_id: account_key.to_string(),
             access_token: "token".to_string(),
             auth_json: json!({}),
+            api_base_url: None,
+            model_name: None,
             variant_key: account_key.to_string(),
             plan_type: Some(plan_type.to_string()),
             usage: Some(UsageSnapshot {
@@ -7743,6 +8529,215 @@ mod tests {
         };
 
         assert!(account_to_proxy_candidate(account).is_none());
+    }
+
+    #[test]
+    fn relay_account_is_proxy_candidate_with_its_api_settings() {
+        let account = StoredAccount {
+            id: "relay-1".to_string(),
+            label: "relay".to_string(),
+            source_kind: AccountSourceKind::Relay,
+            principal_id: None,
+            email: None,
+            account_id: "relay:relay-1".to_string(),
+            plan_type: None,
+            auth_json: json!({}),
+            api_base_url: Some("https://relay.example.com/v1/".to_string()),
+            api_key: Some("sk-relay".to_string()),
+            model_name: Some("relay-model".to_string()),
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 1,
+            usage: None,
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            api_proxy_enabled: true,
+        };
+
+        let candidate = account_to_proxy_candidate(account).expect("relay should proxy");
+        assert!(matches!(&candidate.source_kind, AccountSourceKind::Relay));
+        assert_eq!(
+            candidate.api_base_url.as_deref(),
+            Some("https://relay.example.com/v1")
+        );
+        assert_eq!(candidate.access_token, "sk-relay");
+        assert_eq!(candidate.model_name.as_deref(), Some("relay-model"));
+
+        let payload = payload_for_candidate(
+            &candidate,
+            &json!({
+                "model": "gpt-5.4",
+                "input": "hello"
+            }),
+        );
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("relay-model")
+        );
+
+        let chatgpt_candidate =
+            proxy_candidate("chatgpt", "chatgpt-account", Some(10.0), Some(10.0), false);
+        let ordered = order_proxy_candidates_for_request(
+            vec![chatgpt_candidate, candidate],
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+        );
+        assert_eq!(candidate_labels(&ordered), vec!["relay", "chatgpt"]);
+    }
+
+    #[test]
+    fn normalizes_compact_request_and_drops_stream_store_fields() {
+        let payload = normalize_openai_compact_request(json!({
+            "model": "gpt-5.4",
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "instructions": "be brief",
+            "stream": true,
+            "store": true,
+            "prompt_cache_key": "drop-me",
+            "reasoning": {"effort": "high"}
+        }))
+        .expect("compact request should normalize");
+
+        assert_eq!(payload.get("model").and_then(Value::as_str), Some("gpt-5.4"));
+        assert!(payload.get("stream").is_none());
+        assert!(payload.get("store").is_none());
+        assert!(payload.get("prompt_cache_key").is_none());
+        assert_eq!(
+            payload
+                .pointer("/reasoning/effort")
+                .and_then(Value::as_str),
+            Some("high")
+        );
+        assert!(request_has_compaction_trigger(&json!({
+            "input": [{"type": "compaction_trigger"}]
+        })));
+        assert!(!request_has_compaction_trigger(&json!({
+            "input": [{"type": "message", "role": "user", "content": "hi"}]
+        })));
+    }
+
+    #[test]
+    fn builds_compact_upstream_urls_and_sse_bridge() {
+        let context = ProxyContext {
+            storage: ProxyStorageContext {
+                data_dir: PathBuf::from("/tmp"),
+                store_lock: Arc::new(tokio::sync::Mutex::new(())),
+                auth_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+                sync_active_auth_on_refresh: false,
+            },
+            api_keys: Arc::new(RwLock::new(Vec::new())),
+            upstream_base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            client: reqwest::Client::new(),
+            shared: Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default())),
+        };
+        let chatgpt = ProxyCandidate {
+            id: "c1".to_string(),
+            label: "chatgpt".to_string(),
+            source_kind: AccountSourceKind::Chatgpt,
+            account_key: "k1".to_string(),
+            account_id: "acc".to_string(),
+            access_token: "token".to_string(),
+            auth_json: json!({}),
+            api_base_url: None,
+            model_name: None,
+            variant_key: "v".to_string(),
+            plan_type: None,
+            usage: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            updated_at: 1,
+        };
+        let relay = ProxyCandidate {
+            id: "r1".to_string(),
+            label: "relay".to_string(),
+            source_kind: AccountSourceKind::Relay,
+            account_key: "k2".to_string(),
+            account_id: "relay".to_string(),
+            access_token: "sk".to_string(),
+            auth_json: json!({}),
+            api_base_url: Some("https://relay.example.com/v1".to_string()),
+            model_name: Some("gpt-5.4".to_string()),
+            variant_key: "v".to_string(),
+            plan_type: None,
+            usage: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            updated_at: 1,
+        };
+
+        assert_eq!(
+            candidate_upstream_url(&context, &chatgpt, CodexUpstreamEndpoint::Compact).unwrap(),
+            "https://chatgpt.com/backend-api/codex/responses/compact"
+        );
+        assert_eq!(
+            candidate_upstream_url(&context, &relay, CodexUpstreamEndpoint::Compact).unwrap(),
+            "https://relay.example.com/v1/responses/compact"
+        );
+
+        let response = json!({
+            "id": "resp_1",
+            "output": [{"type": "compaction", "summary": "done"}],
+            "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
+        });
+        let sse = String::from_utf8(build_compact_sse_response(&response).unwrap().to_vec()).unwrap();
+        assert!(sse.contains("event: response.output_item.done"));
+        assert!(sse.contains("event: response.completed"));
+        assert!(sse.contains("\"type\":\"compaction\""));
+
+        let failed = String::from_utf8(build_compact_sse_failure("timeout").to_vec()).unwrap();
+        assert!(failed.contains("event: response.failed"));
+        assert!(failed.contains("timeout"));
+        assert_eq!(COMPACT_SSE_KEEPALIVE, ": keepalive\n\n");
+        assert_eq!(COMPACT_SSE_KEEPALIVE_INTERVAL_SECS, 10);
+
+        let raw = br#"{"model":"gpt-5.4","input":"hi"}"#;
+        let zstd_body = zstd::stream::encode_all(&raw[..], 0).expect("zstd encode");
+        assert_eq!(detect_content_encoding_by_magic(&zstd_body).as_deref(), Some("zstd"));
+        let decoded = decode_proxy_request_body(&HeaderMap::new(), Bytes::from(zstd_body))
+            .expect("decode zstd body by magic");
+        assert_eq!(decoded.as_ref(), raw);
+        let parsed = parse_json_request(&HeaderMap::new(), decoded).expect("parse decoded json");
+        assert_eq!(parsed.get("model").and_then(Value::as_str), Some("gpt-5.4"));
+
+        let mut gzip_body = Vec::new();
+        {
+            use flate2::write::GzEncoder;
+            use flate2::Compression;
+            use std::io::Write as _;
+            let mut encoder = GzEncoder::new(&mut gzip_body, Compression::default());
+            encoder.write_all(raw).unwrap();
+            encoder.finish().unwrap();
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", HeaderValue::from_static("gzip"));
+        let decoded = decode_proxy_request_body(&headers, Bytes::from(gzip_body))
+            .expect("decode gzip body");
+        assert_eq!(decoded.as_ref(), raw);
+
+        let parsed = parse_compact_upstream_response(
+            br#"{"id":"resp_x","output":[{"type":"compaction"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.get("id").and_then(Value::as_str), Some("resp_x"));
+
+        let downgraded = normalize_codex_compact_reasoning_effort(json!({
+            "model": "gpt-5.6",
+            "reasoning": {"effort": "max"}
+        }));
+        assert_eq!(
+            downgraded
+                .pointer("/reasoning/effort")
+                .and_then(Value::as_str),
+            Some("xhigh")
+        );
     }
 
     #[test]
