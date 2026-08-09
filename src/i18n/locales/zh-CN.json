@@ -553,6 +553,25 @@
       "checkedText": "显示标签",
       "uncheckedText": "仅显示数值"
     },
+    "windowsTrayIconStyle": {
+      "label": "托盘图标视觉样式",
+      "description": "五种样式使用与实际托盘图标相同的渲染器；图片预览按通知区域的实际尺寸显示。",
+      "groupAriaLabel": "托盘图标视觉样式",
+      "gradientNumberPlate": "渐变数字方牌",
+      "gradientNumberCard": "渐变数字横牌",
+      "gradientNumber": "渐变数字",
+      "numberProgressBar": "数字 + 进度条",
+      "logoProgressRing": "图标 + 进度环"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows 任务栏额度组件",
+      "description": "在额度左侧显示 Codex Tools 原图，与 macOS 状态栏保持一致；背景透明，直接透出 Windows 任务栏的真实颜色、渐变与材质。空间不足时自动回退到悬浮模式。",
+      "groupAriaLabel": "Windows 任务栏额度组件位置",
+      "embedded": "任务栏内显示（推荐）",
+      "left": "任务栏最左侧",
+      "floating": "任务栏上方悬浮",
+      "hidden": "不显示"
+    },
     "theme": {
       "label": "深色模式",
       "description": "使用开关切换浅色和深色主题。",

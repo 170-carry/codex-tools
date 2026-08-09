@@ -10,9 +10,27 @@ use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use futures_util::future::BoxFuture;
+use futures_util::future::Shared;
+
 use crate::auth::PendingOauthLogin;
+use crate::models::AccountSummary;
 use crate::models::ApiProxyKey;
 use crate::models::CloudflaredTunnelMode;
+
+pub(crate) type UsageRefreshResult = Result<Vec<AccountSummary>, String>;
+
+pub(crate) struct UsageRefreshFlight {
+    pub(crate) id: u64,
+    pub(crate) force_auth_refresh: bool,
+    pub(crate) future: Shared<BoxFuture<'static, UsageRefreshResult>>,
+}
+
+#[derive(Default)]
+pub(crate) struct UsageRefreshCoordinator {
+    pub(crate) next_id: u64,
+    pub(crate) current: Option<UsageRefreshFlight>,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ApiProxySessionAffinity {
@@ -66,6 +84,7 @@ pub(crate) struct OauthCallbackListenerHandle {
 pub(crate) struct AppState {
     pub(crate) store_lock: Arc<Mutex<()>>,
     pub(crate) auth_operation_lock: Arc<Mutex<()>>,
+    pub(crate) usage_refresh: Mutex<UsageRefreshCoordinator>,
     pub(crate) pending_oauth_login: Mutex<Option<PendingOauthLogin>>,
     pub(crate) oauth_listener: Mutex<Option<OauthCallbackListenerHandle>>,
     pub(crate) api_proxy: Mutex<Option<ApiProxyRuntimeHandle>>,
@@ -77,6 +96,7 @@ impl Default for AppState {
         Self {
             store_lock: Arc::new(Mutex::new(())),
             auth_operation_lock: Arc::new(Mutex::new(())),
+            usage_refresh: Mutex::new(UsageRefreshCoordinator::default()),
             pending_oauth_login: Mutex::new(None),
             oauth_listener: Mutex::new(None),
             api_proxy: Mutex::new(None),

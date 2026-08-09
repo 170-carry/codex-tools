@@ -553,6 +553,25 @@
       "checkedText": "라벨 표시",
       "uncheckedText": "숫자만"
     },
+    "windowsTrayIconStyle": {
+      "label": "트레이 아이콘 표시",
+      "description": "다섯 스타일은 실제 트레이 아이콘과 같은 렌더러를 사용하며 이미지 미리보기도 알림 영역의 실제 크기로 표시됩니다.",
+      "groupAriaLabel": "트레이 아이콘 표시 스타일",
+      "gradientNumberPlate": "그라데이션 숫자 플레이트",
+      "gradientNumberCard": "그라데이션 숫자 카드",
+      "gradientNumber": "그라데이션 숫자",
+      "numberProgressBar": "숫자 + 진행률 막대",
+      "logoProgressRing": "로고 + 진행률 링"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows 작업 표시줄 할당량 구성 요소",
+      "description": "할당량 왼쪽에 Codex Tools 원본 아이콘을 표시하여 macOS 상태 표시줄과 맞춥니다. 배경은 투명하며 공간이 부족하면 플로팅 모드로 자동 전환됩니다.",
+      "groupAriaLabel": "Windows 작업 표시줄 할당량 구성 요소 위치",
+      "embedded": "작업 표시줄 안에 표시(권장)",
+      "left": "작업 표시줄 맨 왼쪽",
+      "floating": "작업 표시줄 위에 표시",
+      "hidden": "숨기기"
+    },
     "theme": {
       "label": "다크 모드",
       "description": "스위치로 라이트/다크 테마를 전환합니다.",

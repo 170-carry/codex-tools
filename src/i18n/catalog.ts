@@ -572,6 +572,25 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    windowsTrayIconStyle: {
+      label: string;
+      description: string;
+      groupAriaLabel: string;
+      gradientNumberPlate: string;
+      gradientNumberCard: string;
+      gradientNumber: string;
+      numberProgressBar: string;
+      logoProgressRing: string;
+    };
+    windowsTaskbarWidget: {
+      label: string;
+      description: string;
+      groupAriaLabel: string;
+      embedded: string;
+      left: string;
+      floating: string;
+      hidden: string;
+    };
     theme: {
       label: string;
       description: string;

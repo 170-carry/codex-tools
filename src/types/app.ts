@@ -423,6 +423,13 @@ export type PendingUpdateInfo = {
 export type ThemeMode = "light" | "dark";
 
 export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "oneWeekRemaining" | "hidden";
+export type WindowsTrayIconStyle =
+  | "gradientNumberPlate"
+  | "gradientNumberCard"
+  | "gradientNumber"
+  | "numberProgressBar"
+  | "logoProgressRing";
+export type WindowsTaskbarWidgetPlacement = "embedded" | "left" | "floating" | "hidden";
 
 export type ApiProxyLoadBalanceMode = "average" | "sequential";
 
@@ -444,6 +451,8 @@ export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
   trayUsageTitleShowWindowLabels: boolean;
+  windowsTrayIconStyle: WindowsTrayIconStyle;
+  windowsTaskbarWidgetPlacement: WindowsTaskbarWidgetPlacement;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;

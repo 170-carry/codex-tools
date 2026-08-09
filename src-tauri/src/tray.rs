@@ -3,7 +3,7 @@ use tauri::AppHandle;
 use tauri::Manager;
 
 #[cfg(target_os = "macos")]
-use crate::account_service::refresh_all_usage_internal;
+use crate::account_service::refresh_all_usage_coordinated;
 #[cfg(target_os = "macos")]
 use crate::auth::current_auth_account_key;
 #[cfg(target_os = "macos")]
@@ -14,13 +14,29 @@ use crate::models::AccountSummary;
 use crate::models::TrayUsageDisplayMode;
 use crate::models::UsageSnapshot;
 use crate::models::UsageWindow;
+#[cfg(target_os = "windows")]
+use crate::models::WindowsTaskbarWidgetPlacement;
+use crate::models::WindowsTrayIconStyle;
 #[cfg(target_os = "macos")]
 use crate::state::AppState;
 use crate::store::load_store;
 #[cfg(target_os = "macos")]
+use crate::tray_visual::{
+    render_tray_visual, tray_visual_dimensions, TrayVisualPlatform, TrayVisualStatus,
+};
+#[cfg(target_os = "windows")]
+use crate::windows_taskbar_widget::WindowsTaskbarWidgetSnapshot;
+#[cfg(target_os = "windows")]
+use crate::windows_taskbar_widget::WindowsWidgetStatus;
+#[cfg(target_os = "windows")]
+use crate::windows_tray_icon::{render_windows_tray_icon, static_codex_tools_icon};
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
 const REFRESH_INTERVAL_SECONDS: u64 = 30;
+#[cfg(target_os = "windows")]
+const WINDOWS_WIDGET_STALE_AFTER_SECONDS: i64 = 10 * 60;
 
 const TRAY_MENU_OPEN_ID: &str = "tray_open_window";
 const TRAY_MENU_QUIT_ID: &str = "tray_quit";
@@ -33,9 +49,6 @@ const TRAY_MENU_REFRESH_ID: &str = "tray_refresh_usage";
 const STATUS_BAR_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/icon.png");
 #[cfg(target_os = "windows")]
 const TRAY_ID: &str = "codex_tools_tray";
-#[cfg(target_os = "windows")]
-const WINDOWS_TRAY_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/32x32.png");
-
 fn format_percent(value: Option<f64>) -> String {
     value
         .map(|percent| percent.clamp(0.0, 100.0).round() as i64)
@@ -75,7 +88,7 @@ fn only_show_single_window(mode: TrayUsageDisplayMode) -> bool {
     )
 }
 
-fn should_show_macos_status_item(mode: TrayUsageDisplayMode) -> bool {
+fn should_show_usage_surface(mode: TrayUsageDisplayMode) -> bool {
     mode != TrayUsageDisplayMode::Hidden
 }
 
@@ -88,6 +101,93 @@ fn read_tray_title_config(app: &AppHandle) -> (TrayUsageDisplayMode, bool) {
             )
         })
         .unwrap_or_default()
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_tray_icon_style(app: &AppHandle) -> WindowsTrayIconStyle {
+    load_store(app)
+        .map(|store| store.settings.windows_tray_icon_style)
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+struct WindowsUsageSurfaceConfig {
+    mode: TrayUsageDisplayMode,
+    show_window_labels: bool,
+    tray_icon_style: WindowsTrayIconStyle,
+    widget_placement: WindowsTaskbarWidgetPlacement,
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_usage_config(app: &AppHandle) -> WindowsUsageSurfaceConfig {
+    load_store(app)
+        .map(|store| WindowsUsageSurfaceConfig {
+            mode: store.settings.tray_usage_display_mode,
+            show_window_labels: store.settings.tray_usage_title_show_window_labels,
+            tray_icon_style: store.settings.windows_tray_icon_style,
+            widget_placement: store.settings.windows_taskbar_widget_placement,
+        })
+        .unwrap_or(WindowsUsageSurfaceConfig {
+            mode: TrayUsageDisplayMode::default(),
+            show_window_labels: false,
+            tray_icon_style: WindowsTrayIconStyle::default(),
+            widget_placement: WindowsTaskbarWidgetPlacement::default(),
+        })
+}
+
+fn tray_icon_percent(accounts: &[AccountSummary], mode: TrayUsageDisplayMode) -> Option<f64> {
+    if mode == TrayUsageDisplayMode::Hidden {
+        return None;
+    }
+    let usage = accounts
+        .iter()
+        .find(|account| account.is_current)
+        .and_then(|account| account.usage.as_ref())?;
+    if only_show_single_window(mode) {
+        return mode_percent(mode, single_window_for_mode(mode, Some(usage)));
+    }
+
+    let values = [usage.five_hour.as_ref(), usage.one_week.as_ref()]
+        .into_iter()
+        .filter_map(|window| mode_percent(mode, window));
+    match mode {
+        TrayUsageDisplayMode::Used => values.max_by(f64::total_cmp),
+        TrayUsageDisplayMode::Remaining => values.min_by(f64::total_cmp),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_uses_native_tray_title(_style: WindowsTrayIconStyle) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn macos_light_theme(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|window| window.theme().ok())
+        .map(|theme| theme != tauri::Theme::Dark)
+        .unwrap_or(true)
+}
+
+#[cfg(target_os = "macos")]
+fn render_macos_tray_icon(
+    app: &AppHandle,
+    style: WindowsTrayIconStyle,
+    percent: Option<f64>,
+) -> tauri::image::Image<'static> {
+    const MACOS_SOURCE_SIZE: u32 = 64;
+    let (width, height) =
+        tray_visual_dimensions(style, TrayVisualPlatform::Macos, MACOS_SOURCE_SIZE);
+    render_tray_visual(
+        style,
+        percent,
+        TrayVisualStatus::Fresh,
+        macos_light_theme(app),
+        width,
+        height,
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -140,8 +240,7 @@ fn tray_account_usage_line(
     )
 }
 
-#[cfg(target_os = "macos")]
-fn build_macos_tray_title(
+fn build_tray_usage_title(
     accounts: &[AccountSummary],
     mode: TrayUsageDisplayMode,
     show_window_labels: bool,
@@ -202,6 +301,134 @@ fn build_macos_tray_title(
         "5h -- / 1w --".to_string()
     } else {
         "-- / --".to_string()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn cached_account_summaries(app: &AppHandle) -> Result<Vec<AccountSummary>, String> {
+    let store = load_store(app)?;
+    let current_account_key = crate::auth::current_auth_account_key();
+    let current_variant_key = crate::auth::current_auth_variant_key();
+    let mut summaries = store
+        .accounts
+        .iter()
+        .map(|account| {
+            account.to_summary(
+                current_account_key.as_deref(),
+                current_variant_key.as_deref(),
+            )
+        })
+        .collect::<Vec<_>>();
+    mark_current_account_summary(
+        &mut summaries,
+        current_account_key.as_deref(),
+        store.settings.active_account_id.as_deref(),
+    );
+    Ok(summaries)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_widget_state_label(
+    locale: crate::models::AppLocale,
+    status: WindowsWidgetStatus,
+) -> &'static str {
+    use crate::models::AppLocale;
+    match (locale, status) {
+        (AppLocale::ZhCn, WindowsWidgetStatus::Fresh) => "额度数据已更新",
+        (AppLocale::ZhCn, WindowsWidgetStatus::Stale) => "额度数据已过期",
+        (AppLocale::ZhCn, WindowsWidgetStatus::Error) => "额度刷新失败",
+        (AppLocale::ZhCn, WindowsWidgetStatus::Unavailable) => "额度数据不可用",
+        (AppLocale::JaJp, WindowsWidgetStatus::Fresh) => "使用量データは最新です",
+        (AppLocale::JaJp, WindowsWidgetStatus::Stale) => "使用量データが古くなっています",
+        (AppLocale::JaJp, WindowsWidgetStatus::Error) => "使用量の更新に失敗しました",
+        (AppLocale::JaJp, WindowsWidgetStatus::Unavailable) => "使用量データを利用できません",
+        (AppLocale::KoKr, WindowsWidgetStatus::Fresh) => "사용량 데이터가 최신입니다",
+        (AppLocale::KoKr, WindowsWidgetStatus::Stale) => "사용량 데이터가 오래되었습니다",
+        (AppLocale::KoKr, WindowsWidgetStatus::Error) => "사용량 새로 고침 실패",
+        (AppLocale::KoKr, WindowsWidgetStatus::Unavailable) => "사용량 데이터를 사용할 수 없음",
+        (AppLocale::RuRu, WindowsWidgetStatus::Fresh) => "Данные квоты обновлены",
+        (AppLocale::RuRu, WindowsWidgetStatus::Stale) => "Данные квоты устарели",
+        (AppLocale::RuRu, WindowsWidgetStatus::Error) => "Не удалось обновить квоту",
+        (AppLocale::RuRu, WindowsWidgetStatus::Unavailable) => "Данные квоты недоступны",
+        (_, WindowsWidgetStatus::Fresh) => "Quota data is up to date",
+        (_, WindowsWidgetStatus::Stale) => "Quota data is stale",
+        (_, WindowsWidgetStatus::Error) => "Quota refresh failed",
+        (_, WindowsWidgetStatus::Unavailable) => "Quota data is unavailable",
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn build_windows_widget_snapshot(
+    accounts: &[AccountSummary],
+    mode: TrayUsageDisplayMode,
+    show_window_labels: bool,
+    placement: WindowsTaskbarWidgetPlacement,
+    locale: crate::models::AppLocale,
+    surface_error: Option<&str>,
+) -> WindowsTaskbarWidgetSnapshot {
+    let current = accounts.iter().find(|account| account.is_current);
+    let title = build_tray_usage_title(accounts, mode, show_window_labels);
+    let account_error = current.and_then(|account| {
+        account
+            .usage_error
+            .as_deref()
+            .or(account.auth_refresh_error.as_deref())
+    });
+    let error = surface_error.or(account_error);
+    let fetched_at = current
+        .and_then(|account| account.usage.as_ref())
+        .map(|usage| usage.fetched_at);
+    let stale = fetched_at.is_some_and(|timestamp| {
+        timestamp <= 0
+            || crate::utils::now_unix_seconds().saturating_sub(timestamp)
+                > WINDOWS_WIDGET_STALE_AFTER_SECONDS
+    });
+    let status = if error.is_some() {
+        WindowsWidgetStatus::Error
+    } else if current.is_none() || current.and_then(|account| account.usage.as_ref()).is_none() {
+        WindowsWidgetStatus::Unavailable
+    } else if stale {
+        WindowsWidgetStatus::Stale
+    } else {
+        WindowsWidgetStatus::Fresh
+    };
+    let text = match status {
+        WindowsWidgetStatus::Stale => format!("~{title}"),
+        _ => title.clone(),
+    };
+    let mut tooltip_lines = vec!["Codex Tools".to_string()];
+    tooltip_lines.push(format!(
+        "{}: {}",
+        i18n::tray_usage_mode_label(locale, mode),
+        title
+    ));
+    if let Some(account) = current {
+        tooltip_lines.push(format!(
+            "{}: {}",
+            i18n::tray_current_label(locale),
+            account.label
+        ));
+    } else {
+        tooltip_lines.push(format!(
+            "{}: {}",
+            i18n::tray_current_label(locale),
+            i18n::tray_no_current(locale)
+        ));
+    }
+    tooltip_lines.push(windows_widget_state_label(locale, status).to_string());
+    if let Some(error) = error {
+        tooltip_lines.push(error.to_string());
+    } else if let Some(timestamp) = fetched_at {
+        tooltip_lines.push(format!("fetched_at: {timestamp}"));
+    }
+
+    WindowsTaskbarWidgetSnapshot {
+        visible: should_show_usage_surface(mode)
+            && placement != WindowsTaskbarWidgetPlacement::Hidden,
+        placement,
+        text,
+        tooltip: tooltip_lines.join("\n"),
+        status,
     }
 }
 
@@ -376,25 +603,38 @@ pub(crate) fn update_macos_tray_snapshot(
     accounts: &[AccountSummary],
 ) -> Result<(), String> {
     let (mode, show_window_labels) = read_tray_title_config(app);
+    let icon_style = read_macos_tray_icon_style(app);
     let locale = i18n::app_locale(app);
     let tray = app
         .tray_by_id(TRAY_ID)
         .ok_or_else(|| "状态栏尚未初始化".to_string())?;
 
-    if !should_show_macos_status_item(mode) {
+    if !should_show_usage_surface(mode) {
         tray.set_visible(false)
             .map_err(|e| format!("隐藏状态栏失败: {e}"))?;
         return Ok(());
     }
 
     let menu = build_macos_tray_menu(app, accounts, mode)?;
-    let title = build_macos_tray_title(accounts, mode, show_window_labels);
+    let title = build_tray_usage_title(accounts, mode, show_window_labels);
     #[cfg(debug_assertions)]
     log_macos_status_bar_render("update", accounts, &title);
     tray.set_menu(Some(menu))
         .map_err(|e| format!("更新状态栏菜单失败: {e}"))?;
-    tray.set_title(Some(title))
-        .map_err(|e| format!("更新状态栏标题失败: {e}"))?;
+    if macos_uses_native_tray_title(icon_style) {
+        tray.set_icon(Some(STATUS_BAR_ICON))
+            .map_err(|e| format!("更新状态栏图标失败: {e}"))?;
+        tray.set_title(Some(title))
+            .map_err(|e| format!("更新状态栏标题失败: {e}"))?;
+    } else {
+        let icon = render_macos_tray_icon(app, icon_style, tray_icon_percent(accounts, mode));
+        tray.set_icon(Some(icon))
+            .map_err(|e| format!("更新状态栏图标失败: {e}"))?;
+        tray.set_title(None::<&str>)
+            .map_err(|e| format!("清除状态栏原生标题失败: {e}"))?;
+    }
+    tray.set_icon_as_template(false)
+        .map_err(|e| format!("设置状态栏彩色图标失败: {e}"))?;
     tray.set_tooltip(Some(build_macos_tray_tooltip(accounts, mode, locale)))
         .map_err(|e| format!("更新状态栏提示失败: {e}"))?;
     tray.set_visible(true)
@@ -444,6 +684,98 @@ pub(crate) fn refresh_macos_tray_snapshot(app: &AppHandle) -> Result<(), String>
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn refresh_macos_tray_snapshot(_app: &AppHandle) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn update_windows_usage_snapshot(
+    app: &AppHandle,
+    accounts: &[AccountSummary],
+    surface_error: Option<&str>,
+) -> Result<(), String> {
+    let config = read_windows_usage_config(app);
+    let locale = i18n::app_locale(app);
+    let snapshot = build_windows_widget_snapshot(
+        accounts,
+        config.mode,
+        config.show_window_labels,
+        config.widget_placement,
+        locale,
+        surface_error,
+    );
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_tooltip(Some(snapshot.tooltip.clone()))
+            .map_err(|error| format!("更新 Windows 托盘提示失败: {error}"))?;
+        let icon = if config.mode == TrayUsageDisplayMode::Hidden {
+            static_codex_tools_icon()
+        } else {
+            render_windows_tray_icon(
+                config.tray_icon_style,
+                tray_icon_percent(accounts, config.mode),
+                snapshot.status,
+            )
+        };
+        tray.set_icon(Some(icon))
+            .map_err(|error| format!("更新 Windows 托盘图标失败: {error}"))?;
+    }
+    crate::windows_taskbar_widget::update(snapshot)
+}
+
+#[cfg(target_os = "windows")]
+fn refresh_windows_usage_snapshot(app: &AppHandle) -> Result<(), String> {
+    let summaries = cached_account_summaries(app)?;
+    update_windows_usage_snapshot(app, &summaries, None)
+}
+
+pub(crate) fn update_usage_surfaces_snapshot(
+    app: &AppHandle,
+    accounts: &[AccountSummary],
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return update_macos_tray_snapshot(app, accounts);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return update_windows_usage_snapshot(app, accounts, None);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (app, accounts);
+        Ok(())
+    }
+}
+
+pub(crate) fn refresh_usage_surfaces_snapshot(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return refresh_macos_tray_snapshot(app);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return refresh_windows_usage_snapshot(app);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+pub(crate) fn update_usage_surfaces_error(app: &AppHandle, error: &str) {
+    #[cfg(target_os = "windows")]
+    match cached_account_summaries(app)
+        .and_then(|summaries| update_windows_usage_snapshot(app, &summaries, Some(error)))
+    {
+        Ok(()) => {}
+        Err(update_error) => {
+            log::warn!("更新 Windows 额度组件错误状态失败: {update_error}");
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, error);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -541,7 +873,8 @@ fn start_macos_tray_refresh_loop(app: AppHandle) {
             tokio::time::sleep(Duration::from_secs(REFRESH_INTERVAL_SECONDS)).await;
             if !main_window_is_visible(&app) {
                 let state = app.state::<AppState>();
-                if let Ok(summaries) = refresh_all_usage_internal(&app, state.inner(), false).await
+                if let Ok(summaries) =
+                    refresh_all_usage_coordinated(&app, state.inner(), false, "macos-hidden").await
                 {
                     let _ = update_macos_tray_snapshot(&app, &summaries);
                 }
@@ -555,6 +888,7 @@ fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
     use tauri::tray::TrayIconBuilder;
 
     let (mode, show_window_labels) = read_tray_title_config(app);
+    let icon_style = read_macos_tray_icon_style(app);
     let locale = i18n::app_locale(app);
     let store = load_store(app)?;
     let current_account_key = current_auth_account_key();
@@ -583,20 +917,28 @@ fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
         current_variant_key.as_deref(),
     );
     let menu = build_macos_tray_menu(app, &summaries, mode)?;
-    let title = build_macos_tray_title(&summaries, mode, show_window_labels);
+    let title = build_tray_usage_title(&summaries, mode, show_window_labels);
     #[cfg(debug_assertions)]
     log_macos_status_bar_render("setup", &summaries, &title);
 
-    let tray = TrayIconBuilder::with_id(TRAY_ID)
+    let initial_icon = if macos_uses_native_tray_title(icon_style) {
+        STATUS_BAR_ICON
+    } else {
+        render_macos_tray_icon(app, icon_style, tray_icon_percent(&summaries, mode))
+    };
+    let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .icon(STATUS_BAR_ICON)
+        .icon(initial_icon)
         .icon_as_template(false)
-        .title(title)
         .tooltip(build_macos_tray_tooltip(&summaries, mode, locale))
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(true);
+    if macos_uses_native_tray_title(icon_style) {
+        tray_builder = tray_builder.title(title);
+    }
+    let tray = tray_builder
         .build(app)
         .map_err(|e| format!("创建 macOS 状态栏失败: {e}"))?;
-    tray.set_visible(should_show_macos_status_item(mode))
+    tray.set_visible(should_show_usage_surface(mode))
         .map_err(|e| format!("设置状态栏可见性失败: {e}"))?;
 
     start_macos_tray_refresh_loop(app.clone());
@@ -652,11 +994,30 @@ fn setup_windows_tray(app: &AppHandle) -> Result<(), String> {
     use tauri::tray::TrayIconEvent;
 
     let menu = build_windows_tray_menu(app)?;
+    let summaries = cached_account_summaries(app)?;
+    let config = read_windows_usage_config(app);
+    let initial_snapshot = build_windows_widget_snapshot(
+        &summaries,
+        config.mode,
+        config.show_window_labels,
+        config.widget_placement,
+        i18n::app_locale(app),
+        None,
+    );
+    let initial_icon = if config.mode == TrayUsageDisplayMode::Hidden {
+        static_codex_tools_icon()
+    } else {
+        render_windows_tray_icon(
+            config.tray_icon_style,
+            tray_icon_percent(&summaries, config.mode),
+            initial_snapshot.status,
+        )
+    };
 
-    TrayIconBuilder::with_id(TRAY_ID)
+    let tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .icon(WINDOWS_TRAY_ICON)
-        .tooltip("Codex Tools")
+        .icon(initial_icon)
+        .tooltip(initial_snapshot.tooltip.clone())
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Click {
@@ -671,6 +1032,13 @@ fn setup_windows_tray(app: &AppHandle) -> Result<(), String> {
         })
         .build(app)
         .map_err(|e| format!("创建 Windows 系统托盘失败: {e}"))?;
+
+    if let Err(error) = crate::windows_taskbar_widget::setup(app, initial_snapshot) {
+        log::warn!("Windows 任务栏额度组件启动失败，保留普通托盘入口: {error}");
+        let _ = tray.set_tooltip(Some(format!(
+            "Codex Tools\nWindows quota widget unavailable\n{error}"
+        )));
+    }
 
     Ok(())
 }
@@ -717,7 +1085,8 @@ pub(crate) fn handle_status_bar_menu_event(app: &AppHandle, event: tauri::menu::
         tauri::async_runtime::spawn(async move {
             let state = app_handle.state::<AppState>();
             if let Ok(summaries) =
-                refresh_all_usage_internal(&app_handle, state.inner(), true).await
+                refresh_all_usage_coordinated(&app_handle, state.inner(), true, "macos-tray-manual")
+                    .await
             {
                 let _ = update_macos_tray_snapshot(&app_handle, &summaries);
             }
@@ -725,16 +1094,23 @@ pub(crate) fn handle_status_bar_menu_event(app: &AppHandle, event: tauri::menu::
     }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
-    use super::build_macos_tray_title;
-    use super::should_show_macos_status_item;
+    use super::build_tray_usage_title;
+    #[cfg(target_os = "windows")]
+    use super::build_windows_widget_snapshot;
+    use super::should_show_usage_surface;
+    #[cfg(target_os = "macos")]
     use super::tray_account_usage_line;
+    #[cfg(target_os = "windows")]
+    use super::tray_icon_percent;
     use crate::models::AccountSummary;
     use crate::models::AppLocale;
     use crate::models::TrayUsageDisplayMode;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
+    #[cfg(target_os = "windows")]
+    use crate::models::WindowsTaskbarWidgetPlacement;
 
     fn current_account_with_usage() -> AccountSummary {
         AccountSummary {
@@ -757,7 +1133,7 @@ mod tests {
             added_at: 0,
             updated_at: 0,
             usage: Some(UsageSnapshot {
-                fetched_at: 0,
+                fetched_at: crate::utils::now_unix_seconds(),
                 plan_type: Some("pro".to_string()),
                 five_hour: Some(UsageWindow {
                     used_percent: 60.0,
@@ -785,7 +1161,7 @@ mod tests {
         let account = current_account_with_usage();
 
         assert_eq!(
-            build_macos_tray_title(
+            build_tray_usage_title(
                 std::slice::from_ref(&account),
                 TrayUsageDisplayMode::OneWeekRemaining,
                 false,
@@ -793,7 +1169,7 @@ mod tests {
             "60%"
         );
         assert_eq!(
-            build_macos_tray_title(
+            build_tray_usage_title(
                 std::slice::from_ref(&account),
                 TrayUsageDisplayMode::OneWeekRemaining,
                 true,
@@ -801,24 +1177,27 @@ mod tests {
             "1w 60%"
         );
 
-        let usage_line = tray_account_usage_line(
-            &account,
-            TrayUsageDisplayMode::OneWeekRemaining,
-            AppLocale::EnUs,
-        );
-        assert!(usage_line.contains("60%"));
-        assert!(!usage_line.contains("40%"));
-        assert!(!usage_line.contains("5h"));
+        #[cfg(target_os = "macos")]
+        {
+            let usage_line = tray_account_usage_line(
+                &account,
+                TrayUsageDisplayMode::OneWeekRemaining,
+                AppLocale::EnUs,
+            );
+            assert!(usage_line.contains("60%"));
+            assert!(!usage_line.contains("40%"));
+            assert!(!usage_line.contains("5h"));
+        }
     }
 
     #[test]
     fn one_week_remaining_mode_keeps_a_one_week_placeholder_without_current_account() {
         assert_eq!(
-            build_macos_tray_title(&[], TrayUsageDisplayMode::OneWeekRemaining, false),
+            build_tray_usage_title(&[], TrayUsageDisplayMode::OneWeekRemaining, false),
             "--"
         );
         assert_eq!(
-            build_macos_tray_title(&[], TrayUsageDisplayMode::OneWeekRemaining, true),
+            build_tray_usage_title(&[], TrayUsageDisplayMode::OneWeekRemaining, true),
             "1w --"
         );
     }
@@ -828,7 +1207,7 @@ mod tests {
         let account = current_account_with_usage();
 
         assert_eq!(
-            build_macos_tray_title(
+            build_tray_usage_title(
                 std::slice::from_ref(&account),
                 TrayUsageDisplayMode::Remaining,
                 false,
@@ -836,16 +1215,117 @@ mod tests {
             "40% / 60%"
         );
         assert_eq!(
-            build_macos_tray_title(&[account], TrayUsageDisplayMode::Remaining, true),
+            build_tray_usage_title(&[account], TrayUsageDisplayMode::Remaining, true),
             "5h 40% / 1w 60%"
         );
     }
 
     #[test]
-    fn hidden_mode_hides_the_entire_macos_status_item() {
-        assert!(!should_show_macos_status_item(TrayUsageDisplayMode::Hidden));
-        assert!(should_show_macos_status_item(
+    fn hidden_mode_hides_the_usage_surface() {
+        assert!(!should_show_usage_surface(TrayUsageDisplayMode::Hidden));
+        assert!(should_show_usage_surface(
             TrayUsageDisplayMode::OneWeekRemaining
         ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_widget_reuses_title_modes_and_exposes_health_states() {
+        use crate::windows_taskbar_widget::WindowsWidgetStatus;
+
+        let mut account = current_account_with_usage();
+        let fresh = build_windows_widget_snapshot(
+            std::slice::from_ref(&account),
+            TrayUsageDisplayMode::OneWeekRemaining,
+            false,
+            WindowsTaskbarWidgetPlacement::Embedded,
+            AppLocale::EnUs,
+            None,
+        );
+        assert_eq!(fresh.text, "60%");
+        assert_eq!(fresh.status, WindowsWidgetStatus::Fresh);
+        assert!(fresh.visible);
+        assert!(fresh.tooltip.contains("Quota data is up to date"));
+
+        account.usage_error = Some("network unavailable".to_string());
+        let error = build_windows_widget_snapshot(
+            std::slice::from_ref(&account),
+            TrayUsageDisplayMode::OneWeekRemaining,
+            false,
+            WindowsTaskbarWidgetPlacement::Embedded,
+            AppLocale::EnUs,
+            None,
+        );
+        assert_eq!(error.text, "60%");
+        assert!(!error.text.contains('!'));
+        assert_eq!(error.status, WindowsWidgetStatus::Error);
+        assert!(error.tooltip.contains("network unavailable"));
+
+        account.usage_error = None;
+        account.usage.as_mut().expect("usage").fetched_at = 0;
+        let stale = build_windows_widget_snapshot(
+            std::slice::from_ref(&account),
+            TrayUsageDisplayMode::OneWeekRemaining,
+            false,
+            WindowsTaskbarWidgetPlacement::Embedded,
+            AppLocale::EnUs,
+            None,
+        );
+        assert_eq!(stale.text, "~60%");
+        assert_eq!(stale.status, WindowsWidgetStatus::Stale);
+        assert!(stale.tooltip.contains("Quota data is stale"));
+
+        let unavailable = build_windows_widget_snapshot(
+            &[],
+            TrayUsageDisplayMode::OneWeekRemaining,
+            false,
+            WindowsTaskbarWidgetPlacement::Embedded,
+            AppLocale::EnUs,
+            None,
+        );
+        assert_eq!(unavailable.text, "--");
+        assert_eq!(unavailable.status, WindowsWidgetStatus::Unavailable);
+        assert!(unavailable.tooltip.contains("Quota data is unavailable"));
+
+        let hidden = build_windows_widget_snapshot(
+            &[account],
+            TrayUsageDisplayMode::Hidden,
+            false,
+            WindowsTaskbarWidgetPlacement::Embedded,
+            AppLocale::EnUs,
+            None,
+        );
+        assert!(!hidden.visible);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_tray_icon_uses_selected_or_most_constrained_window() {
+        let account = current_account_with_usage();
+        assert_eq!(
+            tray_icon_percent(
+                std::slice::from_ref(&account),
+                TrayUsageDisplayMode::FiveHourRemaining,
+            ),
+            Some(40.0)
+        );
+        assert_eq!(
+            tray_icon_percent(
+                std::slice::from_ref(&account),
+                TrayUsageDisplayMode::OneWeekRemaining,
+            ),
+            Some(60.0)
+        );
+        assert_eq!(
+            tray_icon_percent(
+                std::slice::from_ref(&account),
+                TrayUsageDisplayMode::Remaining,
+            ),
+            Some(40.0)
+        );
+        assert_eq!(
+            tray_icon_percent(&[account], TrayUsageDisplayMode::Used),
+            Some(60.0)
+        );
     }
 }

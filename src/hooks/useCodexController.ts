@@ -71,6 +71,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   trayUsageDisplayMode: "oneWeekRemaining",
   trayUsageTitleShowWindowLabels: false,
+  windowsTrayIconStyle: "gradientNumberPlate",
+  windowsTaskbarWidgetPlacement: "embedded",
   launchCodexAfterSwitch: true,
   smartSwitchIncludeApi: false,
   launchCodexAsAdmin: false,
@@ -318,6 +320,7 @@ export function useCodexController() {
   const remoteProxyAutoRedeployInFlightRef = useRef(false);
   const remoteProxyAutoRedeployRef = useRef<() => Promise<void>>(async () => {});
   const tokenUsageRefreshInFlightRef = useRef(false);
+  const usageBootstrapStartedRef = useRef(false);
   const usageRefreshCountRef = useRef(0);
   const usageRefreshSequenceRef = useRef(0);
   const costAnalyticsProgressVisibleRef = useRef(false);
@@ -652,7 +655,19 @@ export function useCodexController() {
       quiet = false,
       forceAuthRefresh = !quiet,
       initialRefresh = false,
+      source: "startup" | "foreground-timer" | "account-import" | "manual" =
+        "manual",
     ) => {
+      // React effects can restart while an interval callback is already queued.
+      // Drop a duplicate periodic tick; stronger manual/import refreshes still
+      // reach the Rust coordinator and can upgrade after the current flight.
+      if (
+        source === "foreground-timer" &&
+        usageRefreshCountRef.current > 0
+      ) {
+        return;
+      }
+
       const requestId = usageRefreshSequenceRef.current + 1;
       usageRefreshSequenceRef.current = requestId;
       usageRefreshCountRef.current += 1;
@@ -665,6 +680,7 @@ export function useCodexController() {
         }
         const data = await invoke<AccountSummary[]>("refresh_all_usage", {
           forceAuthRefresh,
+          source,
         });
         const promptedRelogin = applyAccounts(data);
         if (requestId === usageRefreshSequenceRef.current) {
@@ -1135,7 +1151,10 @@ export function useCodexController() {
   }, [pendingUpdate, updateSettings]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (usageBootstrapStartedRef.current) {
+      return;
+    }
+    usageBootstrapStartedRef.current = true;
 
     const bootstrap = async () => {
       try {
@@ -1144,9 +1163,7 @@ export function useCodexController() {
         const initialAccounts = await loadAccounts();
         maybeShowProfileIntegrityNotice(initialAccounts);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
 
       // 这些任务不影响已有账号和缓存用量的展示。并行执行可避免一个
@@ -1165,7 +1182,7 @@ export function useCodexController() {
         // A clean installation has no cached usage yet. Allow this one silent
         // startup refresh to renew stale auth tokens, while periodic refreshes
         // remain lightweight and do not rotate credentials unnecessarily.
-        refreshUsage(true, true, true),
+        refreshUsage(true, true, true, "startup"),
         refreshTokenUsage(true),
         loadCostAnalytics(true),
         settingsTask.then(() => checkForAppUpdate(true)),
@@ -1173,10 +1190,6 @@ export function useCodexController() {
     };
 
     void bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
   }, [
     checkForAppUpdate,
     loadAccounts,
@@ -1201,7 +1214,7 @@ export function useCodexController() {
     }
 
     const usageTimer = setInterval(() => {
-      void refreshUsage(true);
+      void refreshUsage(true, false, false, "foreground-timer");
     }, REFRESH_MS);
 
     const editorTimer = setInterval(() => {
@@ -1568,7 +1581,7 @@ export function useCodexController() {
       await invoke<AccountSummary>("import_current_auth_account", {
         label: null,
       });
-      await refreshUsage(true);
+      await refreshUsage(true, false, false, "account-import");
       await loadAccounts();
       void remoteProxyAutoRedeployRef.current();
       setAddDialogOpen(false);

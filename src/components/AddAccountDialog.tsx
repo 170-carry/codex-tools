@@ -182,6 +182,8 @@ export function AddAccountDialog({
 
   useEffect(() => {
     if (!open) {
+      // This effect intentionally resets transient dialog state at the close boundary.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveRoute("oauth");
       setSelectedFiles([]);
       setSessionJsonText("");
@@ -323,6 +325,9 @@ export function AddAccountDialog({
       return;
     }
 
+    // Leaving the OAuth route is the lifecycle boundary that cancels and
+    // clears the in-progress OAuth session.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     resetOauthState(true);
   }, [
     activeRoute,

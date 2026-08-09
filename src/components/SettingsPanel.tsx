@@ -17,6 +17,7 @@ import type {
   InstalledEditorApp,
   ThemeMode,
   UpdateSettingsOptions,
+  WindowsTrayIconStyle,
 } from "../types/app";
 
 function GitHubIcon() {
@@ -43,6 +44,13 @@ type SettingsPanelProps = {
   onUpdateSettings: (patch: Partial<AppSettings>, options?: UpdateSettingsOptions) => void;
 };
 
+type TrayVisualPreview = {
+  style: WindowsTrayIconStyle;
+  dataUrl: string;
+  pixelWidth: number;
+  pixelHeight: number;
+};
+
 export function SettingsPanel({
   themeMode,
   onToggleTheme,
@@ -57,6 +65,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { copy, locale, localeOptions, setLocale } = useI18n();
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [trayVisualPreviews, setTrayVisualPreviews] = useState<TrayVisualPreview[]>([]);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
@@ -64,6 +73,16 @@ export function SettingsPanel({
     label: item.nativeLabel,
   }));
   const versionValue = appVersion ? `v${appVersion}` : "...";
+  const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  const isMacos = typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const trayPreviewScale = typeof window !== "undefined" ? Math.max(1, window.devicePixelRatio || 1) : 1;
+  const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle; label: string }> = [
+    { value: "gradientNumberPlate", label: copy.settings.windowsTrayIconStyle.gradientNumberPlate },
+    { value: "gradientNumberCard", label: copy.settings.windowsTrayIconStyle.gradientNumberCard },
+    { value: "gradientNumber", label: copy.settings.windowsTrayIconStyle.gradientNumber },
+    { value: "numberProgressBar", label: copy.settings.windowsTrayIconStyle.numberProgressBar },
+    { value: "logoProgressRing", label: copy.settings.windowsTrayIconStyle.logoProgressRing },
+  ];
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +99,32 @@ export function SettingsPanel({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isWindows && !isMacos) {
+      return;
+    }
+
+    let cancelled = false;
+    void invoke<TrayVisualPreview[]>("get_tray_visual_previews", {
+      lightTheme: themeMode !== "dark",
+      devicePixelRatio: trayPreviewScale,
+    })
+      .then((previews) => {
+        if (!cancelled) {
+          setTrayVisualPreviews(previews);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTrayVisualPreviews([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isMacos, isWindows, themeMode, trayPreviewScale]);
 
   const pickCodexLaunchPath = async (kind: "file" | "directory") => {
     if (savingSettings || pickingCodexLaunchPathKind) {
@@ -205,6 +250,101 @@ export function SettingsPanel({
               </label>
             </div>
           </div>
+
+          {isWindows || isMacos ? (
+            <div className="settingRow settingRowTrayUsage">
+              <div className="settingMeta">
+                <strong>{copy.settings.windowsTrayIconStyle.label}</strong>
+              </div>
+              <div
+                className="modeGroup trayUsageModeGroup trayIconStyleGroup"
+                role="radiogroup"
+                aria-label={copy.settings.windowsTrayIconStyle.groupAriaLabel}
+              >
+                {trayIconStyleOptions.map((option) => {
+                  const preview = trayVisualPreviews.find((item) => item.style === option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      className={`trayIconStyleOption ${
+                        settings.windowsTrayIconStyle === option.value ? "primary" : "ghost"
+                      }`}
+                      disabled={savingSettings}
+                      onClick={() => onUpdateSettings({ windowsTrayIconStyle: option.value })}
+                      aria-label={option.label}
+                      aria-pressed={settings.windowsTrayIconStyle === option.value}
+                      title={option.label}
+                    >
+                      <span className="trayIconPreviewFrame" aria-hidden="true">
+                        {preview ? (
+                          <img
+                            src={preview.dataUrl}
+                            alt=""
+                            draggable={false}
+                            style={{
+                              width: `${preview.pixelWidth / trayPreviewScale}px`,
+                              height: `${preview.pixelHeight / trayPreviewScale}px`,
+                            }}
+                          />
+                        ) : (
+                          <span className="trayIconPreviewPlaceholder" />
+                        )}
+                      </span>
+                      <span className="trayIconStyleLabel">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {isWindows ? (
+            <>
+              <div className="settingRow settingRowCompact">
+                <div className="settingMeta">
+                  <strong>{copy.settings.windowsTaskbarWidget.label}</strong>
+                </div>
+                <div
+                  className="modeGroup trayUsageModeGroup"
+                  role="radiogroup"
+                  aria-label={copy.settings.windowsTaskbarWidget.groupAriaLabel}
+                >
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "embedded" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "embedded" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "embedded"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.embedded}
+                  </button>
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "left" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "left" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "left"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.left}
+                  </button>
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "floating" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "floating" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "floating"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.floating}
+                  </button>
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "hidden" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "hidden" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "hidden"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.hidden}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div className="settingsGroup">

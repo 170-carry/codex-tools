@@ -553,6 +553,25 @@
       "checkedText": "ラベルを表示",
       "uncheckedText": "数値のみ"
     },
+    "windowsTrayIconStyle": {
+      "label": "トレイアイコンの表示",
+      "description": "5 つのスタイルは実際のトレイアイコンと同じレンダラーを使用し、画像プレビューも通知領域の実サイズで表示されます。",
+      "groupAriaLabel": "トレイアイコンの表示スタイル",
+      "gradientNumberPlate": "グラデーション数字プレート",
+      "gradientNumberCard": "グラデーション数字カード",
+      "gradientNumber": "グラデーション数字",
+      "numberProgressBar": "数字 + 進捗バー",
+      "logoProgressRing": "ロゴ + 進捗リング"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows タスクバー使用量コンポーネント",
+      "description": "使用量の左側に Codex Tools の元アイコンを表示し、macOS のステータスバーに合わせます。背景は透明で、空き領域がない場合はフローティング表示に戻ります。",
+      "groupAriaLabel": "Windows タスクバー使用量コンポーネントの配置",
+      "embedded": "タスクバー内に表示（推奨）",
+      "left": "タスクバーの左端",
+      "floating": "タスクバー上に表示",
+      "hidden": "非表示"
+    },
     "theme": {
       "label": "ダークモード",
       "description": "スイッチでライト/ダークテーマを切り替えます。",

@@ -18,8 +18,13 @@ mod state;
 mod store;
 mod token_usage;
 mod tray;
+mod tray_visual;
 mod usage;
 mod utils;
+#[cfg(target_os = "windows")]
+mod windows_taskbar_widget;
+#[cfg(target_os = "windows")]
+mod windows_tray_icon;
 
 #[cfg(target_os = "macos")]
 use std::collections::HashSet;
@@ -335,7 +340,7 @@ async fn import_oauth_auth_json(
     .await?;
 
     if result.imported_count > 0 || result.updated_count > 0 {
-        let _ = tray::refresh_macos_tray_snapshot(app);
+        let _ = tray::refresh_usage_surfaces_snapshot(app);
     }
 
     Ok(result)
@@ -563,6 +568,32 @@ async fn start_oauth_callback_listener(
 // 核心业务逻辑放在 account_service/auth/store/tray 等模块。
 
 #[tauri::command]
+fn get_tray_visual_previews(
+    light_theme: bool,
+    device_pixel_ratio: f64,
+) -> Result<Vec<tray_visual::TrayVisualPreview>, String> {
+    #[cfg(target_os = "windows")]
+    let (platform, base_size) = (
+        tray_visual::TrayVisualPlatform::Windows,
+        windows_tray_icon::windows_tray_icon_size(),
+    );
+    #[cfg(target_os = "macos")]
+    let (platform, base_size) = (
+        tray_visual::TrayVisualPlatform::Macos,
+        (18.0 * device_pixel_ratio.clamp(1.0, 4.0)).round() as u32,
+    );
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let (platform, base_size) = (
+        tray_visual::TrayVisualPlatform::Windows,
+        (16.0 * device_pixel_ratio.clamp(1.0, 4.0)).round() as u32,
+    );
+    #[cfg(target_os = "windows")]
+    let _ = device_pixel_ratio;
+
+    tray_visual::render_tray_visual_previews(platform, base_size, light_theme)
+}
+
+#[tauri::command]
 async fn list_accounts(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -580,7 +611,7 @@ async fn import_current_auth_account(
     ensure_no_pending_auth_operation(state.inner()).await?;
     let summary =
         account_service::import_current_auth_account_internal(&app, state.inner(), label).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(summary)
 }
 
@@ -591,7 +622,7 @@ async fn create_api_account(
     input: CreateApiAccountInput,
 ) -> Result<AccountSummary, String> {
     let summary = account_service::create_api_account_internal(&app, state.inner(), input).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(summary)
 }
 
@@ -613,7 +644,7 @@ async fn import_auth_json_accounts(
     let result =
         account_service::import_auth_json_accounts_internal(&app, state.inner(), items).await?;
     if result.imported_count > 0 || result.updated_count > 0 {
-        let _ = tray::refresh_macos_tray_snapshot(&app);
+        let _ = tray::refresh_usage_surfaces_snapshot(&app);
     }
     Ok(result)
 }
@@ -634,7 +665,7 @@ async fn delete_account(
     id: String,
 ) -> Result<(), String> {
     account_service::delete_account_internal(&app, state.inner(), &id).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(())
 }
 
@@ -659,7 +690,7 @@ async fn update_account_label(
         }
     }
 
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(resolved_label)
 }
 
@@ -701,19 +732,54 @@ async fn refresh_all_usage(
     app: AppHandle,
     state: State<'_, AppState>,
     force_auth_refresh: Option<bool>,
+    source: Option<String>,
 ) -> Result<Vec<AccountSummary>, String> {
     let force_auth_refresh = force_auth_refresh.unwrap_or(false);
+    let source = match source.as_deref() {
+        Some("startup") => "startup",
+        Some("foreground-timer") => "foreground-timer",
+        Some("account-import") => "account-import",
+        Some("manual") => "manual",
+        _ => "frontend",
+    };
+    let main_window_visible = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if source == "foreground-timer" && !main_window_visible {
+        log::info!(
+            "USAGE_REFRESH_SCHEDULE source=foreground-timer window_visible=false action=skip"
+        );
+        return account_service::list_accounts_internal(&app, state.inner()).await;
+    }
+    log::info!(
+        "USAGE_REFRESH_SCHEDULE source={} window_visible={} action=request",
+        source,
+        main_window_visible,
+    );
     if force_auth_refresh {
         {
             let _auth_guard = state.auth_operation_lock.lock().await;
             ensure_no_pending_auth_operation(state.inner()).await?;
         }
     }
-    let summaries =
-        account_service::refresh_all_usage_internal(&app, state.inner(), force_auth_refresh)
-            .await?;
-    let _ = tray::update_macos_tray_snapshot(&app, &summaries);
-    Ok(summaries)
+    match account_service::refresh_all_usage_coordinated(
+        &app,
+        state.inner(),
+        force_auth_refresh,
+        source,
+    )
+    .await
+    {
+        Ok(summaries) => {
+            let _ = tray::update_usage_surfaces_snapshot(&app, &summaries);
+            Ok(summaries)
+        }
+        Err(error) => {
+            tray::update_usage_surfaces_error(&app, &error);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -1076,7 +1142,7 @@ async fn update_app_settings(
 ) -> Result<AppSettings, String> {
     let settings =
         settings_service::update_app_settings_internal(&app, state.inner(), patch).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(settings)
 }
 
@@ -1723,7 +1789,7 @@ async fn switch_account_and_launch(
             account = stored_account.clone();
             store::save_store(&app, &latest_store)?;
         }
-        let _ = tray::refresh_macos_tray_snapshot(&app);
+        let _ = tray::refresh_usage_surfaces_snapshot(&app);
 
         (
             account,
@@ -2514,17 +2580,31 @@ fn start_background_usage_refresh_loop(app: AppHandle) {
                 .and_then(|window| window.is_visible().ok())
                 .unwrap_or(false);
             if main_window_visible {
+                log::info!(
+                    "USAGE_REFRESH_SCHEDULE source=background-hidden window_visible=true action=skip"
+                );
                 continue;
             }
 
             // Windows 没有 macOS 状态栏刷新循环。窗口隐藏时保留一条低频兜底，
             // 仅刷新真实用量并按需更新 OAuth 令牌，绝不调用 Codex 推理接口。
             let state = app.state::<AppState>();
-            match account_service::refresh_all_usage_internal(&app, state.inner(), true).await {
+            log::info!(
+                "USAGE_REFRESH_SCHEDULE source=background-hidden window_visible=false action=request"
+            );
+            match account_service::refresh_all_usage_coordinated(
+                &app,
+                state.inner(),
+                true,
+                "background-hidden",
+            )
+            .await
+            {
                 Ok(summaries) => {
-                    let _ = tray::update_macos_tray_snapshot(&app, &summaries);
+                    let _ = tray::update_usage_surfaces_snapshot(&app, &summaries);
                 }
                 Err(error) => {
+                    tray::update_usage_surfaces_error(&app, &error);
                     log::warn!("后台账号认证检查失败: {error}");
                 }
             }
@@ -2742,6 +2822,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_tray_visual_previews,
             list_accounts,
             import_current_auth_account,
             create_api_account,

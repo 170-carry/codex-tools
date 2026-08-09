@@ -589,6 +589,28 @@ pub(crate) enum TrayUsageDisplayMode {
     Remaining,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WindowsTrayIconStyle {
+    #[serde(alias = "blueGauge", alias = "codexToolsBadge")]
+    #[default]
+    GradientNumberPlate,
+    GradientNumberCard,
+    GradientNumber,
+    NumberProgressBar,
+    LogoProgressRing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WindowsTaskbarWidgetPlacement {
+    #[default]
+    Embedded,
+    Left,
+    Floating,
+    Hidden,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum EditorAppId {
@@ -630,6 +652,10 @@ pub(crate) struct AppSettings {
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
     #[serde(default)]
     pub(crate) tray_usage_title_show_window_labels: bool,
+    #[serde(default)]
+    pub(crate) windows_tray_icon_style: WindowsTrayIconStyle,
+    #[serde(default)]
+    pub(crate) windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement,
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
@@ -667,6 +693,8 @@ impl Default for AppSettings {
             launch_at_startup: false,
             tray_usage_display_mode: TrayUsageDisplayMode::OneWeekRemaining,
             tray_usage_title_show_window_labels: false,
+            windows_tray_icon_style: WindowsTrayIconStyle::GradientNumberPlate,
+            windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement::Embedded,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
             launch_codex_as_admin: false,
@@ -698,6 +726,8 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) tray_usage_title_show_window_labels: Option<bool>,
+    pub(crate) windows_tray_icon_style: Option<WindowsTrayIconStyle>,
+    pub(crate) windows_taskbar_widget_placement: Option<WindowsTaskbarWidgetPlacement>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) launch_codex_as_admin: Option<bool>,
@@ -948,6 +978,8 @@ mod tests {
     use super::TrayUsageDisplayMode;
     use super::UsageSnapshot;
     use super::UsageWindow;
+    use super::WindowsTaskbarWidgetPlacement;
+    use super::WindowsTrayIconStyle;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use serde_json::json;
@@ -978,6 +1010,14 @@ mod tests {
             TrayUsageDisplayMode::OneWeekRemaining
         );
         assert!(!AppSettings::default().tray_usage_title_show_window_labels);
+        assert_eq!(
+            AppSettings::default().windows_tray_icon_style,
+            WindowsTrayIconStyle::GradientNumberPlate
+        );
+        assert_eq!(
+            AppSettings::default().windows_taskbar_widget_placement,
+            WindowsTaskbarWidgetPlacement::Embedded
+        );
 
         let missing_mode: AppSettings = serde_json::from_value(json!({})).unwrap();
         assert_eq!(
@@ -985,6 +1025,14 @@ mod tests {
             TrayUsageDisplayMode::OneWeekRemaining
         );
         assert!(!missing_mode.tray_usage_title_show_window_labels);
+        assert_eq!(
+            missing_mode.windows_tray_icon_style,
+            WindowsTrayIconStyle::GradientNumberPlate
+        );
+        assert_eq!(
+            missing_mode.windows_taskbar_widget_placement,
+            WindowsTaskbarWidgetPlacement::Embedded
+        );
 
         assert_eq!(
             serde_json::to_value(TrayUsageDisplayMode::OneWeekRemaining).unwrap(),
@@ -1001,7 +1049,9 @@ mod tests {
 
         let patch: AppSettingsPatch = serde_json::from_value(json!({
             "trayUsageDisplayMode": "oneWeekRemaining",
-            "trayUsageTitleShowWindowLabels": true
+            "trayUsageTitleShowWindowLabels": true,
+            "windowsTrayIconStyle": "codexToolsBadge",
+            "windowsTaskbarWidgetPlacement": "floating"
         }))
         .unwrap();
         assert_eq!(
@@ -1009,6 +1059,23 @@ mod tests {
             Some(TrayUsageDisplayMode::OneWeekRemaining)
         );
         assert_eq!(patch.tray_usage_title_show_window_labels, Some(true));
+        assert_eq!(
+            patch.windows_tray_icon_style,
+            Some(WindowsTrayIconStyle::GradientNumberPlate)
+        );
+        assert_eq!(
+            patch.windows_taskbar_widget_placement,
+            Some(WindowsTaskbarWidgetPlacement::Floating)
+        );
+
+        let left_patch: AppSettingsPatch = serde_json::from_value(json!({
+            "windowsTaskbarWidgetPlacement": "left"
+        }))
+        .unwrap();
+        assert_eq!(
+            left_patch.windows_taskbar_widget_placement,
+            Some(WindowsTaskbarWidgetPlacement::Left)
+        );
     }
 
     fn jwt_with_plan(plan_type: &str) -> String {

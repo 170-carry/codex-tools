@@ -6,10 +6,12 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 
+use futures_util::future::FutureExt;
 use futures_util::stream;
 use futures_util::StreamExt;
 use rfd::FileDialog;
 use tauri::AppHandle;
+use tauri::Manager;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
 
@@ -44,6 +46,7 @@ use crate::models::TestApiAccountConnectionResult;
 use crate::models::UsageSnapshot;
 use crate::profile_files;
 use crate::state::AppState;
+use crate::state::UsageRefreshFlight;
 use crate::store::account_store_path_from_data_dir;
 use crate::store::load_store;
 use crate::store::load_store_from_path;
@@ -671,6 +674,86 @@ pub(crate) async fn refresh_all_usage_internal(
     );
 
     Ok(summaries)
+}
+
+/// Coordinates every full usage refresh through one in-flight future.
+///
+/// Callers requesting the same or weaker auth behavior share the current
+/// result. A forced-auth caller that arrived behind a lightweight refresh waits
+/// for it, then starts one stronger pass instead of overlapping network work.
+pub(crate) async fn refresh_all_usage_coordinated(
+    app: &AppHandle,
+    state: &AppState,
+    force_auth_refresh: bool,
+    source: &str,
+) -> Result<Vec<AccountSummary>, String> {
+    loop {
+        let (flight_id, flight_force_auth_refresh, future, joined) = {
+            let mut coordinator = state.usage_refresh.lock().await;
+            if let Some(flight) = coordinator.current.as_ref() {
+                (
+                    flight.id,
+                    flight.force_auth_refresh,
+                    flight.future.clone(),
+                    true,
+                )
+            } else {
+                coordinator.next_id = coordinator.next_id.wrapping_add(1).max(1);
+                let flight_id = coordinator.next_id;
+                let app_handle = app.clone();
+                let future = async move {
+                    let state = app_handle.state::<AppState>();
+                    refresh_all_usage_internal(&app_handle, state.inner(), force_auth_refresh).await
+                }
+                .boxed()
+                .shared();
+                coordinator.current = Some(UsageRefreshFlight {
+                    id: flight_id,
+                    force_auth_refresh,
+                    future: future.clone(),
+                });
+                (flight_id, force_auth_refresh, future, false)
+            }
+        };
+
+        log::info!(
+            "USAGE_REFRESH_COORDINATOR source={} flight_id={} action={} requested_force_auth={} flight_force_auth={}",
+            source,
+            flight_id,
+            if joined { "join" } else { "start" },
+            force_auth_refresh,
+            flight_force_auth_refresh,
+        );
+
+        let result = future.await;
+        {
+            let mut coordinator = state.usage_refresh.lock().await;
+            if coordinator
+                .current
+                .as_ref()
+                .is_some_and(|flight| flight.id == flight_id)
+            {
+                coordinator.current = None;
+            }
+        }
+
+        if joined && force_auth_refresh && !flight_force_auth_refresh {
+            log::info!(
+                "USAGE_REFRESH_COORDINATOR source={} flight_id={} action=upgrade_after_join",
+                source,
+                flight_id,
+            );
+            continue;
+        }
+
+        log::info!(
+            "USAGE_REFRESH_COORDINATOR source={} flight_id={} action=complete result={}",
+            source,
+            flight_id,
+            if result.is_ok() { "ok" } else { "error" },
+        );
+        return result;
+    }
 }
 
 async fn refresh_usage_targets_with_workers(
