@@ -2452,7 +2452,6 @@ async fn claude_messages_handler(
     if let Err(message) = apply_claude_compat_options(&mut upstream_payload) {
         return invalid_request_response(&message);
     }
-    print_claude_codex_payload_to_stdout("/v1/claude", &upstream_payload);
 
     let upstream = match send_codex_request_over_candidates(
         &context,
