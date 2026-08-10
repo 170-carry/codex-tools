@@ -555,13 +555,18 @@
     },
     "windowsTrayIconStyle": {
       "label": "托盘图标视觉样式",
-      "description": "五种样式使用与实际托盘图标相同的渲染器；图片预览按通知区域的实际尺寸显示。",
+      "description": "选择五种按剩余额度绘制的图标之一，或独立隐藏额度图标；经典文字状态的“剩余/已用”选择不会改变图标。",
       "groupAriaLabel": "托盘图标视觉样式",
       "gradientNumberPlate": "渐变数字方牌",
       "gradientNumberCard": "渐变数字横牌",
       "gradientNumber": "渐变数字",
       "numberProgressBar": "数字 + 进度条",
-      "logoProgressRing": "图标 + 进度环"
+      "logoProgressRing": "图标 + 进度环",
+      "hidden": "不显示"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "显示精确百分比",
+      "withoutPercentage": "仅显示进度环"
     },
     "windowsTaskbarWidget": {
       "label": "Windows 任务栏额度组件",

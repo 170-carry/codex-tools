@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use std::cell::RefCell;
 use tauri::AppHandle;
 #[cfg(target_os = "macos")]
 use tauri::Manager;
@@ -42,13 +44,17 @@ const TRAY_MENU_OPEN_ID: &str = "tray_open_window";
 const TRAY_MENU_QUIT_ID: &str = "tray_quit";
 
 #[cfg(target_os = "macos")]
-const TRAY_ID: &str = "codex_tools_status_bar";
-#[cfg(target_os = "macos")]
 const TRAY_MENU_REFRESH_ID: &str = "tray_refresh_usage";
 #[cfg(target_os = "macos")]
-const STATUS_BAR_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/icon.png");
+const MACOS_LEGACY_STATUS_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/icon.png");
 #[cfg(target_os = "windows")]
 const TRAY_ID: &str = "codex_tools_tray";
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    static MACOS_NATIVE_TRAY: RefCell<Option<tray_icon::TrayIcon>> = const { RefCell::new(None) };
+    static MACOS_LEGACY_TRAY: RefCell<Option<tray_icon::TrayIcon>> = const { RefCell::new(None) };
+}
 fn format_percent(value: Option<f64>) -> String {
     value
         .map(|percent| percent.clamp(0.0, 100.0).round() as i64)
@@ -110,6 +116,20 @@ fn read_macos_tray_icon_style(app: &AppHandle) -> WindowsTrayIconStyle {
         .unwrap_or_default()
 }
 
+#[cfg(target_os = "macos")]
+fn read_macos_tray_quota_icon_visible(app: &AppHandle) -> bool {
+    load_store(app)
+        .map(|store| store.settings.macos_tray_quota_icon_visible)
+        .unwrap_or(true)
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_tray_logo_ring_show_percentage(app: &AppHandle) -> bool {
+    load_store(app)
+        .map(|store| store.settings.macos_tray_logo_ring_show_percentage)
+        .unwrap_or(true)
+}
+
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone, Copy)]
 struct WindowsUsageSurfaceConfig {
@@ -159,8 +179,8 @@ fn tray_icon_percent(accounts: &[AccountSummary], mode: TrayUsageDisplayMode) ->
 }
 
 #[cfg(target_os = "macos")]
-fn macos_uses_native_tray_title(_style: WindowsTrayIconStyle) -> bool {
-    false
+fn macos_quota_icon_percent(accounts: &[AccountSummary]) -> Option<f64> {
+    tray_icon_percent(accounts, TrayUsageDisplayMode::Remaining)
 }
 
 #[cfg(target_os = "macos")]
@@ -188,6 +208,43 @@ fn render_macos_tray_icon(
         width,
         height,
     )
+}
+
+#[cfg(target_os = "macos")]
+fn native_macos_tray_icon(
+    app: &AppHandle,
+    style: WindowsTrayIconStyle,
+    percent: Option<f64>,
+) -> Result<tray_icon::Icon, String> {
+    let image = render_macos_tray_icon(app, style, percent);
+    tray_icon::Icon::from_rgba(image.rgba().to_vec(), image.width(), image.height())
+        .map_err(|error| format!("创建原生状态栏图标失败: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn native_macos_legacy_status_icon() -> Result<tray_icon::Icon, String> {
+    tray_icon::Icon::from_rgba(
+        MACOS_LEGACY_STATUS_ICON.rgba().to_vec(),
+        MACOS_LEGACY_STATUS_ICON.width(),
+        MACOS_LEGACY_STATUS_ICON.height(),
+    )
+    .map_err(|error| format!("创建经典状态栏图标失败: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_quota_icon_title(
+    style: WindowsTrayIconStyle,
+    percent: Option<f64>,
+    show_percentage: bool,
+) -> Option<String> {
+    (style == WindowsTrayIconStyle::LogoProgressRing && show_percentage)
+        .then(|| format_percent(percent))
+}
+
+#[cfg(target_os = "macos")]
+fn set_native_macos_tray_visible(tray: &tray_icon::TrayIcon, visible: bool) -> Result<(), String> {
+    tray.set_visible(visible)
+        .map_err(|error| format!("设置原生状态栏可见性失败: {error}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -483,21 +540,18 @@ fn build_macos_tray_menu(
     app: &AppHandle,
     accounts: &[AccountSummary],
     mode: TrayUsageDisplayMode,
-) -> Result<tauri::menu::Menu<tauri::Wry>, String> {
-    use tauri::menu::Menu;
-    use tauri::menu::MenuItem;
-    use tauri::menu::PredefinedMenuItem;
+) -> Result<tray_icon::menu::Menu, String> {
+    use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
 
     let locale = i18n::app_locale(app);
-    let menu = Menu::new(app).map_err(|e| format!("创建状态栏菜单失败: {e}"))?;
+    let menu = Menu::new();
 
     let header_text = format!(
         "{} ({})",
         i18n::tray_usage_heading(locale),
         i18n::tray_usage_mode_label(locale, mode)
     );
-    let header = MenuItem::with_id(app, "tray_header", header_text, false, None::<&str>)
-        .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
+    let header = MenuItem::with_id("tray_header", header_text, false, None);
     menu.append(&header)
         .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
 
@@ -514,78 +568,49 @@ fn build_macos_tray_menu(
             i18n::tray_no_current(locale)
         )
     };
-    let current_item = MenuItem::with_id(
-        app,
-        "tray_current_summary",
-        current_line,
-        false,
-        None::<&str>,
-    )
-    .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
+    let current_item = MenuItem::with_id("tray_current_summary", current_line, false, None);
     menu.append(&current_item)
         .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
 
-    let separator =
-        PredefinedMenuItem::separator(app).map_err(|e| format!("创建状态栏分隔符失败: {e}"))?;
+    let separator = PredefinedMenuItem::separator();
     menu.append(&separator)
         .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
 
     if accounts.is_empty() {
         let empty = MenuItem::with_id(
-            app,
             "tray_accounts_empty",
             i18n::tray_empty_accounts(locale),
             false,
-            None::<&str>,
-        )
-        .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
+            None,
+        );
         menu.append(&empty)
             .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
     } else {
         for (index, account) in accounts.iter().enumerate() {
             let id = format!("tray_account_{index}");
             let line_item = MenuItem::with_id(
-                app,
                 id,
                 tray_account_usage_line(account, mode, locale),
                 false,
-                None::<&str>,
-            )
-            .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
+                None,
+            );
             menu.append(&line_item)
                 .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
         }
     }
 
-    let separator =
-        PredefinedMenuItem::separator(app).map_err(|e| format!("创建状态栏分隔符失败: {e}"))?;
+    let separator = PredefinedMenuItem::separator();
     menu.append(&separator)
         .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
 
     let refresh = MenuItem::with_id(
-        app,
         TRAY_MENU_REFRESH_ID,
         i18n::tray_refresh_now(locale),
         true,
-        None::<&str>,
-    )
-    .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
-    let open = MenuItem::with_id(
-        app,
-        TRAY_MENU_OPEN_ID,
-        i18n::tray_open_app(locale),
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
-    let quit = MenuItem::with_id(
-        app,
-        TRAY_MENU_QUIT_ID,
-        i18n::tray_quit(locale),
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| format!("创建状态栏菜单项失败: {e}"))?;
+        None,
+    );
+    let open = MenuItem::with_id(TRAY_MENU_OPEN_ID, i18n::tray_open_app(locale), true, None);
+    let quit = MenuItem::with_id(TRAY_MENU_QUIT_ID, i18n::tray_quit(locale), true, None);
 
     menu.append(&refresh)
         .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
@@ -598,48 +623,77 @@ fn build_macos_tray_menu(
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn update_macos_tray_snapshot(
+fn update_macos_tray_snapshot_on_main_thread(
     app: &AppHandle,
     accounts: &[AccountSummary],
 ) -> Result<(), String> {
     let (mode, show_window_labels) = read_tray_title_config(app);
     let icon_style = read_macos_tray_icon_style(app);
+    let quota_icon_visible = read_macos_tray_quota_icon_visible(app);
+    let logo_ring_show_percentage = read_macos_tray_logo_ring_show_percentage(app);
     let locale = i18n::app_locale(app);
-    let tray = app
-        .tray_by_id(TRAY_ID)
-        .ok_or_else(|| "状态栏尚未初始化".to_string())?;
+    let quota_tray = MACOS_NATIVE_TRAY
+        .with(|slot| slot.borrow().clone())
+        .ok_or_else(|| "额度图标状态栏尚未初始化".to_string())?;
+    let legacy_tray = MACOS_LEGACY_TRAY
+        .with(|slot| slot.borrow().clone())
+        .ok_or_else(|| "经典文字状态栏尚未初始化".to_string())?;
 
-    if !should_show_usage_surface(mode) {
-        tray.set_visible(false)
-            .map_err(|e| format!("隐藏状态栏失败: {e}"))?;
-        return Ok(());
-    }
+    if should_show_usage_surface(mode) {
+        let title = build_tray_usage_title(accounts, mode, show_window_labels);
+        let tooltip = build_macos_tray_tooltip(accounts, mode, locale);
+        #[cfg(debug_assertions)]
+        log_macos_status_bar_render("update", accounts, &title);
 
-    let menu = build_macos_tray_menu(app, accounts, mode)?;
-    let title = build_tray_usage_title(accounts, mode, show_window_labels);
-    #[cfg(debug_assertions)]
-    log_macos_status_bar_render("update", accounts, &title);
-    tray.set_menu(Some(menu))
-        .map_err(|e| format!("更新状态栏菜单失败: {e}"))?;
-    if macos_uses_native_tray_title(icon_style) {
-        tray.set_icon(Some(STATUS_BAR_ICON))
-            .map_err(|e| format!("更新状态栏图标失败: {e}"))?;
-        tray.set_title(Some(title))
-            .map_err(|e| format!("更新状态栏标题失败: {e}"))?;
+        legacy_tray.set_menu(Some(Box::new(build_macos_tray_menu(app, accounts, mode)?)));
+        legacy_tray.set_title(Some(title.as_str()));
+        legacy_tray
+            .set_tooltip(Some(tooltip.as_str()))
+            .map_err(|error| format!("更新经典文字状态栏提示失败: {error}"))?;
+        set_native_macos_tray_visible(&legacy_tray, true)?;
     } else {
-        let icon = render_macos_tray_icon(app, icon_style, tray_icon_percent(accounts, mode));
-        tray.set_icon(Some(icon))
-            .map_err(|e| format!("更新状态栏图标失败: {e}"))?;
-        tray.set_title(None::<&str>)
-            .map_err(|e| format!("清除状态栏原生标题失败: {e}"))?;
+        set_native_macos_tray_visible(&legacy_tray, false)?;
     }
-    tray.set_icon_as_template(false)
-        .map_err(|e| format!("设置状态栏彩色图标失败: {e}"))?;
-    tray.set_tooltip(Some(build_macos_tray_tooltip(accounts, mode, locale)))
-        .map_err(|e| format!("更新状态栏提示失败: {e}"))?;
-    tray.set_visible(true)
-        .map_err(|e| format!("显示状态栏失败: {e}"))?;
-    Ok(())
+
+    if !quota_icon_visible {
+        return set_native_macos_tray_visible(&quota_tray, false);
+    }
+
+    let quota_mode = TrayUsageDisplayMode::Remaining;
+    let percent = macos_quota_icon_percent(accounts);
+    let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
+    let quota_tooltip = build_macos_tray_tooltip(accounts, quota_mode, locale);
+    quota_tray.set_menu(Some(Box::new(build_macos_tray_menu(
+        app, accounts, quota_mode,
+    )?)));
+    let icon = native_macos_tray_icon(app, icon_style, percent)?;
+    quota_tray
+        .set_icon_with_as_template(Some(icon), false)
+        .map_err(|error| format!("更新额度状态栏图标失败: {error}"))?;
+    quota_tray.set_title(Some(quota_title.as_deref().unwrap_or("")));
+    quota_tray
+        .set_tooltip(Some(quota_tooltip.as_str()))
+        .map_err(|error| format!("更新额度状态栏提示失败: {error}"))?;
+    set_native_macos_tray_visible(&quota_tray, true)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn update_macos_tray_snapshot(
+    app: &AppHandle,
+    accounts: &[AccountSummary],
+) -> Result<(), String> {
+    let app = app.clone();
+    let update_app = app.clone();
+    let accounts = accounts.to_vec();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let result = update_macos_tray_snapshot_on_main_thread(&update_app, &accounts);
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("调度状态栏更新失败: {error}"))?;
+    receiver
+        .recv()
+        .map_err(|error| format!("接收状态栏更新结果失败: {error}"))?
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -884,11 +938,16 @@ fn start_macos_tray_refresh_loop(app: AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
-fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
-    use tauri::tray::TrayIconBuilder;
+fn create_macos_status_bar_trays(
+    app: &AppHandle,
+    log_context: &str,
+) -> Result<(tray_icon::TrayIcon, tray_icon::TrayIcon), String> {
+    use tray_icon::TrayIconBuilder;
 
     let (mode, show_window_labels) = read_tray_title_config(app);
     let icon_style = read_macos_tray_icon_style(app);
+    let quota_icon_visible = read_macos_tray_quota_icon_visible(app);
+    let logo_ring_show_percentage = read_macos_tray_logo_ring_show_percentage(app);
     let locale = i18n::app_locale(app);
     let store = load_store(app)?;
     let current_account_key = current_auth_account_key();
@@ -910,36 +969,68 @@ fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
     );
     #[cfg(debug_assertions)]
     log_macos_status_bar_resolution(
-        "setup",
+        log_context,
         &store,
         &summaries,
         current_account_key.as_deref(),
         current_variant_key.as_deref(),
     );
-    let menu = build_macos_tray_menu(app, &summaries, mode)?;
     let title = build_tray_usage_title(&summaries, mode, show_window_labels);
+    let tooltip = build_macos_tray_tooltip(&summaries, mode, locale);
     #[cfg(debug_assertions)]
-    log_macos_status_bar_render("setup", &summaries, &title);
+    log_macos_status_bar_render(log_context, &summaries, &title);
 
-    let initial_icon = if macos_uses_native_tray_title(icon_style) {
-        STATUS_BAR_ICON
-    } else {
-        render_macos_tray_icon(app, icon_style, tray_icon_percent(&summaries, mode))
-    };
-    let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID)
-        .menu(&menu)
-        .icon(initial_icon)
-        .icon_as_template(false)
-        .tooltip(build_macos_tray_tooltip(&summaries, mode, locale))
-        .show_menu_on_left_click(true);
-    if macos_uses_native_tray_title(icon_style) {
-        tray_builder = tray_builder.title(title);
-    }
-    let tray = tray_builder
-        .build(app)
-        .map_err(|e| format!("创建 macOS 状态栏失败: {e}"))?;
-    tray.set_visible(should_show_usage_surface(mode))
-        .map_err(|e| format!("设置状态栏可见性失败: {e}"))?;
+    let quota_mode = TrayUsageDisplayMode::Remaining;
+    let percent = macos_quota_icon_percent(&summaries);
+    let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
+    let quota_tooltip = build_macos_tray_tooltip(&summaries, quota_mode, locale);
+    let quota_icon = native_macos_tray_icon(app, icon_style, percent)?;
+    let quota_tray = TrayIconBuilder::new()
+        .with_id("codex_tools_native_status_bar")
+        .with_menu(Box::new(build_macos_tray_menu(
+            app, &summaries, quota_mode,
+        )?))
+        .with_icon(quota_icon)
+        .with_icon_as_template(false)
+        .with_title(quota_title.unwrap_or_default())
+        .with_tooltip(quota_tooltip)
+        .with_menu_on_left_click(true)
+        .build()
+        .map_err(|error| format!("创建额度 macOS 状态栏失败: {error}"))?;
+    set_native_macos_tray_visible(&quota_tray, quota_icon_visible)?;
+
+    let legacy_tray = TrayIconBuilder::new()
+        .with_id("codex_tools_legacy_status_bar")
+        .with_menu(Box::new(build_macos_tray_menu(app, &summaries, mode)?))
+        .with_icon(native_macos_legacy_status_icon()?)
+        .with_icon_as_template(false)
+        .with_title(title)
+        .with_tooltip(tooltip)
+        .with_menu_on_left_click(true)
+        .build()
+        .map_err(|error| format!("创建经典文字 macOS 状态栏失败: {error}"))?;
+    set_native_macos_tray_visible(&legacy_tray, should_show_usage_surface(mode))?;
+
+    Ok((quota_tray, legacy_tray))
+}
+
+#[cfg(target_os = "macos")]
+fn replace_macos_status_bar_trays(app: &AppHandle, log_context: &str) -> Result<(), String> {
+    let (quota_tray, legacy_tray) = create_macos_status_bar_trays(app, log_context)?;
+    MACOS_NATIVE_TRAY.with(|slot| {
+        let previous = slot.replace(Some(quota_tray));
+        drop(previous);
+    });
+    MACOS_LEGACY_TRAY.with(|slot| {
+        let previous = slot.replace(Some(legacy_tray));
+        drop(previous);
+    });
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
+    replace_macos_status_bar_trays(app, "setup")?;
 
     start_macos_tray_refresh_loop(app.clone());
     Ok(())
@@ -1099,6 +1190,10 @@ mod tests {
     use super::build_tray_usage_title;
     #[cfg(target_os = "windows")]
     use super::build_windows_widget_snapshot;
+    #[cfg(target_os = "macos")]
+    use super::macos_quota_icon_percent;
+    #[cfg(target_os = "macos")]
+    use super::macos_quota_icon_title;
     use super::should_show_usage_surface;
     #[cfg(target_os = "macos")]
     use super::tray_account_usage_line;
@@ -1111,6 +1206,8 @@ mod tests {
     use crate::models::UsageWindow;
     #[cfg(target_os = "windows")]
     use crate::models::WindowsTaskbarWidgetPlacement;
+    #[cfg(target_os = "macos")]
+    use crate::models::WindowsTrayIconStyle;
 
     fn current_account_with_usage() -> AccountSummary {
         AccountSummary {
@@ -1226,6 +1323,36 @@ mod tests {
         assert!(should_show_usage_surface(
             TrayUsageDisplayMode::OneWeekRemaining
         ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_logo_progress_ring_adds_a_compact_percentage_title() {
+        assert_eq!(
+            macos_quota_icon_title(WindowsTrayIconStyle::LogoProgressRing, Some(88.4), true),
+            Some("88%".to_string())
+        );
+        assert_eq!(
+            macos_quota_icon_title(WindowsTrayIconStyle::GradientNumberPlate, Some(88.4), true,),
+            None
+        );
+        assert_eq!(
+            macos_quota_icon_title(WindowsTrayIconStyle::LogoProgressRing, None, true),
+            Some("--".to_string())
+        );
+        assert_eq!(
+            macos_quota_icon_title(WindowsTrayIconStyle::LogoProgressRing, Some(88.4), false),
+            None
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_quota_icon_always_uses_the_most_constrained_remaining_window() {
+        assert_eq!(
+            macos_quota_icon_percent(&[current_account_with_usage()]),
+            Some(40.0)
+        );
     }
 
     #[cfg(target_os = "windows")]

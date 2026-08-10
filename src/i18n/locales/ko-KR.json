@@ -555,13 +555,18 @@
     },
     "windowsTrayIconStyle": {
       "label": "트레이 아이콘 표시",
-      "description": "다섯 스타일은 실제 트레이 아이콘과 같은 렌더러를 사용하며 이미지 미리보기도 알림 영역의 실제 크기로 표시됩니다.",
+      "description": "남은 할당량을 기준으로 그리는 5가지 아이콘 중 하나를 선택하거나 아이콘만 독립적으로 숨깁니다. 기존 텍스트 상태의 남음/사용됨 선택은 아이콘에 영향을 주지 않습니다.",
       "groupAriaLabel": "트레이 아이콘 표시 스타일",
       "gradientNumberPlate": "그라데이션 숫자 플레이트",
       "gradientNumberCard": "그라데이션 숫자 카드",
       "gradientNumber": "그라데이션 숫자",
       "numberProgressBar": "숫자 + 진행률 막대",
-      "logoProgressRing": "로고 + 진행률 링"
+      "logoProgressRing": "로고 + 진행률 링",
+      "hidden": "표시 안 함"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "정확한 백분율 표시",
+      "withoutPercentage": "진행률 링만 표시"
     },
     "windowsTaskbarWidget": {
       "label": "Windows 작업 표시줄 할당량 구성 요소",

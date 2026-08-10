@@ -55,6 +55,12 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.windows_tray_icon_style {
             store.settings.windows_tray_icon_style = value;
         }
+        if let Some(value) = patch.macos_tray_quota_icon_visible {
+            store.settings.macos_tray_quota_icon_visible = value;
+        }
+        if let Some(value) = patch.macos_tray_logo_ring_show_percentage {
+            store.settings.macos_tray_logo_ring_show_percentage = value;
+        }
         if let Some(value) = patch.windows_taskbar_widget_placement {
             store.settings.windows_taskbar_widget_placement = value;
         }

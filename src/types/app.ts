@@ -452,6 +452,8 @@ export type AppSettings = {
   trayUsageDisplayMode: TrayUsageDisplayMode;
   trayUsageTitleShowWindowLabels: boolean;
   windowsTrayIconStyle: WindowsTrayIconStyle;
+  macosTrayQuotaIconVisible: boolean;
+  macosTrayLogoRingShowPercentage: boolean;
   windowsTaskbarWidgetPlacement: WindowsTaskbarWidgetPlacement;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;

@@ -555,13 +555,18 @@
     },
     "windowsTrayIconStyle": {
       "label": "トレイアイコンの表示",
-      "description": "5 つのスタイルは実際のトレイアイコンと同じレンダラーを使用し、画像プレビューも通知領域の実サイズで表示されます。",
+      "description": "残り使用量に基づく 5 つのアイコンから選ぶか、アイコンだけを個別に非表示にします。従来のテキスト表示の「残り/使用済み」はアイコンに影響しません。",
       "groupAriaLabel": "トレイアイコンの表示スタイル",
       "gradientNumberPlate": "グラデーション数字プレート",
       "gradientNumberCard": "グラデーション数字カード",
       "gradientNumber": "グラデーション数字",
       "numberProgressBar": "数字 + 進捗バー",
-      "logoProgressRing": "ロゴ + 進捗リング"
+      "logoProgressRing": "ロゴ + 進捗リング",
+      "hidden": "表示しない"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "正確なパーセントを表示",
+      "withoutPercentage": "進捗リングのみ"
     },
     "windowsTaskbarWidget": {
       "label": "Windows タスクバー使用量コンポーネント",

@@ -76,13 +76,18 @@ export function SettingsPanel({
   const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
   const isMacos = typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
   const trayPreviewScale = typeof window !== "undefined" ? Math.max(1, window.devicePixelRatio || 1) : 1;
-  const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle; label: string }> = [
+  const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle | "hidden"; label: string }> = [
     { value: "gradientNumberPlate", label: copy.settings.windowsTrayIconStyle.gradientNumberPlate },
     { value: "gradientNumberCard", label: copy.settings.windowsTrayIconStyle.gradientNumberCard },
     { value: "gradientNumber", label: copy.settings.windowsTrayIconStyle.gradientNumber },
     { value: "numberProgressBar", label: copy.settings.windowsTrayIconStyle.numberProgressBar },
     { value: "logoProgressRing", label: copy.settings.windowsTrayIconStyle.logoProgressRing },
   ];
+  if (isMacos) {
+    trayIconStyleOptions.push({ value: "hidden", label: copy.settings.windowsTrayIconStyle.hidden });
+  }
+  const selectedTrayIconStyle =
+    isMacos && !settings.macosTrayQuotaIconVisible ? "hidden" : settings.windowsTrayIconStyle;
 
   useEffect(() => {
     let cancelled = false;
@@ -256,44 +261,124 @@ export function SettingsPanel({
               <div className="settingMeta">
                 <strong>{copy.settings.windowsTrayIconStyle.label}</strong>
               </div>
-              <div
-                className="modeGroup trayUsageModeGroup trayIconStyleGroup"
-                role="radiogroup"
-                aria-label={copy.settings.windowsTrayIconStyle.groupAriaLabel}
-              >
-                {trayIconStyleOptions.map((option) => {
-                  const preview = trayVisualPreviews.find((item) => item.style === option.value);
-                  return (
-                    <button
-                      key={option.value}
-                      className={`trayIconStyleOption ${
-                        settings.windowsTrayIconStyle === option.value ? "primary" : "ghost"
-                      }`}
-                      disabled={savingSettings}
-                      onClick={() => onUpdateSettings({ windowsTrayIconStyle: option.value })}
-                      aria-label={option.label}
-                      aria-pressed={settings.windowsTrayIconStyle === option.value}
-                      title={option.label}
-                    >
-                      <span className="trayIconPreviewFrame" aria-hidden="true">
-                        {preview ? (
-                          <img
-                            src={preview.dataUrl}
-                            alt=""
-                            draggable={false}
-                            style={{
-                              width: `${preview.pixelWidth / trayPreviewScale}px`,
-                              height: `${preview.pixelHeight / trayPreviewScale}px`,
-                            }}
-                          />
-                        ) : (
-                          <span className="trayIconPreviewPlaceholder" />
-                        )}
-                      </span>
-                      <span className="trayIconStyleLabel">{option.label}</span>
-                    </button>
-                  );
-                })}
+              <div className="trayIconStyleControls">
+                <div
+                  className="modeGroup trayUsageModeGroup trayIconStyleGroup"
+                  role="radiogroup"
+                  aria-label={copy.settings.windowsTrayIconStyle.groupAriaLabel}
+                >
+                  {trayIconStyleOptions.map((option) => {
+                    const isHiddenOption = option.value === "hidden";
+                    const preview = isHiddenOption
+                      ? undefined
+                      : trayVisualPreviews.find((item) => item.style === option.value);
+                    if (isMacos && option.value === "logoProgressRing") {
+                      const styleSelected = selectedTrayIconStyle === option.value;
+                      return (
+                        <div
+                          key={option.value}
+                          className={`trayIconStyleOption trayIconStyleCompound ${
+                            styleSelected ? "isSelected" : ""
+                          }`}
+                          role="group"
+                          aria-label={option.label}
+                        >
+                          <span className="trayLogoRingVariantPreviews">
+                            {[false, true].map((showPercentage) => {
+                              const variantLabel = showPercentage
+                                ? copy.settings.macosTrayLogoRingVariants.withPercentage
+                                : copy.settings.macosTrayLogoRingVariants.withoutPercentage;
+                              const variantSelected =
+                                styleSelected &&
+                                settings.macosTrayLogoRingShowPercentage === showPercentage;
+                              return (
+                                <button
+                                  key={String(showPercentage)}
+                                  type="button"
+                                  className={`trayLogoRingVariant ${
+                                    variantSelected ? "isSelected" : ""
+                                  }`}
+                                  disabled={savingSettings}
+                                  onClick={() =>
+                                    onUpdateSettings({
+                                      windowsTrayIconStyle: "logoProgressRing",
+                                      macosTrayQuotaIconVisible: true,
+                                      macosTrayLogoRingShowPercentage: showPercentage,
+                                    })
+                                  }
+                                  aria-label={`${option.label}：${variantLabel}`}
+                                  aria-pressed={variantSelected}
+                                  title={variantLabel}
+                                >
+                                  <span className="trayLogoRingVariantArtwork" aria-hidden="true">
+                                    {preview ? (
+                                      <img
+                                        src={preview.dataUrl}
+                                        alt=""
+                                        draggable={false}
+                                        style={{
+                                          width: `${preview.pixelWidth / trayPreviewScale}px`,
+                                          height: `${preview.pixelHeight / trayPreviewScale}px`,
+                                        }}
+                                      />
+                                    ) : (
+                                      <span className="trayIconPreviewPlaceholder" />
+                                    )}
+                                    {showPercentage ? (
+                                      <span className="trayLogoRingVariantNumber">97%</span>
+                                    ) : null}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </span>
+                          <span className="trayIconStyleLabel">{option.label}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        key={option.value}
+                        className={`trayIconStyleOption ${
+                          selectedTrayIconStyle === option.value ? "primary" : "ghost"
+                        }`}
+                        disabled={savingSettings}
+                        onClick={() => {
+                          if (option.value === "hidden") {
+                            onUpdateSettings({ macosTrayQuotaIconVisible: false });
+                            return;
+                          }
+                          onUpdateSettings({
+                            windowsTrayIconStyle: option.value,
+                            ...(isMacos ? { macosTrayQuotaIconVisible: true } : {}),
+                          });
+                        }}
+                        aria-label={option.label}
+                        aria-pressed={selectedTrayIconStyle === option.value}
+                        title={option.label}
+                      >
+                        <span className="trayIconPreviewFrame" aria-hidden="true">
+                          {isHiddenOption ? (
+                            <span className="trayIconHiddenPreview" />
+                          ) : preview ? (
+                            <img
+                              src={preview.dataUrl}
+                              alt=""
+                              draggable={false}
+                              style={{
+                                width: `${preview.pixelWidth / trayPreviewScale}px`,
+                                height: `${preview.pixelHeight / trayPreviewScale}px`,
+                              }}
+                            />
+                          ) : (
+                            <span className="trayIconPreviewPlaceholder" />
+                          )}
+                        </span>
+                        <span className="trayIconStyleLabel">{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           ) : null}

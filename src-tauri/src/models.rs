@@ -611,6 +611,14 @@ pub(crate) enum WindowsTaskbarWidgetPlacement {
     Hidden,
 }
 
+fn default_macos_tray_quota_icon_visible() -> bool {
+    true
+}
+
+fn default_macos_tray_logo_ring_show_percentage() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum EditorAppId {
@@ -654,6 +662,10 @@ pub(crate) struct AppSettings {
     pub(crate) tray_usage_title_show_window_labels: bool,
     #[serde(default)]
     pub(crate) windows_tray_icon_style: WindowsTrayIconStyle,
+    #[serde(default = "default_macos_tray_quota_icon_visible")]
+    pub(crate) macos_tray_quota_icon_visible: bool,
+    #[serde(default = "default_macos_tray_logo_ring_show_percentage")]
+    pub(crate) macos_tray_logo_ring_show_percentage: bool,
     #[serde(default)]
     pub(crate) windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement,
     pub(crate) launch_codex_after_switch: bool,
@@ -694,6 +706,8 @@ impl Default for AppSettings {
             tray_usage_display_mode: TrayUsageDisplayMode::OneWeekRemaining,
             tray_usage_title_show_window_labels: false,
             windows_tray_icon_style: WindowsTrayIconStyle::GradientNumberPlate,
+            macos_tray_quota_icon_visible: true,
+            macos_tray_logo_ring_show_percentage: true,
             windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement::Embedded,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
@@ -727,6 +741,8 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) tray_usage_title_show_window_labels: Option<bool>,
     pub(crate) windows_tray_icon_style: Option<WindowsTrayIconStyle>,
+    pub(crate) macos_tray_quota_icon_visible: Option<bool>,
+    pub(crate) macos_tray_logo_ring_show_percentage: Option<bool>,
     pub(crate) windows_taskbar_widget_placement: Option<WindowsTaskbarWidgetPlacement>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
@@ -1014,6 +1030,8 @@ mod tests {
             AppSettings::default().windows_tray_icon_style,
             WindowsTrayIconStyle::GradientNumberPlate
         );
+        assert!(AppSettings::default().macos_tray_quota_icon_visible);
+        assert!(AppSettings::default().macos_tray_logo_ring_show_percentage);
         assert_eq!(
             AppSettings::default().windows_taskbar_widget_placement,
             WindowsTaskbarWidgetPlacement::Embedded
@@ -1029,6 +1047,8 @@ mod tests {
             missing_mode.windows_tray_icon_style,
             WindowsTrayIconStyle::GradientNumberPlate
         );
+        assert!(missing_mode.macos_tray_quota_icon_visible);
+        assert!(missing_mode.macos_tray_logo_ring_show_percentage);
         assert_eq!(
             missing_mode.windows_taskbar_widget_placement,
             WindowsTaskbarWidgetPlacement::Embedded
@@ -1051,6 +1071,8 @@ mod tests {
             "trayUsageDisplayMode": "oneWeekRemaining",
             "trayUsageTitleShowWindowLabels": true,
             "windowsTrayIconStyle": "codexToolsBadge",
+            "macosTrayQuotaIconVisible": false,
+            "macosTrayLogoRingShowPercentage": false,
             "windowsTaskbarWidgetPlacement": "floating"
         }))
         .unwrap();
@@ -1063,6 +1085,8 @@ mod tests {
             patch.windows_tray_icon_style,
             Some(WindowsTrayIconStyle::GradientNumberPlate)
         );
+        assert_eq!(patch.macos_tray_quota_icon_visible, Some(false));
+        assert_eq!(patch.macos_tray_logo_ring_show_percentage, Some(false));
         assert_eq!(
             patch.windows_taskbar_widget_placement,
             Some(WindowsTaskbarWidgetPlacement::Floating)

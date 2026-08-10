@@ -581,6 +581,11 @@ export type MessageCatalog = {
       gradientNumber: string;
       numberProgressBar: string;
       logoProgressRing: string;
+      hidden: string;
+    };
+    macosTrayLogoRingVariants: {
+      withPercentage: string;
+      withoutPercentage: string;
     };
     windowsTaskbarWidget: {
       label: string;

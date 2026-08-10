@@ -72,6 +72,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   trayUsageDisplayMode: "oneWeekRemaining",
   trayUsageTitleShowWindowLabels: false,
   windowsTrayIconStyle: "gradientNumberPlate",
+  macosTrayQuotaIconVisible: true,
+  macosTrayLogoRingShowPercentage: true,
   windowsTaskbarWidgetPlacement: "embedded",
   launchCodexAfterSwitch: true,
   smartSwitchIncludeApi: false,

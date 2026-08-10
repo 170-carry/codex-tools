@@ -555,13 +555,18 @@
     },
     "windowsTrayIconStyle": {
       "label": "Tray icon visual",
-      "description": "All five styles use the same renderer as the live tray icon; image previews display at the notification area's actual size.",
+      "description": "Choose one of five icons based on remaining quota, or hide it independently. The classic text status's Remaining/Used choice does not alter the icon.",
       "groupAriaLabel": "Tray icon visual style",
       "gradientNumberPlate": "Gradient number plate",
       "gradientNumberCard": "Gradient number card",
       "gradientNumber": "Gradient digits",
       "numberProgressBar": "Number + progress bar",
-      "logoProgressRing": "Logo + progress ring"
+      "logoProgressRing": "Logo + progress ring",
+      "hidden": "Hide icon"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "Show exact percentage",
+      "withoutPercentage": "Progress ring only"
     },
     "windowsTaskbarWidget": {
       "label": "Windows taskbar quota component",
