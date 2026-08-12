@@ -2,45 +2,52 @@ use std::ffi::c_void;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 use windows::core::{w, BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    COLORREF, ERROR_CLASS_ALREADY_EXISTS, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, POINT,
-    RECT, SIZE, WPARAM,
+    COLORREF, ERROR_CLASS_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HINSTANCE, HWND,
+    LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateRoundRectRgn, DeleteDC,
     DeleteObject, DrawTextW, EndPaint, GetMonitorInfoW, GetTextExtentPoint32W, InvalidateRect,
-    MonitorFromPoint, MonitorFromWindow, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
-    AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
-    CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS,
+    MonitorFromPoint, MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode, SetTextColor,
+    SetWindowRgn, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS,
     DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HGDIOBJ, MONITORINFO,
     MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
 };
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, TreeScope_Descendants};
 use windows::Win32::UI::Controls::{
     TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW, TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP,
     TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::{
-    SHAppBarMessage, ABE_BOTTOM, ABE_LEFT, ABE_RIGHT, ABE_TOP, ABM_GETAUTOHIDEBAREX, APPBARDATA,
+    SHAppBarMessage, SHQueryUserNotificationState, ABE_BOTTOM, ABE_LEFT, ABE_RIGHT, ABE_TOP,
+    ABM_GETAUTOHIDEBAREX, APPBARDATA, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+    QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW,
-    GetClassNameW, GetClientRect, GetCursorPos, GetMessageW, GetWindowLongPtrW, GetWindowRect,
-    LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW,
-    SendMessageW, SetCursor, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    TranslateMessage, UpdateLayeredWindow, WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT,
-    GWLP_USERDATA, HTCLIENT, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA,
-    WINDOW_STYLE, WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONUP, WM_NCCREATE,
-    WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_THEMECHANGED,
-    WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP,
+    GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW,
+    GetWindowLongPtrW, GetWindowRect, IsIconic, LoadCursorW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, SendMessageW, SetCursor, SetParent, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
+    WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT, GWLP_USERDATA, GWL_EXSTYLE, GWL_STYLE,
+    HTCLIENT, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE,
+    WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY,
+    WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW,
+    WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_MAXIMIZE, WS_POPUP,
 };
 
 use crate::models::WindowsTaskbarWidgetPlacement;
@@ -50,6 +57,7 @@ const WINDOW_CLASS_NAME: PCWSTR = w!("CodexToolsTaskbarQuotaWidget");
 const UPDATE_MESSAGE: u32 = WM_APP + 0x41;
 const LAYOUT_TIMER_ID: usize = 1;
 const LAYOUT_TIMER_MS: u32 = 1_000;
+const WIDGETS_SCAN_INTERVAL: Duration = Duration::from_secs(30);
 const BASE_SINGLE_LINE_HEIGHT: i32 = 22;
 const BASE_STACKED_HEIGHT: i32 = 34;
 const BASE_PADDING: i32 = 6;
@@ -95,7 +103,11 @@ struct WindowContext {
     tooltip_text: Vec<u16>,
     light_theme: bool,
     last_layout_log: String,
-    taskbar_owner: Option<HWND>,
+    taskbar_parent: Option<HWND>,
+    automation: Option<IUIAutomation>,
+    cached_widgets_button_rect: Option<RECT>,
+    cached_widgets_enabled: Option<bool>,
+    last_widgets_scan: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -111,6 +123,8 @@ struct TaskbarPlacement {
     rect: RECT,
     tray_rect: Option<RECT>,
     task_list_rect: Option<RECT>,
+    widgets_enabled: Option<bool>,
+    widgets_button_rect: Option<RECT>,
     monitor: MONITORINFO,
     edge: TaskbarEdge,
     auto_hide: bool,
@@ -145,6 +159,12 @@ pub(crate) fn setup(
     std::thread::Builder::new()
         .name("codex-taskbar-quota-widget".to_string())
         .spawn(move || {
+            let com_result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            if com_result.is_err() {
+                log::warn!(
+                    "Windows quota widget UI Automation initialization failed: {com_result:?}"
+                );
+            }
             let anchor_hwnd = HWND(anchor_hwnd_raw as *mut c_void);
             let mut ready_tx = Some(ready_tx);
             loop {
@@ -235,6 +255,13 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
             .get()
             .and_then(|runtime| runtime.snapshot.lock().ok().map(|value| value.clone()))
             .ok_or_else(|| "Windows quota widget runtime is unavailable".to_string())?;
+        let automation = match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
+            Ok(automation) => Some(automation),
+            Err(error) => {
+                log::warn!("Windows quota widget UI Automation unavailable: {error}");
+                None
+            }
+        };
         let initial_height = base_height_for_text(&snapshot.text);
         let context = Box::new(WindowContext {
             app,
@@ -244,12 +271,16 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
             tooltip_text: Vec::new(),
             light_theme: system_uses_light_theme(),
             last_layout_log: String::new(),
-            taskbar_owner: None,
+            taskbar_parent: None,
+            automation,
+            cached_widgets_button_rect: None,
+            cached_widgets_enabled: None,
+            last_widgets_scan: None,
         });
         let context_ptr = Box::into_raw(context);
 
         let hwnd = match CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
             WINDOW_CLASS_NAME,
             w!("Codex Tools quota"),
             WS_POPUP,
@@ -281,10 +312,19 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
     }
 }
 
-fn run_message_loop(_hwnd: HWND) {
+fn run_message_loop(hwnd: HWND) {
     unsafe {
         let mut message = MSG::default();
-        while GetMessageW(&mut message, None, 0, 0).as_bool() {
+        loop {
+            let result = GetMessageW(&mut message, None, 0, 0).0;
+            if result == 0 {
+                break;
+            }
+            if result == -1 {
+                log::warn!("Windows quota widget message loop failed");
+                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd);
+                break;
+            }
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
@@ -300,6 +340,11 @@ unsafe extern "system" fn window_proc(
     let taskbar_created = TASKBAR_CREATED_MESSAGE.load(Ordering::Acquire);
     if taskbar_created != 0 && message == taskbar_created {
         log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-created");
+        if let Some(context) = context_mut(hwnd) {
+            context.cached_widgets_button_rect = None;
+            context.cached_widgets_enabled = None;
+            context.last_widgets_scan = None;
+        }
         apply_snapshot_and_layout(hwnd);
         return LRESULT(0);
     }
@@ -332,7 +377,17 @@ unsafe extern "system" fn window_proc(
             position_widget(hwnd);
             LRESULT(0)
         }
-        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DISPLAYCHANGE | WM_DPICHANGED => {
+        WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => {
+            if let Some(context) = context_mut(hwnd) {
+                context.light_theme = system_uses_light_theme();
+                context.cached_widgets_button_rect = None;
+                context.cached_widgets_enabled = None;
+                context.last_widgets_scan = None;
+            }
+            apply_snapshot_and_layout(hwnd);
+            LRESULT(0)
+        }
+        WM_THEMECHANGED => {
             if let Some(context) = context_mut(hwnd) {
                 context.light_theme = system_uses_light_theme();
             }
@@ -519,11 +574,8 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
 
     let previous_bitmap = SelectObject(memory_dc, HGDIOBJ(bitmap.0));
     let byte_len = (width as usize) * (height as usize) * 4;
-    let background = taskbar_background(context.light_theme);
     let pixels = std::slice::from_raw_parts_mut(bits.cast::<u8>(), byte_len);
-    for pixel in pixels.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&[background[2], background[1], background[0], 255]);
-    }
+    pixels.fill(0);
     let dpi = GetDpiForWindow(hwnd).max(96);
     let font = CreateFontW(
         -scale(11, dpi),
@@ -537,18 +589,17 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
         DEFAULT_CHARSET,
         OUT_TT_PRECIS,
         CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
+        ANTIALIASED_QUALITY,
         u32::from(DEFAULT_PITCH.0 | FF_DONTCARE.0),
         w!("Segoe UI"),
     );
     let previous_font = SelectObject(memory_dc, HGDIOBJ(font.0));
     SetBkMode(memory_dc, TRANSPARENT);
     let foreground = widget_foreground(context.light_theme, context.snapshot.status);
-    SetTextColor(memory_dc, color_ref(foreground));
+    SetTextColor(memory_dc, color_ref([255, 255, 255]));
     let padding = scale(BASE_PADDING, dpi);
     let icon_size = scale(BASE_ICON_SIZE, dpi);
     let icon_gap = scale(BASE_ICON_GAP, dpi);
-    draw_taskbar_icon(pixels, width, height, padding, icon_size, background);
     let text_left = padding + icon_size + icon_gap;
     let lines = widget_text_lines(&context.snapshot.text);
     for (index, line) in lines.iter().enumerate() {
@@ -577,15 +628,8 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
         );
     }
 
-    for pixel in pixels.chunks_exact_mut(4) {
-        if pixel[0] == background[2] && pixel[1] == background[1] && pixel[2] == background[0] {
-            pixel.fill(0);
-        } else {
-            // Keep ClearType's per-channel coverage intact. The edge pixels
-            // are already composited against the matching taskbar color.
-            pixel[3] = 255;
-        }
-    }
+    colorize_text_mask(pixels, foreground);
+    draw_taskbar_icon(pixels, width, height, padding, icon_size);
 
     let size = SIZE {
         cx: width,
@@ -630,14 +674,7 @@ fn widget_foreground(light_theme: bool, status: WindowsWidgetStatus) -> [u8; 3] 
     }
 }
 
-fn draw_taskbar_icon(
-    pixels: &mut [u8],
-    width: i32,
-    height: i32,
-    left: i32,
-    icon_size: i32,
-    background: [u8; 3],
-) {
+fn draw_taskbar_icon(pixels: &mut [u8], width: i32, height: i32, left: i32, icon_size: i32) {
     if width <= 0 || height <= 0 || icon_size <= 0 {
         return;
     }
@@ -655,26 +692,38 @@ fn draw_taskbar_icon(
             }
             let source_index = ((icon_y * icon_size + icon_x) * 4) as usize;
             let target_index = ((target_y * width + target_x) * 4) as usize;
-            let alpha = icon[source_index + 3] as u16;
-            if alpha == 0 {
+            let source_alpha = icon[source_index + 3] as u16;
+            if source_alpha == 0 {
                 continue;
             }
+            let inverse_alpha = 255 - source_alpha;
             for channel in 0..3 {
                 let source = icon[source_index + channel] as u16;
-                let backdrop = background[channel] as u16;
-                let blended = (source * alpha + backdrop * (255 - alpha) + 127) / 255;
+                let target_channel = target_index + (2 - channel);
+                let destination = pixels[target_channel] as u16;
+                let blended = (source * source_alpha + destination * inverse_alpha + 127) / 255;
                 // The layered DIB is BGRA while the icon and theme colors are RGBA/RGB.
-                pixels[target_index + (2 - channel)] = blended as u8;
+                pixels[target_channel] = blended as u8;
             }
+            let destination_alpha = pixels[target_index + 3] as u16;
+            pixels[target_index + 3] =
+                (source_alpha + (destination_alpha * inverse_alpha + 127) / 255) as u8;
         }
     }
 }
 
-fn taskbar_background(light_theme: bool) -> [u8; 3] {
-    if light_theme {
-        [243, 243, 243]
-    } else {
-        [28, 28, 28]
+fn colorize_text_mask(pixels: &mut [u8], foreground: [u8; 3]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let coverage = pixel[0].max(pixel[1]).max(pixel[2]);
+        if coverage == 0 {
+            pixel.fill(0);
+            continue;
+        }
+        let alpha = coverage as u16;
+        pixel[0] = ((foreground[2] as u16 * alpha + 127) / 255) as u8;
+        pixel[1] = ((foreground[1] as u16 * alpha + 127) / 255) as u8;
+        pixel[2] = ((foreground[0] as u16 * alpha + 127) / 255) as u8;
+        pixel[3] = coverage;
     }
 }
 
@@ -704,13 +753,20 @@ unsafe fn position_widget(hwnd: HWND) {
     if !context.snapshot.visible
         || context.snapshot.placement == WindowsTaskbarWidgetPlacement::Hidden
     {
-        clear_taskbar_owner(hwnd, context);
+        detach_from_taskbar(hwnd, context);
         log_layout_change(context, "visible=false reason=setting-hidden".to_string());
         let _ = ShowWindow(hwnd, SW_HIDE);
         return;
     }
 
-    let Some(taskbar) = locate_taskbar(context.anchor_hwnd) else {
+    let scan_widgets = context.last_widgets_scan.map_or(true, |last_scan| {
+        last_scan.elapsed() >= WIDGETS_SCAN_INTERVAL
+    });
+    let automation = scan_widgets
+        .then_some(context.automation.as_ref())
+        .flatten();
+    let Some(mut taskbar) = locate_taskbar(context.anchor_hwnd, automation, scan_widgets) else {
+        detach_from_taskbar(hwnd, context);
         log_layout_change(
             context,
             "visible=false reason=taskbar-unavailable".to_string(),
@@ -718,6 +774,20 @@ unsafe fn position_widget(hwnd: HWND) {
         let _ = ShowWindow(hwnd, SW_HIDE);
         return;
     };
+    if scan_widgets {
+        context.last_widgets_scan = Some(Instant::now());
+        context.cached_widgets_enabled = taskbar.widgets_enabled;
+    } else {
+        taskbar.widgets_enabled = context.cached_widgets_enabled;
+    }
+    let widgets_button_rect = resolve_widgets_button_rect(
+        taskbar.widgets_button_rect,
+        context.cached_widgets_button_rect,
+        taskbar.rect,
+        taskbar.widgets_enabled,
+    );
+    taskbar.widgets_button_rect = widgets_button_rect;
+    context.cached_widgets_button_rect = widgets_button_rect;
     if taskbar.auto_hide && !taskbar.revealed {
         log_layout_change(
             context,
@@ -748,13 +818,27 @@ unsafe fn position_widget(hwnd: HWND) {
             _ => unreachable!("filtered to taskbar-owned placements"),
         };
         if let Some((screen_x, screen_y)) = screen_position {
-            if own_by_taskbar(hwnd, context, taskbar.hwnd) {
+            if embed_in_taskbar(hwnd, context, taskbar.hwnd) {
+                let Some((client_x, client_y)) =
+                    screen_to_taskbar_client(taskbar.hwnd, screen_x, screen_y)
+                else {
+                    detach_from_taskbar(hwnd, context);
+                    log_layout_change(
+                        context,
+                        format!(
+                            "placement={} action=fallback-floating reason=taskbar-coordinate-conversion-failed",
+                            placement_name
+                        ),
+                    );
+                    position_floating_widget(hwnd, context, &taskbar, width, height, dpi);
+                    return;
+                };
                 apply_widget_region(hwnd, width, height, dpi);
                 let _ = SetWindowPos(
                     hwnd,
-                    Some(HWND_TOPMOST),
-                    screen_x,
-                    screen_y,
+                    Some(HWND_TOP),
+                    client_x,
+                    client_y,
                     width,
                     height,
                     SWP_NOACTIVATE | SWP_SHOWWINDOW,
@@ -767,7 +851,7 @@ unsafe fn position_widget(hwnd: HWND) {
                 log_layout_change(
                     context,
                     format!(
-                        "visible=true placement={} surface=taskbar-owned-overlay background=per-pixel-transparent edge={:?} dpi={} owner={:?} taskbar=({},{},{},{}) bounds=({},{},{},{}) center_hit={:?} owns_center={}",
+                        "visible=true placement={} surface=taskbar-child background=per-pixel-transparent edge={:?} dpi={} parent={:?} taskbar=({},{},{},{}) screen_bounds=({},{},{},{}) client_origin=({},{}) center_hit={:?} owns_center={}",
                         placement_name,
                         taskbar.edge,
                         dpi,
@@ -780,6 +864,8 @@ unsafe fn position_widget(hwnd: HWND) {
                         screen_y,
                         width,
                         height,
+                        client_x,
+                        client_y,
                         center_hit,
                         center_hit == hwnd,
                     ),
@@ -796,7 +882,24 @@ unsafe fn position_widget(hwnd: HWND) {
         );
     }
 
-    clear_taskbar_owner(hwnd, context);
+    if foreground_window_covers_monitor(taskbar.monitor.rcMonitor) {
+        detach_from_taskbar(hwnd, context);
+        log_layout_change(
+            context,
+            format!(
+                "visible=false reason=foreground-fullscreen-fallback edge={:?} monitor=({},{},{},{})",
+                taskbar.edge,
+                taskbar.monitor.rcMonitor.left,
+                taskbar.monitor.rcMonitor.top,
+                taskbar.monitor.rcMonitor.right,
+                taskbar.monitor.rcMonitor.bottom,
+            ),
+        );
+        let _ = ShowWindow(hwnd, SW_HIDE);
+        return;
+    }
+
+    detach_from_taskbar(hwnd, context);
     position_floating_widget(hwnd, context, &taskbar, width, height, dpi);
 }
 
@@ -915,26 +1018,59 @@ fn left_screen_position(
     if width + margin * 2 > taskbar_width || height + margin * 2 > taskbar_height {
         return None;
     }
-    Some((
-        taskbar.rect.left + margin,
-        taskbar.rect.top + (taskbar_height - height) / 2,
-    ))
+
+    let left_edge = taskbar.rect.left + margin;
+    let task_list_left = taskbar.task_list_rect.map(|rect| rect.left);
+    let right_limit = task_list_left.unwrap_or(taskbar.rect.right - margin);
+    let x = taskbar
+        .widgets_button_rect
+        .filter(|rect| rect.right > taskbar.rect.left && rect.left < right_limit)
+        .map(|rect| rect.right + margin)
+        .unwrap_or_else(|| {
+            if taskbar.widgets_enabled != Some(false)
+                && task_list_left.is_some()
+                && right_limit - left_edge >= width + margin * 2
+            {
+                right_limit - margin - width
+            } else {
+                left_edge
+            }
+        });
+    if x < left_edge || x + width + margin > right_limit {
+        return None;
+    }
+    Some((x, taskbar.rect.top + (taskbar_height - height) / 2))
 }
 
-unsafe fn own_by_taskbar(hwnd: HWND, context: &mut WindowContext, owner: HWND) -> bool {
-    let owner_raw = owner.0 as isize;
-    if context.taskbar_owner == Some(owner) && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == owner_raw
+fn taskbar_child_style(style: u32) -> u32 {
+    (style & !WS_POPUP.0) | WS_CHILD.0 | WS_CLIPSIBLINGS.0
+}
+
+fn popup_style(style: u32) -> u32 {
+    (style & !(WS_CHILD.0 | WS_CLIPSIBLINGS.0)) | WS_POPUP.0
+}
+
+unsafe fn embed_in_taskbar(hwnd: HWND, context: &mut WindowContext, parent: HWND) -> bool {
+    let parent_raw = parent.0 as isize;
+    let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+    if context.taskbar_parent == Some(parent)
+        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == parent_raw
+        && style & WS_CHILD.0 != 0
     {
         return true;
     }
 
-    SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, owner_raw);
-    let owned = GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == owner_raw;
-    if owned {
-        context.taskbar_owner = Some(owner);
+    let _ = ShowWindow(hwnd, SW_HIDE);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, taskbar_child_style(style) as isize);
+    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style & !WS_EX_TOPMOST.0) as isize);
+    if SetParent(hwnd, Some(parent)).is_ok()
+        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == parent_raw
+    {
+        context.taskbar_parent = Some(parent);
         let _ = SetWindowPos(
             hwnd,
-            Some(HWND_TOPMOST),
+            Some(HWND_TOP),
             0,
             0,
             0,
@@ -944,16 +1080,28 @@ unsafe fn own_by_taskbar(hwnd: HWND, context: &mut WindowContext, owner: HWND) -
         return true;
     }
 
-    context.taskbar_owner = None;
+    let _ = SetParent(hwnd, None);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, popup_style(style) as isize);
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOPMOST.0) as isize);
+    context.taskbar_parent = None;
     false
 }
 
-unsafe fn clear_taskbar_owner(hwnd: HWND, context: &mut WindowContext) {
-    if context.taskbar_owner.is_none() && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == 0 {
+unsafe fn detach_from_taskbar(hwnd: HWND, context: &mut WindowContext) {
+    let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+    if context.taskbar_parent.is_none()
+        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == 0
+        && style & WS_CHILD.0 == 0
+    {
         return;
     }
-    SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, 0);
-    context.taskbar_owner = None;
+
+    let _ = ShowWindow(hwnd, SW_HIDE);
+    let _ = SetParent(hwnd, None);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, popup_style(style) as isize);
+    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOPMOST.0) as isize);
+    context.taskbar_parent = None;
     let _ = SetWindowPos(
         hwnd,
         Some(HWND_TOPMOST),
@@ -963,6 +1111,58 @@ unsafe fn clear_taskbar_owner(hwnd: HWND, context: &mut WindowContext) {
         0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
     );
+}
+
+unsafe fn screen_to_taskbar_client(
+    taskbar: HWND,
+    screen_x: i32,
+    screen_y: i32,
+) -> Option<(i32, i32)> {
+    let mut point = POINT {
+        x: screen_x,
+        y: screen_y,
+    };
+    ScreenToClient(taskbar, &mut point)
+        .as_bool()
+        .then_some((point.x, point.y))
+}
+
+fn rect_covers_monitor(window: RECT, monitor: RECT, tolerance: i32) -> bool {
+    window.left <= monitor.left + tolerance
+        && window.top <= monitor.top + tolerance
+        && window.right >= monitor.right - tolerance
+        && window.bottom >= monitor.bottom - tolerance
+}
+
+fn should_hide_for_fullscreen(
+    shell_reports_fullscreen: bool,
+    foreground_style: u32,
+    foreground_rect: RECT,
+    monitor: RECT,
+) -> bool {
+    shell_reports_fullscreen
+        || (foreground_style & WS_MAXIMIZE.0 == 0
+            && rect_covers_monitor(foreground_rect, monitor, 2))
+}
+
+unsafe fn foreground_window_covers_monitor(monitor: RECT) -> bool {
+    let foreground = GetForegroundWindow();
+    if foreground.0.is_null() || IsIconic(foreground).as_bool() {
+        return false;
+    }
+    let mut rect = RECT::default();
+    if GetWindowRect(foreground, &mut rect).is_err() {
+        return false;
+    }
+    let style = GetWindowLongPtrW(foreground, GWL_STYLE) as u32;
+    let shell_reports_fullscreen = matches!(
+        SHQueryUserNotificationState(),
+        Ok(state)
+            if state == QUNS_BUSY
+                || state == QUNS_RUNNING_D3D_FULL_SCREEN
+                || state == QUNS_PRESENTATION_MODE
+    );
+    should_hide_for_fullscreen(shell_reports_fullscreen, style, rect, monitor)
 }
 
 fn log_layout_change(context: &mut WindowContext, detail: String) {
@@ -1000,7 +1200,7 @@ unsafe fn desired_size(hwnd: HWND, text: &str, dpi: u32) -> (i32, i32) {
             DEFAULT_CHARSET,
             OUT_TT_PRECIS,
             CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY,
+            ANTIALIASED_QUALITY,
             u32::from(DEFAULT_PITCH.0 | FF_DONTCARE.0),
             w!("Segoe UI"),
         );
@@ -1023,7 +1223,11 @@ unsafe fn desired_size(hwnd: HWND, text: &str, dpi: u32) -> (i32, i32) {
     )
 }
 
-unsafe fn locate_taskbar(anchor_hwnd: HWND) -> Option<TaskbarPlacement> {
+unsafe fn locate_taskbar(
+    anchor_hwnd: HWND,
+    automation: Option<&IUIAutomation>,
+    inspect_widgets: bool,
+) -> Option<TaskbarPlacement> {
     let target_monitor = if anchor_hwnd.0.is_null() {
         let mut cursor = POINT::default();
         GetCursorPos(&mut cursor)
@@ -1060,16 +1264,77 @@ unsafe fn locate_taskbar(anchor_hwnd: HWND) -> Option<TaskbarPlacement> {
     let revealed = visible_taskbar_thickness(rect, monitor.rcMonitor, edge) > 2;
     let tray_rect = child_window_rect(taskbar, w!("TrayNotifyWnd"));
     let task_list_rect = child_window_rect(taskbar, w!("ReBarWindow32"));
+    let (widgets_enabled, widgets_button_rect) = if inspect_widgets {
+        let widgets_enabled = windows_widgets_enabled().ok();
+        let widgets_button_rect = if widgets_enabled == Some(false) {
+            None
+        } else {
+            taskbar_widgets_button_rect(automation, taskbar)
+        };
+        (widgets_enabled, widgets_button_rect)
+    } else {
+        (None, None)
+    };
     Some(TaskbarPlacement {
         hwnd: taskbar,
         rect,
         tray_rect,
         task_list_rect,
+        widgets_enabled,
+        widgets_button_rect,
         monitor,
         edge,
         auto_hide,
         revealed,
     })
+}
+
+unsafe fn taskbar_widgets_button_rect(
+    automation: Option<&IUIAutomation>,
+    taskbar: HWND,
+) -> Option<RECT> {
+    let automation = automation?;
+    let taskbar_element = automation.ElementFromHandle(taskbar).ok()?;
+    let condition = automation.CreateTrueCondition().ok()?;
+    let descendants = taskbar_element
+        .FindAll(TreeScope_Descendants, &condition)
+        .ok()?;
+    let count = descendants.Length().ok()?;
+    for index in 0..count {
+        let Ok(element) = descendants.GetElement(index) else {
+            continue;
+        };
+        let Ok(automation_id) = element.CurrentAutomationId() else {
+            continue;
+        };
+        if automation_id != "WidgetsButton" {
+            continue;
+        }
+        let rect = element.CurrentBoundingRectangle().ok()?;
+        if rect.right > rect.left && rect.bottom > rect.top {
+            return Some(rect);
+        }
+    }
+    None
+}
+
+fn rect_overlaps_taskbar(rect: RECT, taskbar: RECT) -> bool {
+    rect.right > taskbar.left
+        && rect.left < taskbar.right
+        && rect.bottom > taskbar.top
+        && rect.top < taskbar.bottom
+}
+
+fn resolve_widgets_button_rect(
+    detected: Option<RECT>,
+    cached: Option<RECT>,
+    taskbar: RECT,
+    widgets_enabled: Option<bool>,
+) -> Option<RECT> {
+    if widgets_enabled == Some(false) {
+        return None;
+    }
+    detected.or_else(|| cached.filter(|rect| rect_overlaps_taskbar(*rect, taskbar)))
 }
 
 unsafe fn child_window_rect(parent: HWND, class_name: PCWSTR) -> Option<RECT> {
@@ -1163,6 +1428,31 @@ pub(crate) fn system_uses_light_theme() -> bool {
     }
 }
 
+pub(crate) fn windows_widgets_enabled() -> Result<bool, String> {
+    unsafe {
+        let mut value = 1_u32;
+        let mut size = size_of::<u32>() as u32;
+        let status = RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"),
+            w!("TaskbarDa"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut value as *mut u32).cast()),
+            Some(&mut size),
+        );
+        if status == ERROR_SUCCESS {
+            return Ok(value != 0);
+        }
+        if status == ERROR_FILE_NOT_FOUND {
+            return Ok(true);
+        }
+        Err(format!(
+            "Failed to read the Windows Widgets taskbar setting: {status:?}"
+        ))
+    }
+}
+
 fn scale(value: i32, dpi: u32) -> i32 {
     ((value as i64 * dpi as i64 + 48) / 96) as i32
 }
@@ -1174,13 +1464,79 @@ fn to_wide(value: &str) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::{
-        base_height_for_text, embedded_screen_position, left_screen_position, scale,
-        taskbar_background, taskbar_edge, visible_taskbar_thickness, widget_foreground,
-        widget_text_lines, TaskbarEdge, TaskbarPlacement, WindowsWidgetStatus, BASE_ICON_GAP,
-        BASE_ICON_SIZE, BASE_PADDING,
+        base_height_for_text, colorize_text_mask, embedded_screen_position, left_screen_position,
+        popup_style, rect_covers_monitor, resolve_widgets_button_rect, scale,
+        should_hide_for_fullscreen, taskbar_child_style, taskbar_edge, visible_taskbar_thickness,
+        widget_foreground, widget_text_lines, TaskbarEdge, TaskbarPlacement, WindowsWidgetStatus,
+        BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING,
     };
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Gdi::MONITORINFO;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WS_CHILD, WS_CLIPSIBLINGS, WS_MAXIMIZE, WS_POPUP,
+    };
+
+    #[test]
+    fn taskbar_embedding_switches_between_popup_and_child_styles() {
+        let child = taskbar_child_style(WS_POPUP.0);
+        assert_eq!(child & WS_POPUP.0, 0);
+        assert_ne!(child & WS_CHILD.0, 0);
+        assert_ne!(child & WS_CLIPSIBLINGS.0, 0);
+
+        let popup = popup_style(child);
+        assert_ne!(popup & WS_POPUP.0, 0);
+        assert_eq!(popup & WS_CHILD.0, 0);
+        assert_eq!(popup & WS_CLIPSIBLINGS.0, 0);
+    }
+
+    #[test]
+    fn fullscreen_detection_requires_the_foreground_rect_to_cover_the_monitor() {
+        let monitor = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        assert!(rect_covers_monitor(monitor, monitor, 2));
+        assert!(rect_covers_monitor(
+            RECT {
+                left: -1,
+                top: -1,
+                right: 1921,
+                bottom: 1081,
+            },
+            monitor,
+            2,
+        ));
+        assert!(!rect_covers_monitor(
+            RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1040,
+            },
+            monitor,
+            2,
+        ));
+        assert!(should_hide_for_fullscreen(false, 0, monitor, monitor));
+        assert!(!should_hide_for_fullscreen(
+            false,
+            WS_MAXIMIZE.0,
+            monitor,
+            monitor,
+        ));
+        assert!(should_hide_for_fullscreen(
+            true,
+            WS_MAXIMIZE.0,
+            RECT {
+                left: 100,
+                top: 100,
+                right: 900,
+                bottom: 700,
+            },
+            monitor,
+        ));
+    }
 
     #[test]
     fn taskbar_geometry_detects_every_edge() {
@@ -1258,6 +1614,8 @@ mod tests {
                 right: 1300,
                 bottom: 1080,
             }),
+            widgets_enabled: None,
+            widgets_button_rect: None,
             monitor: MONITORINFO::default(),
             edge: TaskbarEdge::Bottom,
             auto_hide: false,
@@ -1273,8 +1631,8 @@ mod tests {
     }
 
     #[test]
-    fn left_widget_uses_the_horizontal_taskbar_start_edge() {
-        let placement = TaskbarPlacement {
+    fn left_widget_uses_the_horizontal_taskbar_start_edge_without_system_widgets() {
+        let mut placement = TaskbarPlacement {
             hwnd: HWND::default(),
             rect: RECT {
                 left: 1920,
@@ -1284,6 +1642,8 @@ mod tests {
             },
             tray_rect: None,
             task_list_rect: None,
+            widgets_enabled: Some(false),
+            widgets_button_rect: None,
             monitor: MONITORINFO::default(),
             edge: TaskbarEdge::Bottom,
             auto_hide: false,
@@ -1293,6 +1653,127 @@ mod tests {
         assert_eq!(
             left_screen_position(&placement, 100, 26, 96),
             Some((1926, 1047))
+        );
+
+        placement.task_list_rect = Some(RECT {
+            left: 2420,
+            top: 1040,
+            right: 3200,
+            bottom: 1080,
+        });
+        assert_eq!(
+            left_screen_position(&placement, 100, 26, 96),
+            Some((1926, 1047))
+        );
+    }
+
+    #[test]
+    fn left_widget_uses_a_safe_gap_before_tasks_when_widgets_state_is_unknown() {
+        let placement = TaskbarPlacement {
+            hwnd: HWND::default(),
+            rect: RECT {
+                left: 0,
+                top: 1040,
+                right: 1920,
+                bottom: 1080,
+            },
+            tray_rect: None,
+            task_list_rect: Some(RECT {
+                left: 500,
+                top: 1040,
+                right: 1300,
+                bottom: 1080,
+            }),
+            widgets_enabled: None,
+            widgets_button_rect: None,
+            monitor: MONITORINFO::default(),
+            edge: TaskbarEdge::Bottom,
+            auto_hide: false,
+            revealed: true,
+        };
+
+        assert_eq!(
+            left_screen_position(&placement, 100, 26, 96),
+            Some((394, 1047))
+        );
+    }
+
+    #[test]
+    fn left_widget_moves_after_the_windows_widgets_button() {
+        let mut placement = TaskbarPlacement {
+            hwnd: HWND::default(),
+            rect: RECT {
+                left: 0,
+                top: 1040,
+                right: 1920,
+                bottom: 1080,
+            },
+            tray_rect: None,
+            task_list_rect: Some(RECT {
+                left: 500,
+                top: 1040,
+                right: 1300,
+                bottom: 1080,
+            }),
+            widgets_enabled: Some(true),
+            widgets_button_rect: Some(RECT {
+                left: 6,
+                top: 1040,
+                right: 220,
+                bottom: 1080,
+            }),
+            monitor: MONITORINFO::default(),
+            edge: TaskbarEdge::Bottom,
+            auto_hide: false,
+            revealed: true,
+        };
+
+        assert_eq!(
+            left_screen_position(&placement, 100, 26, 96),
+            Some((226, 1047))
+        );
+
+        placement
+            .widgets_button_rect
+            .as_mut()
+            .expect("widgets")
+            .right = 450;
+        assert_eq!(left_screen_position(&placement, 100, 26, 96), None);
+    }
+
+    #[test]
+    fn transient_widgets_button_detection_failure_keeps_the_last_valid_bounds() {
+        let taskbar = RECT {
+            left: 0,
+            top: 1040,
+            right: 1920,
+            bottom: 1080,
+        };
+        let cached = RECT {
+            left: 6,
+            top: 1040,
+            right: 220,
+            bottom: 1080,
+        };
+        assert_eq!(
+            resolve_widgets_button_rect(None, Some(cached), taskbar, Some(true)),
+            Some(cached)
+        );
+
+        assert_eq!(
+            resolve_widgets_button_rect(None, Some(cached), taskbar, Some(false)),
+            None
+        );
+
+        let moved_taskbar = RECT {
+            left: 1920,
+            top: 1040,
+            right: 3840,
+            bottom: 1080,
+        };
+        assert_eq!(
+            resolve_widgets_button_rect(None, Some(cached), moved_taskbar, Some(true)),
+            None
         );
     }
 
@@ -1314,12 +1795,17 @@ mod tests {
             widget_foreground(false, WindowsWidgetStatus::Error),
             widget_foreground(false, WindowsWidgetStatus::Fresh)
         );
-        assert_eq!(taskbar_background(true), [243, 243, 243]);
-        assert_eq!(taskbar_background(false), [28, 28, 28]);
     }
 
     #[test]
-    fn two_quota_values_use_two_compact_lines() {
+    fn text_mask_is_converted_to_premultiplied_alpha() {
+        let mut pixels = vec![64, 64, 64, 0, 0, 0, 0, 0];
+        colorize_text_mask(&mut pixels, [32, 64, 128]);
+        assert_eq!(pixels, vec![32, 16, 8, 64, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn two_quota_values_use_two_taskbar_lines() {
         assert_eq!(widget_text_lines("100% / 99%"), vec!["100%", "99%"]);
         assert_eq!(widget_text_lines("100%"), vec!["100%"]);
         assert!(base_height_for_text("100% / 99%") > base_height_for_text("100%"));

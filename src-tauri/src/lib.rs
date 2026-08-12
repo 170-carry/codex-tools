@@ -1140,10 +1140,74 @@ async fn update_app_settings(
     state: State<'_, AppState>,
     patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
+    let refresh_usage_surfaces = patch.tray_usage_display_mode.is_some()
+        || patch.tray_usage_title_show_window_labels.is_some()
+        || patch.windows_tray_icon_style.is_some()
+        || patch.tray_quota_icon_visible.is_some()
+        || patch.macos_tray_logo_ring_show_percentage.is_some()
+        || patch.windows_taskbar_widget_placement.is_some()
+        || patch.locale.is_some();
+    let previous_settings = if refresh_usage_surfaces {
+        Some(settings_service::get_app_settings_internal(&app, state.inner()).await?)
+    } else {
+        None
+    };
     let settings =
         settings_service::update_app_settings_internal(&app, state.inner(), patch).await?;
-    let _ = tray::refresh_usage_surfaces_snapshot(&app);
+    if refresh_usage_surfaces {
+        if let Err(refresh_error) = tray::refresh_usage_surfaces_snapshot(&app) {
+            let rollback_error = if let Some(previous_settings) = previous_settings {
+                settings_service::replace_app_settings_internal(
+                    &app,
+                    state.inner(),
+                    previous_settings,
+                )
+                .await
+                .err()
+            } else {
+                None
+            };
+            let restore_error = tray::refresh_usage_surfaces_snapshot(&app).err();
+            return Err(match (rollback_error, restore_error) {
+                (None, None) => format!("Failed to apply quota display settings: {refresh_error}"),
+                (rollback_error, restore_error) => format!(
+                    "Failed to apply quota display settings: {refresh_error}; rollback error: {}; display restore error: {}",
+                    rollback_error.as_deref().unwrap_or("none"),
+                    restore_error.as_deref().unwrap_or("none")
+                ),
+            });
+        }
+    }
     Ok(settings)
+}
+
+#[tauri::command]
+fn get_windows_widgets_enabled() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_taskbar_widget::windows_widgets_enabled();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("The Windows Widgets setting is only available on Windows".to_string())
+    }
+}
+
+#[tauri::command]
+fn open_windows_taskbar_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = new_background_command("explorer.exe");
+        command
+            .arg("ms-settings:taskbar")
+            .spawn()
+            .map_err(|error| format!("Failed to open Windows taskbar settings: {error}"))?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Windows taskbar settings are only available on Windows".to_string())
+    }
 }
 
 #[tauri::command]
@@ -2841,6 +2905,8 @@ pub fn run() {
             delete_codex_session,
             get_app_settings,
             update_app_settings,
+            get_windows_widgets_enabled,
+            open_windows_taskbar_settings,
             detect_codex_app,
             list_installed_editor_apps,
             is_opencode_desktop_app_installed,

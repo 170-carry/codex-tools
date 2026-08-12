@@ -6,6 +6,8 @@
 
 #### English
 
+- Add Windows quota surfaces: a native taskbar child component with left/right placement, five system-tray quota icon styles, a first-run setup guide with live preview, Windows Widgets detection, fullscreen and auto-hide handling, Explorer restart recovery, and cached error/stale states. The taskbar component now uses premultiplied transparency and rate-limits UI Automation scans.
+
 1. Improve the macOS status bar and usage labels: use the color app icon, default to showing one-week remaining usage, optionally show 5h / 1w labels, hide the entire status item when disabled, and keep the account meters labeled 5h / 1w even when both values are currently identical.
 2. Significantly reduce default background energy use: remove Codex inference keepalive calls, deduplicate refreshes, pause foreground polling while the application's entire main window is hidden, and avoid repeated full log scans by reusing unchanged per-file results and tail-reading appended bytes for both the Token summary and detailed cost analytics. Detailed analytics now refreshes incrementally every minute as a fixed behavior; entering Analytics no longer starts a separate refresh, and the refresh-mode toggle has been removed.
 3. Improve first-launch account feedback: show stored accounts and the last saved quota snapshot immediately, refresh remote quota and non-critical startup work concurrently, show freshness only during first-load work, and hide the freshness badge after a successful refresh. Failed or unavailable states remain visible; failures show a concise cause while retaining the full error on hover.
@@ -18,6 +20,8 @@
 10. Keep deployed remote proxies synchronized after account changes and discover Zig installed through WinGet on Windows.
 
 #### 中文
+
+- 新增 Windows 额度展示：提供可置于任务栏左侧或右侧的原生子组件、五种系统托盘额度图标，以及带实时预览的首次运行引导；支持检测 Windows 天气小组件、全屏和自动隐藏处理、Explorer 重启恢复，并保留错误与缓存过期状态。任务栏组件现采用预乘透明渲染，并限制 UI Automation 扫描频率。
 
 1. 优化 macOS 状态栏和用量标签：使用彩色应用图标，默认仅显示一周剩余用量，可选显示 5h / 1w 标签，选择“不显示”时隐藏整个状态项；即使两个周期当前数值相同，账号用量栏仍分别标注 5h / 1w。
 2. 大幅降低默认模式下的后台耗电：移除 Codex 推理保活请求，去重刷新任务，在应用的整个主窗口隐藏时暂停前台轮询；Token 汇总与详细成本分析都会复用未变化文件的逐文件结果，并对增长日志采用尾量读取，避免反复完整扫描。详细分析现固定为每分钟增量刷新；进入分析页不再额外触发刷新，并移除刷新模式 toggle。

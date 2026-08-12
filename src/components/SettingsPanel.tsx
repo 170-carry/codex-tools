@@ -67,6 +67,9 @@ export function SettingsPanel({
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [trayVisualPreviews, setTrayVisualPreviews] = useState<TrayVisualPreview[]>([]);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
+  const [windowsWidgetsEnabled, setWindowsWidgetsEnabled] = useState(false);
+  const [windowsWidgetsError, setWindowsWidgetsError] = useState(false);
+  const [openingWindowsTaskbarSettings, setOpeningWindowsTaskbarSettings] = useState(false);
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
     id: item.code,
@@ -83,11 +86,9 @@ export function SettingsPanel({
     { value: "numberProgressBar", label: copy.settings.windowsTrayIconStyle.numberProgressBar },
     { value: "logoProgressRing", label: copy.settings.windowsTrayIconStyle.logoProgressRing },
   ];
-  if (isMacos) {
-    trayIconStyleOptions.push({ value: "hidden", label: copy.settings.windowsTrayIconStyle.hidden });
-  }
+  trayIconStyleOptions.push({ value: "hidden", label: copy.settings.windowsTrayIconStyle.hidden });
   const selectedTrayIconStyle =
-    isMacos && !settings.macosTrayQuotaIconVisible ? "hidden" : settings.windowsTrayIconStyle;
+    !settings.trayQuotaIconVisible ? "hidden" : settings.windowsTrayIconStyle;
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +131,57 @@ export function SettingsPanel({
       cancelled = true;
     };
   }, [isMacos, isWindows, themeMode, trayPreviewScale]);
+
+  useEffect(() => {
+    if (!isWindows) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshWindowsWidgetsState = () => {
+      void invoke<boolean>("get_windows_widgets_enabled")
+        .then((enabled) => {
+          if (!cancelled) {
+            setWindowsWidgetsEnabled(enabled);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWindowsWidgetsEnabled(false);
+          }
+        });
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshWindowsWidgetsState();
+      }
+    };
+
+    refreshWindowsWidgetsState();
+    window.addEventListener("focus", refreshWindowsWidgetsState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refreshWindowsWidgetsState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isWindows]);
+
+  const openWindowsTaskbarSettings = async () => {
+    if (openingWindowsTaskbarSettings) {
+      return;
+    }
+    setOpeningWindowsTaskbarSettings(true);
+    setWindowsWidgetsError(false);
+    try {
+      await invoke("open_windows_taskbar_settings");
+    } catch {
+      setWindowsWidgetsError(true);
+    } finally {
+      setOpeningWindowsTaskbarSettings(false);
+    }
+  };
 
   const pickCodexLaunchPath = async (kind: "file" | "directory") => {
     if (savingSettings || pickingCodexLaunchPathKind) {
@@ -302,7 +354,7 @@ export function SettingsPanel({
                                   onClick={() =>
                                     onUpdateSettings({
                                       windowsTrayIconStyle: "logoProgressRing",
-                                      macosTrayQuotaIconVisible: true,
+                                      trayQuotaIconVisible: true,
                                       macosTrayLogoRingShowPercentage: showPercentage,
                                     })
                                   }
@@ -345,12 +397,12 @@ export function SettingsPanel({
                         disabled={savingSettings}
                         onClick={() => {
                           if (option.value === "hidden") {
-                            onUpdateSettings({ macosTrayQuotaIconVisible: false });
+                            onUpdateSettings({ trayQuotaIconVisible: false });
                             return;
                           }
                           onUpdateSettings({
                             windowsTrayIconStyle: option.value,
-                            ...(isMacos ? { macosTrayQuotaIconVisible: true } : {}),
+                            trayQuotaIconVisible: true,
                           });
                         }}
                         aria-label={option.label}
@@ -384,24 +436,16 @@ export function SettingsPanel({
           ) : null}
 
           {isWindows ? (
-            <>
-              <div className="settingRow settingRowCompact">
-                <div className="settingMeta">
-                  <strong>{copy.settings.windowsTaskbarWidget.label}</strong>
-                </div>
+            <div className="settingRow settingRowWindowsTaskbar">
+              <div className="settingMeta">
+                <strong>{copy.settings.windowsTaskbarWidget.label}</strong>
+              </div>
+              <div className="windowsTaskbarWidgetControls">
                 <div
                   className="modeGroup trayUsageModeGroup"
                   role="radiogroup"
                   aria-label={copy.settings.windowsTaskbarWidget.groupAriaLabel}
                 >
-                  <button
-                    className={settings.windowsTaskbarWidgetPlacement === "embedded" ? "primary" : "ghost"}
-                    disabled={savingSettings}
-                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "embedded" })}
-                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "embedded"}
-                  >
-                    {copy.settings.windowsTaskbarWidget.embedded}
-                  </button>
                   <button
                     className={settings.windowsTaskbarWidgetPlacement === "left" ? "primary" : "ghost"}
                     disabled={savingSettings}
@@ -411,12 +455,12 @@ export function SettingsPanel({
                     {copy.settings.windowsTaskbarWidget.left}
                   </button>
                   <button
-                    className={settings.windowsTaskbarWidgetPlacement === "floating" ? "primary" : "ghost"}
+                    className={settings.windowsTaskbarWidgetPlacement === "embedded" ? "primary" : "ghost"}
                     disabled={savingSettings}
-                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "floating" })}
-                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "floating"}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "embedded" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "embedded"}
                   >
-                    {copy.settings.windowsTaskbarWidget.floating}
+                    {copy.settings.windowsTaskbarWidget.right}
                   </button>
                   <button
                     className={settings.windowsTaskbarWidgetPlacement === "hidden" ? "primary" : "ghost"}
@@ -427,8 +471,26 @@ export function SettingsPanel({
                     {copy.settings.windowsTaskbarWidget.hidden}
                   </button>
                 </div>
+                {windowsWidgetsEnabled ? (
+                  <div className="windowsWidgetsActionRow">
+                    {windowsWidgetsError ? (
+                      <span className="settingDescription isError" role="alert">
+                        {copy.settings.windowsWidgets.openFailed}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="primary windowsWidgetsButton"
+                      disabled={openingWindowsTaskbarSettings}
+                      onClick={() => void openWindowsTaskbarSettings()}
+                      aria-label={copy.settings.windowsWidgets.disableAriaLabel}
+                    >
+                      {copy.settings.windowsWidgets.disable}
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            </>
+            </div>
           ) : null}
         </div>
 

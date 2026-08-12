@@ -14,6 +14,28 @@
     "toggleLanguage": "言語を切り替え（次: {{nextLanguage}}）",
     "languagePicker": "言語"
   },
+  "quotaOnboarding": {
+    "title": "使用量の表示方法を選択",
+    "description": "新しいバージョンでは、Windows のタスクバーとシステムトレイに使用量を常時表示できます。少なくとも 1 つを有効にしてください。後から設定で変更できます。",
+    "livePreview": "選択内容は Windows のタスクバーとシステムトレイにすぐ反映されます。",
+    "taskbarTitle": "タスクバー使用量コンポーネント",
+    "taskbarDescription": "現在の使用量をタスクバーの左端または右側に表示します。",
+    "trayTitle": "トレイ使用量アイコン",
+    "trayDescription": "Windows のシステムトレイに使用量アイコンを表示します。",
+    "enable": "有効にする",
+    "enabled": "有効",
+    "taskbarPlacementLabel": "タスクバー使用量コンポーネントの位置",
+    "taskbarLeft": "タスクバーの左端",
+    "taskbarRight": "タスクバーの右側",
+    "trayHint": "下から 5 種類すべてのアイコンを選べます。スタイルを選ぶとトレイアイコンも有効になります。",
+    "requireOne": "少なくとも 1 つの表示方法を有効にしてください。",
+    "ready": "少なくとも 1 つの表示が有効です。後から設定で変更できます。",
+    "applying": "Windows に適用中...",
+    "liveUpdateFailed": "変更を適用できなかったため、以前の設定に戻しました。",
+    "confirm": "設定を完了",
+    "saving": "完了処理中...",
+    "saveFailed": "選択内容を保存できませんでした。もう一度お試しください。"
+  },
   "metaStrip": {
     "ariaLabel": "アカウント概要",
     "accountCount": "アカウント数",
@@ -570,12 +592,16 @@
     },
     "windowsTaskbarWidget": {
       "label": "Windows タスクバー使用量コンポーネント",
-      "description": "使用量の左側に Codex Tools の元アイコンを表示し、macOS のステータスバーに合わせます。背景は透明で、空き領域がない場合はフローティング表示に戻ります。",
+      "description": "使用量の左側に Codex Tools の元アイコンを表示し、macOS のステータスバーに合わせます。背景は透明です。",
       "groupAriaLabel": "Windows タスクバー使用量コンポーネントの配置",
-      "embedded": "タスクバー内に表示（推奨）",
       "left": "タスクバーの左端",
-      "floating": "タスクバー上に表示",
+      "right": "タスクバーの右側",
       "hidden": "非表示"
+    },
+    "windowsWidgets": {
+      "disable": "Windows 天気ウィジェットをオフにする",
+      "disableAriaLabel": "天気ウィジェットをオフにするため Windows のタスクバー設定を開く",
+      "openFailed": "Windows のタスクバー設定を開けませんでした。"
     },
     "theme": {
       "label": "ダークモード",

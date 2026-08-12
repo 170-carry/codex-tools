@@ -66,6 +66,28 @@ export type MessageCatalog = {
     toggleLanguage: (nextLanguage: string) => string;
     languagePicker: string;
   };
+  quotaOnboarding: {
+    title: string;
+    description: string;
+    livePreview: string;
+    taskbarTitle: string;
+    taskbarDescription: string;
+    trayTitle: string;
+    trayDescription: string;
+    enable: string;
+    enabled: string;
+    taskbarPlacementLabel: string;
+    taskbarLeft: string;
+    taskbarRight: string;
+    trayHint: string;
+    requireOne: string;
+    ready: string;
+    applying: string;
+    liveUpdateFailed: string;
+    confirm: string;
+    saving: string;
+    saveFailed: string;
+  };
   metaStrip: {
     ariaLabel: string;
     accountCount: string;
@@ -591,10 +613,14 @@ export type MessageCatalog = {
       label: string;
       description: string;
       groupAriaLabel: string;
-      embedded: string;
       left: string;
-      floating: string;
+      right: string;
       hidden: string;
+    };
+    windowsWidgets: {
+      disable: string;
+      disableAriaLabel: string;
+      openFailed: string;
     };
     theme: {
       label: string;
@@ -769,6 +795,7 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       toggleLanguage: (nextLanguage) =>
         fillTemplate(raw.topBar.toggleLanguage, { nextLanguage }),
     },
+    quotaOnboarding: raw.quotaOnboarding,
     metaStrip: raw.metaStrip,
     addAccount: {
       ...raw.addAccount,

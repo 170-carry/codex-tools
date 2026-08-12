@@ -604,14 +604,14 @@ pub(crate) enum WindowsTrayIconStyle {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum WindowsTaskbarWidgetPlacement {
-    #[default]
     Embedded,
+    #[default]
+    #[serde(alias = "floating")]
     Left,
-    Floating,
     Hidden,
 }
 
-fn default_macos_tray_quota_icon_visible() -> bool {
+fn default_tray_quota_icon_visible() -> bool {
     true
 }
 
@@ -662,12 +662,17 @@ pub(crate) struct AppSettings {
     pub(crate) tray_usage_title_show_window_labels: bool,
     #[serde(default)]
     pub(crate) windows_tray_icon_style: WindowsTrayIconStyle,
-    #[serde(default = "default_macos_tray_quota_icon_visible")]
-    pub(crate) macos_tray_quota_icon_visible: bool,
+    #[serde(
+        default = "default_tray_quota_icon_visible",
+        alias = "macosTrayQuotaIconVisible"
+    )]
+    pub(crate) tray_quota_icon_visible: bool,
     #[serde(default = "default_macos_tray_logo_ring_show_percentage")]
     pub(crate) macos_tray_logo_ring_show_percentage: bool,
     #[serde(default)]
     pub(crate) windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement,
+    #[serde(default)]
+    pub(crate) windows_quota_onboarding_completed: bool,
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
@@ -706,9 +711,10 @@ impl Default for AppSettings {
             tray_usage_display_mode: TrayUsageDisplayMode::OneWeekRemaining,
             tray_usage_title_show_window_labels: false,
             windows_tray_icon_style: WindowsTrayIconStyle::GradientNumberPlate,
-            macos_tray_quota_icon_visible: true,
+            tray_quota_icon_visible: true,
             macos_tray_logo_ring_show_percentage: true,
-            windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement::Embedded,
+            windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement::Left,
+            windows_quota_onboarding_completed: false,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
             launch_codex_as_admin: false,
@@ -741,9 +747,11 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) tray_usage_title_show_window_labels: Option<bool>,
     pub(crate) windows_tray_icon_style: Option<WindowsTrayIconStyle>,
-    pub(crate) macos_tray_quota_icon_visible: Option<bool>,
+    #[serde(alias = "macosTrayQuotaIconVisible")]
+    pub(crate) tray_quota_icon_visible: Option<bool>,
     pub(crate) macos_tray_logo_ring_show_percentage: Option<bool>,
     pub(crate) windows_taskbar_widget_placement: Option<WindowsTaskbarWidgetPlacement>,
+    pub(crate) windows_quota_onboarding_completed: Option<bool>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) launch_codex_as_admin: Option<bool>,
@@ -1030,12 +1038,13 @@ mod tests {
             AppSettings::default().windows_tray_icon_style,
             WindowsTrayIconStyle::GradientNumberPlate
         );
-        assert!(AppSettings::default().macos_tray_quota_icon_visible);
+        assert!(AppSettings::default().tray_quota_icon_visible);
         assert!(AppSettings::default().macos_tray_logo_ring_show_percentage);
         assert_eq!(
             AppSettings::default().windows_taskbar_widget_placement,
-            WindowsTaskbarWidgetPlacement::Embedded
+            WindowsTaskbarWidgetPlacement::Left
         );
+        assert!(!AppSettings::default().windows_quota_onboarding_completed);
 
         let missing_mode: AppSettings = serde_json::from_value(json!({})).unwrap();
         assert_eq!(
@@ -1047,12 +1056,13 @@ mod tests {
             missing_mode.windows_tray_icon_style,
             WindowsTrayIconStyle::GradientNumberPlate
         );
-        assert!(missing_mode.macos_tray_quota_icon_visible);
+        assert!(missing_mode.tray_quota_icon_visible);
         assert!(missing_mode.macos_tray_logo_ring_show_percentage);
         assert_eq!(
             missing_mode.windows_taskbar_widget_placement,
-            WindowsTaskbarWidgetPlacement::Embedded
+            WindowsTaskbarWidgetPlacement::Left
         );
+        assert!(!missing_mode.windows_quota_onboarding_completed);
 
         assert_eq!(
             serde_json::to_value(TrayUsageDisplayMode::OneWeekRemaining).unwrap(),
@@ -1071,9 +1081,10 @@ mod tests {
             "trayUsageDisplayMode": "oneWeekRemaining",
             "trayUsageTitleShowWindowLabels": true,
             "windowsTrayIconStyle": "codexToolsBadge",
-            "macosTrayQuotaIconVisible": false,
+            "trayQuotaIconVisible": false,
             "macosTrayLogoRingShowPercentage": false,
-            "windowsTaskbarWidgetPlacement": "floating"
+            "windowsTaskbarWidgetPlacement": "floating",
+            "windowsQuotaOnboardingCompleted": true
         }))
         .unwrap();
         assert_eq!(
@@ -1085,12 +1096,30 @@ mod tests {
             patch.windows_tray_icon_style,
             Some(WindowsTrayIconStyle::GradientNumberPlate)
         );
-        assert_eq!(patch.macos_tray_quota_icon_visible, Some(false));
+        assert_eq!(patch.tray_quota_icon_visible, Some(false));
         assert_eq!(patch.macos_tray_logo_ring_show_percentage, Some(false));
         assert_eq!(
             patch.windows_taskbar_widget_placement,
-            Some(WindowsTaskbarWidgetPlacement::Floating)
+            Some(WindowsTaskbarWidgetPlacement::Left)
         );
+        assert_eq!(patch.windows_quota_onboarding_completed, Some(true));
+
+        let legacy_patch: AppSettingsPatch = serde_json::from_value(json!({
+            "macosTrayQuotaIconVisible": false
+        }))
+        .unwrap();
+        assert_eq!(legacy_patch.tray_quota_icon_visible, Some(false));
+
+        let legacy_settings: AppSettings = serde_json::from_value(json!({
+            "macosTrayQuotaIconVisible": false
+        }))
+        .unwrap();
+        assert!(!legacy_settings.tray_quota_icon_visible);
+        let serialized_settings = serde_json::to_value(&legacy_settings).unwrap();
+        assert_eq!(serialized_settings["trayQuotaIconVisible"], json!(false));
+        assert!(serialized_settings
+            .get("macosTrayQuotaIconVisible")
+            .is_none());
 
         let left_patch: AppSettingsPatch = serde_json::from_value(json!({
             "windowsTaskbarWidgetPlacement": "left"

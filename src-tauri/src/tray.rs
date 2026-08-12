@@ -1,7 +1,7 @@
 #[cfg(target_os = "macos")]
 use std::cell::RefCell;
 use tauri::AppHandle;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
 #[cfg(target_os = "macos")]
@@ -19,7 +19,7 @@ use crate::models::UsageWindow;
 #[cfg(target_os = "windows")]
 use crate::models::WindowsTaskbarWidgetPlacement;
 use crate::models::WindowsTrayIconStyle;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::state::AppState;
 use crate::store::load_store;
 #[cfg(target_os = "macos")]
@@ -117,9 +117,9 @@ fn read_macos_tray_icon_style(app: &AppHandle) -> WindowsTrayIconStyle {
 }
 
 #[cfg(target_os = "macos")]
-fn read_macos_tray_quota_icon_visible(app: &AppHandle) -> bool {
+fn read_tray_quota_icon_visible(app: &AppHandle) -> bool {
     load_store(app)
-        .map(|store| store.settings.macos_tray_quota_icon_visible)
+        .map(|store| store.settings.tray_quota_icon_visible)
         .unwrap_or(true)
 }
 
@@ -136,6 +136,7 @@ struct WindowsUsageSurfaceConfig {
     mode: TrayUsageDisplayMode,
     show_window_labels: bool,
     tray_icon_style: WindowsTrayIconStyle,
+    tray_quota_icon_visible: bool,
     widget_placement: WindowsTaskbarWidgetPlacement,
 }
 
@@ -146,12 +147,14 @@ fn read_windows_usage_config(app: &AppHandle) -> WindowsUsageSurfaceConfig {
             mode: store.settings.tray_usage_display_mode,
             show_window_labels: store.settings.tray_usage_title_show_window_labels,
             tray_icon_style: store.settings.windows_tray_icon_style,
+            tray_quota_icon_visible: store.settings.tray_quota_icon_visible,
             widget_placement: store.settings.windows_taskbar_widget_placement,
         })
         .unwrap_or(WindowsUsageSurfaceConfig {
             mode: TrayUsageDisplayMode::default(),
             show_window_labels: false,
             tray_icon_style: WindowsTrayIconStyle::default(),
+            tray_quota_icon_visible: true,
             widget_placement: WindowsTaskbarWidgetPlacement::default(),
         })
 }
@@ -178,8 +181,7 @@ fn tray_icon_percent(accounts: &[AccountSummary], mode: TrayUsageDisplayMode) ->
     }
 }
 
-#[cfg(target_os = "macos")]
-fn macos_quota_icon_percent(accounts: &[AccountSummary]) -> Option<f64> {
+fn quota_icon_percent(accounts: &[AccountSummary]) -> Option<f64> {
     tray_icon_percent(accounts, TrayUsageDisplayMode::Remaining)
 }
 
@@ -629,7 +631,7 @@ fn update_macos_tray_snapshot_on_main_thread(
 ) -> Result<(), String> {
     let (mode, show_window_labels) = read_tray_title_config(app);
     let icon_style = read_macos_tray_icon_style(app);
-    let quota_icon_visible = read_macos_tray_quota_icon_visible(app);
+    let quota_icon_visible = read_tray_quota_icon_visible(app);
     let logo_ring_show_percentage = read_macos_tray_logo_ring_show_percentage(app);
     let locale = i18n::app_locale(app);
     let quota_tray = MACOS_NATIVE_TRAY
@@ -660,7 +662,7 @@ fn update_macos_tray_snapshot_on_main_thread(
     }
 
     let quota_mode = TrayUsageDisplayMode::Remaining;
-    let percent = macos_quota_icon_percent(accounts);
+    let percent = quota_icon_percent(accounts);
     let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
     let quota_tooltip = build_macos_tray_tooltip(accounts, quota_mode, locale);
     quota_tray.set_menu(Some(Box::new(build_macos_tray_menu(
@@ -759,12 +761,12 @@ fn update_windows_usage_snapshot(
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_tooltip(Some(snapshot.tooltip.clone()))
             .map_err(|error| format!("更新 Windows 托盘提示失败: {error}"))?;
-        let icon = if config.mode == TrayUsageDisplayMode::Hidden {
+        let icon = if !config.tray_quota_icon_visible {
             static_codex_tools_icon()
         } else {
             render_windows_tray_icon(
                 config.tray_icon_style,
-                tray_icon_percent(accounts, config.mode),
+                quota_icon_percent(accounts),
                 snapshot.status,
             )
         };
@@ -777,7 +779,13 @@ fn update_windows_usage_snapshot(
 #[cfg(target_os = "windows")]
 fn refresh_windows_usage_snapshot(app: &AppHandle) -> Result<(), String> {
     let summaries = cached_account_summaries(app)?;
-    update_windows_usage_snapshot(app, &summaries, None)
+    let state = app.state::<AppState>();
+    let surface_error = state
+        .usage_surface_error
+        .lock()
+        .map_err(|_| "Windows quota widget error state lock is poisoned".to_string())?
+        .clone();
+    update_windows_usage_snapshot(app, &summaries, surface_error.as_deref())
 }
 
 pub(crate) fn update_usage_surfaces_snapshot(
@@ -790,7 +798,13 @@ pub(crate) fn update_usage_surfaces_snapshot(
     }
     #[cfg(target_os = "windows")]
     {
-        return update_windows_usage_snapshot(app, accounts, None);
+        update_windows_usage_snapshot(app, accounts, None)?;
+        let state = app.state::<AppState>();
+        *state
+            .usage_surface_error
+            .lock()
+            .map_err(|_| "Windows quota widget error state lock is poisoned".to_string())? = None;
+        Ok(())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -806,7 +820,7 @@ pub(crate) fn refresh_usage_surfaces_snapshot(app: &AppHandle) -> Result<(), Str
     }
     #[cfg(target_os = "windows")]
     {
-        return refresh_windows_usage_snapshot(app);
+        refresh_windows_usage_snapshot(app)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -817,9 +831,22 @@ pub(crate) fn refresh_usage_surfaces_snapshot(app: &AppHandle) -> Result<(), Str
 
 pub(crate) fn update_usage_surfaces_error(app: &AppHandle, error: &str) {
     #[cfg(target_os = "windows")]
-    match cached_account_summaries(app)
-        .and_then(|summaries| update_windows_usage_snapshot(app, &summaries, Some(error)))
-    {
+    let result = {
+        let state = app.state::<AppState>();
+        match state.usage_surface_error.lock() {
+            Ok(mut stored_error) => {
+                *stored_error = Some(error.to_string());
+            }
+            Err(_) => {
+                log::warn!("Windows quota widget error state lock is poisoned");
+            }
+        }
+        cached_account_summaries(app)
+            .and_then(|summaries| update_windows_usage_snapshot(app, &summaries, Some(error)))
+    };
+
+    #[cfg(target_os = "windows")]
+    match result {
         Ok(()) => {}
         Err(update_error) => {
             log::warn!("更新 Windows 额度组件错误状态失败: {update_error}");
@@ -946,7 +973,7 @@ fn create_macos_status_bar_trays(
 
     let (mode, show_window_labels) = read_tray_title_config(app);
     let icon_style = read_macos_tray_icon_style(app);
-    let quota_icon_visible = read_macos_tray_quota_icon_visible(app);
+    let quota_icon_visible = read_tray_quota_icon_visible(app);
     let logo_ring_show_percentage = read_macos_tray_logo_ring_show_percentage(app);
     let locale = i18n::app_locale(app);
     let store = load_store(app)?;
@@ -981,7 +1008,7 @@ fn create_macos_status_bar_trays(
     log_macos_status_bar_render(log_context, &summaries, &title);
 
     let quota_mode = TrayUsageDisplayMode::Remaining;
-    let percent = macos_quota_icon_percent(&summaries);
+    let percent = quota_icon_percent(&summaries);
     let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
     let quota_tooltip = build_macos_tray_tooltip(&summaries, quota_mode, locale);
     let quota_icon = native_macos_tray_icon(app, icon_style, percent)?;
@@ -1095,12 +1122,12 @@ fn setup_windows_tray(app: &AppHandle) -> Result<(), String> {
         i18n::app_locale(app),
         None,
     );
-    let initial_icon = if config.mode == TrayUsageDisplayMode::Hidden {
+    let initial_icon = if !config.tray_quota_icon_visible {
         static_codex_tools_icon()
     } else {
         render_windows_tray_icon(
             config.tray_icon_style,
-            tray_icon_percent(&summaries, config.mode),
+            quota_icon_percent(&summaries),
             initial_snapshot.status,
         )
     };
@@ -1148,7 +1175,7 @@ pub(crate) fn setup_system_tray(app: &AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        return setup_windows_tray(app);
+        setup_windows_tray(app)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -1191,9 +1218,8 @@ mod tests {
     #[cfg(target_os = "windows")]
     use super::build_windows_widget_snapshot;
     #[cfg(target_os = "macos")]
-    use super::macos_quota_icon_percent;
-    #[cfg(target_os = "macos")]
     use super::macos_quota_icon_title;
+    use super::quota_icon_percent;
     use super::should_show_usage_surface;
     #[cfg(target_os = "macos")]
     use super::tray_account_usage_line;
@@ -1346,11 +1372,10 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn macos_quota_icon_always_uses_the_most_constrained_remaining_window() {
+    fn quota_icon_always_uses_the_most_constrained_remaining_window() {
         assert_eq!(
-            macos_quota_icon_percent(&[current_account_with_usage()]),
+            quota_icon_percent(&[current_account_with_usage()]),
             Some(40.0)
         );
     }
@@ -1427,14 +1452,11 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn windows_tray_icon_uses_selected_or_most_constrained_window() {
+    fn status_bar_modes_do_not_change_the_quota_icon_percentage() {
         let account = current_account_with_usage();
         assert_eq!(
-            tray_icon_percent(
-                std::slice::from_ref(&account),
-                TrayUsageDisplayMode::FiveHourRemaining,
-            ),
-            Some(40.0)
+            tray_icon_percent(std::slice::from_ref(&account), TrayUsageDisplayMode::Used,),
+            Some(60.0)
         );
         assert_eq!(
             tray_icon_percent(
@@ -1444,15 +1466,9 @@ mod tests {
             Some(60.0)
         );
         assert_eq!(
-            tray_icon_percent(
-                std::slice::from_ref(&account),
-                TrayUsageDisplayMode::Remaining,
-            ),
-            Some(40.0)
+            tray_icon_percent(std::slice::from_ref(&account), TrayUsageDisplayMode::Hidden,),
+            None
         );
-        assert_eq!(
-            tray_icon_percent(&[account], TrayUsageDisplayMode::Used),
-            Some(60.0)
-        );
+        assert_eq!(quota_icon_percent(&[account]), Some(40.0));
     }
 }

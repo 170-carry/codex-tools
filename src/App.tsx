@@ -11,6 +11,7 @@ import { DebugFloatingTool } from "./components/DebugFloatingTool";
 import { DeleteAccountDialog } from "./components/DeleteAccountDialog";
 import { MetaStrip } from "./components/MetaStrip";
 import { NoticeBanner } from "./components/NoticeBanner";
+import { QuotaDisplayOnboardingDialog } from "./components/QuotaDisplayOnboardingDialog";
 import { RemoteDeployProgressToast } from "./components/RemoteDeployProgressToast";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -25,6 +26,7 @@ const TOKEN_USAGE_FRESHNESS_MS = 5 * 60 * 1000;
 function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
   const { themeMode, toggleTheme } = useThemeMode();
+  const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
   const {
     accounts,
     tokenUsage,
@@ -58,6 +60,7 @@ function App() {
     notice,
     openExternalUrl,
     settings,
+    settingsLoaded,
     installedEditorApps,
     hasOpencodeDesktopApp,
     savingSettings,
@@ -293,6 +296,26 @@ function App() {
           onManualDownload={() => void openManualDownloadPage()}
           onSkipVersion={() => void skipPendingUpdateVersion()}
           onInstallNow={() => void installPendingUpdate()}
+        />
+        <QuotaDisplayOnboardingDialog
+          open={
+            isWindows &&
+            settingsLoaded &&
+            !settings.windowsQuotaOnboardingCompleted
+          }
+          lightTheme={themeMode !== "dark"}
+          settings={settings}
+          saving={savingSettings}
+          onPreviewSettings={(patch) =>
+            updateSettings(patch, {
+              silent: true,
+              throwOnError: true,
+              keepInteractive: true,
+            })
+          }
+          onConfirm={(patch) =>
+            updateSettings(patch, { silent: true, throwOnError: true })
+          }
         />
 
         <section className="viewStage">

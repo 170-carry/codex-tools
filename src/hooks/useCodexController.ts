@@ -72,9 +72,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   trayUsageDisplayMode: "oneWeekRemaining",
   trayUsageTitleShowWindowLabels: false,
   windowsTrayIconStyle: "gradientNumberPlate",
-  macosTrayQuotaIconVisible: true,
+  trayQuotaIconVisible: true,
   macosTrayLogoRingShowPercentage: true,
-  windowsTaskbarWidgetPlacement: "embedded",
+  windowsTaskbarWidgetPlacement: "left",
+  windowsQuotaOnboardingCompleted: false,
   launchCodexAfterSwitch: true,
   smartSwitchIncludeApi: false,
   launchCodexAsAdmin: false,
@@ -635,6 +636,9 @@ export function useCodexController() {
               localizeError(String(error)),
             ),
           });
+          if (options?.throwOnError) {
+            throw error;
+          }
         } finally {
           if (shouldLockUi) {
             setSavingSettings(false);
@@ -2968,6 +2972,7 @@ export function useCodexController() {
     notice,
     openExternalUrl,
     settings,
+    settingsLoaded,
     savingSettings,
     installedEditorApps,
     hasOpencodeDesktopApp,

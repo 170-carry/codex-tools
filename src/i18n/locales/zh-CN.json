@@ -14,6 +14,28 @@
     "toggleLanguage": "切换语言（下一项：{{nextLanguage}}）",
     "languagePicker": "语言"
   },
+  "quotaOnboarding": {
+    "title": "选择额度显示方式",
+    "description": "新版本支持在 Windows 任务栏和系统托盘中持续显示额度。请至少启用一种，之后可随时在设置中调整。",
+    "livePreview": "选择会立即应用到 Windows 任务栏和系统托盘。",
+    "taskbarTitle": "任务栏额度组件",
+    "taskbarDescription": "在任务栏最左侧或右侧直接显示当前额度。",
+    "trayTitle": "托盘额度图标",
+    "trayDescription": "在系统托盘保留一个可随时查看额度的图标。",
+    "enable": "启用",
+    "enabled": "已启用",
+    "taskbarPlacementLabel": "任务栏额度组件位置",
+    "taskbarLeft": "任务栏最左侧",
+    "taskbarRight": "任务栏右侧",
+    "trayHint": "可在下方选择全部五种图标样式；选择任一样式也会启用托盘图标。",
+    "requireOne": "请至少启用一种额度显示方式。",
+    "ready": "至少一种额度显示已启用。确认后仍可随时在设置中修改。",
+    "applying": "正在应用到 Windows...",
+    "liveUpdateFailed": "未能应用本次更改，已恢复之前的设置。",
+    "confirm": "完成设置",
+    "saving": "正在完成...",
+    "saveFailed": "保存失败，请重试。"
+  },
   "metaStrip": {
     "ariaLabel": "账号概览",
     "accountCount": "账号数",
@@ -570,12 +592,16 @@
     },
     "windowsTaskbarWidget": {
       "label": "Windows 任务栏额度组件",
-      "description": "在额度左侧显示 Codex Tools 原图，与 macOS 状态栏保持一致；背景透明，直接透出 Windows 任务栏的真实颜色、渐变与材质。空间不足时自动回退到悬浮模式。",
+      "description": "在额度左侧显示 Codex Tools 原图，与 macOS 状态栏保持一致；背景透明，直接透出 Windows 任务栏的真实颜色、渐变与材质。",
       "groupAriaLabel": "Windows 任务栏额度组件位置",
-      "embedded": "任务栏内显示（推荐）",
       "left": "任务栏最左侧",
-      "floating": "任务栏上方悬浮",
+      "right": "任务栏右侧",
       "hidden": "不显示"
+    },
+    "windowsWidgets": {
+      "disable": "关闭 Windows 天气小组件",
+      "disableAriaLabel": "打开 Windows 任务栏设置以关闭天气小组件",
+      "openFailed": "无法打开 Windows 任务栏设置。"
     },
     "theme": {
       "label": "深色模式",

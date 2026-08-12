@@ -357,8 +357,8 @@ impl Canvas {
         if output_alpha == 0 {
             return;
         }
-        for channel in 0..3 {
-            let source_premultiplied = color[channel] as u32 * source_alpha;
+        for (channel, source) in color.iter().copied().enumerate() {
+            let source_premultiplied = source as u32 * source_alpha;
             let destination_premultiplied =
                 self.pixels[index + channel] as u32 * destination_alpha * inverse / 255;
             self.pixels[index + channel] =
@@ -954,8 +954,8 @@ fn visible_square(source: &Image<'_>) -> (usize, usize, usize, usize) {
     let content_width = max_x - min_x + 1;
     let content_height = max_y - min_y + 1;
     let content_size = content_width.max(content_height).min(width.min(height));
-    let center_x = (min_x + max_x + 1) / 2;
-    let center_y = (min_y + max_y + 1) / 2;
+    let center_x = (min_x + max_x).div_ceil(2);
+    let center_y = (min_y + max_y).div_ceil(2);
     let crop_left = center_x
         .saturating_sub(content_size / 2)
         .min(width - content_size);
@@ -1000,10 +1000,10 @@ fn downsample_rgba(
             }
             let destination_index =
                 ((destination_y * destination_width + destination_x) * 4) as usize;
-            if alpha_sum > 0 {
-                for channel in 0..3 {
+            if let Some(divisor) = std::num::NonZeroU64::new(alpha_sum) {
+                for (channel, value) in premultiplied.iter().copied().enumerate() {
                     destination[destination_index + channel] =
-                        ((premultiplied[channel] + alpha_sum / 2) / alpha_sum) as u8;
+                        ((value + alpha_sum / 2) / divisor) as u8;
                 }
             }
             destination[destination_index + 3] =

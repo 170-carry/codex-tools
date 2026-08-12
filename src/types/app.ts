@@ -429,7 +429,7 @@ export type WindowsTrayIconStyle =
   | "gradientNumber"
   | "numberProgressBar"
   | "logoProgressRing";
-export type WindowsTaskbarWidgetPlacement = "embedded" | "left" | "floating" | "hidden";
+export type WindowsTaskbarWidgetPlacement = "embedded" | "left" | "hidden";
 
 export type ApiProxyLoadBalanceMode = "average" | "sequential";
 
@@ -452,9 +452,10 @@ export type AppSettings = {
   trayUsageDisplayMode: TrayUsageDisplayMode;
   trayUsageTitleShowWindowLabels: boolean;
   windowsTrayIconStyle: WindowsTrayIconStyle;
-  macosTrayQuotaIconVisible: boolean;
+  trayQuotaIconVisible: boolean;
   macosTrayLogoRingShowPercentage: boolean;
   windowsTaskbarWidgetPlacement: WindowsTaskbarWidgetPlacement;
+  windowsQuotaOnboardingCompleted: boolean;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;
@@ -477,4 +478,5 @@ export type AppSettings = {
 export type UpdateSettingsOptions = {
   silent?: boolean;
   keepInteractive?: boolean;
+  throwOnError?: boolean;
 };
