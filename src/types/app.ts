@@ -456,6 +456,7 @@ export type AppSettings = {
   macosTrayLogoRingShowPercentage: boolean;
   windowsTaskbarWidgetPlacement: WindowsTaskbarWidgetPlacement;
   windowsQuotaOnboardingCompleted: boolean;
+  macosQuotaOnboardingCompleted: boolean;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;

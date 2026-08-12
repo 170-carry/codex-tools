@@ -4,6 +4,7 @@ import {
   applyLiveQuotaDisplayUpdate,
   canDisableQuotaDisplay,
   hasActiveQuotaDisplay,
+  shouldOpenQuotaOnboarding,
 } from "../src/utils/quotaDisplayOnboarding.ts";
 
 test("at least one quota display remains enabled", () => {
@@ -48,4 +49,43 @@ test("failed live updates restore the previous selection", async () => {
 
   assert.equal(applied, false);
   assert.equal(enabled, false);
+});
+
+test("onboarding completion is tracked independently for Windows and macOS", () => {
+  assert.equal(
+    shouldOpenQuotaOnboarding({
+      platform: "windows",
+      settingsLoaded: true,
+      windowsCompleted: false,
+      macosCompleted: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldOpenQuotaOnboarding({
+      platform: "macos",
+      settingsLoaded: true,
+      windowsCompleted: true,
+      macosCompleted: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldOpenQuotaOnboarding({
+      platform: "macos",
+      settingsLoaded: false,
+      windowsCompleted: false,
+      macosCompleted: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldOpenQuotaOnboarding({
+      platform: null,
+      settingsLoaded: true,
+      windowsCompleted: false,
+      macosCompleted: false,
+    }),
+    false,
+  );
 });

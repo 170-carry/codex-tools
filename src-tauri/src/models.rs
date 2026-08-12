@@ -673,6 +673,8 @@ pub(crate) struct AppSettings {
     pub(crate) windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement,
     #[serde(default)]
     pub(crate) windows_quota_onboarding_completed: bool,
+    #[serde(default)]
+    pub(crate) macos_quota_onboarding_completed: bool,
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
@@ -715,6 +717,7 @@ impl Default for AppSettings {
             macos_tray_logo_ring_show_percentage: true,
             windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement::Left,
             windows_quota_onboarding_completed: false,
+            macos_quota_onboarding_completed: false,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
             launch_codex_as_admin: false,
@@ -752,6 +755,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) macos_tray_logo_ring_show_percentage: Option<bool>,
     pub(crate) windows_taskbar_widget_placement: Option<WindowsTaskbarWidgetPlacement>,
     pub(crate) windows_quota_onboarding_completed: Option<bool>,
+    pub(crate) macos_quota_onboarding_completed: Option<bool>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) launch_codex_as_admin: Option<bool>,
@@ -1045,6 +1049,7 @@ mod tests {
             WindowsTaskbarWidgetPlacement::Left
         );
         assert!(!AppSettings::default().windows_quota_onboarding_completed);
+        assert!(!AppSettings::default().macos_quota_onboarding_completed);
 
         let missing_mode: AppSettings = serde_json::from_value(json!({})).unwrap();
         assert_eq!(
@@ -1063,6 +1068,7 @@ mod tests {
             WindowsTaskbarWidgetPlacement::Left
         );
         assert!(!missing_mode.windows_quota_onboarding_completed);
+        assert!(!missing_mode.macos_quota_onboarding_completed);
 
         assert_eq!(
             serde_json::to_value(TrayUsageDisplayMode::OneWeekRemaining).unwrap(),
@@ -1084,7 +1090,8 @@ mod tests {
             "trayQuotaIconVisible": false,
             "macosTrayLogoRingShowPercentage": false,
             "windowsTaskbarWidgetPlacement": "floating",
-            "windowsQuotaOnboardingCompleted": true
+            "windowsQuotaOnboardingCompleted": true,
+            "macosQuotaOnboardingCompleted": true
         }))
         .unwrap();
         assert_eq!(
@@ -1103,6 +1110,7 @@ mod tests {
             Some(WindowsTaskbarWidgetPlacement::Left)
         );
         assert_eq!(patch.windows_quota_onboarding_completed, Some(true));
+        assert_eq!(patch.macos_quota_onboarding_completed, Some(true));
 
         let legacy_patch: AppSettingsPatch = serde_json::from_value(json!({
             "macosTrayQuotaIconVisible": false

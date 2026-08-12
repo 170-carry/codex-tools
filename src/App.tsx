@@ -17,6 +17,10 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useCodexController } from "./hooks/useCodexController";
 import { useThemeMode } from "./hooks/useThemeMode";
+import {
+  shouldOpenQuotaOnboarding,
+  type QuotaOnboardingPlatform,
+} from "./utils/quotaDisplayOnboarding";
 
 type AppTab = "accounts" | "analytics" | "proxy" | "settings";
 const APP_MENU_OPEN_SETTINGS_EVENT = "app-menu-open-settings";
@@ -27,6 +31,13 @@ function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
   const { themeMode, toggleTheme } = useThemeMode();
   const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  const isMacos =
+    typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const quotaOnboardingPlatform: QuotaOnboardingPlatform = isWindows
+    ? "windows"
+    : isMacos
+      ? "macos"
+      : null;
   const {
     accounts,
     tokenUsage,
@@ -298,11 +309,13 @@ function App() {
           onInstallNow={() => void installPendingUpdate()}
         />
         <QuotaDisplayOnboardingDialog
-          open={
-            isWindows &&
-            settingsLoaded &&
-            !settings.windowsQuotaOnboardingCompleted
-          }
+          open={shouldOpenQuotaOnboarding({
+            platform: quotaOnboardingPlatform,
+            settingsLoaded,
+            windowsCompleted: settings.windowsQuotaOnboardingCompleted,
+            macosCompleted: settings.macosQuotaOnboardingCompleted,
+          })}
+          platform={quotaOnboardingPlatform === "macos" ? "macos" : "windows"}
           lightTheme={themeMode !== "dark"}
           settings={settings}
           saving={savingSettings}

@@ -70,6 +70,15 @@ export type MessageCatalog = {
     title: string;
     description: string;
     livePreview: string;
+    macTitle: string;
+    macDescription: string;
+    macLivePreview: string;
+    macStatusBarTitle: string;
+    macStatusBarDescription: string;
+    macStatusBarModeLabel: string;
+    macTrayTitle: string;
+    macTrayDescription: string;
+    macApplying: string;
     taskbarTitle: string;
     taskbarDescription: string;
     trayTitle: string;

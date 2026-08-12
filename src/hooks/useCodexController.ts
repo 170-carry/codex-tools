@@ -76,6 +76,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   macosTrayLogoRingShowPercentage: true,
   windowsTaskbarWidgetPlacement: "left",
   windowsQuotaOnboardingCompleted: false,
+  macosQuotaOnboardingCompleted: false,
   launchCodexAfterSwitch: true,
   smartSwitchIncludeApi: false,
   launchCodexAsAdmin: false,

@@ -69,6 +69,9 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.windows_quota_onboarding_completed {
             store.settings.windows_quota_onboarding_completed = value;
         }
+        if let Some(value) = patch.macos_quota_onboarding_completed {
+            store.settings.macos_quota_onboarding_completed = value;
+        }
         if let Some(value) = patch.launch_codex_after_switch {
             store.settings.launch_codex_after_switch = value;
         }
