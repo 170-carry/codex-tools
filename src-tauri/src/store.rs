@@ -13,6 +13,7 @@ use crate::auth::account_group_key;
 use crate::auth::account_variant_key;
 use crate::auth::current_auth_account_key;
 use crate::auth::extract_auth;
+use crate::auth::has_newer_auth_refresh_snapshot;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::write_active_codex_auth;
 use crate::models::dedupe_account_variants;
@@ -143,6 +144,7 @@ fn sync_current_auth_account_on_startup_with_auth(
             return Ok(());
         }
     };
+    let now = now_unix_seconds();
 
     let mut store = load_store_from_path(path)?;
     let extracted_account_key = account_group_key(&extracted.principal_id, &extracted.account_id);
@@ -170,6 +172,14 @@ fn sync_current_auth_account_on_startup_with_auth(
                     .unwrap_or_default()
             })
             .map(|account| account.id.clone());
+        let sync_target_account_id = cached_account_id.clone().or_else(|| {
+            store
+                .accounts
+                .iter()
+                .filter(|account| account.account_key() == extracted_account_key)
+                .max_by_key(|account| account.updated_at)
+                .map(|account| account.id.clone())
+        });
         let empty_current_variant_ids = store
             .accounts
             .iter()
@@ -180,31 +190,56 @@ fn sync_current_auth_account_on_startup_with_auth(
             })
             .map(|account| account.id.clone())
             .collect::<Vec<_>>();
+        let mut changed = false;
+
+        if let Some(sync_target_account_id) = sync_target_account_id {
+            if let Some(account) = store
+                .accounts
+                .iter_mut()
+                .find(|account| account.id == sync_target_account_id)
+            {
+                if has_newer_auth_refresh_snapshot(&auth_json, &account.auth_json) {
+                    account.auth_json = auth_json.clone();
+                    account.auth_refresh_blocked = false;
+                    account.auth_refresh_error = None;
+                    account.updated_at = now;
+                    account.principal_id = Some(extracted.principal_id.clone());
+                    if extracted.email.is_some() {
+                        account.email = extracted.email.clone();
+                    }
+                    if account.usage.is_none() {
+                        account.plan_type = extracted.plan_type.clone();
+                    }
+                    changed = true;
+                }
+            }
+        }
 
         if let Some(cached_account_id) = cached_account_id {
-            if empty_current_variant_ids.is_empty() {
-                return Ok(());
+            if !empty_current_variant_ids.is_empty() {
+                store.accounts.retain(|account| {
+                    !empty_current_variant_ids
+                        .iter()
+                        .any(|account_id| account_id == &account.id)
+                });
+                if store
+                    .settings
+                    .active_account_id
+                    .as_ref()
+                    .is_some_and(|active_id| empty_current_variant_ids.contains(active_id))
+                {
+                    store.settings.active_account_id = Some(cached_account_id);
+                }
+                changed = true;
             }
+        }
 
-            store.accounts.retain(|account| {
-                !empty_current_variant_ids
-                    .iter()
-                    .any(|account_id| account_id == &account.id)
-            });
-            if store
-                .settings
-                .active_account_id
-                .as_ref()
-                .is_some_and(|active_id| empty_current_variant_ids.contains(active_id))
-            {
-                store.settings.active_account_id = Some(cached_account_id);
-            }
+        if changed {
             save_store_to_path(path, &store)?;
         }
         return Ok(());
     }
 
-    let now = now_unix_seconds();
     let label = extracted
         .email
         .clone()
@@ -721,6 +756,16 @@ mod tests {
     }
 
     fn chatgpt_auth(email: &str, account_id: &str, plan_type: &str) -> serde_json::Value {
+        chatgpt_auth_with_refresh_token(email, account_id, plan_type, "test-refresh-token", 10)
+    }
+
+    fn chatgpt_auth_with_refresh_token(
+        email: &str,
+        account_id: &str,
+        plan_type: &str,
+        refresh_token: &str,
+        last_refresh: i64,
+    ) -> serde_json::Value {
         let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none","typ":"JWT"}"#);
         let payload = URL_SAFE_NO_PAD.encode(
             serde_json::to_vec(&json!({
@@ -735,11 +780,12 @@ mod tests {
 
         json!({
             "auth_mode": "chatgpt",
+            "last_refresh": last_refresh,
             "tokens": {
                 "access_token": "test-access-token",
                 "id_token": format!("{header}.{payload}.signature"),
                 "account_id": account_id,
-                "refresh_token": "test-refresh-token"
+                "refresh_token": refresh_token
             }
         })
     }
@@ -775,6 +821,90 @@ mod tests {
                 .and_then(|usage| usage.five_hour.as_ref())
                 .map(|window| window.used_percent),
             Some(28.0)
+        );
+    }
+
+    #[test]
+    fn startup_sync_adopts_newer_auth_and_clears_stale_refresh_block() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut store = sample_store("upgraded", "workspace-1", 10);
+        store.accounts[0].usage = Some(usage_snapshot("pro"));
+        store.accounts[0].auth_json = chatgpt_auth_with_refresh_token(
+            "upgraded@example.com",
+            "workspace-1",
+            "pro",
+            "refresh-old",
+            10,
+        );
+        store.accounts[0].auth_refresh_blocked = true;
+        store.accounts[0].auth_refresh_error = Some("stale refresh failure".to_string());
+        let original_id = store.accounts[0].id.clone();
+        save_store_to_path(&store_path, &store).expect("save blocked account store");
+
+        sync_current_auth_account_on_startup_with_auth(
+            &store_path,
+            chatgpt_auth_with_refresh_token(
+                "upgraded@example.com",
+                "workspace-1",
+                "pro",
+                "refresh-new",
+                20,
+            ),
+        )
+        .expect("sync newer auth snapshot");
+
+        let loaded = load_store_from_path(&store_path).expect("load healed account store");
+        assert_eq!(loaded.accounts.len(), 1);
+        assert_eq!(loaded.accounts[0].id, original_id);
+        assert!(loaded.accounts[0].usage.is_some());
+        assert!(!loaded.accounts[0].auth_refresh_blocked);
+        assert!(loaded.accounts[0].auth_refresh_error.is_none());
+        assert_eq!(
+            loaded.accounts[0]
+                .auth_json
+                .get("tokens")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|tokens| tokens.get("refresh_token"))
+                .and_then(serde_json::Value::as_str),
+            Some("refresh-new")
+        );
+    }
+
+    #[test]
+    fn startup_sync_keeps_refresh_block_for_an_older_snapshot() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut store = sample_store("upgraded", "workspace-1", 10);
+        store.accounts[0].usage = Some(usage_snapshot("pro"));
+        store.accounts[0].auth_json = chatgpt_auth_with_refresh_token(
+            "upgraded@example.com",
+            "workspace-1",
+            "pro",
+            "refresh-current",
+            20,
+        );
+        store.accounts[0].auth_refresh_blocked = true;
+        store.accounts[0].auth_refresh_error = Some("real refresh failure".to_string());
+        save_store_to_path(&store_path, &store).expect("save blocked account store");
+
+        sync_current_auth_account_on_startup_with_auth(
+            &store_path,
+            chatgpt_auth_with_refresh_token(
+                "upgraded@example.com",
+                "workspace-1",
+                "pro",
+                "refresh-older",
+                10,
+            ),
+        )
+        .expect("ignore older auth snapshot");
+
+        let loaded = load_store_from_path(&store_path).expect("load blocked account store");
+        assert!(loaded.accounts[0].auth_refresh_blocked);
+        assert_eq!(
+            loaded.accounts[0].auth_refresh_error.as_deref(),
+            Some("real refresh failure")
         );
     }
 

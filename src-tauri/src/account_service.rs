@@ -25,6 +25,7 @@ use crate::auth::auth_tokens_need_keepalive_refresh;
 use crate::auth::current_auth_account_key;
 use crate::auth::current_auth_variant_key;
 use crate::auth::extract_auth;
+use crate::auth::has_newer_auth_refresh_snapshot;
 #[cfg(debug_assertions)]
 use crate::auth::log_current_auth_parse_diagnostic;
 use crate::auth::normalize_imported_auth_json;
@@ -875,6 +876,9 @@ fn build_refresh_targets(
             .filter(|(current_account_key, _)| current_account_key == &account_key);
         let auth_is_current = current_override.is_some();
         let store_auth_json = account.auth_json.clone();
+        let current_override_has_newer_auth = current_override.is_some_and(|(_, auth_json)| {
+            has_newer_auth_refresh_snapshot(auth_json, &store_auth_json)
+        });
         let auth_json = current_override
             .map(|(_, auth_json)| auth_json.clone())
             .unwrap_or(account.auth_json);
@@ -884,8 +888,12 @@ fn build_refresh_targets(
             auth_json,
             store_auth_json,
             auth_is_current,
-            auth_refresh_blocked: account.auth_refresh_blocked,
-            auth_refresh_error: account.auth_refresh_error.clone(),
+            auth_refresh_blocked: account.auth_refresh_blocked && !current_override_has_newer_auth,
+            auth_refresh_error: if current_override_has_newer_auth {
+                None
+            } else {
+                account.auth_refresh_error.clone()
+            },
             updated_at: account.updated_at,
         };
 
@@ -992,18 +1000,30 @@ async fn latest_account_auth_json(
         })
         .map(|account| account.auth_json);
 
-    // 在同一把 auth 锁内优先采用与任务输入不同的持久化快照，避免当前 auth 文件较旧时覆盖新导入的 store 快照。
+    // 在同一把 auth 锁内从当前文件和持久化记录中选择时间最新的轮换快照，
+    // 避免旧快照覆盖刚登录或刚刷新的授权。
     let reference_refresh_token = auth_json_refresh_token(reference_auth_json);
-    let store_refresh_token = store_auth_json.as_ref().and_then(auth_json_refresh_token);
-    if store_refresh_token.is_some() && store_refresh_token != reference_refresh_token {
-        return store_auth_json;
+    let mut candidates = Vec::with_capacity(2);
+    if let Some(store_auth_json) = store_auth_json {
+        candidates.push((store_auth_json, 0_u8));
     }
-    let current_refresh_token = current_auth_json.as_ref().and_then(auth_json_refresh_token);
-    if current_refresh_token.is_some() && current_refresh_token != reference_refresh_token {
-        return current_auth_json;
+    if let Some(current_auth_json) = current_auth_json {
+        candidates.push((current_auth_json, 1_u8));
     }
 
-    current_auth_json.or(store_auth_json)
+    candidates
+        .into_iter()
+        .filter(|(candidate, _)| {
+            let candidate_refresh_token = auth_json_refresh_token(candidate);
+            candidate_refresh_token.is_some() && candidate_refresh_token != reference_refresh_token
+        })
+        .max_by_key(|(candidate, current_auth_priority)| {
+            (
+                auth_last_refresh_unix_seconds(candidate).unwrap_or(i64::MIN),
+                *current_auth_priority,
+            )
+        })
+        .map(|(candidate, _)| candidate)
 }
 
 pub(crate) async fn refresh_latest_auth_json_if_newer(
@@ -1016,9 +1036,7 @@ pub(crate) async fn refresh_latest_auth_json_if_newer(
         return auth_json.clone();
     };
 
-    let current_refresh_token = auth_json_refresh_token(auth_json);
-    let latest_refresh_token = auth_json_refresh_token(&latest);
-    if latest_refresh_token.is_some() && latest_refresh_token != current_refresh_token {
+    if has_newer_auth_refresh_snapshot(&latest, auth_json) {
         log::info!("刷新前检测到账号已有更新后的授权快照，改用最新快照 account_key={account_key}");
         return latest;
     }
@@ -1170,10 +1188,16 @@ async fn refresh_usage_for_target(
     let mut auth_refresh_blocked = target.auth_refresh_blocked;
     let mut auth_refresh_error = target.auth_refresh_error.clone();
 
-    if force_auth_refresh && !auth_refresh_blocked {
-        working_auth_json =
+    if force_auth_refresh {
+        let latest_auth_json =
             refresh_latest_auth_json_if_newer(app, state, &target.account_key, &working_auth_json)
                 .await;
+        if latest_auth_json != working_auth_json {
+            working_auth_json = latest_auth_json;
+            auth_refreshed = true;
+            auth_refresh_blocked = false;
+            auth_refresh_error = None;
+        }
     }
 
     if force_auth_refresh
@@ -2113,6 +2137,7 @@ fn normalize_import_source(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::build_refresh_targets;
     use super::expand_import_json_content;
     use super::is_stale_refresh_snapshot_error;
     use super::keepalive_max_last_refresh_age_secs;
@@ -2249,6 +2274,56 @@ mod tests {
             resolve_usage_first_plan_type(Some(&usage_snapshot("free")), Some("pro".to_string()));
 
         assert_eq!(resolved.as_deref(), Some("free"));
+    }
+
+    #[test]
+    fn current_auth_override_clears_only_a_stale_refresh_block() {
+        let stored_auth = json!({
+            "last_refresh": 10,
+            "tokens": { "refresh_token": "refresh-old" }
+        });
+        let current_auth = json!({
+            "last_refresh": 20,
+            "tokens": { "refresh_token": "refresh-new" }
+        });
+        let account = StoredAccount {
+            id: "blocked".to_string(),
+            label: "blocked".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("shared@example.com".to_string()),
+            email: Some("shared@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: Some("plus".to_string()),
+            auth_json: stored_auth.clone(),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 10,
+            usage: Some(usage_snapshot("plus")),
+            usage_error: None,
+            auth_refresh_blocked: true,
+            auth_refresh_error: Some("stale refresh failure".to_string()),
+            api_proxy_enabled: true,
+        };
+        let account_key = account.account_key();
+
+        let targets =
+            build_refresh_targets(vec![account], Some(&(account_key, current_auth.clone())));
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].auth_json, current_auth);
+        assert_eq!(targets[0].store_auth_json, stored_auth);
+        assert!(!targets[0].auth_refresh_blocked);
+        assert!(targets[0].auth_refresh_error.is_none());
     }
 
     #[test]

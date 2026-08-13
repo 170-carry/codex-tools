@@ -609,6 +609,34 @@ pub(crate) fn auth_last_refresh_unix_seconds(auth_json: &Value) -> Option<i64> {
         .and_then(last_refresh_unix_seconds)
 }
 
+pub(crate) fn has_newer_auth_refresh_snapshot(candidate: &Value, reference: &Value) -> bool {
+    let candidate_refresh_token = auth_token_object(candidate)
+        .and_then(|tokens| tokens.get("refresh_token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let reference_refresh_token = auth_token_object(reference)
+        .and_then(|tokens| tokens.get("refresh_token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if candidate_refresh_token.is_none() || candidate_refresh_token == reference_refresh_token {
+        return false;
+    }
+
+    match (
+        auth_last_refresh_unix_seconds(candidate),
+        auth_last_refresh_unix_seconds(reference),
+    ) {
+        (Some(candidate_refreshed_at), Some(reference_refreshed_at)) => {
+            candidate_refreshed_at >= reference_refreshed_at
+        }
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
 pub(crate) fn account_group_key(principal_id: &str, account_id: &str) -> String {
     format!("{}|{}", principal_id.trim(), account_id.trim())
 }
@@ -1330,6 +1358,30 @@ mod tests {
             .to_string(),
         );
         format!("header.{payload}.signature")
+    }
+
+    #[test]
+    fn detects_only_newer_rotated_refresh_snapshots() {
+        let reference = json!({
+            "last_refresh": 100,
+            "tokens": { "refresh_token": "refresh-old" }
+        });
+        let newer = json!({
+            "last_refresh": 200,
+            "tokens": { "refresh_token": "refresh-new" }
+        });
+        let same_token = json!({
+            "last_refresh": 300,
+            "tokens": { "refresh_token": "refresh-old" }
+        });
+        let older = json!({
+            "last_refresh": 50,
+            "tokens": { "refresh_token": "refresh-older" }
+        });
+
+        assert!(has_newer_auth_refresh_snapshot(&newer, &reference));
+        assert!(!has_newer_auth_refresh_snapshot(&same_token, &reference));
+        assert!(!has_newer_auth_refresh_snapshot(&older, &reference));
     }
 
     #[test]
