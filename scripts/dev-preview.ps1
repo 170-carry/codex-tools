@@ -26,13 +26,16 @@ function Copy-IfMissing {
     Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
-$prodAppDataDir = Join-Path $env:APPDATA "com.carry.codex-tools"
-Copy-IfMissing -Source (Join-Path $prodAppDataDir "accounts.json") -Destination (Join-Path $appDataDir "accounts.json")
-Copy-IfMissing -Source (Join-Path $prodAppDataDir "profiles") -Destination (Join-Path $appDataDir "profiles")
-
 $prodCodexDir = Join-Path $env:USERPROFILE ".codex"
-Copy-IfMissing -Source (Join-Path $prodCodexDir "auth.json") -Destination (Join-Path $codexDir "auth.json")
 Copy-IfMissing -Source (Join-Path $prodCodexDir "config.toml") -Destination (Join-Path $codexDir "config.toml")
+
+# Never seed the isolated preview with production account or auth snapshots.
+# OAuth refresh tokens can rotate, so using one copied token in two runtimes can
+# invalidate the other runtime. Existing isolated data is intentionally kept;
+# sign in inside the preview to create independent credentials.
+if (!(Test-Path -LiteralPath (Join-Path $appDataDir "accounts.json"))) {
+    Write-Host "Isolated preview account library is empty; sign in inside the preview app."
+}
 
 $env:CODEX_TOOLS_DEV_DATA_DIR = $appDataDir
 $env:CODEX_TOOLS_DEV_CODEX_DIR = $codexDir
