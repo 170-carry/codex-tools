@@ -5,6 +5,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::thread::JoinHandle as ThreadJoinHandle;
+use std::time::Instant;
 
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
@@ -26,10 +27,18 @@ pub(crate) struct UsageRefreshFlight {
     pub(crate) future: Shared<BoxFuture<'static, UsageRefreshResult>>,
 }
 
+#[derive(Clone)]
+pub(crate) struct UsageRefreshSuccess {
+    pub(crate) completed_at: Instant,
+    pub(crate) force_auth_refresh: bool,
+    pub(crate) summaries: Vec<AccountSummary>,
+}
+
 #[derive(Default)]
 pub(crate) struct UsageRefreshCoordinator {
     pub(crate) next_id: u64,
     pub(crate) current: Option<UsageRefreshFlight>,
+    pub(crate) last_successful: Option<UsageRefreshSuccess>,
 }
 
 #[derive(Debug, Clone)]

@@ -5,6 +5,8 @@ use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
+use std::time::Instant;
 
 use futures_util::future::FutureExt;
 use futures_util::stream;
@@ -75,6 +77,7 @@ const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进�
 // 账号刷新主要等待外部 HTTP 响应，因此按 CPU 给 2 倍并发；同时用可用内存做下限保护。
 const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
 const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
+const USAGE_REFRESH_REUSE_WINDOW: Duration = Duration::from_secs(25);
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -697,6 +700,25 @@ pub(crate) async fn refresh_all_usage_coordinated(
                     flight.future.clone(),
                     true,
                 )
+            } else if coordinator.last_successful.as_ref().is_some_and(|success| {
+                should_reuse_successful_usage_refresh(
+                    success.completed_at,
+                    success.force_auth_refresh,
+                    force_auth_refresh,
+                    Instant::now(),
+                )
+            }) {
+                let success = coordinator
+                    .last_successful
+                    .as_ref()
+                    .expect("recent success checked above");
+                log::info!(
+                    "USAGE_REFRESH_COORDINATOR source={} action=reuse_recent requested_force_auth={} cached_force_auth={}",
+                    source,
+                    force_auth_refresh,
+                    success.force_auth_refresh,
+                );
+                return Ok(success.summaries.clone());
             } else {
                 coordinator.next_id = coordinator.next_id.wrapping_add(1).max(1);
                 let flight_id = coordinator.next_id;
@@ -735,6 +757,13 @@ pub(crate) async fn refresh_all_usage_coordinated(
             {
                 coordinator.current = None;
             }
+            if let Ok(summaries) = result.as_ref() {
+                coordinator.last_successful = Some(crate::state::UsageRefreshSuccess {
+                    completed_at: Instant::now(),
+                    force_auth_refresh: flight_force_auth_refresh,
+                    summaries: summaries.clone(),
+                });
+            }
         }
 
         if joined && force_auth_refresh && !flight_force_auth_refresh {
@@ -754,6 +783,16 @@ pub(crate) async fn refresh_all_usage_coordinated(
         );
         return result;
     }
+}
+
+fn should_reuse_successful_usage_refresh(
+    completed_at: Instant,
+    completed_force_auth_refresh: bool,
+    requested_force_auth_refresh: bool,
+    now: Instant,
+) -> bool {
+    (!requested_force_auth_refresh || completed_force_auth_refresh)
+        && now.saturating_duration_since(completed_at) < USAGE_REFRESH_REUSE_WINDOW
 }
 
 async fn refresh_usage_targets_with_workers(
@@ -2083,6 +2122,7 @@ mod tests {
     use super::resolve_usage_first_plan_type;
     use super::should_refresh_membership_auth;
     use super::should_retry_with_token_refresh;
+    use super::should_reuse_successful_usage_refresh;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
     use super::PreparedImport;
@@ -2090,6 +2130,7 @@ mod tests {
     use super::KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS;
     use super::KEEPALIVE_LAST_REFRESH_JITTER_SECS;
     use super::USAGE_AUTH_TOKEN_EXPIRED_NOTICE;
+    use super::USAGE_REFRESH_REUSE_WINDOW;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use crate::models::TestApiAccountConnectionInput;
@@ -2098,6 +2139,50 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use serde_json::json;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    #[test]
+    fn recent_lightweight_refresh_is_reused_for_another_lightweight_request() {
+        let now = Instant::now();
+
+        assert!(should_reuse_successful_usage_refresh(
+            now - Duration::from_secs(5),
+            false,
+            false,
+            now,
+        ));
+    }
+
+    #[test]
+    fn forced_refresh_requires_a_recent_forced_result() {
+        let now = Instant::now();
+
+        assert!(!should_reuse_successful_usage_refresh(
+            now - Duration::from_secs(5),
+            false,
+            true,
+            now,
+        ));
+        assert!(should_reuse_successful_usage_refresh(
+            now - Duration::from_secs(5),
+            true,
+            true,
+            now,
+        ));
+    }
+
+    #[test]
+    fn completed_refresh_expires_after_the_reuse_window() {
+        let now = Instant::now();
+
+        assert!(!should_reuse_successful_usage_refresh(
+            now - USAGE_REFRESH_REUSE_WINDOW,
+            true,
+            false,
+            now,
+        ));
+    }
 
     fn membership_auth_json(
         plan_type: &str,

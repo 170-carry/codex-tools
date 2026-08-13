@@ -36,7 +36,7 @@ use crate::windows_tray_icon::{render_windows_tray_icon, static_codex_tools_icon
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
-const REFRESH_INTERVAL_SECONDS: u64 = 30;
+const REFRESH_INTERVAL_SECONDS: u64 = 60;
 #[cfg(target_os = "windows")]
 const WINDOWS_WIDGET_STALE_AFTER_SECONDS: i64 = 10 * 60;
 
@@ -859,13 +859,6 @@ pub(crate) fn update_usage_surfaces_error(app: &AppHandle, error: &str) {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn main_window_is_visible(app: &AppHandle) -> bool {
-    app.get_webview_window("main")
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false)
-}
-
 #[cfg(all(target_os = "macos", debug_assertions))]
 fn log_macos_status_bar_resolution(
     context: &str,
@@ -949,16 +942,15 @@ fn log_macos_status_bar_render(context: &str, accounts: &[AccountSummary], title
 fn start_macos_tray_refresh_loop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            // 初始状态栏直接使用本地缓存，首轮等待一个周期，避免与前端首屏
-            // 刷新及后台认证检查重复请求。
+            // 状态栏刷新不依赖窗口可见性：最小化、被遮挡或留在其他空间的
+            // 主窗口仍可能被系统报告为可见。协调器会与前端和手动刷新共享
+            // in-flight 请求，并短时复用刚完成的结果，避免重复网络访问。
             tokio::time::sleep(Duration::from_secs(REFRESH_INTERVAL_SECONDS)).await;
-            if !main_window_is_visible(&app) {
-                let state = app.state::<AppState>();
-                if let Ok(summaries) =
-                    refresh_all_usage_coordinated(&app, state.inner(), false, "macos-hidden").await
-                {
-                    let _ = update_macos_tray_snapshot(&app, &summaries);
-                }
+            let state = app.state::<AppState>();
+            if let Ok(summaries) =
+                refresh_all_usage_coordinated(&app, state.inner(), false, "macos-status-bar").await
+            {
+                let _ = update_macos_tray_snapshot(&app, &summaries);
             }
         }
     });
@@ -1225,6 +1217,8 @@ mod tests {
     use super::tray_account_usage_line;
     #[cfg(target_os = "windows")]
     use super::tray_icon_percent;
+    #[cfg(target_os = "macos")]
+    use super::REFRESH_INTERVAL_SECONDS;
     use crate::models::AccountSummary;
     use crate::models::AppLocale;
     use crate::models::TrayUsageDisplayMode;
@@ -1234,6 +1228,12 @@ mod tests {
     use crate::models::WindowsTaskbarWidgetPlacement;
     #[cfg(target_os = "macos")]
     use crate::models::WindowsTrayIconStyle;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_status_bar_refreshes_once_per_minute() {
+        assert_eq!(REFRESH_INTERVAL_SECONDS, 60);
+    }
 
     fn current_account_with_usage() -> AccountSummary {
         AccountSummary {
