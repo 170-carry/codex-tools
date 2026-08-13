@@ -17,9 +17,9 @@ The menu bar and taskbar surfaces now support gradient number plate, gradient nu
 
 菜单栏与任务栏展示现在支持渐变数字方牌、渐变数字横牌、渐变数字、数字加进度条，以及图标加进度环；图标加进度环同时提供“仅进度环”和“显示精确百分比”两个子方案。Windows 与 macOS 的受支持展示面共用同一套持久化配置，修改后立即生效。
 
-| Before: legacy status item / 修改前：旧版状态项 | After: compact quota status item / 修改后：紧凑额度状态项 |
-| --- | --- |
-| ![Legacy macOS menu-bar quota status item before / 修改前的 macOS 旧版菜单栏额度状态项](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/energy-optimization/status-item-before.png) | ![Compact macOS menu-bar quota status item after / 修改后的 macOS 紧凑菜单栏额度状态项](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/energy-optimization/status-item-after.png) |
+**macOS menu-bar quota effect / macOS 菜单栏额度效果**
+
+![macOS menu-bar quota effect / macOS 菜单栏额度效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-menu-bar-quota-effect.png)
 
 ### 2. Native Windows taskbar and tray quota surfaces / Windows 原生任务栏与托盘额度展示
 
@@ -27,7 +27,9 @@ Windows can render quota information as a native taskbar child surface on either
 
 Windows 可将额度作为原生任务栏子组件放在任务栏左侧或右侧，也可以仅使用系统托盘图标。实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 与 Explorer 重建，采用预乘透明渲染，并限制 UI Automation 扫描频率。
 
-![Real Windows taskbar quota widget with taskbar context / 带任务栏上下文的真实 Windows 额度组件](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/windows-taskbar-widget/windows-taskbar-left-widget-context.png)
+**Windows taskbar quota effect / Windows 任务栏额度效果**
+
+![Windows taskbar quota effect / Windows 任务栏额度效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-taskbar-quota-effect.png)
 
 ### 3. macOS first-launch quota setup / macOS 首次启动额度设置
 
@@ -35,7 +37,9 @@ The macOS onboarding dialog configures classic status text and the compact quota
 
 macOS 首次设置对话框可分别配置经典文字额度栏和紧凑额度图标。两者都能独立启用或关闭，也允许同时关闭；全部视觉选择都会实时更新，完成状态与 Windows 引导分别持久化。界面不再包含模拟菜单栏截图或独立的预览说明文字。
 
-![macOS first-launch quota setup / macOS 首次启动额度设置](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-onboarding-after.png)
+**macOS first-launch quota setup effect / macOS 首次启动额度设置效果**
+
+![macOS first-launch quota setup effect / macOS 首次启动额度设置效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-first-launch-quota-setup.png)
 
 ### 4. Runtime recovery and authorization freshness / 运行时恢复与授权新鲜度
 
@@ -100,5 +104,5 @@ Fresh isolated previews no longer copy the production account store or productio
 ## Review notes / 审阅说明
 
 - The screenshots use isolated, empty application data and contain no account identifiers or credentials. / 截图使用隔离的空白应用数据，不包含账号标识或凭据。
-- The comparison media intentionally shows real or simulated-real quota surfaces, widgets, icons, and first-launch UI; settings-page screenshots are excluded. / 对照媒体仅展示实机或模拟实机的额度栏、组件、图标与首次启动界面，不包含设置页截图。
+- The visual evidence shows only the new quota surfaces and first-launch UI. Because these are newly added features, no before/after comparison is included, and settings-page screenshots remain excluded. / 视觉证据仅展示新增的额度栏与首次启动界面。由于这些均为新增功能，因此不提供修改前后对比，也不包含设置页截图。
 - All source changes and selected evidence files are synchronized in the final branch; the original ROG and macOS development worktrees remain preserved. / 所有源码修改与选定证据文件均已同步到最终分支；原 ROG 与 macOS 开发工作树保持不变。
