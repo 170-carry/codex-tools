@@ -703,6 +703,7 @@ pub(crate) async fn refresh_all_usage_coordinated(
                 )
             } else if coordinator.last_successful.as_ref().is_some_and(|success| {
                 should_reuse_successful_usage_refresh(
+                    source,
                     success.completed_at,
                     success.force_auth_refresh,
                     force_auth_refresh,
@@ -787,12 +788,16 @@ pub(crate) async fn refresh_all_usage_coordinated(
 }
 
 fn should_reuse_successful_usage_refresh(
+    source: &str,
     completed_at: Instant,
     completed_force_auth_refresh: bool,
     requested_force_auth_refresh: bool,
     now: Instant,
 ) -> bool {
-    (!requested_force_auth_refresh || completed_force_auth_refresh)
+    matches!(
+        source,
+        "foreground-timer" | "macos-status-bar" | "background-hidden"
+    ) && (!requested_force_auth_refresh || completed_force_auth_refresh)
         && now.saturating_duration_since(completed_at) < USAGE_REFRESH_REUSE_WINDOW
 }
 
@@ -2172,6 +2177,7 @@ mod tests {
         let now = Instant::now();
 
         assert!(should_reuse_successful_usage_refresh(
+            "macos-status-bar",
             now - Duration::from_secs(5),
             false,
             false,
@@ -2184,12 +2190,14 @@ mod tests {
         let now = Instant::now();
 
         assert!(!should_reuse_successful_usage_refresh(
+            "foreground-timer",
             now - Duration::from_secs(5),
             false,
             true,
             now,
         ));
         assert!(should_reuse_successful_usage_refresh(
+            "background-hidden",
             now - Duration::from_secs(5),
             true,
             true,
@@ -2202,11 +2210,27 @@ mod tests {
         let now = Instant::now();
 
         assert!(!should_reuse_successful_usage_refresh(
+            "macos-status-bar",
             now - USAGE_REFRESH_REUSE_WINDOW,
             true,
             false,
             now,
         ));
+    }
+
+    #[test]
+    fn interactive_refreshes_never_reuse_a_recent_result() {
+        let now = Instant::now();
+
+        for source in ["startup", "manual", "account-import", "frontend"] {
+            assert!(!should_reuse_successful_usage_refresh(
+                source,
+                now - Duration::from_secs(5),
+                true,
+                false,
+                now,
+            ));
+        }
     }
 
     fn membership_auth_json(
