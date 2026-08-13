@@ -19,8 +19,6 @@
     "description": "新しいバージョンでは、Windows のタスクバーとシステムトレイに使用量を常時表示できます。少なくとも 1 つを有効にしてください。後から設定で変更できます。",
     "livePreview": "選択内容は Windows のタスクバーとシステムトレイにすぐ反映されます。",
     "macTitle": "macOS の使用量バーを設定",
-    "macDescription": "macOS のメニューバーで使用量を確認する方法を選択します。少なくとも 1 つを有効にしてください。後から設定で変更できます。",
-    "macLivePreview": "選択内容は macOS のメニューバーにすぐ反映されます。",
     "macStatusBarTitle": "クラシックテキスト使用量バー",
     "macStatusBarDescription": "現在の使用量をメニューバーにテキストで直接表示します。",
     "macStatusBarModeLabel": "クラシックテキスト使用量バーの表示モード",

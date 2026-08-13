@@ -547,18 +547,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .quotaOnboardingMacPreview {
-    padding: 0 10px;
-  }
-
-  .quotaOnboardingMacSurfaces {
-    gap: 8px;
-  }
-
-  .quotaOnboardingMacClock {
-    display: none;
-  }
-
 }
 
 @media (max-width: 620px) {

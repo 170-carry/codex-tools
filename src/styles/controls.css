@@ -749,78 +749,9 @@
   outline-offset: 2px;
 }
 
-.quotaOnboardingMacPreview {
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--line) 78%, #a7b4c8 22%);
-  border-radius: 10px;
-  padding: 0 16px;
-  color: #182033;
-  background: rgba(245, 247, 250, 0.96);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.9),
-    0 6px 18px rgba(38, 69, 113, 0.1);
-  font: 600 0.76rem/1 var(--font-ui);
-}
-
-[data-theme="dark"] .quotaOnboardingMacPreview {
-  border-color: rgba(255, 255, 255, 0.15);
-  color: #f2f5fa;
-  background: rgba(31, 35, 42, 0.96);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.08),
-    0 6px 18px rgba(0, 0, 0, 0.2);
-}
-
-.quotaOnboardingMacAppName {
-  flex: 0 0 auto;
-  font-weight: 720;
-}
-
-.quotaOnboardingMacSurfaces {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-}
-
-.quotaOnboardingMacTextSurface,
-.quotaOnboardingMacClock {
-  white-space: nowrap;
-}
-
-.quotaOnboardingMacIconSurface {
-  min-width: 34px;
-  min-height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-}
-
-.quotaOnboardingMacIconSurface img {
-  max-width: 64px;
-  max-height: 26px;
-  object-fit: contain;
-}
-
-.quotaOnboardingMacIconSurface strong {
-  font: 650 0.7rem/1 var(--font-ui);
-}
-
 .quotaOnboardingMacModeGroup {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.quotaOnboardingLogoRingVariants {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 /* The onboarding preview uses a real Windows 11 taskbar capture as its base.
@@ -970,7 +901,8 @@
   gap: 8px;
 }
 
-.quotaOnboardingIconGrid > button {
+.quotaOnboardingIconGrid > button,
+.quotaOnboardingIconGrid > .quotaOnboardingIconCompound {
   min-width: 0;
   min-height: 70px;
   display: flex;
@@ -1014,6 +946,57 @@
   max-width: 76px;
   max-height: 36px;
   object-fit: contain;
+}
+
+.quotaOnboardingIconCompound {
+  flex-direction: row !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  gap: 0 !important;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.quotaOnboardingIconCompoundVariant {
+  width: 50%;
+  min-width: 0;
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 2px;
+  color: var(--subtle);
+  background: transparent;
+  box-shadow: none;
+}
+
+.quotaOnboardingIconCompoundVariant + .quotaOnboardingIconCompoundVariant {
+  border-left: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+}
+
+.quotaOnboardingIconCompoundVariant:hover:not(:disabled),
+.quotaOnboardingIconCompoundVariant:focus-visible {
+  transform: none;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--brand-soft) 16%, var(--card) 84%);
+  box-shadow: none;
+}
+
+.quotaOnboardingIconCompoundVariant.isSelected {
+  color: var(--brand-strong);
+  background: color-mix(in srgb, var(--brand-soft) 48%, var(--card) 52%);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--brand) 54%, transparent);
+}
+
+.quotaOnboardingIconCompoundLabel {
+  max-width: 100%;
+  font: 600 0.56rem/1.15 var(--font-ui);
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .quotaOnboardingFooter {

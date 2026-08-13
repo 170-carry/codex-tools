@@ -2,10 +2,58 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyLiveQuotaDisplayUpdate,
+  buildMacosQuotaOnboardingPatch,
   canDisableQuotaDisplay,
   hasActiveQuotaDisplay,
   shouldOpenQuotaOnboarding,
 } from "../src/utils/quotaDisplayOnboarding.ts";
+
+test("macOS confirmation reapplies the complete selected configuration", () => {
+  assert.deepEqual(
+    buildMacosQuotaOnboardingPatch({
+      statusBarEnabled: true,
+      statusBarMode: "remaining",
+      trayEnabled: false,
+      trayIconStyle: "logoProgressRing",
+      showLogoRingPercentage: false,
+    }),
+    {
+      trayUsageDisplayMode: "remaining",
+      windowsTrayIconStyle: "logoProgressRing",
+      trayQuotaIconVisible: false,
+      macosTrayLogoRingShowPercentage: false,
+      macosQuotaOnboardingCompleted: true,
+    },
+  );
+});
+
+test("macOS confirmation persists hidden status text when only the quota icon is enabled", () => {
+  const patch = buildMacosQuotaOnboardingPatch({
+    statusBarEnabled: false,
+    statusBarMode: "oneWeekRemaining",
+    trayEnabled: true,
+    trayIconStyle: "gradientNumberPlate",
+    showLogoRingPercentage: true,
+  });
+
+  assert.equal(patch.trayUsageDisplayMode, "hidden");
+  assert.equal(patch.trayQuotaIconVisible, true);
+  assert.equal(patch.macosQuotaOnboardingCompleted, true);
+});
+
+test("macOS confirmation allows both quota displays to remain disabled", () => {
+  const patch = buildMacosQuotaOnboardingPatch({
+    statusBarEnabled: false,
+    statusBarMode: "oneWeekRemaining",
+    trayEnabled: false,
+    trayIconStyle: "gradientNumber",
+    showLogoRingPercentage: false,
+  });
+
+  assert.equal(patch.trayUsageDisplayMode, "hidden");
+  assert.equal(patch.trayQuotaIconVisible, false);
+  assert.equal(patch.macosQuotaOnboardingCompleted, true);
+});
 
 test("at least one quota display remains enabled", () => {
   assert.equal(hasActiveQuotaDisplay(true, false), true);

@@ -1,3 +1,9 @@
+import type {
+  AppSettings,
+  TrayUsageDisplayMode,
+  WindowsTrayIconStyle,
+} from "../types/app";
+
 export function hasActiveQuotaDisplay(taskbarEnabled: boolean, trayEnabled: boolean): boolean {
   return taskbarEnabled || trayEnabled;
 }
@@ -40,4 +46,27 @@ export async function applyLiveQuotaDisplayUpdate<TPatch>(options: {
     options.rollbackLocal();
     return false;
   }
+}
+
+export function buildMacosQuotaOnboardingPatch(options: {
+  statusBarEnabled: boolean;
+  statusBarMode: Exclude<TrayUsageDisplayMode, "hidden">;
+  trayEnabled: boolean;
+  trayIconStyle: WindowsTrayIconStyle;
+  showLogoRingPercentage: boolean;
+}): Pick<
+  AppSettings,
+  | "trayUsageDisplayMode"
+  | "windowsTrayIconStyle"
+  | "trayQuotaIconVisible"
+  | "macosTrayLogoRingShowPercentage"
+  | "macosQuotaOnboardingCompleted"
+> {
+  return {
+    trayUsageDisplayMode: options.statusBarEnabled ? options.statusBarMode : "hidden",
+    windowsTrayIconStyle: options.trayIconStyle,
+    trayQuotaIconVisible: options.trayEnabled,
+    macosTrayLogoRingShowPercentage: options.showLogoRingPercentage,
+    macosQuotaOnboardingCompleted: true,
+  };
 }

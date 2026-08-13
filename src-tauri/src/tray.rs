@@ -794,7 +794,7 @@ pub(crate) fn update_usage_surfaces_snapshot(
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        return update_macos_tray_snapshot(app, accounts);
+        update_macos_tray_snapshot(app, accounts)
     }
     #[cfg(target_os = "windows")]
     {
@@ -816,7 +816,7 @@ pub(crate) fn update_usage_surfaces_snapshot(
 pub(crate) fn refresh_usage_surfaces_snapshot(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        return refresh_macos_tray_snapshot(app);
+        refresh_macos_tray_snapshot(app)
     }
     #[cfg(target_os = "windows")]
     {
@@ -967,7 +967,7 @@ fn start_macos_tray_refresh_loop(app: AppHandle) {
 #[cfg(target_os = "macos")]
 fn create_macos_status_bar_trays(
     app: &AppHandle,
-    log_context: &str,
+    _log_context: &str,
 ) -> Result<(tray_icon::TrayIcon, tray_icon::TrayIcon), String> {
     use tray_icon::TrayIconBuilder;
 
@@ -996,7 +996,7 @@ fn create_macos_status_bar_trays(
     );
     #[cfg(debug_assertions)]
     log_macos_status_bar_resolution(
-        log_context,
+        _log_context,
         &store,
         &summaries,
         current_account_key.as_deref(),
@@ -1005,7 +1005,7 @@ fn create_macos_status_bar_trays(
     let title = build_tray_usage_title(&summaries, mode, show_window_labels);
     let tooltip = build_macos_tray_tooltip(&summaries, mode, locale);
     #[cfg(debug_assertions)]
-    log_macos_status_bar_render(log_context, &summaries, &title);
+    log_macos_status_bar_render(_log_context, &summaries, &title);
 
     let quota_mode = TrayUsageDisplayMode::Remaining;
     let percent = quota_icon_percent(&summaries);

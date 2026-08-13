@@ -71,8 +71,6 @@ export type MessageCatalog = {
     description: string;
     livePreview: string;
     macTitle: string;
-    macDescription: string;
-    macLivePreview: string;
     macStatusBarTitle: string;
     macStatusBarDescription: string;
     macStatusBarModeLabel: string;

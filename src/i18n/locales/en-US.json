@@ -19,8 +19,6 @@
     "description": "The new version can keep quota visible in the Windows taskbar and system tray. Enable at least one option. You can change this later in Settings.",
     "livePreview": "Changes are applied to the Windows taskbar and system tray immediately.",
     "macTitle": "Set up the macOS quota bar",
-    "macDescription": "Choose how to view quota in the macOS menu bar. Enable at least one option. You can change this later in Settings.",
-    "macLivePreview": "Changes are applied to the macOS menu bar immediately.",
     "macStatusBarTitle": "Classic text quota bar",
     "macStatusBarDescription": "Show the current quota as text directly in the menu bar.",
     "macStatusBarModeLabel": "Classic text quota bar display mode",

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../i18n/I18nProvider";
 import {
   applyLiveQuotaDisplayUpdate,
+  buildMacosQuotaOnboardingPatch,
   canDisableQuotaDisplay,
   hasActiveQuotaDisplay,
 } from "../utils/quotaDisplayOnboarding";
@@ -41,6 +42,14 @@ type TrayVisualPreview = {
 type OperationError = "preview" | "confirm" | null;
 
 type VisibleTrayUsageDisplayMode = Exclude<TrayUsageDisplayMode, "hidden">;
+
+type MacosTrayIconOption = {
+  key: string;
+  style: WindowsTrayIconStyle;
+  label: string;
+  ariaLabel: string;
+  showLogoRingPercentage?: boolean;
+};
 
 type WindowsTaskbarPreviewProps = {
   showTaskbarQuota?: boolean;
@@ -182,54 +191,6 @@ export function QuotaDisplayOnboardingDialog({
   );
 }
 
-type MacosMenuBarPreviewProps = {
-  statusBarEnabled: boolean;
-  statusBarLabel: string;
-  trayEnabled: boolean;
-  trayPreview?: TrayVisualPreview;
-  trayPreviewScale: number;
-  showLogoRingPercentage: boolean;
-};
-
-function MacosMenuBarPreview({
-  statusBarEnabled,
-  statusBarLabel,
-  trayEnabled,
-  trayPreview,
-  trayPreviewScale,
-  showLogoRingPercentage,
-}: MacosMenuBarPreviewProps) {
-  return (
-    <div className="quotaOnboardingMacPreview" aria-hidden="true">
-      <span className="quotaOnboardingMacAppName">Codex Tools</span>
-      <span className="quotaOnboardingMacSurfaces">
-        {statusBarEnabled ? (
-          <span className="quotaOnboardingMacTextSurface">{statusBarLabel} 72%</span>
-        ) : null}
-        {trayEnabled ? (
-          <span className="quotaOnboardingMacIconSurface">
-            {trayPreview ? (
-              <img
-                src={trayPreview.dataUrl}
-                alt=""
-                draggable={false}
-                style={{
-                  width: `${trayPreview.pixelWidth / trayPreviewScale}px`,
-                  height: `${trayPreview.pixelHeight / trayPreviewScale}px`,
-                }}
-              />
-            ) : (
-              <span className="trayIconPreviewPlaceholder" />
-            )}
-            {showLogoRingPercentage ? <strong>72%</strong> : null}
-          </span>
-        ) : null}
-        <span className="quotaOnboardingMacClock">9:41</span>
-      </span>
-    </div>
-  );
-}
-
 function MacosQuotaDisplayOnboardingContent({
   lightTheme,
   settings,
@@ -260,8 +221,6 @@ function MacosQuotaDisplayOnboardingContent({
   const trayPreviewScale =
     typeof window !== "undefined" ? Math.max(1, window.devicePixelRatio || 1) : 1;
   const busy = saving || applying;
-  const hasActiveDisplay = hasActiveQuotaDisplay(statusBarEnabled, trayEnabled);
-  const selectedTrayPreview = trayVisualPreviews.find((item) => item.style === trayIconStyle);
   const statusBarModeOptions: Array<{
     value: VisibleTrayUsageDisplayMode;
     label: string;
@@ -271,26 +230,33 @@ function MacosQuotaDisplayOnboardingContent({
     { value: "fiveHourRemaining", label: copy.settings.trayUsageDisplay.fiveHourRemaining },
     { value: "oneWeekRemaining", label: copy.settings.trayUsageDisplay.oneWeekRemaining },
   ];
-  const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle; label: string }> = [
+  const logoProgressRingLabel = copy.settings.windowsTrayIconStyle.logoProgressRing;
+  const trayIconStyleOptions: MacosTrayIconOption[] = [
     {
-      value: "gradientNumberPlate",
+      key: "gradientNumberPlate",
+      style: "gradientNumberPlate",
       label: copy.settings.windowsTrayIconStyle.gradientNumberPlate,
+      ariaLabel: copy.settings.windowsTrayIconStyle.gradientNumberPlate,
     },
     {
-      value: "gradientNumberCard",
+      key: "gradientNumberCard",
+      style: "gradientNumberCard",
       label: copy.settings.windowsTrayIconStyle.gradientNumberCard,
+      ariaLabel: copy.settings.windowsTrayIconStyle.gradientNumberCard,
     },
-    { value: "gradientNumber", label: copy.settings.windowsTrayIconStyle.gradientNumber },
     {
-      value: "numberProgressBar",
-      label: copy.settings.windowsTrayIconStyle.numberProgressBar,
+      key: "gradientNumber",
+      style: "gradientNumber",
+      label: copy.settings.windowsTrayIconStyle.gradientNumber,
+      ariaLabel: copy.settings.windowsTrayIconStyle.gradientNumber,
     },
-    { value: "logoProgressRing", label: copy.settings.windowsTrayIconStyle.logoProgressRing },
+    {
+      key: "numberProgressBar",
+      style: "numberProgressBar",
+      label: copy.settings.windowsTrayIconStyle.numberProgressBar,
+      ariaLabel: copy.settings.windowsTrayIconStyle.numberProgressBar,
+    },
   ];
-  const statusBarLabel = statusBarModeOptions.find(
-    (option) => option.value === statusBarMode,
-  )?.label ?? copy.settings.trayUsageDisplay.oneWeekRemaining;
-
   useEffect(() => {
     let cancelled = false;
     void invoke<TrayVisualPreview[]>("get_tray_visual_previews", {
@@ -340,9 +306,6 @@ function MacosQuotaDisplayOnboardingContent({
 
   const toggleStatusBar = () => {
     const nextEnabled = !statusBarEnabled;
-    if (!nextEnabled && !canDisableQuotaDisplay(trayEnabled)) {
-      return;
-    }
     void runLiveUpdate(
       { trayUsageDisplayMode: nextEnabled ? statusBarMode : "hidden" },
       () => setStatusBarEnabled(nextEnabled),
@@ -371,9 +334,6 @@ function MacosQuotaDisplayOnboardingContent({
 
   const toggleTray = () => {
     const nextEnabled = !trayEnabled;
-    if (!nextEnabled && !canDisableQuotaDisplay(statusBarEnabled)) {
-      return;
-    }
     void runLiveUpdate(
       { trayQuotaIconVisible: nextEnabled },
       () => setTrayEnabled(nextEnabled),
@@ -381,39 +341,34 @@ function MacosQuotaDisplayOnboardingContent({
     );
   };
 
-  const selectTrayIconStyle = (style: WindowsTrayIconStyle) => {
-    if (style === trayIconStyle && trayEnabled) {
+  const selectTrayIconStyle = (option: MacosTrayIconOption) => {
+    const nextShowPercentage = option.showLogoRingPercentage;
+    const isSelected =
+      option.style === trayIconStyle &&
+      trayEnabled &&
+      (option.style !== "logoProgressRing" ||
+        nextShowPercentage === showLogoRingPercentage);
+    if (isSelected) {
       return;
     }
     const previousStyle = trayIconStyle;
     const previousEnabled = trayEnabled;
-    void runLiveUpdate(
-      { windowsTrayIconStyle: style, trayQuotaIconVisible: true },
-      () => {
-        setTrayIconStyle(style);
-        setTrayEnabled(true);
-      },
-      () => {
-        setTrayIconStyle(previousStyle);
-        setTrayEnabled(previousEnabled);
-      },
-    );
-  };
-
-  const selectLogoRingVariant = (showPercentage: boolean) => {
-    const previousStyle = trayIconStyle;
-    const previousEnabled = trayEnabled;
     const previousShowPercentage = showLogoRingPercentage;
+    const patch: Partial<AppSettings> = {
+      windowsTrayIconStyle: option.style,
+      trayQuotaIconVisible: true,
+    };
+    if (option.style === "logoProgressRing" && nextShowPercentage !== undefined) {
+      patch.macosTrayLogoRingShowPercentage = nextShowPercentage;
+    }
     void runLiveUpdate(
-      {
-        windowsTrayIconStyle: "logoProgressRing",
-        trayQuotaIconVisible: true,
-        macosTrayLogoRingShowPercentage: showPercentage,
-      },
+      patch,
       () => {
-        setTrayIconStyle("logoProgressRing");
+        setTrayIconStyle(option.style);
         setTrayEnabled(true);
-        setShowLogoRingPercentage(showPercentage);
+        if (option.style === "logoProgressRing" && nextShowPercentage !== undefined) {
+          setShowLogoRingPercentage(nextShowPercentage);
+        }
       },
       () => {
         setTrayIconStyle(previousStyle);
@@ -424,12 +379,20 @@ function MacosQuotaDisplayOnboardingContent({
   };
 
   const confirm = async () => {
-    if (!hasActiveDisplay || busy) {
+    if (busy) {
       return;
     }
     setOperationError(null);
     try {
-      await onConfirm({ macosQuotaOnboardingCompleted: true });
+      await onConfirm(
+        buildMacosQuotaOnboardingPatch({
+          statusBarEnabled,
+          statusBarMode,
+          trayEnabled,
+          trayIconStyle,
+          showLogoRingPercentage,
+        }),
+      );
     } catch {
       setOperationError("confirm");
     }
@@ -444,19 +407,9 @@ function MacosQuotaDisplayOnboardingContent({
         role="dialog"
         aria-modal="true"
         aria-labelledby="quota-onboarding-title"
-        aria-describedby="quota-onboarding-live-preview"
       >
         <header className="quotaOnboardingHeader">
           <h2 id="quota-onboarding-title">{copy.quotaOnboarding.macTitle}</h2>
-          <p>{copy.quotaOnboarding.macDescription}</p>
-          <div
-            className="quotaOnboardingLiveNotice"
-            id="quota-onboarding-live-preview"
-            role="status"
-          >
-            <span aria-hidden="true" />
-            {copy.quotaOnboarding.macLivePreview}
-          </div>
         </header>
 
         <div className="quotaOnboardingOptions">
@@ -468,14 +421,11 @@ function MacosQuotaDisplayOnboardingContent({
               </span>
               <label
                 className="quotaOnboardingSwitch"
-                title={
-                  statusBarEnabled && !trayEnabled ? copy.quotaOnboarding.requireOne : undefined
-                }
               >
                 <input
                   type="checkbox"
                   checked={statusBarEnabled}
-                  disabled={busy || (statusBarEnabled && !trayEnabled)}
+                  disabled={busy}
                   onChange={toggleStatusBar}
                 />
                 <span className="quotaOnboardingSwitchTrack" aria-hidden="true">
@@ -488,14 +438,6 @@ function MacosQuotaDisplayOnboardingContent({
                 </span>
               </label>
             </header>
-
-            <MacosMenuBarPreview
-              statusBarEnabled={statusBarEnabled}
-              statusBarLabel={statusBarLabel}
-              trayEnabled={false}
-              trayPreviewScale={trayPreviewScale}
-              showLogoRingPercentage={false}
-            />
 
             <div
               className="modeGroup quotaOnboardingMacModeGroup"
@@ -525,12 +467,11 @@ function MacosQuotaDisplayOnboardingContent({
               </span>
               <label
                 className="quotaOnboardingSwitch"
-                title={trayEnabled && !statusBarEnabled ? copy.quotaOnboarding.requireOne : undefined}
               >
                 <input
                   type="checkbox"
                   checked={trayEnabled}
-                  disabled={busy || (trayEnabled && !statusBarEnabled)}
+                  disabled={busy}
                   onChange={toggleTray}
                 />
                 <span className="quotaOnboardingSwitchTrack" aria-hidden="true">
@@ -540,35 +481,28 @@ function MacosQuotaDisplayOnboardingContent({
               </label>
             </header>
 
-            <MacosMenuBarPreview
-              statusBarEnabled={false}
-              statusBarLabel={statusBarLabel}
-              trayEnabled={trayEnabled}
-              trayPreview={selectedTrayPreview}
-              trayPreviewScale={trayPreviewScale}
-              showLogoRingPercentage={
-                trayIconStyle === "logoProgressRing" && showLogoRingPercentage
-              }
-            />
-
             <div
               className="quotaOnboardingIconGrid"
               role="radiogroup"
               aria-label={copy.settings.windowsTrayIconStyle.groupAriaLabel}
             >
               {trayIconStyleOptions.map((option) => {
-                const preview = trayVisualPreviews.find((item) => item.style === option.value);
-                const selected = trayEnabled && trayIconStyle === option.value;
+                const preview = trayVisualPreviews.find((item) => item.style === option.style);
+                const selected =
+                  trayEnabled &&
+                  trayIconStyle === option.style &&
+                  (option.style !== "logoProgressRing" ||
+                    option.showLogoRingPercentage === showLogoRingPercentage);
                 return (
                   <button
-                    key={option.value}
+                    key={option.key}
                     type="button"
                     className={selected ? "isSelected" : ""}
-                    aria-label={option.label}
+                    aria-label={option.ariaLabel}
                     aria-pressed={selected}
                     disabled={busy}
-                    title={option.label}
-                    onClick={() => selectTrayIconStyle(option.value)}
+                    title={option.ariaLabel}
+                    onClick={() => selectTrayIconStyle(option)}
                   >
                     <span className="quotaOnboardingIconArtwork" aria-hidden="true">
                       {preview ? (
@@ -589,30 +523,66 @@ function MacosQuotaDisplayOnboardingContent({
                   </button>
                 );
               })}
-            </div>
-
-            {trayIconStyle === "logoProgressRing" && trayEnabled ? (
               <div
-                className="modeGroup quotaOnboardingLogoRingVariants"
-                role="radiogroup"
-                aria-label={copy.settings.windowsTrayIconStyle.logoProgressRing}
+                className="quotaOnboardingIconCompound"
+                role="group"
+                aria-label={logoProgressRingLabel}
               >
-                {[false, true].map((showPercentage) => (
-                  <button
-                    key={String(showPercentage)}
-                    type="button"
-                    className={showLogoRingPercentage === showPercentage ? "primary" : "ghost"}
-                    aria-pressed={showLogoRingPercentage === showPercentage}
-                    disabled={busy}
-                    onClick={() => selectLogoRingVariant(showPercentage)}
-                  >
-                    {showPercentage
-                      ? copy.settings.macosTrayLogoRingVariants.withPercentage
-                      : copy.settings.macosTrayLogoRingVariants.withoutPercentage}
-                  </button>
-                ))}
+                {[false, true].map((showPercentage) => {
+                  const variantLabel = showPercentage
+                    ? copy.settings.macosTrayLogoRingVariants.withPercentage
+                    : copy.settings.macosTrayLogoRingVariants.withoutPercentage;
+                  const selected =
+                    trayEnabled &&
+                    trayIconStyle === "logoProgressRing" &&
+                    showLogoRingPercentage === showPercentage;
+                  const preview = trayVisualPreviews.find(
+                    (item) => item.style === "logoProgressRing",
+                  );
+                  const option: MacosTrayIconOption = {
+                    key: String(showPercentage),
+                    style: "logoProgressRing",
+                    label: variantLabel,
+                    ariaLabel: `${logoProgressRingLabel}: ${variantLabel}`,
+                    showLogoRingPercentage: showPercentage,
+                  };
+                  return (
+                    <button
+                      key={String(showPercentage)}
+                      type="button"
+                      className={`quotaOnboardingIconCompoundVariant ${
+                        selected ? "isSelected" : ""
+                      }`}
+                      aria-label={option.ariaLabel}
+                      aria-pressed={selected}
+                      disabled={busy}
+                      title={variantLabel}
+                      onClick={() => selectTrayIconStyle(option)}
+                    >
+                      <span className="trayLogoRingVariantArtwork" aria-hidden="true">
+                        {preview ? (
+                          <img
+                            src={preview.dataUrl}
+                            alt=""
+                            draggable={false}
+                            style={{
+                              width: `${preview.pixelWidth / trayPreviewScale}px`,
+                              height: `${preview.pixelHeight / trayPreviewScale}px`,
+                            }}
+                          />
+                        ) : (
+                          <span className="trayIconPreviewPlaceholder" />
+                        )}
+                        {showPercentage ? (
+                          <span className="trayLogoRingVariantNumber">97%</span>
+                        ) : null}
+                      </span>
+                      <span className="quotaOnboardingIconCompoundLabel">{variantLabel}</span>
+                    </button>
+                  );
+                })}
               </div>
-            ) : null}
+            </div>
           </section>
         </div>
 
@@ -632,7 +602,7 @@ function MacosQuotaDisplayOnboardingContent({
           <button
             type="button"
             className="primary quotaOnboardingConfirm"
-            disabled={!hasActiveDisplay || busy}
+            disabled={busy}
             onClick={() => void confirm()}
           >
             {saving ? copy.quotaOnboarding.saving : copy.quotaOnboarding.confirm}
