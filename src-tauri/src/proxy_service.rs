@@ -5635,6 +5635,9 @@ fn open_api_proxy_usage_database(data_dir: &Path) -> Result<Connection, String> 
         .pragma_update(None, "synchronous", "NORMAL")
         .map_err(|error| format!("Failed to configure API proxy usage sync mode: {error}"))?;
     connection
+        .pragma_update(None, "temp_store", "MEMORY")
+        .map_err(|error| format!("Failed to keep API proxy temporary data in memory: {error}"))?;
+    connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS api_proxy_usage_events (
                 id INTEGER PRIMARY KEY,
