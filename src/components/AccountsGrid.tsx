@@ -1,4 +1,13 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import type { AccountSummary, CodexTokenUsageSnapshot, UsageWindow } from "../types/app";
 import { useI18n } from "../i18n/I18nProvider";
 import { compareAccountsByRemaining } from "../utils/accountRanking";
@@ -30,6 +39,16 @@ type SwitchRecord = {
 
 type AccountStatus = "using" | "available" | "low" | "exhausted" | "issue";
 type StatusFilter = AccountStatus | "all";
+
+type RowActionMenuPosition = {
+  left: number;
+  top: number;
+};
+
+const ROW_ACTION_MENU_WIDTH = 138;
+const ROW_ACTION_MENU_ESTIMATED_HEIGHT = 128;
+const ROW_ACTION_MENU_GAP = 6;
+const ROW_ACTION_MENU_VIEWPORT_MARGIN = 8;
 
 type UiCopy = {
   searchPlaceholder: string;
@@ -707,8 +726,63 @@ export function AccountsGrid({
   const [aliasDraft, setAliasDraft] = useState("");
   const [openMenuAccountId, setOpenMenuAccountId] = useState<string | null>(null);
   const openMenuRootRef = useRef<HTMLDivElement | null>(null);
+  const openMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [openMenuPosition, setOpenMenuPosition] = useState<RowActionMenuPosition | null>(null);
   const [switchRecords, setSwitchRecords] = useState<SwitchRecord[]>([]);
   const [expandedResetCreditsByAccount, setExpandedResetCreditsByAccount] = useState<Record<string, boolean>>({});
+
+  const positionOpenMenu = useCallback((menuHeight = ROW_ACTION_MENU_ESTIMATED_HEIGHT) => {
+    const trigger = openMenuButtonRef.current;
+    if (!trigger || typeof window === "undefined") {
+      return;
+    }
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const maxLeft = Math.max(
+      ROW_ACTION_MENU_VIEWPORT_MARGIN,
+      window.innerWidth - ROW_ACTION_MENU_WIDTH - ROW_ACTION_MENU_VIEWPORT_MARGIN,
+    );
+    const preferredLeft = triggerRect.left - ROW_ACTION_MENU_WIDTH - ROW_ACTION_MENU_GAP;
+    const fallbackRight = triggerRect.right + ROW_ACTION_MENU_GAP;
+    const left = Math.min(
+      maxLeft,
+      preferredLeft >= ROW_ACTION_MENU_VIEWPORT_MARGIN ? preferredLeft : fallbackRight,
+    );
+    const maxTop = Math.max(
+      ROW_ACTION_MENU_VIEWPORT_MARGIN,
+      window.innerHeight - menuHeight - ROW_ACTION_MENU_VIEWPORT_MARGIN,
+    );
+    const centeredTop = triggerRect.top + (triggerRect.height - menuHeight) / 2;
+
+    // 菜单挂到 body 后不再受列表 overflow 裁切，同时在窗口边缘翻转并钳制到可视区域。
+    setOpenMenuPosition({
+      left: Math.max(ROW_ACTION_MENU_VIEWPORT_MARGIN, left),
+      top: Math.min(maxTop, Math.max(ROW_ACTION_MENU_VIEWPORT_MARGIN, centeredTop)),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!openMenuAccountId) {
+      return;
+    }
+
+    positionOpenMenu(openMenuRootRef.current?.getBoundingClientRect().height);
+  }, [openMenuAccountId, positionOpenMenu]);
+
+  useEffect(() => {
+    if (!openMenuAccountId || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const repositionOpenMenu = () => positionOpenMenu(openMenuRootRef.current?.getBoundingClientRect().height);
+    window.addEventListener("resize", repositionOpenMenu);
+    // capture=true 可以捕获 accountRows 自身的滚动，持续锚定到触发按钮。
+    window.addEventListener("scroll", repositionOpenMenu, true);
+    return () => {
+      window.removeEventListener("resize", repositionOpenMenu);
+      window.removeEventListener("scroll", repositionOpenMenu, true);
+    };
+  }, [openMenuAccountId, positionOpenMenu]);
 
   useEffect(() => {
     if (!openMenuAccountId || typeof document === "undefined") {
@@ -717,16 +791,27 @@ export function AccountsGrid({
 
     const closeOpenMenu = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && openMenuRootRef.current?.contains(target)) {
+      if (
+        target instanceof Node &&
+        (openMenuRootRef.current?.contains(target) || openMenuButtonRef.current?.contains(target))
+      ) {
         return;
       }
 
       setOpenMenuAccountId(null);
     };
+    const closeOpenMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenuAccountId(null);
+        openMenuButtonRef.current?.focus();
+      }
+    };
 
     document.addEventListener("pointerdown", closeOpenMenu, true);
+    document.addEventListener("keydown", closeOpenMenuOnEscape);
     return () => {
       document.removeEventListener("pointerdown", closeOpenMenu, true);
+      document.removeEventListener("keydown", closeOpenMenuOnEscape);
     };
   }, [openMenuAccountId]);
 
@@ -1069,7 +1154,7 @@ export function AccountsGrid({
                       />
                       <span />
                     </label>
-                    <div className="rowActions" ref={isMenuOpen ? openMenuRootRef : undefined}>
+                    <div className="rowActions">
                       <button
                         type="button"
                         className="rowSwitchButton"
@@ -1086,7 +1171,14 @@ export function AccountsGrid({
                         className={`rowMoreButton${isDeletePending ? " isPending" : ""}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          setOpenMenuAccountId(isMenuOpen ? null : account.id);
+                          if (isMenuOpen) {
+                            setOpenMenuAccountId(null);
+                            return;
+                          }
+
+                          openMenuButtonRef.current = event.currentTarget;
+                          positionOpenMenu();
+                          setOpenMenuAccountId(account.id);
                         }}
                         title={text.quickActions}
                         aria-label={text.quickActions}
@@ -1094,42 +1186,54 @@ export function AccountsGrid({
                       >
                         <MoreIcon />
                       </button>
-                      {isMenuOpen ? (
-                        <div className="rowActionMenu" onClick={(event) => event.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenMenuAccountId(null);
-                              onReauthorize(account);
-                            }}
-                          >
-                            <ActionIcon type="login" />
-                            {text.reauthorize}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={exportingAccounts}
-                            onClick={() => {
-                              setOpenMenuAccountId(null);
-                              onExport(account);
-                            }}
-                          >
-                            <ActionIcon type="export" />
-                            {text.exportAccount}
-                          </button>
-                          <button
-                            type="button"
-                            className="dangerMenuItem"
-                            onClick={() => {
-                              setOpenMenuAccountId(null);
-                              onDelete(account);
-                            }}
-                          >
-                            <ActionIcon type="delete" />
-                            {text.deleteAccount}
-                          </button>
-                        </div>
-                      ) : null}
+                      {isMenuOpen && openMenuPosition && typeof document !== "undefined"
+                        ? createPortal(
+                            <div
+                              ref={openMenuRootRef}
+                              className="rowActionMenu rowActionMenuPortal"
+                              style={openMenuPosition}
+                              role="menu"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenMenuAccountId(null);
+                                  onReauthorize(account);
+                                }}
+                              >
+                                <ActionIcon type="login" />
+                                {text.reauthorize}
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={exportingAccounts}
+                                onClick={() => {
+                                  setOpenMenuAccountId(null);
+                                  onExport(account);
+                                }}
+                              >
+                                <ActionIcon type="export" />
+                                {text.exportAccount}
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="dangerMenuItem"
+                                onClick={() => {
+                                  setOpenMenuAccountId(null);
+                                  onDelete(account);
+                                }}
+                              >
+                                <ActionIcon type="delete" />
+                                {text.deleteAccount}
+                              </button>
+                            </div>,
+                            document.body,
+                          )
+                        : null}
                     </div>
                   </article>
                 );

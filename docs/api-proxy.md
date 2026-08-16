@@ -638,21 +638,26 @@ Cloudflared 不参与：
 
 它只负责公网入口。
 
-## 18. 为什么没有用 `responses/compact`
+## 18. 远程压缩 `responses/compact`
 
-当前实现统一走：
+当前实现支持：
 
-- `backend-api/codex/responses`
+- 入站：`POST /v1/responses/compact`
+- ChatGPT 上游：`{chatgpt}/backend-api/codex/responses/compact`
+- Relay 上游：`{api_base}/responses/compact`
 
-没有走：
+行为要点：
 
-- `backend-api/codex/responses/compact`
-
-原因是实际验证里：
-
-- `/responses` 是当前主路径，SSE 和普通返回都能靠它做出来
-- `/responses/compact` 在部分情况下兼容性不稳定
-- 当前项目先追求稳定链路，不再引入第二条上游分支
+- 上游 compact 走 unary JSON（`Accept: application/json`），不走 SSE
+- 客户端 `stream: true` 时，把上游 JSON 合成最小 Responses SSE（`output_item.done` + `response.completed`）
+- `remote_compaction_v2` 的 `compaction_trigger` 保持普通 `/v1/responses` 流式协议，不降级到 unary compact
+- Responses（HTTP/WebSocket）和 compact 按窄白名单转发 turn-state、beta、turn metadata、window 与 trace 上下文；快速 SSE 响应也保留上游返回的状态头
+- 当入站已有 turn-state 且上游等待超过 10 秒时，发送可被客户端消费但忽略的 `response.in_progress` SSE 心跳；没有可安全回显的状态头时等待上游完整响应后再提交响应头
+- 心跳已发出后的失败改为流内 `response.failed`，并尽量保留上游 `code/type/message` 等错误字段
+- compact body 与 Codex `CompactionInput` 对齐，只保留 `model/input/instructions/tools/parallel_tool_calls/reasoning/service_tier/prompt_cache_key/text`，并统一规范化 service tier
+- ChatGPT 账号上 GPT-5.6 `reasoning.effort=max` 会降级为 `xhigh`
+- JSON 请求体支持 gzip、标准 zlib-wrapped deflate（兼容 raw deflate）与 zstd；解压在阻塞线程池执行，解压后仍受请求体上限约束
+- Relay 返回 `404/405/501` 时视为不支持 compact，并继续尝试后续候选账号
 
 ## 19. 当前的边界与限制
 
@@ -664,6 +669,7 @@ Cloudflared 不参与：
   - `GET /v1/models`
   - `POST /v1/chat/completions`
   - `POST /v1/responses`
+  - `POST /v1/responses/compact`
   - `GET /v1/responses`（旧版 WebSocket；v2 返回 `426` 触发 HTTP 回退）
   - `POST /v1/messages`
   - `POST /v1/images/generations`

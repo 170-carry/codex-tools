@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { PointerEvent } from "react";
+import type { MouseEvent } from "react";
 
 import { useI18n } from "../i18n/I18nProvider";
 import type { ThemeMode } from "../types/app";
@@ -72,13 +72,20 @@ export function AppTopBar({
     { id: "proxy", label: copy.bottomDock.proxy },
     { id: "settings", label: copy.bottomDock.settings },
   ];
-  const handleStartWindowDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !event.isPrimary || !("__TAURI_INTERNALS__" in window)) {
+  const handleStartWindowDrag = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.buttons !== 1 || !("__TAURI_INTERNALS__" in window)) {
       return;
     }
 
     event.preventDefault();
-    void getCurrentWindow().startDragging().catch(() => {});
+    const appWindow = getCurrentWindow();
+    // Tauri 手动拖动契约使用 mousedown 的点击计数；双击不能再进入 startDragging。
+    if (event.detail === 2) {
+      void appWindow.toggleMaximize().catch(() => {});
+      return;
+    }
+
+    void appWindow.startDragging().catch(() => {});
   };
 
   return (
@@ -89,9 +96,8 @@ export function AppTopBar({
       </button>
       <div
         className="topDragRegion"
-        data-tauri-drag-region
         aria-hidden="true"
-        onPointerDown={handleStartWindowDrag}
+        onMouseDown={handleStartWindowDrag}
       />
       <nav className="topSegmentedNav" aria-label={copy.bottomDock.ariaLabel}>
         {navItems.map((item) => (

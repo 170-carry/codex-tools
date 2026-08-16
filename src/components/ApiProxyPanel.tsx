@@ -72,6 +72,7 @@ type ApiProxyPanelProps = {
   apiProxyUsageMetric: ApiProxyUsageMetric;
   apiProxyUsageLoading: boolean;
   apiProxyUsageClearing: boolean;
+  apiProxyUsageExporting: boolean;
   cloudflaredStatus: CloudflaredStatus;
   accountCount: number;
   autoStartEnabled: boolean;
@@ -108,6 +109,7 @@ type ApiProxyPanelProps = {
   onRegenerateApiProxyKey: (id: string) => Promise<void> | void;
   onSelectApiProxyUsageRange: (range: ApiProxyUsageRange) => void;
   onSelectApiProxyUsageMetric: (metric: ApiProxyUsageMetric) => void;
+  onExportApiProxyUsage: (keyId: string | null) => Promise<void> | void;
   onClearApiProxyUsageStats: () => void;
   onRefreshApiKey: () => void;
   onBindCodexProxy: () => void;
@@ -501,9 +503,12 @@ type ApiProxyUsageChartProps = {
   metric: ApiProxyUsageMetric;
   loading: boolean;
   clearing: boolean;
+  exporting: boolean;
   proxyRunning: boolean;
+  apiProxyKeys: ApiProxyKey[];
   onSelectRange: (range: ApiProxyUsageRange) => void;
   onSelectMetric: (metric: ApiProxyUsageMetric) => void;
+  onExport: (keyId: string | null) => Promise<void> | void;
   onClear: () => void;
 };
 
@@ -1078,9 +1083,12 @@ function ApiProxyUsageChart({
   metric,
   loading,
   clearing,
+  exporting,
   proxyRunning,
+  apiProxyKeys,
   onSelectRange,
   onSelectMetric,
+  onExport,
   onClear,
 }: ApiProxyUsageChartProps) {
   const rangeOptions: Array<{ value: ApiProxyUsageRange; label: string }> = [
@@ -1103,6 +1111,7 @@ function ApiProxyUsageChart({
   const cardRef = useRef<HTMLElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [dimension, setDimension] = useState<ApiProxyUsageDimension>("model");
+  const [exportKeyId, setExportKeyId] = useState("");
   const [hoverState, setHoverState] = useState<ApiProxyUsageHoverState | null>(null);
   const [contextMenu, setContextMenu] = useState<ApiProxyUsageContextMenu | null>(null);
   const [chartMotion, setChartMotion] = useState<ApiProxyUsageChartMotion>({
@@ -1117,6 +1126,26 @@ function ApiProxyUsageChart({
     endTimestamp: number;
   } | null>(null);
   const selectedRangeSeconds = API_PROXY_USAGE_RANGE_SECONDS[range];
+  const exportKeyOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    // 以当前统计范围为主，确保已删除或停用但仍有历史记录的 Key 也可以导出。
+    for (const key of stats?.keySeries ?? []) {
+      if (key.keyId) {
+        options.set(key.keyId, key.keyLabel || key.keyId);
+      }
+    }
+    // 同时补入当前 Key，便于在尚无历史记录时预先选择过滤条件。
+    for (const key of apiProxyKeys) {
+      if (!options.has(key.id)) {
+        options.set(key.id, key.label || key.id);
+      }
+    }
+    return [...options].map(([id, label]) => ({ id, label }));
+  }, [apiProxyKeys, stats?.keySeries]);
+
+  const effectiveExportKeyId = exportKeyOptions.some((key) => key.id === exportKeyId)
+    ? exportKeyId
+    : "";
 
   const chartData = useMemo(() => {
     const sourceSeries =
@@ -1444,12 +1473,12 @@ function ApiProxyUsageChart({
   );
 
   const handleClearUsage = useCallback(() => {
-    if (clearing) {
+    if (clearing || exporting) {
       return;
     }
     setContextMenu(null);
     void onClear();
-  }, [clearing, onClear]);
+  }, [clearing, exporting, onClear]);
 
   const handleContextMenuClick = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -1506,7 +1535,12 @@ function ApiProxyUsageChart({
               type="button"
               className={`proxyUsageChip${range === option.value ? " isActive" : ""}`}
               aria-pressed={range === option.value}
-              onClick={() => onSelectRange(option.value)}
+              onClick={() => {
+                if (option.value !== range) {
+                  setExportKeyId("");
+                }
+                onSelectRange(option.value);
+              }}
             >
               {option.label}
             </button>
@@ -1525,6 +1559,33 @@ function ApiProxyUsageChart({
               {option.label}
             </button>
           ))}
+        </div>
+
+        <div className="proxyUsageExportGroup">
+          <label className="proxyUsageExportPicker">
+            <span>{copy.chartExportKeyLabel}</span>
+            <select
+              value={effectiveExportKeyId}
+              disabled={exporting || clearing}
+              aria-label={copy.chartExportKeyLabel}
+              onChange={(event) => setExportKeyId(event.currentTarget.value)}
+            >
+              <option value="">{copy.chartExportAllKeys}</option>
+              {exportKeyOptions.map((key) => (
+                <option key={key.id} value={key.id}>
+                  {key.label || key.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="ghost proxyUsageExportButton"
+            disabled={exporting || clearing}
+            onClick={() => void onExport(effectiveExportKeyId || null)}
+          >
+            {exporting ? copy.chartExporting : copy.chartExportCsv}
+          </button>
         </div>
       </div>
 
@@ -1687,7 +1748,7 @@ function ApiProxyUsageChart({
             type="button"
             className="proxyUsageContextMenuItem"
             role="menuitem"
-            disabled={clearing}
+            disabled={clearing || exporting}
             onClick={handleContextMenuClick}
           >
             {copy.chartClearHistory}
@@ -1731,6 +1792,7 @@ export function ApiProxyPanel({
   apiProxyUsageMetric,
   apiProxyUsageLoading,
   apiProxyUsageClearing,
+  apiProxyUsageExporting,
   cloudflaredStatus,
   accountCount,
   autoStartEnabled,
@@ -1767,6 +1829,7 @@ export function ApiProxyPanel({
   onRegenerateApiProxyKey,
   onSelectApiProxyUsageRange,
   onSelectApiProxyUsageMetric,
+  onExportApiProxyUsage,
   onClearApiProxyUsageStats,
   onRefreshApiKey,
   onBindCodexProxy,
@@ -2512,9 +2575,12 @@ export function ApiProxyPanel({
           metric={apiProxyUsageMetric}
           loading={apiProxyUsageLoading}
           clearing={apiProxyUsageClearing}
+          exporting={apiProxyUsageExporting}
           proxyRunning={status.running}
+          apiProxyKeys={apiProxyKeys}
           onSelectRange={onSelectApiProxyUsageRange}
           onSelectMetric={onSelectApiProxyUsageMetric}
+          onExport={onExportApiProxyUsage}
           onClear={onClearApiProxyUsageStats}
         />
 
