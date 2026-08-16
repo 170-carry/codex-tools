@@ -638,21 +638,23 @@ Cloudflared 不参与：
 
 它只负责公网入口。
 
-## 18. 为什么没有用 `responses/compact`
+## 18. 远程压缩 `responses/compact`
 
-当前实现统一走：
+当前实现支持：
 
-- `backend-api/codex/responses`
+- 入站：`POST /v1/responses/compact`
+- 入站：`POST /v1/responses` 且 `input` 含 `type=compaction_trigger`（remote_compaction_v2 body signal）
+- ChatGPT 上游：`{chatgpt}/backend-api/codex/responses/compact`
+- Relay 上游：`{api_base}/responses/compact`
 
-没有走：
+行为要点：
 
-- `backend-api/codex/responses/compact`
-
-原因是实际验证里：
-
-- `/responses` 是当前主路径，SSE 和普通返回都能靠它做出来
-- `/responses/compact` 在部分情况下兼容性不稳定
-- 当前项目先追求稳定链路，不再引入第二条上游分支
+- 上游 compact 走 unary JSON（`Accept: application/json`），不走 SSE
+- 客户端 `stream: true` 时，把上游 JSON 合成最小 Responses SSE（`output_item.done` + `response.completed`）
+- 上游等待超过 10 秒时，先发 SSE 注释心跳 `: keepalive`，避免中间代理/客户端空闲超时；首拍前的快速失败仍返回 JSON 状态码
+- 心跳已发出后的失败，改为流内 `response.failed` 终止事件
+- compact body 只保留 `model/input/instructions/tools/parallel_tool_calls/reasoning/text/previous_response_id`
+- ChatGPT 账号上 GPT-5.6 `reasoning.effort=max` 会降级为 `xhigh`
 
 ## 19. 当前的边界与限制
 
@@ -664,6 +666,7 @@ Cloudflared 不参与：
   - `GET /v1/models`
   - `POST /v1/chat/completions`
   - `POST /v1/responses`
+  - `POST /v1/responses/compact`
   - `GET /v1/responses`（旧版 WebSocket；v2 返回 `426` 触发 HTTP 回退）
   - `POST /v1/messages`
   - `POST /v1/images/generations`
