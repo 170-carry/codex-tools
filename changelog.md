@@ -2,6 +2,28 @@
 
 ### Unreleased
 
+- v2.6.0
+
+#### English
+
+1. Add Relay-aware remote compaction and compressed request support: expose the explicit `/v1/responses/compact` route, keep Codex `remote_compaction_v2` on `/v1/responses`, preserve sticky turn context, service tier and prompt cache fields, and accept bounded zstd, gzip and HTTP deflate bodies.
+2. Harden the API proxy boundary: authenticate before reading request bodies, limit concurrent decoding, decompressed size and expansion ratio, cap compact upstream responses, preserve actionable upstream errors, and cancel long-running compact work when the client disconnects.
+3. Move API proxy usage history to SQLite WAL with a background writer, cross-process-safe legacy migration and schema upgrades, atomic clearing of legacy JSON, SQL bucket aggregation, and non-overlapping polling only while the proxy page is visible.
+4. Add CSV export by time range and platform Key, including event details and per-Key/per-model summaries for calls and input, output, cached-input and total tokens when known. Exports use a consistent writer barrier and read snapshot, private atomic files, and spreadsheet-formula protection without exposing secret Key values.
+5. Fix the macOS custom title bar so a primary-button drag still moves the window while a double click toggles maximization.
+6. Render account action menus through a viewport-positioned portal so scrolling containers no longer clip their options.
+7. Hide macOS-only status-item title settings on unsupported platforms instead of presenting controls that silently do nothing.
+
+#### 中文
+
+1. 增加支持 Relay 的远程压缩与压缩请求：开放显式 `/v1/responses/compact` 路由，保持 Codex `remote_compaction_v2` 继续走 `/v1/responses`，保留 turn-state、service tier 与 prompt cache 字段，并在明确上限内支持 zstd、gzip 和标准 HTTP deflate 请求体。
+2. 加固 API 反代边界：读取请求体前先完成鉴权，限制解码并发、解压后大小和膨胀比，限制 compact 上游响应体，保留可判断的上游错误；客户端断开时会取消长时间运行的 compact 请求。
+3. 将 API 反代用量历史迁移到 SQLite WAL：使用后台 writer，跨进程安全地执行旧数据迁移和 schema 升级，清空时同步删除旧 JSON，通过 SQL 分桶聚合，并仅在反代页面可见时执行不重叠轮询。
+4. 增加按时间范围和平台 Key 导出 CSV：包含事件明细及按 Key/模型汇总的调用数，并在可识别时导出 input、output、cached-input 和 total token。导出使用 writer barrier 与一致只读快照、私有原子文件和公式注入防护，不包含秘密 Key 值。
+5. 修复 macOS 自定义标题栏：鼠标主键拖动仍可移动窗口，双击则切换最大化。
+6. 账号操作菜单改为通过按视口定位的 portal 渲染，不再被滚动容器裁切。
+7. 在不支持的平台隐藏仅对 macOS 状态栏标题生效的设置，避免展示静默无效的开关。
+
 - v2.5.0
 
 #### English
