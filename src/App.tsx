@@ -150,7 +150,7 @@ function App() {
     onSmartSwitch,
     onUpdateRemoteServers,
     smartSwitching,
-  } = useCodexController();
+  } = useCodexController(activeTab);
 
   useEffect(() => {
     const isMac =
@@ -237,11 +237,10 @@ function App() {
     }
     void refreshUsage(false);
     void refreshTokenUsage(false);
-    void loadCostAnalytics(true);
   };
 
   return (
-    <div className="shell">
+    <div className={`shell${mainWindowVisible ? "" : " isUiInactive"}`}>
       <div className="ambient" />
       <main className="panel">
         <AppTopBar

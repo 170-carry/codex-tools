@@ -16,6 +16,15 @@
   transition: background 180ms ease, color 180ms ease;
 }
 
+.shell.isUiInactive .proxyStatusDot.isRunning,
+.shell.isUiInactive .proxyUsageHoverMarkerHalo,
+.shell.isUiInactive .proxyUsageStateOrb.isLoading,
+.shell.isUiInactive .remoteDependencyInstallFill,
+.shell.isUiInactive .iconGlyph.isSpinning,
+.shell.isUiInactive .usageFreshnessBadge.tone-refreshing .usageFreshnessDot {
+  animation-play-state: paused;
+}
+
 .ambient {
   position: fixed;
   inset: 0;

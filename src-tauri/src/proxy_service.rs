@@ -12,8 +12,10 @@ use std::path::PathBuf;
 use std::pin::Pin;
 #[cfg(target_os = "macos")]
 use std::process::Command;
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::thread::JoinHandle as ThreadJoinHandle;
 
 use async_stream::stream;
 use axum::body::Body;
@@ -42,6 +44,9 @@ use futures_util::SinkExt;
 use futures_util::Stream;
 use futures_util::StreamExt;
 use if_addrs::IfAddr;
+use rusqlite::params;
+use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
@@ -164,10 +169,11 @@ const RESPONSE_MODEL_NORMALIZATIONS: &[(&str, &str)] = &[
 ];
 const UNSUPPORTED_RESPONSES_REQUEST_FIELDS: &[&str] = &["metadata", "prompt_cache_retention"];
 const API_PROXY_USAGE_FILE_NAME: &str = "api-proxy-usage.json";
+const API_PROXY_USAGE_DATABASE_FILE_NAME: &str = "api-proxy-usage.sqlite3";
+const API_PROXY_USAGE_LEGACY_MIGRATION_KEY: &str = "legacy-json-v1";
 const API_PROXY_USAGE_STORE_VERSION: u8 = 1;
 const API_PROXY_KEYS_FILE_NAME: &str = "api-proxy-keys.json";
 const API_PROXY_KEYS_STORE_VERSION: u8 = 1;
-const API_PROXY_USAGE_RETENTION_SECONDS: i64 = 30 * 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_1H_SECONDS: i64 = 60 * 60;
 const API_PROXY_USAGE_RANGE_24H_SECONDS: i64 = 24 * 60 * 60;
 const API_PROXY_USAGE_RANGE_7D_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -202,6 +208,7 @@ pub(crate) struct ProxyStorageContext {
     pub(crate) data_dir: PathBuf,
     pub(crate) store_lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) auth_refresh_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) usage_writer: Arc<tokio::sync::Mutex<Option<ApiProxyUsageWriter>>>,
     pub(crate) sync_active_auth_on_refresh: bool,
 }
 
@@ -266,6 +273,58 @@ impl Default for ApiProxyUsageStore {
             version: API_PROXY_USAGE_STORE_VERSION,
             updated_at: 0,
             events: Vec::new(),
+        }
+    }
+}
+
+pub(crate) struct ApiProxyUsageWriter {
+    sender: Option<mpsc::Sender<ApiProxyUsageCommand>>,
+    thread: Option<ThreadJoinHandle<()>>,
+}
+
+enum ApiProxyUsageCommand {
+    Append(ApiProxyUsageEvent),
+    QueryKeyLogs {
+        limit: usize,
+        reply: oneshot::Sender<Result<Vec<ApiProxyKeyUsageLogEntry>, String>>,
+    },
+    QueryStats {
+        now: i64,
+        range_seconds: i64,
+        reply: oneshot::Sender<Result<ApiProxyUsageStats, String>>,
+    },
+    Clear {
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+}
+
+impl ApiProxyUsageWriter {
+    fn start(data_dir: PathBuf) -> Result<Self, String> {
+        let (sender, receiver) = mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("api-proxy-usage-writer".to_string())
+            .spawn(move || run_api_proxy_usage_writer(data_dir, receiver))
+            .map_err(|error| format!("Failed to start API proxy usage writer: {error}"))?;
+
+        Ok(Self {
+            sender: Some(sender),
+            thread: Some(thread),
+        })
+    }
+
+    fn sender(&self) -> Result<mpsc::Sender<ApiProxyUsageCommand>, String> {
+        self.sender
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "API proxy usage writer is closed".to_string())
+    }
+}
+
+impl Drop for ApiProxyUsageWriter {
+    fn drop(&mut self) {
+        self.sender.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }
@@ -492,6 +551,7 @@ pub(crate) fn new_proxy_storage_context(
         data_dir,
         store_lock,
         auth_refresh_lock,
+        usage_writer: Arc::new(tokio::sync::Mutex::new(None)),
         sync_active_auth_on_refresh,
     }
 }
@@ -501,12 +561,14 @@ fn app_proxy_storage_context(
     app: &AppHandle,
     state: &AppState,
 ) -> Result<ProxyStorageContext, String> {
-    Ok(new_proxy_storage_context(
+    let mut storage = new_proxy_storage_context(
         app_data_dir(app)?,
         state.store_lock.clone(),
         state.auth_operation_lock.clone(),
         true,
-    ))
+    );
+    storage.usage_writer = state.api_proxy_usage_writer.clone();
+    Ok(storage)
 }
 
 #[cfg(feature = "desktop")]
@@ -719,40 +781,15 @@ pub(crate) async fn get_api_proxy_key_usage_logs_with_storage(
     storage: &ProxyStorageContext,
     limit: Option<usize>,
 ) -> Result<Vec<ApiProxyKeyUsageLogEntry>, String> {
-    let now = now_unix_seconds();
     let limit = limit.unwrap_or(200).clamp(1, 1_000);
-    let _guard = storage.store_lock.lock().await;
-    let path = api_proxy_usage_path(storage)?;
-    let should_scrub_legacy_fields = api_proxy_usage_store_has_legacy_private_fields(&path);
-    let mut store = load_api_proxy_usage_store_from_path(&path)?;
-    if prune_api_proxy_usage_events(&mut store.events, now) || should_scrub_legacy_fields {
-        store.updated_at = now;
-        save_api_proxy_usage_store_to_path(&path, &store)?;
-    }
-
-    let mut entries = store
-        .events
-        .into_iter()
-        .filter(|event| event.key_id.is_some() || event.key_label.is_some())
-        .map(|event| ApiProxyKeyUsageLogEntry {
-            timestamp: event.timestamp,
-            key_id: event.key_id,
-            key_label: event.key_label,
-            model: if event.model.trim().is_empty() {
-                "unknown".to_string()
-            } else {
-                event.model
-            },
-            route: event.route,
-            reasoning_effort: event.reasoning_effort,
-            service_tier: event.service_tier,
-            calls: event.calls.max(0),
-            tokens: event.tokens.max(0),
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
-    entries.truncate(limit);
-    Ok(entries)
+    let sender = api_proxy_usage_sender(storage).await?;
+    let (reply, response) = oneshot::channel();
+    sender
+        .send(ApiProxyUsageCommand::QueryKeyLogs { limit, reply })
+        .map_err(|_| "API proxy usage writer is unavailable".to_string())?;
+    response
+        .await
+        .map_err(|_| "API proxy usage query was interrupted".to_string())?
 }
 
 #[cfg(feature = "desktop")]
@@ -771,20 +808,18 @@ pub(crate) async fn get_api_proxy_usage_stats_with_storage(
 ) -> Result<ApiProxyUsageStats, String> {
     let now = now_unix_seconds();
     let range_seconds = normalize_api_proxy_usage_range_seconds(range_seconds);
-    let _guard = storage.store_lock.lock().await;
-    let path = api_proxy_usage_path(storage)?;
-    let should_scrub_legacy_fields = api_proxy_usage_store_has_legacy_private_fields(&path);
-    let mut store = load_api_proxy_usage_store_from_path(&path)?;
-    if prune_api_proxy_usage_events(&mut store.events, now) || should_scrub_legacy_fields {
-        store.updated_at = now;
-        save_api_proxy_usage_store_to_path(&path, &store)?;
-    }
-
-    Ok(build_api_proxy_usage_stats(
-        &store.events,
-        now,
-        range_seconds,
-    ))
+    let sender = api_proxy_usage_sender(storage).await?;
+    let (reply, response) = oneshot::channel();
+    sender
+        .send(ApiProxyUsageCommand::QueryStats {
+            now,
+            range_seconds,
+            reply,
+        })
+        .map_err(|_| "API proxy usage writer is unavailable".to_string())?;
+    response
+        .await
+        .map_err(|_| "API proxy usage query was interrupted".to_string())?
 }
 
 #[cfg(feature = "desktop")]
@@ -799,14 +834,14 @@ pub(crate) async fn clear_api_proxy_usage_stats_internal(
 pub(crate) async fn clear_api_proxy_usage_stats_with_storage(
     storage: &ProxyStorageContext,
 ) -> Result<(), String> {
-    let now = now_unix_seconds();
-    let _guard = storage.store_lock.lock().await;
-    let path = api_proxy_usage_path(storage)?;
-    let store = ApiProxyUsageStore {
-        updated_at: now,
-        ..ApiProxyUsageStore::default()
-    };
-    save_api_proxy_usage_store_to_path(&path, &store)
+    let sender = api_proxy_usage_sender(storage).await?;
+    let (reply, response) = oneshot::channel();
+    sender
+        .send(ApiProxyUsageCommand::Clear { reply })
+        .map_err(|_| "API proxy usage writer is unavailable".to_string())?;
+    response
+        .await
+        .map_err(|_| "API proxy usage clear was interrupted".to_string())?
 }
 
 #[cfg(feature = "desktop")]
@@ -5303,8 +5338,18 @@ fn sanitize_api_proxy_named_options(values: Vec<String>, allowed: &[&str]) -> Ve
         .collect()
 }
 
-fn api_proxy_usage_path(storage: &ProxyStorageContext) -> Result<PathBuf, String> {
-    Ok(storage.data_dir.join(API_PROXY_USAGE_FILE_NAME))
+fn api_proxy_usage_database_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(API_PROXY_USAGE_DATABASE_FILE_NAME)
+}
+
+async fn api_proxy_usage_sender(
+    storage: &ProxyStorageContext,
+) -> Result<mpsc::Sender<ApiProxyUsageCommand>, String> {
+    let mut writer = storage.usage_writer.lock().await;
+    if writer.is_none() {
+        *writer = Some(ApiProxyUsageWriter::start(storage.data_dir.clone())?);
+    }
+    writer.as_ref().expect("usage writer initialized").sender()
 }
 
 async fn record_api_proxy_call_success(
@@ -5438,28 +5483,33 @@ fn api_proxy_usage_event(
 
 async fn append_api_proxy_usage_event(
     storage: &ProxyStorageContext,
-    mut event: ApiProxyUsageEvent,
+    event: ApiProxyUsageEvent,
 ) -> Result<(), String> {
+    let Some(event) = normalize_api_proxy_usage_event(event, now_unix_seconds()) else {
+        return Ok(());
+    };
+    api_proxy_usage_sender(storage)
+        .await?
+        .send(ApiProxyUsageCommand::Append(event))
+        .map_err(|_| "API proxy usage writer is unavailable".to_string())
+}
+
+fn normalize_api_proxy_usage_event(
+    mut event: ApiProxyUsageEvent,
+    now: i64,
+) -> Option<ApiProxyUsageEvent> {
     event.calls = event.calls.max(0);
     event.tokens = event.tokens.max(0);
     if event.calls == 0 && event.tokens == 0 {
-        return Ok(());
+        return None;
     }
     if event.model.trim().is_empty() {
         event.model = "unknown".to_string();
     }
-    let now = now_unix_seconds();
     if event.timestamp <= 0 {
         event.timestamp = now;
     }
-
-    let _guard = storage.store_lock.lock().await;
-    let path = api_proxy_usage_path(storage)?;
-    let mut store = load_api_proxy_usage_store_from_path(&path)?;
-    store.events.push(event);
-    prune_api_proxy_usage_events(&mut store.events, now);
-    store.updated_at = now;
-    save_api_proxy_usage_store_to_path(&path, &store)
+    Some(event)
 }
 
 fn load_api_proxy_usage_store_from_path(path: &Path) -> Result<ApiProxyUsageStore, String> {
@@ -5489,34 +5539,298 @@ fn load_api_proxy_usage_store_from_path(path: &Path) -> Result<ApiProxyUsageStor
     }
 }
 
-fn api_proxy_usage_store_has_legacy_private_fields(path: &Path) -> bool {
-    if !path.exists() {
-        return false;
+fn run_api_proxy_usage_writer(data_dir: PathBuf, receiver: mpsc::Receiver<ApiProxyUsageCommand>) {
+    let mut connection = match open_api_proxy_usage_database(&data_dir) {
+        Ok(connection) => connection,
+        Err(error) => {
+            log::warn!("API proxy usage database unavailable: {error}");
+            reject_api_proxy_usage_commands(receiver, &error);
+            return;
+        }
+    };
+    let mut pending = None;
+
+    loop {
+        let command = match pending.take().or_else(|| receiver.recv().ok()) {
+            Some(command) => command,
+            None => break,
+        };
+
+        match command {
+            ApiProxyUsageCommand::Append(first) => {
+                let mut events = vec![first];
+                while events.len() < 256 {
+                    match receiver.try_recv() {
+                        Ok(ApiProxyUsageCommand::Append(event)) => events.push(event),
+                        Ok(command) => {
+                            pending = Some(command);
+                            break;
+                        }
+                        Err(_) => break,
+                    }
+                }
+                if let Err(error) = insert_api_proxy_usage_events(&mut connection, &events) {
+                    log::warn!("Failed to persist API proxy usage: {error}");
+                }
+            }
+            ApiProxyUsageCommand::QueryKeyLogs { limit, reply } => {
+                let _ = reply.send(query_api_proxy_key_usage_logs(&connection, limit));
+            }
+            ApiProxyUsageCommand::QueryStats {
+                now,
+                range_seconds,
+                reply,
+            } => {
+                let _ = reply.send(query_api_proxy_usage_stats(&connection, now, range_seconds));
+            }
+            ApiProxyUsageCommand::Clear { reply } => {
+                let result = connection
+                    .execute("DELETE FROM api_proxy_usage_events", [])
+                    .map(|_| ())
+                    .map_err(|error| format!("Failed to clear API proxy usage: {error}"));
+                let _ = reply.send(result);
+            }
+        }
+    }
+}
+
+fn reject_api_proxy_usage_commands(receiver: mpsc::Receiver<ApiProxyUsageCommand>, error: &str) {
+    for command in receiver {
+        match command {
+            ApiProxyUsageCommand::Append(_) => {}
+            ApiProxyUsageCommand::QueryKeyLogs { reply, .. } => {
+                let _ = reply.send(Err(error.to_string()));
+            }
+            ApiProxyUsageCommand::QueryStats { reply, .. } => {
+                let _ = reply.send(Err(error.to_string()));
+            }
+            ApiProxyUsageCommand::Clear { reply } => {
+                let _ = reply.send(Err(error.to_string()));
+            }
+        }
+    }
+}
+
+fn open_api_proxy_usage_database(data_dir: &Path) -> Result<Connection, String> {
+    fs::create_dir_all(data_dir).map_err(|error| {
+        format!(
+            "Failed to create API proxy usage directory {}: {error}",
+            data_dir.display()
+        )
+    })?;
+    let database_path = api_proxy_usage_database_path(data_dir);
+    let mut connection = Connection::open(&database_path).map_err(|error| {
+        format!(
+            "Failed to open API proxy usage database {}: {error}",
+            database_path.display()
+        )
+    })?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| format!("Failed to configure API proxy usage timeout: {error}"))?;
+    connection
+        .pragma_update(None, "journal_mode", "WAL")
+        .map_err(|error| format!("Failed to enable API proxy usage WAL: {error}"))?;
+    connection
+        .pragma_update(None, "synchronous", "NORMAL")
+        .map_err(|error| format!("Failed to configure API proxy usage sync mode: {error}"))?;
+    connection
+        .pragma_update(None, "temp_store", "MEMORY")
+        .map_err(|error| format!("Failed to keep API proxy temporary data in memory: {error}"))?;
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS api_proxy_usage_events (
+                id INTEGER PRIMARY KEY,
+                timestamp INTEGER NOT NULL,
+                key_id TEXT,
+                key_label TEXT,
+                model TEXT NOT NULL,
+                route TEXT,
+                reasoning_effort TEXT,
+                service_tier TEXT,
+                calls INTEGER NOT NULL,
+                tokens INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS api_proxy_usage_timestamp_idx
+                ON api_proxy_usage_events(timestamp);
+            CREATE TABLE IF NOT EXISTS api_proxy_usage_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .map_err(|error| format!("Failed to initialize API proxy usage database: {error}"))?;
+    set_private_permissions(&database_path);
+    migrate_legacy_api_proxy_usage(&mut connection, data_dir)?;
+    Ok(connection)
+}
+
+fn migrate_legacy_api_proxy_usage(
+    connection: &mut Connection,
+    data_dir: &Path,
+) -> Result<(), String> {
+    let migrated = connection
+        .query_row(
+            "SELECT value FROM api_proxy_usage_metadata WHERE key = ?1",
+            [API_PROXY_USAGE_LEGACY_MIGRATION_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("Failed to inspect API proxy usage migration: {error}"))?;
+    if migrated.is_some() {
+        return Ok(());
     }
 
-    fs::read_to_string(path).is_ok_and(|raw| {
-        raw.contains("accountKey") || raw.contains("accountId") || raw.contains("accountLabel")
-    })
+    let legacy_path = data_dir.join(API_PROXY_USAGE_FILE_NAME);
+    let legacy_store = load_api_proxy_usage_store_from_path(&legacy_path)?;
+    let now = now_unix_seconds();
+    let events = legacy_store
+        .events
+        .into_iter()
+        .filter_map(|event| normalize_api_proxy_usage_event(event, now))
+        .collect::<Vec<_>>();
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Failed to start API proxy usage migration: {error}"))?;
+    {
+        let mut insert = transaction
+            .prepare_cached(
+                "INSERT INTO api_proxy_usage_events (
+                    timestamp, key_id, key_label, model, route,
+                    reasoning_effort, service_tier, calls, tokens
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .map_err(|error| format!("Failed to prepare API proxy usage migration: {error}"))?;
+        for event in &events {
+            insert_api_proxy_usage_event(&mut insert, event)?;
+        }
+    }
+    transaction
+        .execute(
+            "INSERT INTO api_proxy_usage_metadata (key, value) VALUES (?1, ?2)",
+            params![
+                API_PROXY_USAGE_LEGACY_MIGRATION_KEY,
+                events.len().to_string()
+            ],
+        )
+        .map_err(|error| format!("Failed to mark API proxy usage migration: {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Failed to commit API proxy usage migration: {error}"))?;
+    Ok(())
 }
 
-fn save_api_proxy_usage_store_to_path(
-    path: &Path,
-    store: &ApiProxyUsageStore,
+fn insert_api_proxy_usage_events(
+    connection: &mut Connection,
+    events: &[ApiProxyUsageEvent],
 ) -> Result<(), String> {
-    let serialized = serde_json::to_string_pretty(store)
-        .map_err(|error| format!("序列化 API 反代统计存储失败: {error}"))?;
-    write_private_named_file_atomically(path, serialized.as_bytes(), "API 反代统计")
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Failed to start API proxy usage transaction: {error}"))?;
+    {
+        let mut insert = transaction
+            .prepare_cached(
+                "INSERT INTO api_proxy_usage_events (
+                    timestamp, key_id, key_label, model, route,
+                    reasoning_effort, service_tier, calls, tokens
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .map_err(|error| format!("Failed to prepare API proxy usage insert: {error}"))?;
+        for event in events {
+            insert_api_proxy_usage_event(&mut insert, event)?;
+        }
+    }
+    transaction
+        .commit()
+        .map_err(|error| format!("Failed to commit API proxy usage: {error}"))
 }
 
-fn prune_api_proxy_usage_events(events: &mut Vec<ApiProxyUsageEvent>, now: i64) -> bool {
-    let cutoff = now.saturating_sub(API_PROXY_USAGE_RETENTION_SECONDS);
-    let before = events.len();
-    events.retain(|event| {
-        event.timestamp >= cutoff
-            && !event.model.trim().is_empty()
-            && (event.calls.max(0) > 0 || event.tokens.max(0) > 0)
-    });
-    before != events.len()
+fn insert_api_proxy_usage_event(
+    insert: &mut rusqlite::CachedStatement<'_>,
+    event: &ApiProxyUsageEvent,
+) -> Result<(), String> {
+    insert
+        .execute(params![
+            event.timestamp,
+            event.key_id.as_deref(),
+            event.key_label.as_deref(),
+            event.model.as_str(),
+            event.route.as_deref(),
+            event.reasoning_effort.as_deref(),
+            event.service_tier.as_deref(),
+            event.calls,
+            event.tokens,
+        ])
+        .map(|_| ())
+        .map_err(|error| format!("Failed to insert API proxy usage: {error}"))
+}
+
+fn query_api_proxy_key_usage_logs(
+    connection: &Connection,
+    limit: usize,
+) -> Result<Vec<ApiProxyKeyUsageLogEntry>, String> {
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT timestamp, key_id, key_label, model, route,
+                    reasoning_effort, service_tier, calls, tokens
+             FROM api_proxy_usage_events
+             WHERE key_id IS NOT NULL OR key_label IS NOT NULL
+             ORDER BY timestamp DESC, id DESC
+             LIMIT ?1",
+        )
+        .map_err(|error| format!("Failed to prepare API proxy usage log query: {error}"))?;
+    let entries = statement
+        .query_map([limit as i64], |row| {
+            Ok(ApiProxyKeyUsageLogEntry {
+                timestamp: row.get(0)?,
+                key_id: row.get(1)?,
+                key_label: row.get(2)?,
+                model: row.get(3)?,
+                route: row.get(4)?,
+                reasoning_effort: row.get(5)?,
+                service_tier: row.get(6)?,
+                calls: row.get::<_, i64>(7)?.max(0),
+                tokens: row.get::<_, i64>(8)?.max(0),
+            })
+        })
+        .map_err(|error| format!("Failed to query API proxy usage logs: {error}"))?;
+    entries
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Failed to read API proxy usage logs: {error}"))
+}
+
+fn query_api_proxy_usage_stats(
+    connection: &Connection,
+    now: i64,
+    range_seconds: i64,
+) -> Result<ApiProxyUsageStats, String> {
+    let start = now.saturating_sub(range_seconds);
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT timestamp, key_id, key_label, model, route,
+                    reasoning_effort, service_tier, calls, tokens
+             FROM api_proxy_usage_events
+             WHERE timestamp >= ?1 AND timestamp <= ?2
+             ORDER BY id ASC",
+        )
+        .map_err(|error| format!("Failed to prepare API proxy usage stats query: {error}"))?;
+    let events = statement
+        .query_map(params![start, now], |row| {
+            Ok(ApiProxyUsageEvent {
+                timestamp: row.get(0)?,
+                key_id: row.get(1)?,
+                key_label: row.get(2)?,
+                model: row.get(3)?,
+                route: row.get(4)?,
+                reasoning_effort: row.get(5)?,
+                service_tier: row.get(6)?,
+                calls: row.get(7)?,
+                tokens: row.get(8)?,
+            })
+        })
+        .map_err(|error| format!("Failed to query API proxy usage stats: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Failed to read API proxy usage stats: {error}"))?;
+    Ok(build_api_proxy_usage_stats(&events, now, range_seconds))
 }
 
 fn build_api_proxy_usage_stats(
@@ -7508,11 +7822,11 @@ mod tests {
     use super::api_proxy_requested_models_from_payload;
     use super::api_proxy_usage_bucket_seconds;
     use super::api_proxy_usage_model_from_payload;
-    use super::api_proxy_usage_store_has_legacy_private_fields;
     use super::api_proxy_visible_models;
     use super::api_proxy_visible_models_for_key;
     use super::append_api_proxy_usage_event;
     use super::build_api_proxy_usage_stats;
+    use super::clear_api_proxy_usage_stats_with_storage;
     use super::convert_anthropic_messages_request_to_codex;
     use super::convert_completed_response_to_anthropic_message;
     use super::convert_completed_response_to_chat_completion;
@@ -7527,6 +7841,7 @@ mod tests {
     use super::extract_completed_response_from_sse;
     use super::find_http_header_end;
     use super::get_api_proxy_key_usage_logs_with_storage;
+    use super::get_api_proxy_usage_stats_with_storage;
     use super::host_matches_no_proxy;
     use super::is_responses_terminal_event;
     use super::list_api_proxy_keys_with_storage;
@@ -7536,7 +7851,6 @@ mod tests {
     use super::order_proxy_candidates_for_request;
     use super::parse_http_proxy_config;
     use super::parse_proxy_request_body_limit_mib;
-    use super::prune_api_proxy_usage_events;
     use super::regenerate_api_proxy_key_with_runtime;
     use super::request_session_affinity_key;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
@@ -7559,8 +7873,10 @@ mod tests {
     use super::ProxyLoadBalanceConfig;
     use super::ProxyStorageContext;
     use super::SseEvent;
+    use super::API_PROXY_USAGE_DATABASE_FILE_NAME;
+    use super::API_PROXY_USAGE_FILE_NAME;
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
-    use super::API_PROXY_USAGE_RETENTION_SECONDS;
+    use super::API_PROXY_USAGE_RANGE_30D_SECONDS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
     use crate::models::ApiProxyKey;
     use crate::models::ApiProxyLoadBalanceMode;
@@ -7698,6 +8014,7 @@ mod tests {
                 data_dir: data_dir.clone(),
                 store_lock: Arc::new(tokio::sync::Mutex::new(())),
                 auth_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+                usage_writer: Arc::new(tokio::sync::Mutex::new(None)),
                 sync_active_auth_on_refresh: false,
             },
             data_dir,
@@ -8044,6 +8361,7 @@ mod tests {
         assert_eq!(logs[0].calls, 1);
         assert_eq!(logs[0].tokens, 99);
 
+        drop(storage);
         std::fs::remove_dir_all(data_dir).expect("temporary proxy storage should be removable");
     }
 
@@ -8120,48 +8438,89 @@ mod tests {
         assert!(error.contains("high"));
     }
 
-    #[test]
-    fn api_proxy_usage_pruning_removes_events_older_than_retention() {
-        let now = 10_000_000;
-        let cutoff = now - API_PROXY_USAGE_RETENTION_SECONDS;
-        let mut events = vec![
-            usage_event(cutoff - 1, "gpt-5.4", 1, 0),
-            usage_event(cutoff, "gpt-5.4", 1, 0),
-            usage_event(now, "gpt-5.5", 0, 20),
-        ];
+    #[tokio::test]
+    async fn api_proxy_usage_migrates_once_keeps_history_and_only_clears_manually() {
+        let (storage, data_dir) = temp_proxy_storage_context("api-usage-migration");
+        let now = now_unix_seconds();
+        let old_timestamp = now - 60 * 24 * 60 * 60;
+        let legacy = serde_json::to_string_pretty(&json!({
+            "version": 1,
+            "updatedAt": now,
+            "events": [
+                {
+                    "timestamp": old_timestamp,
+                    "keyId": "key-old",
+                    "keyLabel": "Old tenant",
+                    "accountKey": "must-not-migrate",
+                    "model": "gpt-5.4",
+                    "route": "/v1/responses",
+                    "calls": 1,
+                    "tokens": 0
+                },
+                {
+                    "timestamp": now,
+                    "keyId": "key-new",
+                    "keyLabel": "New tenant",
+                    "model": "gpt-5.5",
+                    "route": "/v1/responses",
+                    "calls": 1,
+                    "tokens": 12
+                }
+            ]
+        }))
+        .expect("legacy usage should serialize");
+        let legacy_path = data_dir.join(API_PROXY_USAGE_FILE_NAME);
+        std::fs::write(&legacy_path, &legacy).expect("legacy usage should be writable");
 
-        let changed = prune_api_proxy_usage_events(&mut events, now);
-
-        assert!(changed);
-        assert_eq!(events.len(), 2);
-        assert!(events.iter().all(|event| event.timestamp >= cutoff));
-    }
-
-    #[test]
-    fn api_proxy_usage_store_detects_legacy_private_fields() {
-        let mut path = std::env::temp_dir();
-        path.push(format!(
-            "codex-tools-usage-legacy-{}-{}.json",
-            std::process::id(),
-            now_unix_seconds()
-        ));
-
-        std::fs::write(
-            &path,
-            r#"{"version":1,"events":[{"accountKey":"a","accountId":"b","accountLabel":"c","route":"/v1/responses"}]}"#,
+        let stats = get_api_proxy_usage_stats_with_storage(
+            &storage,
+            Some(API_PROXY_USAGE_RANGE_30D_SECONDS),
         )
-        .expect("write legacy usage store");
+        .await
+        .expect("migrated usage should be queryable");
+        assert_eq!(
+            stats
+                .series
+                .iter()
+                .map(|series| series.total_calls)
+                .sum::<i64>(),
+            1
+        );
 
-        assert!(api_proxy_usage_store_has_legacy_private_fields(&path));
+        let logs = get_api_proxy_key_usage_logs_with_storage(&storage, Some(10))
+            .await
+            .expect("migrated key logs should be queryable");
+        assert_eq!(logs.len(), 2, "old usage is retained until manual clear");
+        assert_eq!(
+            std::fs::read_to_string(&legacy_path).expect("legacy file remains readable"),
+            legacy,
+            "migration must not overwrite the legacy JSON"
+        );
 
-        std::fs::write(
-            &path,
-            r#"{"version":1,"events":[{"timestamp":1,"model":"gpt-5.4","calls":1,"tokens":0}]}"#,
-        )
-        .expect("write sanitized usage store");
+        let database_path = data_dir.join(API_PROXY_USAGE_DATABASE_FILE_NAME);
+        let connection =
+            rusqlite::Connection::open(&database_path).expect("usage database should be readable");
+        let count = || {
+            connection
+                .query_row("SELECT COUNT(*) FROM api_proxy_usage_events", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("usage rows should be countable")
+        };
+        assert_eq!(count(), 2);
+        get_api_proxy_usage_stats_with_storage(&storage, None)
+            .await
+            .expect("reopening usage must not duplicate migration");
+        assert_eq!(count(), 2);
 
-        assert!(!api_proxy_usage_store_has_legacy_private_fields(&path));
-        let _ = std::fs::remove_file(path);
+        clear_api_proxy_usage_stats_with_storage(&storage)
+            .await
+            .expect("manual clear should succeed");
+        assert_eq!(count(), 0);
+
+        drop(connection);
+        drop(storage);
+        std::fs::remove_dir_all(data_dir).expect("temporary proxy storage should be removable");
     }
 
     #[test]

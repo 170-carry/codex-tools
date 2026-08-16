@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import { PROJECT_LATEST_RELEASE_URL } from "../constants/externalLinks";
@@ -51,11 +52,11 @@ import {
 } from "../utils/changelog";
 
 const REFRESH_MS = 30_000;
-const COST_ANALYTICS_REFRESH_MS = 60_000;
+const COST_ANALYTICS_STALE_MS = 30 * 60 * 1000;
 const EDITOR_SCAN_MS = 60_000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
-const API_PROXY_USAGE_POLL_MS = 2_000;
+const API_PROXY_USAGE_POLL_MS = 15_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT = "main-window-visibility-changed";
 const DEFAULT_API_PROXY_USAGE_RANGE: ApiProxyUsageRange = "24h";
@@ -192,14 +193,22 @@ function buildRemoteProxyFallback(
   };
 }
 
-export function useCodexController() {
+export function useCodexController(
+  activeTab: "accounts" | "analytics" | "proxy" | "settings",
+) {
   const { copy, locale } = useI18n();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [tokenUsage, setTokenUsage] = useState<CodexTokenUsageSnapshot | null>(
     null,
   );
   const [tokenUsageError, setTokenUsageError] = useState<string | null>(null);
-  const [mainWindowVisible, setMainWindowVisible] = useState(true);
+  const [mainWindowShown, setMainWindowShown] = useState(true);
+  const [mainWindowMinimized, setMainWindowMinimized] = useState(false);
+  const [documentVisible, setDocumentVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  );
+  const mainWindowVisible =
+    mainWindowShown && !mainWindowMinimized && documentVisible;
   const [costAnalytics, setCostAnalytics] =
     useState<CodexCostAnalyticsSnapshot | null>(null);
   const [costAnalyticsError, setCostAnalyticsError] = useState<string | null>(
@@ -303,7 +312,6 @@ export function useCodexController() {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [installedEditorApps, setInstalledEditorApps] = useState<
     InstalledEditorApp[]
@@ -476,13 +484,9 @@ export function useCodexController() {
   );
 
   const loadSettings = useCallback(async () => {
-    try {
-      const data = await invoke<AppSettings>("get_app_settings");
-      settingsRef.current = data;
-      setSettings(data);
-    } finally {
-      setSettingsLoaded(true);
-    }
+    const data = await invoke<AppSettings>("get_app_settings");
+    settingsRef.current = data;
+    setSettings(data);
   }, []);
 
   const loadInstalledEditorApps = useCallback(async () => {
@@ -1095,7 +1099,7 @@ export function useCodexController() {
 
     void listen<boolean>(MAIN_WINDOW_VISIBILITY_CHANGED_EVENT, (event) => {
       if (!disposed) {
-        setMainWindowVisible(event.payload);
+        setMainWindowShown(event.payload);
       }
     })
       .then((fn) => {
@@ -1111,6 +1115,52 @@ export function useCodexController() {
       disposed = true;
       if (unlisten) {
         void unlisten();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenResized: UnlistenFn | null = null;
+    const currentWindow = getCurrentWindow();
+
+    const syncMinimized = async () => {
+      try {
+        const minimized = await currentWindow.isMinimized();
+        if (!disposed) {
+          setMainWindowMinimized(minimized);
+        }
+      } catch {
+        // Browser-only previews do not provide a native window.
+      }
+    };
+    const syncDocumentVisibility = () => {
+      setDocumentVisible(document.visibilityState !== "hidden");
+    };
+
+    document.addEventListener("visibilitychange", syncDocumentVisibility);
+    void currentWindow
+      .onResized(() => {
+        void syncMinimized();
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          void unlisten();
+          return;
+        }
+        unlistenResized = unlisten;
+      })
+      .catch(() => {});
+    void syncMinimized();
+
+    return () => {
+      disposed = true;
+      document.removeEventListener(
+        "visibilitychange",
+        syncDocumentVisibility,
+      );
+      if (unlistenResized) {
+        void unlistenResized();
       }
     };
   }, []);
@@ -1158,16 +1208,13 @@ export function useCodexController() {
         loadOpencodeDesktopAppInstalled(),
         loadApiProxySupportedModels(),
         loadApiProxyKeys(),
-        loadApiProxyKeyLogs(),
         loadApiProxyStatus(),
-        loadApiProxyUsageStats(DEFAULT_API_PROXY_USAGE_RANGE),
         loadCloudflaredStatus(),
         // A clean installation has no cached usage yet. Allow this one silent
         // startup refresh to renew stale auth tokens, while periodic refreshes
         // remain lightweight and do not rotate credentials unnecessarily.
         refreshUsage(true, true, true),
         refreshTokenUsage(true),
-        loadCostAnalytics(true),
         settingsTask.then(() => checkForAppUpdate(true)),
       ]);
     };
@@ -1180,13 +1227,10 @@ export function useCodexController() {
   }, [
     checkForAppUpdate,
     loadAccounts,
-    loadApiProxyKeyLogs,
     loadApiProxyKeys,
     loadApiProxySupportedModels,
     loadApiProxyStatus,
-    loadApiProxyUsageStats,
     loadCloudflaredStatus,
-    loadCostAnalytics,
     loadInstalledEditorApps,
     loadOpencodeDesktopAppInstalled,
     loadSettings,
@@ -1227,17 +1271,33 @@ export function useCodexController() {
   ]);
 
   useEffect(() => {
-    if (!settingsLoaded) {
+    if (!mainWindowVisible || activeTab !== "analytics") {
       return;
     }
 
-    void refreshCostAnalytics(true);
-    const timer = window.setInterval(() => {
-      void refreshCostAnalytics(true);
-    }, COST_ANALYTICS_REFRESH_MS);
+    let cancelled = false;
+    void (async () => {
+      const cached = await loadCostAnalytics(true);
+      if (cancelled) {
+        return;
+      }
+      const updatedAtMs = (cached?.updatedAt ?? 0) * 1000;
+      const stale =
+        !cached || Date.now() >= updatedAtMs + COST_ANALYTICS_STALE_MS;
+      if (stale) {
+        await refreshCostAnalytics(Boolean(cached));
+      }
+    })();
 
-    return () => window.clearInterval(timer);
-  }, [refreshCostAnalytics, settingsLoaded]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTab,
+    loadCostAnalytics,
+    mainWindowVisible,
+    refreshCostAnalytics,
+  ]);
 
   useEffect(() => {
     if (loading) {
@@ -1330,10 +1390,14 @@ export function useCodexController() {
   }, [loading, settings.remoteServers]);
 
   useEffect(() => {
-    if (!mainWindowVisible || !apiProxyStatus.running) {
+    if (!mainWindowVisible || activeTab !== "proxy") {
       return;
     }
 
+    void loadApiProxyStatus();
+    if (!apiProxyStatus.running) {
+      return;
+    }
     const timer = setInterval(() => {
       void loadApiProxyStatus();
     }, API_PROXY_POLL_MS);
@@ -1341,19 +1405,27 @@ export function useCodexController() {
     return () => {
       clearInterval(timer);
     };
-  }, [apiProxyStatus.running, loadApiProxyStatus, mainWindowVisible]);
+  }, [
+    activeTab,
+    apiProxyStatus.running,
+    loadApiProxyStatus,
+    mainWindowVisible,
+  ]);
 
   useEffect(() => {
     if (
       !mainWindowVisible ||
-      !apiProxyStatus.running ||
-      apiProxyUsageLoading ||
-      apiProxyUsageClearing ||
-      apiProxyUsagePollInFlightRef.current
+      activeTab !== "proxy" ||
+      apiProxyUsageClearing
     ) {
       return;
     }
 
+    void loadApiProxyUsageStats(apiProxyUsageRange);
+    void loadApiProxyKeyLogs();
+    if (!apiProxyStatus.running) {
+      return;
+    }
     const timer = setInterval(() => {
       void loadApiProxyUsageStats(apiProxyUsageRange, { silent: true });
       void loadApiProxyKeyLogs({ silent: true });
@@ -1363,9 +1435,9 @@ export function useCodexController() {
       clearInterval(timer);
     };
   }, [
+    activeTab,
     apiProxyStatus.running,
     apiProxyUsageClearing,
-    apiProxyUsageLoading,
     apiProxyUsageRange,
     loadApiProxyKeyLogs,
     loadApiProxyUsageStats,
@@ -1373,10 +1445,14 @@ export function useCodexController() {
   ]);
 
   useEffect(() => {
-    if (!mainWindowVisible || !cloudflaredStatus.running) {
+    if (!mainWindowVisible || activeTab !== "proxy") {
       return;
     }
 
+    void loadCloudflaredStatus();
+    if (!cloudflaredStatus.running) {
+      return;
+    }
     const timer = setInterval(() => {
       void loadCloudflaredStatus();
     }, CLOUDFLARED_POLL_MS);
@@ -1384,7 +1460,12 @@ export function useCodexController() {
     return () => {
       clearInterval(timer);
     };
-  }, [cloudflaredStatus.running, loadCloudflaredStatus, mainWindowVisible]);
+  }, [
+    activeTab,
+    cloudflaredStatus.running,
+    loadCloudflaredStatus,
+    mainWindowVisible,
+  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -1751,7 +1832,6 @@ export function useCodexController() {
           port: port ?? null,
         });
         setApiProxyStatus(localizeApiProxyStatus(status));
-        void loadApiProxyUsageStats(apiProxyUsageRange);
         const target = status.port
           ? `127.0.0.1:${status.port}`
           : copy.notices.proxyLocalTargetFallback;
@@ -1767,9 +1847,7 @@ export function useCodexController() {
     },
     [
       apiProxyStatus.running,
-      apiProxyUsageRange,
       copy.notices,
-      loadApiProxyUsageStats,
       localizeApiProxyStatus,
       localizeError,
       startingApiProxy,
@@ -1988,9 +2066,8 @@ export function useCodexController() {
         return;
       }
       setApiProxyUsageRange(range);
-      void loadApiProxyUsageStats(range);
     },
-    [apiProxyUsageRange, loadApiProxyUsageStats],
+    [apiProxyUsageRange],
   );
 
   const onSelectApiProxyUsageMetric = useCallback(
@@ -2011,8 +2088,6 @@ export function useCodexController() {
     setApiProxyUsageClearing(true);
     try {
       await invoke("clear_api_proxy_usage_stats");
-      await loadApiProxyUsageStats(apiProxyUsageRange);
-      await loadApiProxyKeyLogs({ silent: true });
       setNotice({ type: "ok", message: copy.notices.apiProxyUsageCleared });
     } catch (error) {
       setNotice({
@@ -2026,10 +2101,7 @@ export function useCodexController() {
     }
   }, [
     apiProxyUsageClearing,
-    apiProxyUsageRange,
     copy.notices,
-    loadApiProxyKeyLogs,
-    loadApiProxyUsageStats,
     localizeError,
   ]);
 
