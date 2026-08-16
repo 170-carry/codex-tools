@@ -57,6 +57,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { copy, locale, localeOptions, setLocale } = useI18n();
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [runtimePlatform, setRuntimePlatform] = useState<string | null>(null);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
@@ -75,6 +76,27 @@ export function SettingsPanel({
         }
       })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void invoke<string>("get_runtime_platform")
+      .then((platform) => {
+        if (!cancelled) {
+          setRuntimePlatform(platform);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          // 浏览器预览没有 Tauri 命令；仅为本地预览保留平台回退，桌面包始终以后端为准。
+          setRuntimePlatform(navigator.platform.toLowerCase().includes("mac") ? "macos" : "other");
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -126,11 +148,12 @@ export function SettingsPanel({
             <ThemeSwitch themeMode={themeMode} onToggle={onToggleTheme} />
           </div>
 
-          <div className="settingRow settingRowTrayUsage">
-            <div className="settingMeta">
-              <strong>{copy.settings.trayUsageDisplay.label}</strong>
-            </div>
-            <div className="trayUsageSettingsControls">
+          {runtimePlatform === "macos" ? (
+            <div className="settingRow settingRowTrayUsage">
+              <div className="settingMeta">
+                <strong>{copy.settings.trayUsageDisplay.label}</strong>
+              </div>
+              <div className="trayUsageSettingsControls">
               <div
                 className="modeGroup trayUsageModeGroup"
                 role="radiogroup"
@@ -203,8 +226,9 @@ export function SettingsPanel({
                   <span className="themeSwitchThumb" />
                 </span>
               </label>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
 
         <div className="settingsGroup">

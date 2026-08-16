@@ -832,8 +832,11 @@ button.accountTokenExportButton {
   transform: translateY(-50%);
 }
 
-.accountRows .accountRow:first-child .rowActionMenu {
-  top: calc(100% + 6px);
+.rowActionMenuPortal {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 1000;
   transform: none;
 }
 

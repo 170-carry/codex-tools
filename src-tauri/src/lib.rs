@@ -1173,6 +1173,12 @@ async fn pick_codex_launch_path(
 }
 
 #[tauri::command]
+fn get_runtime_platform() -> &'static str {
+    // 前端据此隐藏仅 macOS 有实现的状态栏标题选项，避免其他平台保存后静默无效。
+    std::env::consts::OS
+}
+
+#[tauri::command]
 async fn prepare_oauth_login(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2765,6 +2771,7 @@ pub fn run() {
             is_opencode_desktop_app_installed,
             open_external_url,
             pick_codex_launch_path,
+            get_runtime_platform,
             prepare_oauth_login,
             complete_oauth_callback_login,
             cancel_oauth_login,

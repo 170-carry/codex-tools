@@ -78,7 +78,14 @@ export function AppTopBar({
     }
 
     event.preventDefault();
-    void getCurrentWindow().startDragging().catch(() => {});
+    const appWindow = getCurrentWindow();
+    // Tauri 不会替自定义标题栏处理双击；先分流双击，避免第二次 pointerdown 再次启动拖动。
+    if (event.detail === 2) {
+      void appWindow.toggleMaximize().catch(() => {});
+      return;
+    }
+
+    void appWindow.startDragging().catch(() => {});
   };
 
   return (
