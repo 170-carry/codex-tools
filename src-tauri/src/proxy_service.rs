@@ -5586,11 +5586,23 @@ fn run_api_proxy_usage_writer(data_dir: PathBuf, receiver: mpsc::Receiver<ApiPro
             ApiProxyUsageCommand::Clear { reply } => {
                 let result = connection
                     .execute("DELETE FROM api_proxy_usage_events", [])
-                    .map(|_| ())
-                    .map_err(|error| format!("Failed to clear API proxy usage: {error}"));
+                    .map_err(|error| format!("Failed to clear API proxy usage: {error}"))
+                    .and_then(|_| clear_legacy_api_proxy_usage_file(&data_dir));
                 let _ = reply.send(result);
             }
         }
+    }
+}
+
+fn clear_legacy_api_proxy_usage_file(data_dir: &Path) -> Result<(), String> {
+    let legacy_path = data_dir.join(API_PROXY_USAGE_FILE_NAME);
+    match fs::remove_file(&legacy_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Failed to remove legacy API proxy usage {}: {error}",
+            legacy_path.display()
+        )),
     }
 }
 
@@ -5803,33 +5815,47 @@ fn query_api_proxy_usage_stats(
     now: i64,
     range_seconds: i64,
 ) -> Result<ApiProxyUsageStats, String> {
+    let range_seconds = normalize_api_proxy_usage_range_seconds(Some(range_seconds));
+    let bucket_seconds = api_proxy_usage_bucket_seconds(range_seconds);
     let start = now.saturating_sub(range_seconds);
     let mut statement = connection
         .prepare_cached(
-            "SELECT timestamp, key_id, key_label, model, route,
-                    reasoning_effort, service_tier, calls, tokens
+            "SELECT (timestamp / ?3) * ?3 AS bucket_timestamp,
+                    key_id, key_label, TRIM(model) AS normalized_model,
+                    SUM(CASE WHEN calls > 0 THEN calls ELSE 0 END) AS calls,
+                    SUM(CASE WHEN tokens > 0 THEN tokens ELSE 0 END) AS tokens,
+                    MAX(id) AS latest_id
              FROM api_proxy_usage_events
-             WHERE timestamp >= ?1 AND timestamp <= ?2
-             ORDER BY id ASC",
+             WHERE timestamp >= ?1 AND timestamp <= ?2 AND TRIM(model) <> ''
+             GROUP BY 1, 2, 4",
         )
         .map_err(|error| format!("Failed to prepare API proxy usage stats query: {error}"))?;
-    let events = statement
-        .query_map(params![start, now], |row| {
-            Ok(ApiProxyUsageEvent {
+    let mut aggregated_events = statement
+        .query_map(params![start, now, bucket_seconds], |row| {
+            let latest_id = row.get::<_, i64>(6)?;
+            let event = ApiProxyUsageEvent {
                 timestamp: row.get(0)?,
                 key_id: row.get(1)?,
+                // SQLite 的单一 MAX(id) 规则会从最近一行取出同组 label，保持重命名语义。
                 key_label: row.get(2)?,
                 model: row.get(3)?,
-                route: row.get(4)?,
-                reasoning_effort: row.get(5)?,
-                service_tier: row.get(6)?,
-                calls: row.get(7)?,
-                tokens: row.get(8)?,
-            })
+                route: None,
+                reasoning_effort: None,
+                service_tier: None,
+                calls: row.get(4)?,
+                tokens: row.get(5)?,
+            };
+            Ok((latest_id, event))
         })
         .map_err(|error| format!("Failed to query API proxy usage stats: {error}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("Failed to read API proxy usage stats: {error}"))?;
+    // 聚合结果远小于原始事件；按最近事件 ID 排序后可沿用现有“最新 Key 名称覆盖旧名称”逻辑。
+    aggregated_events.sort_by_key(|(latest_id, _)| *latest_id);
+    let events = aggregated_events
+        .into_iter()
+        .map(|(_, event)| event)
+        .collect::<Vec<_>>();
     Ok(build_api_proxy_usage_stats(&events, now, range_seconds))
 }
 

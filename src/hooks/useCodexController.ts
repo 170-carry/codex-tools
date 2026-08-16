@@ -1421,18 +1421,30 @@ export function useCodexController(
       return;
     }
 
-    void loadApiProxyUsageStats(apiProxyUsageRange);
-    void loadApiProxyKeyLogs();
-    if (!apiProxyStatus.running) {
-      return;
-    }
-    const timer = setInterval(() => {
-      void loadApiProxyUsageStats(apiProxyUsageRange, { silent: true });
-      void loadApiProxyKeyLogs({ silent: true });
-    }, API_PROXY_USAGE_POLL_MS);
+    let cancelled = false;
+    let timer: number | undefined;
+    const refreshUsage = async (silent: boolean) => {
+      await Promise.all([
+        loadApiProxyUsageStats(apiProxyUsageRange, { silent }),
+        loadApiProxyKeyLogs({ silent }),
+      ]);
+      if (cancelled || !apiProxyStatus.running) {
+        return;
+      }
+
+      // 慢历史查询完成后再安排下一轮，避免 setInterval 让请求重叠并抢占初始 loading 状态。
+      timer = window.setTimeout(() => {
+        void refreshUsage(true);
+      }, API_PROXY_USAGE_POLL_MS);
+    };
+
+    void refreshUsage(false);
 
     return () => {
-      clearInterval(timer);
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
     };
   }, [
     activeTab,
