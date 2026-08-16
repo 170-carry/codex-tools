@@ -71,6 +71,7 @@ function App() {
     apiProxyUsageMetric,
     apiProxyUsageLoading,
     apiProxyUsageClearing,
+    apiProxyUsageExporting,
     costAnalyticsLoading,
     costAnalyticsExporting,
     costAnalyticsProgress,
@@ -121,6 +122,7 @@ function App() {
     loadApiProxyStatus,
     onSelectApiProxyUsageRange,
     onSelectApiProxyUsageMetric,
+    onExportApiProxyUsage,
     onClearApiProxyUsageStats,
     onStartApiProxy,
     onStopApiProxy,
@@ -369,6 +371,7 @@ function App() {
               apiProxyUsageMetric={apiProxyUsageMetric}
               apiProxyUsageLoading={apiProxyUsageLoading}
               apiProxyUsageClearing={apiProxyUsageClearing}
+              apiProxyUsageExporting={apiProxyUsageExporting}
               cloudflaredStatus={cloudflaredStatus}
               accountCount={accounts.length}
               autoStartEnabled={settings.autoStartApiProxy}
@@ -407,6 +410,7 @@ function App() {
               onRegenerateApiProxyKey={onRegenerateApiProxyKey}
               onSelectApiProxyUsageRange={onSelectApiProxyUsageRange}
               onSelectApiProxyUsageMetric={onSelectApiProxyUsageMetric}
+              onExportApiProxyUsage={onExportApiProxyUsage}
               onClearApiProxyUsageStats={onClearApiProxyUsageStats}
               onRefreshApiKey={() => void onRefreshApiProxyKey()}
               onBindCodexProxy={() => void onBindCodexToApiProxy()}

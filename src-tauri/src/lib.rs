@@ -2220,6 +2220,38 @@ async fn get_api_proxy_usage_stats(
 }
 
 #[tauri::command]
+async fn export_api_proxy_usage(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    range_seconds: Option<i64>,
+    key_id: Option<String>,
+) -> Result<Option<String>, String> {
+    let default_file_name = format!("api-proxy-usage-{}.csv", utils::now_unix_seconds());
+    let selected_path = tauri::async_runtime::spawn_blocking(move || {
+        FileDialog::new()
+            .set_title("导出 API 反代用量")
+            .add_filter("CSV", &["csv"])
+            .set_file_name(&default_file_name)
+            .save_file()
+    })
+    .await
+    .map_err(|error| format!("打开 API 反代用量导出窗口失败: {error}"))?;
+    let Some(selected_path) = selected_path else {
+        return Ok(None);
+    };
+    let export_path = ensure_extension(selected_path, "csv");
+    proxy_service::export_api_proxy_usage_internal(
+        &app,
+        state.inner(),
+        range_seconds,
+        key_id,
+        export_path.clone(),
+    )
+    .await?;
+    Ok(Some(export_path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 async fn clear_api_proxy_usage_stats(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2789,6 +2821,7 @@ pub fn run() {
             regenerate_api_proxy_key,
             get_api_proxy_key_usage_logs,
             get_api_proxy_usage_stats,
+            export_api_proxy_usage,
             clear_api_proxy_usage_stats,
             get_api_proxy_supported_models,
             get_cloudflared_status,

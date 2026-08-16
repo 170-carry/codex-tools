@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fs;
+use std::future::Future;
+use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
 use std::net::IpAddr;
@@ -15,6 +17,7 @@ use std::pin::Pin;
 use std::process::Command;
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::RwLock;
 use std::thread::JoinHandle as ThreadJoinHandle;
 
@@ -26,9 +29,12 @@ use axum::extract::ws::Message as AxumWebSocketMessage;
 use axum::extract::ws::WebSocket as AxumWebSocket;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::DefaultBodyLimit;
+use axum::extract::FromRequest;
 use axum::extract::Multipart;
+use axum::extract::Request;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use axum::http::HeaderValue;
 use axum::http::Method;
 use axum::http::Response;
 use axum::http::StatusCode;
@@ -43,13 +49,16 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use flate2::read::DeflateDecoder;
 use flate2::read::GzDecoder;
+use flate2::read::ZlibDecoder;
 use futures_util::SinkExt;
 use futures_util::Stream;
 use futures_util::StreamExt;
 use if_addrs::IfAddr;
 use rusqlite::params;
 use rusqlite::Connection;
+use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
+use rusqlite::TransactionBehavior;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
@@ -60,6 +69,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
+use tokio::sync::Semaphore;
 use tokio_tungstenite::client_async_tls_with_config;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -110,6 +120,10 @@ const DEFAULT_PROXY_PORT: u16 = 8787;
 const DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB: usize = 512;
 const DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES: usize =
     DEFAULT_PROXY_REQUEST_BODY_LIMIT_MIB * 1024 * 1024;
+const MAX_CONCURRENT_PROXY_JSON_DECODE_JOBS: usize = 4;
+const MAX_PROXY_DECOMPRESSED_BODY_BYTES: usize = 128 * 1024 * 1024;
+const MIN_PROXY_DECOMPRESSED_BODY_BUDGET_BYTES: usize = 1024 * 1024;
+const MAX_PROXY_BODY_EXPANSION_RATIO: usize = 128;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS: u64 = 1_800;
 const DEFAULT_PROXY_CONNECT_TIMEOUT_SECS: u64 = 30;
 #[cfg(feature = "desktop")]
@@ -126,8 +140,28 @@ const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
 const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "priority";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
-const COMPACT_SSE_KEEPALIVE: &str = ": keepalive\n\n";
+const COMPACT_SSE_KEEPALIVE: &str =
+    "event: response.in_progress\ndata: {\"type\":\"response.in_progress\"}\n\n";
 const COMPACT_SSE_KEEPALIVE_INTERVAL_SECS: u64 = 10;
+const MAX_COMPACT_ERROR_BODY_BYTES: usize = 1024 * 1024;
+const MAX_COMPACT_RESPONSE_BODY_BYTES: usize = 32 * 1024 * 1024;
+const CODEX_TURN_STATE_HEADER: &str = "x-codex-turn-state";
+const CODEX_CONTEXT_REQUEST_HEADERS: &[&str] = &[
+    CODEX_TURN_STATE_HEADER,
+    "x-codex-beta-features",
+    "x-codex-turn-metadata",
+    "x-codex-window-id",
+    "x-codex-installation-id",
+    "x-codex-parent-thread-id",
+    "thread-id",
+    "x-openai-subagent",
+    "x-openai-memgen-request",
+    "x-responsesapi-include-timing-metrics",
+    "x-client-request-id",
+    "traceparent",
+    "tracestate",
+];
+static PROXY_JSON_DECODE_LIMITER: OnceLock<Arc<Semaphore>> = OnceLock::new();
 const MODELS: &[&str] = &[
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -253,6 +287,14 @@ struct ApiProxyUsageMetadata {
     service_tier: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct ApiProxyTokenUsageBreakdown {
+    total_tokens: i64,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct ApiProxyUsageEvent {
@@ -265,6 +307,9 @@ struct ApiProxyUsageEvent {
     service_tier: Option<String>,
     calls: i64,
     tokens: i64,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -301,6 +346,9 @@ enum ApiProxyUsageCommand {
         range_seconds: i64,
         reply: oneshot::Sender<Result<ApiProxyUsageStats, String>>,
     },
+    Barrier {
+        reply: oneshot::Sender<()>,
+    },
     Clear {
         reply: oneshot::Sender<Result<(), String>>,
     },
@@ -309,10 +357,28 @@ enum ApiProxyUsageCommand {
 impl ApiProxyUsageWriter {
     fn start(data_dir: PathBuf) -> Result<Self, String> {
         let (sender, receiver) = mpsc::channel();
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("api-proxy-usage-writer".to_string())
-            .spawn(move || run_api_proxy_usage_writer(data_dir, receiver))
+            .spawn(move || run_api_proxy_usage_writer(data_dir, receiver, ready_sender))
             .map_err(|error| format!("Failed to start API proxy usage writer: {error}"))?;
+
+        // 只有数据库建表/迁移完成后才发布 sender；初始化失败时后续请求仍可重新尝试启动。
+        match ready_receiver.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                drop(sender);
+                let _ = thread.join();
+                return Err(error);
+            }
+            Err(error) => {
+                drop(sender);
+                let _ = thread.join();
+                return Err(format!(
+                    "API proxy usage writer initialization stopped: {error}"
+                ));
+            }
+        }
 
         Ok(Self {
             sender: Some(sender),
@@ -387,6 +453,7 @@ struct ProxyContext {
     upstream_base_url: String,
     client: reqwest::Client,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
+    request_body_limit_bytes: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -465,6 +532,48 @@ impl CodexUpstreamResponse {
                 }
                 Ok((headers, Bytes::from(body)))
             }
+        }
+    }
+
+    async fn into_bytes_limited(self, max_bytes: usize) -> Result<(HeaderMap, Bytes), String> {
+        let (headers, mut stream) = self.into_stream();
+        let mut body = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if chunk.len() > max_bytes.saturating_sub(body.len()) {
+                return Err(format!("上游响应体超过限制（最大 {max_bytes} 字节）"));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok((headers, Bytes::from(body)))
+    }
+}
+
+type CompactUpstreamResult = Result<(ProxyCandidate, Value, HeaderMap), CompactUpstreamFailure>;
+type CompactUpstreamFuture = Pin<Box<dyn Future<Output = CompactUpstreamResult> + Send>>;
+
+struct CompactUpstreamFailure {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Bytes,
+    message: String,
+}
+
+impl CompactUpstreamFailure {
+    fn gateway(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            headers: HeaderMap::new(),
+            body: Bytes::new(),
+            message: message.into(),
+        }
+    }
+
+    fn into_response(self) -> Response<Body> {
+        if self.body.is_empty() {
+            json_error_response(self.status, &self.message)
+        } else {
+            build_proxy_response(self.status, &self.headers, self.body)
         }
     }
 }
@@ -831,6 +940,52 @@ pub(crate) async fn get_api_proxy_usage_stats_with_storage(
 }
 
 #[cfg(feature = "desktop")]
+pub(crate) async fn export_api_proxy_usage_internal(
+    app: &AppHandle,
+    state: &AppState,
+    range_seconds: Option<i64>,
+    key_id: Option<String>,
+    export_path: PathBuf,
+) -> Result<(), String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    export_api_proxy_usage_with_storage(&storage, range_seconds, key_id, export_path).await
+}
+
+pub(crate) async fn export_api_proxy_usage_with_storage(
+    storage: &ProxyStorageContext,
+    range_seconds: Option<i64>,
+    key_id: Option<String>,
+    export_path: PathBuf,
+) -> Result<(), String> {
+    // FIFO barrier 保证导出快照包含此前已入队的 append；长查询仍走独立只读连接，不阻塞写入线程。
+    let sender = api_proxy_usage_sender(storage).await?;
+    let (reply, response) = oneshot::channel();
+    sender
+        .send(ApiProxyUsageCommand::Barrier { reply })
+        .map_err(|_| "API proxy usage writer is unavailable".to_string())?;
+    response
+        .await
+        .map_err(|_| "API proxy usage export barrier was interrupted".to_string())?;
+    let database_path = api_proxy_usage_database_path(&storage.data_dir);
+    let now = now_unix_seconds();
+    let range_seconds = normalize_api_proxy_usage_range_seconds(range_seconds);
+    let key_id = key_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    tokio::task::spawn_blocking(move || {
+        export_api_proxy_usage_csv(
+            &database_path,
+            &export_path,
+            now,
+            range_seconds,
+            key_id.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| format!("API proxy usage export task failed: {error}"))?
+}
+
+#[cfg(feature = "desktop")]
 pub(crate) async fn clear_api_proxy_usage_stats_internal(
     app: &AppHandle,
     state: &AppState,
@@ -922,14 +1077,15 @@ pub(crate) async fn start_api_proxy_with_runtime(
         .map_err(|error| format!("创建代理 HTTP 客户端失败: {error}"))?;
 
     let shared = Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default()));
+    let request_body_limit = resolve_proxy_request_body_limit_bytes();
     let context = Arc::new(ProxyContext {
         storage: storage.clone(),
         api_keys: shared_api_keys.clone(),
         upstream_base_url: resolve_codex_upstream_base_url(),
         client,
         shared: shared.clone(),
+        request_body_limit_bytes: request_body_limit,
     });
-    let request_body_limit = resolve_proxy_request_body_limit_bytes();
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let router = Router::new()
@@ -1125,18 +1281,30 @@ async fn models_handler(
 
 async fn chat_completions_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
     };
-
-    let request_json = match parse_json_request(&headers, body) {
-        Ok(value) => value,
+    let body = match read_bounded_proxy_request_body(
+        request.into_body(),
+        context.request_body_limit_bytes,
+    )
+    .await
+    {
+        Ok(body) => body,
         Err(response) => return response,
     };
+
+    let request_json =
+        match parse_json_request_async(headers.clone(), body, context.request_body_limit_bytes)
+            .await
+        {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
@@ -1207,33 +1375,30 @@ async fn chat_completions_handler(
 
 async fn responses_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
     };
-
-    let request_json = match parse_json_request(&headers, body) {
-        Ok(value) => value,
+    let body = match read_bounded_proxy_request_body(
+        request.into_body(),
+        context.request_body_limit_bytes,
+    )
+    .await
+    {
+        Ok(body) => body,
         Err(response) => return response,
     };
 
-    // remote_compaction_v2 may post a compaction_trigger on /v1/responses with
-    // stream:true. Upstream compact is unary JSON, so bridge it onto the
-    // /responses/compact path and synthesize SSE for the client when needed.
-    if request_has_compaction_trigger(&request_json) {
-        return handle_responses_compact(
-            context,
-            proxy_key,
-            headers,
-            request_json,
-            true,
-            "/v1/responses",
-        )
-        .await;
-    }
+    let request_json =
+        match parse_json_request_async(headers.clone(), body, context.request_body_limit_bytes)
+            .await
+        {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
 
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
@@ -1301,18 +1466,30 @@ async fn responses_handler(
 
 async fn responses_compact_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
     };
-
-    let request_json = match parse_json_request(&headers, body) {
-        Ok(value) => value,
+    let body = match read_bounded_proxy_request_body(
+        request.into_body(),
+        context.request_body_limit_bytes,
+    )
+    .await
+    {
+        Ok(body) => body,
         Err(response) => return response,
     };
+
+    let request_json =
+        match parse_json_request_async(headers.clone(), body, context.request_body_limit_bytes)
+            .await
+        {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     let client_wants_stream = request_json
         .get("stream")
         .and_then(Value::as_bool)
@@ -1374,14 +1551,14 @@ async fn handle_responses_compact(
                 &upstream_payload,
                 candidate,
                 compact_response,
-                Some(upstream_headers),
+                upstream_headers,
                 false,
             )
             .await
         }
         Err(error) => {
-            update_proxy_error(&context, Some(error.clone())).await;
-            json_error_response(StatusCode::BAD_GATEWAY, &error)
+            update_proxy_error(&context, Some(error.message.clone())).await;
+            error.into_response()
         }
     }
 }
@@ -1398,7 +1575,9 @@ async fn stream_compact_response_with_optional_keepalive(
     let proxy_key_for_work = proxy_key.clone();
     let headers_for_work = headers.clone();
     let payload_for_work = upstream_payload.clone();
-    let mut work = tokio::spawn(async move {
+    let incoming_turn_state = headers.get(CODEX_TURN_STATE_HEADER).cloned();
+    // 直接把 future 移交给响应流；客户端断开并丢弃 Body 时 future 同步取消，不留下 detached 上游任务。
+    let mut work: CompactUpstreamFuture = Box::pin(async move {
         fetch_compact_upstream_response(
             &context_for_work,
             &proxy_key_for_work,
@@ -1410,28 +1589,28 @@ async fn stream_compact_response_with_optional_keepalive(
         .await
     });
 
+    // 没有可安全回显的 turn-state 时必须等上游 headers，不能提前提交一个缺失状态的 SSE 响应。
+    if incoming_turn_state.is_none() {
+        return finish_initial_compact_result(
+            &context,
+            &proxy_key,
+            route,
+            &upstream_payload,
+            work.await,
+        )
+        .await;
+    }
+
     // First beat is delayed so fast failures can still return JSON status codes.
     tokio::select! {
-        join_result = &mut work => {
-            match flatten_compact_join_result(join_result) {
-                Ok((candidate, compact_response, upstream_headers)) => {
-                    finish_compact_success(
-                        &context,
-                        &proxy_key,
-                        route,
-                        &upstream_payload,
-                        candidate,
-                        compact_response,
-                        Some(upstream_headers),
-                        true,
-                    )
-                    .await
-                }
-                Err(error) => {
-                    update_proxy_error(&context, Some(error.clone())).await;
-                    json_error_response(StatusCode::BAD_GATEWAY, &error)
-                }
-            }
+        result = &mut work => {
+            finish_initial_compact_result(
+                &context,
+                &proxy_key,
+                route,
+                &upstream_payload,
+                result,
+            ).await
         }
         _ = tokio::time::sleep(std::time::Duration::from_secs(COMPACT_SSE_KEEPALIVE_INTERVAL_SECS)) => {
             build_compact_keepalive_stream_response(
@@ -1440,17 +1619,37 @@ async fn stream_compact_response_with_optional_keepalive(
                 upstream_payload,
                 route,
                 work,
+                incoming_turn_state.expect("turn state checked above"),
             )
         }
     }
 }
 
-fn flatten_compact_join_result(
-    join_result: Result<Result<(ProxyCandidate, Value, HeaderMap), String>, tokio::task::JoinError>,
-) -> Result<(ProxyCandidate, Value, HeaderMap), String> {
-    match join_result {
-        Ok(result) => result,
-        Err(error) => Err(format!("compact 上游任务异常退出: {error}")),
+async fn finish_initial_compact_result(
+    context: &ProxyContext,
+    proxy_key: &ApiProxyKey,
+    route: &str,
+    upstream_payload: &Value,
+    result: CompactUpstreamResult,
+) -> Response<Body> {
+    match result {
+        Ok((candidate, compact_response, upstream_headers)) => {
+            finish_compact_success(
+                context,
+                proxy_key,
+                route,
+                upstream_payload,
+                candidate,
+                compact_response,
+                upstream_headers,
+                true,
+            )
+            .await
+        }
+        Err(error) => {
+            update_proxy_error(context, Some(error.message.clone())).await;
+            error.into_response()
+        }
     }
 }
 
@@ -1459,7 +1658,8 @@ fn build_compact_keepalive_stream_response(
     proxy_key: ApiProxyKey,
     upstream_payload: Value,
     route: &'static str,
-    mut work: tokio::task::JoinHandle<Result<(ProxyCandidate, Value, HeaderMap), String>>,
+    mut work: CompactUpstreamFuture,
+    turn_state: HeaderValue,
 ) -> Response<Body> {
     let output = stream! {
         yield Ok::<Bytes, Infallible>(Bytes::from_static(COMPACT_SSE_KEEPALIVE.as_bytes()));
@@ -1473,7 +1673,7 @@ fn build_compact_keepalive_stream_response(
 
         let result = loop {
             tokio::select! {
-                join_result = &mut work => break flatten_compact_join_result(join_result),
+                result = &mut work => break result,
                 _ = keepalive.tick() => {
                     yield Ok(Bytes::from_static(COMPACT_SSE_KEEPALIVE.as_bytes()));
                 }
@@ -1502,21 +1702,24 @@ fn build_compact_keepalive_stream_response(
                     }
                 }
             }
-            Err(message) => {
-                update_proxy_error(&context, Some(message.clone())).await;
-                yield Ok(build_compact_sse_failure(&message));
+            Err(error) => {
+                update_proxy_error(&context, Some(error.message.clone())).await;
+                yield Ok(build_compact_sse_failure_from_upstream(&error));
             }
         }
     };
 
     Response::builder()
         .status(StatusCode::OK)
+        .header(CODEX_TURN_STATE_HEADER, turn_state)
         .header("content-type", "text/event-stream")
         .header("cache-control", "no-cache")
         .header("connection", "keep-alive")
         .header("x-accel-buffering", "no")
         .body(Body::from_stream(output))
-        .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建 compact SSE 响应失败"))
+        .unwrap_or_else(|_| {
+            json_error_response(StatusCode::BAD_GATEWAY, "构建 compact SSE 响应失败")
+        })
 }
 
 async fn finish_compact_success(
@@ -1526,20 +1729,19 @@ async fn finish_compact_success(
     upstream_payload: &Value,
     candidate: ProxyCandidate,
     compact_response: Value,
-    upstream_headers: Option<HeaderMap>,
+    upstream_headers: HeaderMap,
     as_stream: bool,
 ) -> Response<Body> {
     update_proxy_target(context, &candidate).await;
     update_proxy_error(context, None).await;
-    let usage_metadata =
-        api_proxy_usage_metadata(proxy_key, &candidate, route, upstream_payload);
+    let usage_metadata = api_proxy_usage_metadata(proxy_key, &candidate, route, upstream_payload);
     record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &compact_response)
         .await;
 
     let compact_response = rewrite_response_models_for_client(compact_response);
     if as_stream {
         match build_compact_sse_response(&compact_response) {
-            Ok(sse_body) => build_sse_bytes_response(StatusCode::OK, sse_body),
+            Ok(sse_body) => build_sse_bytes_response(StatusCode::OK, &upstream_headers, sse_body),
             Err(message) => {
                 update_proxy_error(context, Some(message.clone())).await;
                 json_error_response(StatusCode::BAD_GATEWAY, &message)
@@ -1554,11 +1756,7 @@ async fn finish_compact_success(
                 return json_error_response(StatusCode::BAD_GATEWAY, &message);
             }
         };
-        build_json_proxy_response(
-            StatusCode::OK,
-            upstream_headers.as_ref().unwrap_or(&HeaderMap::new()),
-            body,
-        )
+        build_json_proxy_response(StatusCode::OK, &upstream_headers, body)
     }
 }
 
@@ -1569,7 +1767,7 @@ async fn fetch_compact_upstream_response(
     headers: &HeaderMap,
     upstream_payload: &Value,
     session_affinity_key: Option<&str>,
-) -> Result<(ProxyCandidate, Value, HeaderMap), String> {
+) -> CompactUpstreamResult {
     let (candidate, upstream_response) = match send_codex_request_over_candidates(
         context,
         proxy_key,
@@ -1582,22 +1780,38 @@ async fn fetch_compact_upstream_response(
     .await
     {
         Ok(value) => value,
-        Err(response) => return Err(proxy_response_error_message(response).await),
+        Err(response) => return Err(compact_upstream_failure_from_response(response).await),
     };
 
     let (upstream_headers, upstream_body) = upstream_response
-        .into_bytes()
+        .into_bytes_limited(MAX_COMPACT_RESPONSE_BODY_BYTES)
         .await
-        .map_err(|error| format!("读取 Codex compact 上游响应失败: {error}"))?;
-    let compact_response = parse_compact_upstream_response(&upstream_body)?;
+        .map_err(|error| {
+            CompactUpstreamFailure::gateway(format!("读取 Codex compact 上游响应失败: {error}"))
+        })?;
+    let compact_response =
+        parse_compact_upstream_response(&upstream_body).map_err(CompactUpstreamFailure::gateway)?;
     Ok((candidate, compact_response, upstream_headers))
 }
 
-async fn proxy_response_error_message(response: Response<Body>) -> String {
+async fn compact_upstream_failure_from_response(
+    response: Response<Body>,
+) -> CompactUpstreamFailure {
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+    let headers = response.headers().clone();
+    let body = axum::body::to_bytes(response.into_body(), MAX_COMPACT_ERROR_BODY_BYTES)
         .await
         .unwrap_or_default();
+    let message = proxy_response_error_message(status, &body);
+    CompactUpstreamFailure {
+        status,
+        headers,
+        body,
+        message,
+    }
+}
+
+fn proxy_response_error_message(status: StatusCode, body: &[u8]) -> String {
     if let Ok(value) = serde_json::from_slice::<Value>(&body) {
         if let Some(message) = response_error_message_from_value(&value) {
             return message;
@@ -1619,6 +1833,40 @@ async fn proxy_response_error_message(response: Response<Body>) -> String {
 }
 
 fn build_compact_sse_failure(message: &str) -> Bytes {
+    build_compact_sse_failure_with_error(json!({
+        "code": "upstream_error",
+        "message": message,
+    }))
+}
+
+fn build_compact_sse_failure_from_upstream(error: &CompactUpstreamFailure) -> Bytes {
+    let mut error_value = serde_json::from_slice::<Value>(&error.body)
+        .ok()
+        .and_then(|value| value.get("error").cloned())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    if let Some(object) = error_value.as_object_mut() {
+        object.entry("code".to_string()).or_insert_with(|| {
+            Value::String(
+                match error.status {
+                    StatusCode::BAD_REQUEST => "invalid_request_error",
+                    StatusCode::UNAUTHORIZED => "invalid_api_key",
+                    StatusCode::FORBIDDEN => "permission_denied",
+                    StatusCode::TOO_MANY_REQUESTS => "rate_limit_exceeded",
+                    StatusCode::PAYLOAD_TOO_LARGE => "request_too_large",
+                    _ => "upstream_error",
+                }
+                .to_string(),
+            )
+        });
+        object
+            .entry("message".to_string())
+            .or_insert_with(|| Value::String(error.message.clone()));
+    }
+    build_compact_sse_failure_with_error(error_value)
+}
+
+fn build_compact_sse_failure_with_error(error: Value) -> Bytes {
     let payload = json!({
         "type": "response.failed",
         "response": {
@@ -1626,10 +1874,7 @@ fn build_compact_sse_failure(message: &str) -> Bytes {
             "object": "response",
             "status": "failed",
             "output": [],
-            "error": {
-                "code": "upstream_error",
-                "message": message,
-            }
+            "error": error,
         }
     });
     let data = serde_json::to_string(&payload).unwrap_or_else(|_| {
@@ -1640,18 +1885,30 @@ fn build_compact_sse_failure(message: &str) -> Bytes {
 
 async fn anthropic_messages_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_anthropic_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
     };
-
-    let request_json = match parse_json_request(&headers, body) {
-        Ok(value) => value,
+    let body = match read_bounded_proxy_request_body(
+        request.into_body(),
+        context.request_body_limit_bytes,
+    )
+    .await
+    {
+        Ok(body) => body,
         Err(response) => return response,
     };
+
+    let request_json =
+        match parse_json_request_async(headers.clone(), body, context.request_body_limit_bytes)
+            .await
+        {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
@@ -1723,18 +1980,30 @@ async fn anthropic_messages_handler(
 
 async fn image_generations_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
     };
-
-    let request_json = match parse_json_request(&headers, body) {
-        Ok(value) => value,
+    let body = match read_bounded_proxy_request_body(
+        request.into_body(),
+        context.request_body_limit_bytes,
+    )
+    .await
+    {
+        Ok(body) => body,
         Err(response) => return response,
     };
+
+    let request_json =
+        match parse_json_request_async(headers.clone(), body, context.request_body_limit_bytes)
+            .await
+        {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
 
     let image_request = match convert_openai_image_generation_request_to_codex(&request_json) {
@@ -1755,12 +2024,16 @@ async fn image_generations_handler(
 
 async fn image_edits_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    multipart: Multipart,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
+    };
+    let multipart = match Multipart::from_request(request, &context).await {
+        Ok(multipart) => multipart,
+        Err(rejection) => return rejection.into_response(),
     };
 
     let request = match parse_image_multipart_request(multipart).await {
@@ -1786,12 +2059,16 @@ async fn image_edits_handler(
 
 async fn image_variations_handler(
     State(context): State<Arc<ProxyContext>>,
-    headers: HeaderMap,
-    multipart: Multipart,
+    request: Request,
 ) -> Response<Body> {
+    let headers = request.headers().clone();
     let proxy_key = match authorize_proxy_request(&headers, &context.api_keys) {
         Ok(proxy_key) => proxy_key,
         Err(response) => return response,
+    };
+    let multipart = match Multipart::from_request(request, &context).await {
+        Ok(multipart) => multipart,
+        Err(rejection) => return rejection.into_response(),
     };
 
     let request = match parse_image_multipart_request(multipart).await {
@@ -2104,7 +2381,8 @@ async fn relay_responses_sse_to_websocket(
                 &usage_metadata,
                 &event,
                 &mut recorded_usage,
-            );
+            )
+            .await;
             let done = is_responses_terminal_event(&event);
             send_responses_websocket_event(socket, &event).await?;
             if done {
@@ -2119,7 +2397,8 @@ async fn relay_responses_sse_to_websocket(
             &usage_metadata,
             &event,
             &mut recorded_usage,
-        );
+        )
+        .await;
         let done = is_responses_terminal_event(&event);
         send_responses_websocket_event(socket, &event).await?;
         if done {
@@ -2252,25 +2531,75 @@ fn authorize_anthropic_proxy_request(
     }
 }
 
-fn parse_json_request(headers: &HeaderMap, body: Bytes) -> Result<Value, Response<Body>> {
-    let body = decode_proxy_request_body(headers, body)?;
+async fn read_bounded_proxy_request_body(
+    body: Body,
+    max_bytes: usize,
+) -> Result<Bytes, Response<Body>> {
+    // Request extractor 之前先完成平台 Key 鉴权，再在这里读取并限制 body，避免未认证大包占满内存。
+    axum::body::to_bytes(body, max_bytes)
+        .await
+        .map_err(|_| proxy_request_body_too_large_response(max_bytes))
+}
+
+async fn parse_json_request_async(
+    headers: HeaderMap,
+    body: Bytes,
+    max_decoded_bytes: usize,
+) -> Result<Value, Response<Body>> {
+    // 限制解码并发；permit 移入 blocking job，客户端取消后也不会提前释放并放大压缩炸弹。
+    let permit = PROXY_JSON_DECODE_LIMITER
+        .get_or_init(|| Arc::new(Semaphore::new(MAX_CONCURRENT_PROXY_JSON_DECODE_JOBS)))
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| {
+            json_error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "并发请求体解码已达上限，请稍后重试",
+            )
+        })?;
+    // 压缩解码和大 JSON 解析都可能占用 CPU，移出 Tokio 请求执行线程以免阻塞其他代理流量。
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        parse_json_request(&headers, body, max_decoded_bytes)
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(json_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("解析请求体的后台任务失败: {error}"),
+        ))
+    })
+}
+
+fn parse_json_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    max_decoded_bytes: usize,
+) -> Result<Value, Response<Body>> {
+    let body = decode_proxy_request_body(headers, body, max_decoded_bytes)?;
     if body.is_empty() {
         return Err(invalid_request_response(
             "请求体为空。请确认客户端向 POST /v1/responses（或 /v1/chat/completions）发送了 JSON body，且 Base URL 只填到 /v1。",
         ));
     }
     serde_json::from_slice::<Value>(&body).map_err(|error| {
-        let preview = String::from_utf8_lossy(&body[..body.len().min(80)]).replace('\n', "\\n");
         invalid_request_response(&format!(
-            "请求体不是合法 JSON: {error}; body_len={}; preview={preview:?}",
+            "请求体不是合法 JSON: {error}; body_len={}",
             body.len()
         ))
     })
 }
 
-fn decode_proxy_request_body(headers: &HeaderMap, body: Bytes) -> Result<Bytes, Response<Body>> {
+fn decode_proxy_request_body(
+    headers: &HeaderMap,
+    body: Bytes,
+    max_decoded_bytes: usize,
+) -> Result<Bytes, Response<Body>> {
     if body.is_empty() {
         return Ok(body);
+    }
+    if body.len() > max_decoded_bytes {
+        return Err(proxy_request_body_too_large_response(max_decoded_bytes));
     }
 
     let encoding = headers
@@ -2283,11 +2612,19 @@ fn decode_proxy_request_body(headers: &HeaderMap, body: Bytes) -> Result<Bytes, 
     let Some(encoding) = encoding else {
         return Ok(body);
     };
+    // 压缩请求除配置上限外再受硬上限和膨胀比约束，避免小压缩包占用数百 MiB。
+    let max_decoded_bytes = max_decoded_bytes
+        .min(MAX_PROXY_DECOMPRESSED_BODY_BYTES)
+        .min(
+            body.len()
+                .saturating_mul(MAX_PROXY_BODY_EXPANSION_RATIO)
+                .max(MIN_PROXY_DECOMPRESSED_BODY_BUDGET_BYTES),
+        );
 
     match encoding.as_str() {
-        "gzip" | "x-gzip" => decompress_gzip_body(&body),
-        "deflate" => decompress_deflate_body(&body),
-        "zstd" => decompress_zstd_body(&body),
+        "gzip" | "x-gzip" => decompress_gzip_body(&body, max_decoded_bytes),
+        "deflate" => decompress_deflate_body(&body, max_decoded_bytes),
+        "zstd" => decompress_zstd_body(&body, max_decoded_bytes),
         other => Err(invalid_request_response(&format!(
             "不支持的 Content-Encoding: {other}"
         ))),
@@ -2299,36 +2636,54 @@ fn detect_content_encoding_by_magic(body: &[u8]) -> Option<String> {
         return Some("gzip".to_string());
     }
     // zstd frame magic: 0xFD2FB528 (little-endian bytes 28 B5 2F FD)
-    if body.len() >= 4 && body[0] == 0x28 && body[1] == 0xb5 && body[2] == 0x2f && body[3] == 0xfd
-    {
+    if body.len() >= 4 && body[0] == 0x28 && body[1] == 0xb5 && body[2] == 0x2f && body[3] == 0xfd {
         return Some("zstd".to_string());
     }
     None
 }
 
-fn decompress_gzip_body(body: &[u8]) -> Result<Bytes, Response<Body>> {
-    let mut decoder = GzDecoder::new(body);
+fn proxy_request_body_too_large_response(max_decoded_bytes: usize) -> Response<Body> {
+    json_error_response(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        &format!("解压后的请求体超过限制（最大 {max_decoded_bytes} 字节）"),
+    )
+}
+
+fn read_decompressed_body(
+    decoder: impl Read,
+    encoding: &str,
+    max_decoded_bytes: usize,
+) -> Result<Bytes, Response<Body>> {
+    let mut decoder = decoder.take(max_decoded_bytes.saturating_add(1) as u64);
     let mut decoded = Vec::new();
     decoder.read_to_end(&mut decoded).map_err(|error| {
-        invalid_request_response(&format!("gzip 请求体解压失败: {error}"))
+        invalid_request_response(&format!("{encoding} 请求体解压失败: {error}"))
     })?;
+    if decoded.len() > max_decoded_bytes {
+        return Err(proxy_request_body_too_large_response(max_decoded_bytes));
+    }
     Ok(Bytes::from(decoded))
 }
 
-fn decompress_deflate_body(body: &[u8]) -> Result<Bytes, Response<Body>> {
-    let mut decoder = DeflateDecoder::new(body);
-    let mut decoded = Vec::new();
-    decoder.read_to_end(&mut decoded).map_err(|error| {
-        invalid_request_response(&format!("deflate 请求体解压失败: {error}"))
-    })?;
-    Ok(Bytes::from(decoded))
+fn decompress_gzip_body(body: &[u8], max_decoded_bytes: usize) -> Result<Bytes, Response<Body>> {
+    read_decompressed_body(GzDecoder::new(body), "gzip", max_decoded_bytes)
 }
 
-fn decompress_zstd_body(body: &[u8]) -> Result<Bytes, Response<Body>> {
-    let decoded = zstd::stream::decode_all(body).map_err(|error| {
-        invalid_request_response(&format!("zstd 请求体解压失败: {error}"))
-    })?;
-    Ok(Bytes::from(decoded))
+fn decompress_deflate_body(body: &[u8], max_decoded_bytes: usize) -> Result<Bytes, Response<Body>> {
+    // HTTP deflate 标准使用 zlib wrapper；同时识别历史客户端发送的 raw DEFLATE。
+    let is_zlib_wrapped =
+        body.len() >= 2 && body[0] & 0x0f == 8 && u16::from_be_bytes([body[0], body[1]]) % 31 == 0;
+    if is_zlib_wrapped {
+        read_decompressed_body(ZlibDecoder::new(body), "deflate", max_decoded_bytes)
+    } else {
+        read_decompressed_body(DeflateDecoder::new(body), "deflate", max_decoded_bytes)
+    }
+}
+
+fn decompress_zstd_body(body: &[u8], max_decoded_bytes: usize) -> Result<Bytes, Response<Body>> {
+    let decoder = zstd::stream::read::Decoder::new(body)
+        .map_err(|error| invalid_request_response(&format!("zstd 请求体解压失败: {error}")))?;
+    read_decompressed_body(decoder, "zstd", max_decoded_bytes)
 }
 
 fn anthropic_error_response(status: StatusCode, message: &str) -> Response<Body> {
@@ -2707,22 +3062,9 @@ const COMPACT_REQUEST_FIELDS: &[&str] = &[
     "parallel_tool_calls",
     "reasoning",
     "text",
-    "previous_response_id",
+    "service_tier",
+    "prompt_cache_key",
 ];
-
-fn request_has_compaction_trigger(request: &Value) -> bool {
-    request
-        .get("input")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items.iter().any(|item| {
-                item.get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| value == "compaction_trigger")
-            })
-        })
-        .unwrap_or(false)
-}
 
 fn normalize_openai_compact_request(request: Value) -> Result<Value, String> {
     let request_object = request
@@ -2738,6 +3080,22 @@ fn normalize_openai_compact_request(request: Value) -> Result<Value, String> {
 
     let model = map_client_model_to_upstream(&request_model_or_default(&normalized)?)?;
     normalized.insert("model".to_string(), Value::String(model));
+    normalized.insert(
+        "service_tier".to_string(),
+        Value::String(api_proxy_service_tier_for_upstream(request_object)?),
+    );
+
+    if normalized
+        .get("prompt_cache_key")
+        .is_some_and(Value::is_null)
+    {
+        normalized.remove("prompt_cache_key");
+    } else if normalized
+        .get("prompt_cache_key")
+        .is_some_and(|value| !value.is_string())
+    {
+        return Err("prompt_cache_key 必须是字符串".to_string());
+    }
 
     if let Some(reasoning) = normalized.get_mut("reasoning") {
         if reasoning.is_null() {
@@ -2814,7 +3172,8 @@ fn build_compact_sse_response(response: &Value) -> Result<Bytes, String> {
             .get("id")
             .and_then(Value::as_str)
             .map(str::trim)
-            .is_none_or(str::is_empty)
+            .map(str::is_empty)
+            .unwrap_or(true)
         {
             object.insert(
                 "id".to_string(),
@@ -3838,14 +4197,15 @@ fn should_use_responses_websocket(payload: &Value) -> bool {
     false
 }
 
-fn websocket_response_create_payload(payload: &Value) -> Value {
+fn websocket_response_create_payload(payload: &Value, turn_state: Option<&str>) -> Value {
     let mut payload = payload.clone();
     if let Some(object) = payload.as_object_mut() {
         object.insert(
             "type".to_string(),
             Value::String("response.create".to_string()),
         );
-        if payload_uses_responses_lite(&Value::Object(object.clone())) {
+        let uses_responses_lite = payload_uses_responses_lite(&Value::Object(object.clone()));
+        if uses_responses_lite || turn_state.is_some() {
             let metadata = object
                 .entry("client_metadata".to_string())
                 .or_insert_with(|| Value::Object(Map::new()));
@@ -3853,10 +4213,19 @@ fn websocket_response_create_payload(payload: &Value) -> Value {
                 *metadata = Value::Object(Map::new());
             }
             if let Some(metadata) = metadata.as_object_mut() {
-                metadata.insert(
-                    "ws_request_header_x_openai_internal_codex_responses_lite".to_string(),
-                    Value::String("true".to_string()),
-                );
+                if uses_responses_lite {
+                    metadata.insert(
+                        "ws_request_header_x_openai_internal_codex_responses_lite".to_string(),
+                        Value::String("true".to_string()),
+                    );
+                }
+                if let Some(turn_state) = turn_state {
+                    // Codex WebSocket 在 response.create.client_metadata 中回放 turn-state。
+                    metadata.insert(
+                        CODEX_TURN_STATE_HEADER.to_string(),
+                        Value::String(turn_state.to_string()),
+                    );
+                }
             }
         }
     }
@@ -4480,11 +4849,7 @@ async fn send_codex_request_over_candidates(
         loop {
             log_proxy_request_route(route);
             let upstream = match forward_codex_request_with_candidate(
-                context,
-                &candidate,
-                headers,
-                payload,
-                endpoint,
+                context, &candidate, headers, payload, endpoint,
             )
             .await
             {
@@ -4511,7 +4876,14 @@ async fn send_codex_request_over_candidates(
             }
 
             let upstream_headers = upstream.headers().clone();
-            let upstream_body = match upstream.into_bytes().await {
+            let body_result = if matches!(endpoint, CodexUpstreamEndpoint::Compact) {
+                upstream
+                    .into_bytes_limited(MAX_COMPACT_ERROR_BODY_BYTES)
+                    .await
+            } else {
+                upstream.into_bytes().await
+            };
+            let upstream_body = match body_result {
                 Ok((_, bytes)) => bytes,
                 Err(error) => {
                     attempt_errors
@@ -4519,6 +4891,24 @@ async fn send_codex_request_over_candidates(
                     break;
                 }
             };
+
+            if matches!(endpoint, CodexUpstreamEndpoint::Compact)
+                && matches!(&candidate.source_kind, AccountSourceKind::Relay)
+                && matches!(
+                    status,
+                    StatusCode::NOT_FOUND
+                        | StatusCode::METHOD_NOT_ALLOWED
+                        | StatusCode::NOT_IMPLEMENTED
+                )
+            {
+                // Responses-compatible Relay 不一定实现 compact；仅跳过该候选，继续尝试 ChatGPT。
+                attempt_errors.push(format!(
+                    "{}: compact endpoint unsupported (HTTP {})",
+                    candidate.label,
+                    status.as_u16()
+                ));
+                break;
+            }
 
             if !did_refresh
                 && matches!(&candidate.source_kind, AccountSourceKind::Chatgpt)
@@ -4601,7 +4991,8 @@ async fn forward_codex_request_with_candidate(
         upstream_payload = normalize_codex_compact_reasoning_effort(upstream_payload);
     }
     let session_id = headers
-        .get("session_id")
+        .get("session-id")
+        .or_else(|| headers.get("session_id"))
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty())
         .map(ToString::to_string)
@@ -4617,6 +5008,7 @@ async fn forward_codex_request_with_candidate(
         return forward_codex_websocket_request_with_candidate(
             context,
             candidate,
+            headers,
             &upstream_payload,
             &session_id,
             version,
@@ -4643,17 +5035,25 @@ async fn forward_codex_request_with_candidate(
         .header("Accept", accept)
         .header("Content-Type", "application/json")
         .header("User-Agent", user_agent)
+        // Codex 0.144 使用连字符形式；继续读取旧下划线输入，但只向上游发送正式 header。
+        .header("session-id", &session_id)
         .header("Connection", "Keep-Alive");
-    if uses_responses_lite && matches!(endpoint, CodexUpstreamEndpoint::Responses) {
+    if uses_responses_lite {
+        // Responses Lite 标记同时属于 /responses 与显式 /responses/compact 契约。
         request = request.header(RESPONSES_LITE_HEADER, "true");
+    }
+    for name in CODEX_CONTEXT_REQUEST_HEADERS {
+        if let Some(value) = headers.get(*name) {
+            // 只放行 Codex 的 turn/trace 上下文，绝不透传下游 Authorization 或 hop-by-hop 头。
+            request = request.header(*name, value.clone());
+        }
     }
 
     let request = if matches!(&candidate.source_kind, AccountSourceKind::Chatgpt) {
         let mut request = request
             .header("ChatGPT-Account-Id", &candidate.account_id)
             .header("Originator", "codex_cli_rs")
-            .header("Version", version)
-            .header("Session_id", session_id);
+            .header("Version", version);
         if matches!(endpoint, CodexUpstreamEndpoint::Compact) {
             request = request.header("OpenAI-Beta", "responses=experimental");
         }
@@ -4691,6 +5091,7 @@ fn upstream_codex_client_identity(headers: &HeaderMap, uses_responses_lite: bool
 async fn forward_codex_websocket_request_with_candidate(
     context: &ProxyContext,
     candidate: &ProxyCandidate,
+    downstream_headers: &HeaderMap,
     payload: &Value,
     session_id: &str,
     version: &str,
@@ -4715,7 +5116,7 @@ async fn forward_codex_websocket_request_with_candidate(
     )?;
     insert_header(request.headers_mut(), "Originator", "codex_cli_rs")?;
     insert_header(request.headers_mut(), "Version", version)?;
-    insert_header(request.headers_mut(), "Session_id", session_id)?;
+    insert_header(request.headers_mut(), "session-id", session_id)?;
     insert_header(request.headers_mut(), "x-client-request-id", session_id)?;
     insert_header(
         request.headers_mut(),
@@ -4723,11 +5124,21 @@ async fn forward_codex_websocket_request_with_candidate(
         RESPONSES_WEBSOCKETS_BETA,
     )?;
     insert_header(request.headers_mut(), "User-Agent", user_agent)?;
+    for name in CODEX_CONTEXT_REQUEST_HEADERS {
+        if let Some(value) = downstream_headers.get(*name) {
+            // WebSocket 握手保持与 HTTP 相同的窄上下文白名单。
+            request.headers_mut().insert(*name, value.clone());
+        }
+    }
 
     let (mut websocket, response) = connect_codex_websocket(request, &websocket_url).await?;
 
-    let request_text = serde_json::to_string(&websocket_response_create_payload(payload))
-        .map_err(|error| format!("序列化 Codex WebSocket 请求失败: {error}"))?;
+    let turn_state = downstream_headers
+        .get(CODEX_TURN_STATE_HEADER)
+        .and_then(|value| value.to_str().ok());
+    let request_text =
+        serde_json::to_string(&websocket_response_create_payload(payload, turn_state))
+            .map_err(|error| format!("序列化 Codex WebSocket 请求失败: {error}"))?;
     websocket
         .send(Message::Text(request_text.into()))
         .await
@@ -6127,13 +6538,13 @@ async fn record_api_proxy_tokens_from_response(
     metadata: &ApiProxyUsageMetadata,
     response: &Value,
 ) {
-    let Some(tokens) = api_proxy_usage_tokens_from_response(response) else {
+    let Some(usage) = api_proxy_usage_tokens_from_response(response) else {
         return;
     };
 
     if let Err(error) = append_api_proxy_usage_event(
         storage,
-        api_proxy_usage_event(metadata, 0, tokens, now_unix_seconds()),
+        api_proxy_usage_token_event(metadata, usage, now_unix_seconds()),
     )
     .await
     {
@@ -6146,7 +6557,7 @@ async fn record_api_proxy_tokens_from_response(
     }
 }
 
-fn maybe_record_stream_usage_tokens(
+async fn maybe_record_stream_usage_tokens(
     storage: &ProxyStorageContext,
     metadata: &ApiProxyUsageMetadata,
     event: &SseEvent,
@@ -6155,28 +6566,25 @@ fn maybe_record_stream_usage_tokens(
     if *recorded_usage {
         return;
     }
-    let Some(tokens) = api_proxy_usage_tokens_from_sse_event(event) else {
+    let Some(usage) = api_proxy_usage_tokens_from_sse_event(event) else {
         return;
     };
 
     *recorded_usage = true;
-    let storage = storage.clone();
-    let metadata = metadata.clone();
-    tokio::spawn(async move {
-        if let Err(error) = append_api_proxy_usage_event(
-            &storage,
-            api_proxy_usage_event(&metadata, 0, tokens, now_unix_seconds()),
-        )
-        .await
-        {
-            log::warn!(
-                "记录 API 反代流式 token 统计失败 route={} model={}: {}",
-                metadata.route,
-                metadata.model,
-                error
-            );
-        }
-    });
+    // 终止事件对客户端可见前先完成轻量 mpsc 入队，使随后导出的 FIFO barrier 不会越过本次 token。
+    if let Err(error) = append_api_proxy_usage_event(
+        storage,
+        api_proxy_usage_token_event(metadata, usage, now_unix_seconds()),
+    )
+    .await
+    {
+        log::warn!(
+            "记录 API 反代流式 token 统计失败 route={} model={}: {}",
+            metadata.route,
+            metadata.model,
+            error
+        );
+    }
 }
 
 fn api_proxy_usage_metadata(
@@ -6230,6 +6638,30 @@ fn api_proxy_usage_event(
         service_tier: metadata.service_tier.clone(),
         calls,
         tokens,
+        input_tokens: None,
+        output_tokens: None,
+        cached_input_tokens: None,
+    }
+}
+
+fn api_proxy_usage_token_event(
+    metadata: &ApiProxyUsageMetadata,
+    usage: ApiProxyTokenUsageBreakdown,
+    timestamp: i64,
+) -> ApiProxyUsageEvent {
+    ApiProxyUsageEvent {
+        timestamp,
+        key_id: metadata.key_id.clone(),
+        key_label: metadata.key_label.clone(),
+        model: metadata.model.clone(),
+        route: Some(metadata.route.clone()),
+        reasoning_effort: metadata.reasoning_effort.clone(),
+        service_tier: metadata.service_tier.clone(),
+        calls: 0,
+        tokens: usage.total_tokens,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cached_input_tokens: usage.cached_input_tokens,
     }
 }
 
@@ -6252,6 +6684,9 @@ fn normalize_api_proxy_usage_event(
 ) -> Option<ApiProxyUsageEvent> {
     event.calls = event.calls.max(0);
     event.tokens = event.tokens.max(0);
+    event.input_tokens = event.input_tokens.map(|value| value.max(0));
+    event.output_tokens = event.output_tokens.map(|value| value.max(0));
+    event.cached_input_tokens = event.cached_input_tokens.map(|value| value.max(0));
     if event.calls == 0 && event.tokens == 0 {
         return None;
     }
@@ -6291,15 +6726,22 @@ fn load_api_proxy_usage_store_from_path(path: &Path) -> Result<ApiProxyUsageStor
     }
 }
 
-fn run_api_proxy_usage_writer(data_dir: PathBuf, receiver: mpsc::Receiver<ApiProxyUsageCommand>) {
+fn run_api_proxy_usage_writer(
+    data_dir: PathBuf,
+    receiver: mpsc::Receiver<ApiProxyUsageCommand>,
+    ready: mpsc::SyncSender<Result<(), String>>,
+) {
     let mut connection = match open_api_proxy_usage_database(&data_dir) {
         Ok(connection) => connection,
         Err(error) => {
             log::warn!("API proxy usage database unavailable: {error}");
-            reject_api_proxy_usage_commands(receiver, &error);
+            let _ = ready.send(Err(error));
             return;
         }
     };
+    if ready.send(Ok(())).is_err() {
+        return;
+    }
     let mut pending = None;
 
     loop {
@@ -6335,15 +6777,31 @@ fn run_api_proxy_usage_writer(data_dir: PathBuf, receiver: mpsc::Receiver<ApiPro
             } => {
                 let _ = reply.send(query_api_proxy_usage_stats(&connection, now, range_seconds));
             }
+            ApiProxyUsageCommand::Barrier { reply } => {
+                let _ = reply.send(());
+            }
             ApiProxyUsageCommand::Clear { reply } => {
-                let result = connection
-                    .execute("DELETE FROM api_proxy_usage_events", [])
-                    .map_err(|error| format!("Failed to clear API proxy usage: {error}"))
-                    .and_then(|_| clear_legacy_api_proxy_usage_file(&data_dir));
+                let result = clear_api_proxy_usage_history(&mut connection, &data_dir);
                 let _ = reply.send(result);
             }
         }
     }
+}
+
+fn clear_api_proxy_usage_history(
+    connection: &mut Connection,
+    data_dir: &Path,
+) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Failed to start API proxy usage clear: {error}"))?;
+    transaction
+        .execute("DELETE FROM api_proxy_usage_events", [])
+        .map_err(|error| format!("Failed to clear API proxy usage: {error}"))?;
+    clear_legacy_api_proxy_usage_file(data_dir)?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Failed to commit API proxy usage clear: {error}"))
 }
 
 fn clear_legacy_api_proxy_usage_file(data_dir: &Path) -> Result<(), String> {
@@ -6355,23 +6813,6 @@ fn clear_legacy_api_proxy_usage_file(data_dir: &Path) -> Result<(), String> {
             "Failed to remove legacy API proxy usage {}: {error}",
             legacy_path.display()
         )),
-    }
-}
-
-fn reject_api_proxy_usage_commands(receiver: mpsc::Receiver<ApiProxyUsageCommand>, error: &str) {
-    for command in receiver {
-        match command {
-            ApiProxyUsageCommand::Append(_) => {}
-            ApiProxyUsageCommand::QueryKeyLogs { reply, .. } => {
-                let _ = reply.send(Err(error.to_string()));
-            }
-            ApiProxyUsageCommand::QueryStats { reply, .. } => {
-                let _ = reply.send(Err(error.to_string()));
-            }
-            ApiProxyUsageCommand::Clear { reply } => {
-                let _ = reply.send(Err(error.to_string()));
-            }
-        }
     }
 }
 
@@ -6413,19 +6854,66 @@ fn open_api_proxy_usage_database(data_dir: &Path) -> Result<Connection, String> 
                 reasoning_effort TEXT,
                 service_tier TEXT,
                 calls INTEGER NOT NULL,
-                tokens INTEGER NOT NULL
+                tokens INTEGER NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cached_input_tokens INTEGER
             );
             CREATE INDEX IF NOT EXISTS api_proxy_usage_timestamp_idx
                 ON api_proxy_usage_events(timestamp);
+            CREATE INDEX IF NOT EXISTS api_proxy_usage_key_timestamp_idx
+                ON api_proxy_usage_events(key_id, timestamp);
             CREATE TABLE IF NOT EXISTS api_proxy_usage_metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );",
         )
         .map_err(|error| format!("Failed to initialize API proxy usage database: {error}"))?;
+    ensure_api_proxy_usage_breakdown_columns(&mut connection)?;
     set_private_permissions(&database_path);
     migrate_legacy_api_proxy_usage(&mut connection, data_dir)?;
     Ok(connection)
+}
+
+fn ensure_api_proxy_usage_breakdown_columns(connection: &mut Connection) -> Result<(), String> {
+    // IMMEDIATE 事务串行化多个 desktop/proxyd 进程的首次 schema 升级，避免重复 ADD COLUMN。
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| format!("Failed to start API proxy usage schema migration: {error}"))?;
+    let mut statement = transaction
+        .prepare("PRAGMA table_info(api_proxy_usage_events)")
+        .map_err(|error| format!("Failed to inspect API proxy usage columns: {error}"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("Failed to query API proxy usage columns: {error}"))?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|error| format!("Failed to read API proxy usage columns: {error}"))?;
+    drop(statement);
+
+    // SQLite 为可空、无默认值列执行 ADD COLUMN 只改 schema，旧库升级为 O(1)，不会重写历史事件表。
+    for (column, sql) in [
+        (
+            "input_tokens",
+            "ALTER TABLE api_proxy_usage_events ADD COLUMN input_tokens INTEGER",
+        ),
+        (
+            "output_tokens",
+            "ALTER TABLE api_proxy_usage_events ADD COLUMN output_tokens INTEGER",
+        ),
+        (
+            "cached_input_tokens",
+            "ALTER TABLE api_proxy_usage_events ADD COLUMN cached_input_tokens INTEGER",
+        ),
+    ] {
+        if !columns.contains(column) {
+            transaction.execute_batch(sql).map_err(|error| {
+                format!("Failed to add API proxy usage column {column}: {error}")
+            })?;
+        }
+    }
+    transaction
+        .commit()
+        .map_err(|error| format!("Failed to commit API proxy usage schema migration: {error}"))
 }
 
 fn migrate_legacy_api_proxy_usage(
@@ -6453,15 +6941,29 @@ fn migrate_legacy_api_proxy_usage(
         .filter_map(|event| normalize_api_proxy_usage_event(event, now))
         .collect::<Vec<_>>();
     let transaction = connection
-        .transaction()
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| format!("Failed to start API proxy usage migration: {error}"))?;
+    let migrated = transaction
+        .query_row(
+            "SELECT value FROM api_proxy_usage_metadata WHERE key = ?1",
+            [API_PROXY_USAGE_LEGACY_MIGRATION_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("Failed to recheck API proxy usage migration: {error}"))?;
+    if migrated.is_some() {
+        return transaction
+            .commit()
+            .map_err(|error| format!("Failed to finish API proxy usage migration check: {error}"));
+    }
     {
         let mut insert = transaction
             .prepare_cached(
                 "INSERT INTO api_proxy_usage_events (
                     timestamp, key_id, key_label, model, route,
-                    reasoning_effort, service_tier, calls, tokens
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    reasoning_effort, service_tier, calls, tokens,
+                    input_tokens, output_tokens, cached_input_tokens
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             )
             .map_err(|error| format!("Failed to prepare API proxy usage migration: {error}"))?;
         for event in &events {
@@ -6495,8 +6997,9 @@ fn insert_api_proxy_usage_events(
             .prepare_cached(
                 "INSERT INTO api_proxy_usage_events (
                     timestamp, key_id, key_label, model, route,
-                    reasoning_effort, service_tier, calls, tokens
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    reasoning_effort, service_tier, calls, tokens,
+                    input_tokens, output_tokens, cached_input_tokens
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             )
             .map_err(|error| format!("Failed to prepare API proxy usage insert: {error}"))?;
         for event in events {
@@ -6523,6 +7026,9 @@ fn insert_api_proxy_usage_event(
             event.service_tier.as_deref(),
             event.calls,
             event.tokens,
+            event.input_tokens,
+            event.output_tokens,
+            event.cached_input_tokens,
         ])
         .map(|_| ())
         .map_err(|error| format!("Failed to insert API proxy usage: {error}"))
@@ -6596,6 +7102,9 @@ fn query_api_proxy_usage_stats(
                 service_tier: None,
                 calls: row.get(4)?,
                 tokens: row.get(5)?,
+                input_tokens: None,
+                output_tokens: None,
+                cached_input_tokens: None,
             };
             Ok((latest_id, event))
         })
@@ -6609,6 +7118,356 @@ fn query_api_proxy_usage_stats(
         .map(|(_, event)| event)
         .collect::<Vec<_>>();
     Ok(build_api_proxy_usage_stats(&events, now, range_seconds))
+}
+
+struct ApiProxyUsageCsvSummary {
+    key_label: String,
+    calls: i64,
+    tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cached_input_tokens: i64,
+    saw_token_event: bool,
+    input_tokens_complete: bool,
+    output_tokens_complete: bool,
+    cached_input_tokens_complete: bool,
+}
+
+impl Default for ApiProxyUsageCsvSummary {
+    fn default() -> Self {
+        Self {
+            key_label: String::new(),
+            calls: 0,
+            tokens: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_input_tokens: 0,
+            saw_token_event: false,
+            input_tokens_complete: true,
+            output_tokens_complete: true,
+            cached_input_tokens_complete: true,
+        }
+    }
+}
+
+fn export_api_proxy_usage_csv(
+    database_path: &Path,
+    export_path: &Path,
+    now: i64,
+    range_seconds: i64,
+    key_id: Option<&str>,
+) -> Result<(), String> {
+    let mut connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|error| {
+        format!(
+            "Failed to open API proxy usage database {}: {error}",
+            database_path.display()
+        )
+    })?;
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| format!("Failed to configure API proxy usage export timeout: {error}"))?;
+    let start = now.saturating_sub(range_seconds);
+
+    write_private_named_file_atomically_with(export_path, "API proxy usage export", |file| {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("Failed to start API proxy usage export snapshot: {error}"))?;
+        let mut writer = BufWriter::new(file);
+        writer
+            .write_all(b"\xEF\xBB\xBF")
+            .map_err(|error| format!("Failed to write API proxy usage CSV BOM: {error}"))?;
+        write_api_proxy_usage_csv_record(
+            &mut writer,
+            &[
+                "row_type".to_string(),
+                "period_start_utc".to_string(),
+                "period_end_utc".to_string(),
+                "timestamp_utc".to_string(),
+                "timestamp_unix".to_string(),
+                "event_type".to_string(),
+                "key_id".to_string(),
+                "key_label".to_string(),
+                "model".to_string(),
+                "route".to_string(),
+                "reasoning_effort".to_string(),
+                "service_tier".to_string(),
+                "calls".to_string(),
+                "input_tokens".to_string(),
+                "output_tokens".to_string(),
+                "cached_input_tokens".to_string(),
+                "total_tokens".to_string(),
+            ],
+        )?;
+
+        let mut summaries = BTreeMap::<(Option<String>, String), ApiProxyUsageCsvSummary>::new();
+        let mut latest_key_labels = BTreeMap::<Option<String>, String>::new();
+        if let Some(key_id) = key_id {
+            let mut statement = transaction
+                .prepare_cached(
+                    "SELECT timestamp, key_id, key_label, model, route,
+                            reasoning_effort, service_tier, calls, tokens,
+                            input_tokens, output_tokens, cached_input_tokens
+                     FROM api_proxy_usage_events
+                     WHERE key_id = ?1 AND timestamp >= ?2 AND timestamp <= ?3
+                     ORDER BY timestamp ASC, id ASC",
+                )
+                .map_err(|error| format!("Failed to prepare filtered usage export: {error}"))?;
+            let mut rows = statement
+                .query(params![key_id, start, now])
+                .map_err(|error| format!("Failed to query filtered usage export: {error}"))?;
+            write_api_proxy_usage_csv_rows(
+                &mut writer,
+                &mut rows,
+                &mut summaries,
+                &mut latest_key_labels,
+            )?;
+        } else {
+            let mut statement = transaction
+                .prepare_cached(
+                    "SELECT timestamp, key_id, key_label, model, route,
+                            reasoning_effort, service_tier, calls, tokens,
+                            input_tokens, output_tokens, cached_input_tokens
+                     FROM api_proxy_usage_events
+                     WHERE timestamp >= ?1 AND timestamp <= ?2
+                     ORDER BY timestamp ASC, id ASC",
+                )
+                .map_err(|error| format!("Failed to prepare usage export: {error}"))?;
+            let mut rows = statement
+                .query(params![start, now])
+                .map_err(|error| format!("Failed to query usage export: {error}"))?;
+            write_api_proxy_usage_csv_rows(
+                &mut writer,
+                &mut rows,
+                &mut summaries,
+                &mut latest_key_labels,
+            )?;
+        }
+
+        // 明细先流式落盘，内存中只保留 Key+模型的有限汇总维度。
+        for ((key_id, model), summary) in summaries {
+            let summary_key_label = latest_key_labels
+                .get(&key_id)
+                .cloned()
+                .unwrap_or(summary.key_label);
+            write_api_proxy_usage_csv_record(
+                &mut writer,
+                &[
+                    "summary_range_key_model".to_string(),
+                    format_api_proxy_usage_export_timestamp(start),
+                    format_api_proxy_usage_export_timestamp(now),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    key_id.unwrap_or_default(),
+                    summary_key_label,
+                    model,
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    summary.calls.to_string(),
+                    complete_api_proxy_usage_token_component(
+                        summary.saw_token_event,
+                        summary.input_tokens_complete,
+                        summary.input_tokens,
+                    ),
+                    complete_api_proxy_usage_token_component(
+                        summary.saw_token_event,
+                        summary.output_tokens_complete,
+                        summary.output_tokens,
+                    ),
+                    complete_api_proxy_usage_token_component(
+                        summary.saw_token_event,
+                        summary.cached_input_tokens_complete,
+                        summary.cached_input_tokens,
+                    ),
+                    summary.tokens.to_string(),
+                ],
+            )?;
+        }
+        writer
+            .flush()
+            .map_err(|error| format!("Failed to flush API proxy usage CSV: {error}"))?;
+        drop(writer);
+        transaction
+            .commit()
+            .map_err(|error| format!("Failed to finish API proxy usage export snapshot: {error}"))
+    })
+}
+
+fn write_api_proxy_usage_csv_rows(
+    writer: &mut impl Write,
+    rows: &mut rusqlite::Rows<'_>,
+    summaries: &mut BTreeMap<(Option<String>, String), ApiProxyUsageCsvSummary>,
+    latest_key_labels: &mut BTreeMap<Option<String>, String>,
+) -> Result<(), String> {
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| format!("Failed to read API proxy usage export row: {error}"))?
+    {
+        let timestamp = row
+            .get::<_, i64>(0)
+            .map_err(|error| format!("Failed to read usage timestamp: {error}"))?;
+        let key_id = row
+            .get::<_, Option<String>>(1)
+            .map_err(|error| format!("Failed to read usage key ID: {error}"))?;
+        let key_label = row
+            .get::<_, Option<String>>(2)
+            .map_err(|error| format!("Failed to read usage key label: {error}"))?;
+        let model = row
+            .get::<_, String>(3)
+            .map_err(|error| format!("Failed to read usage model: {error}"))?;
+        let route = row
+            .get::<_, Option<String>>(4)
+            .map_err(|error| format!("Failed to read usage route: {error}"))?;
+        let reasoning_effort = row
+            .get::<_, Option<String>>(5)
+            .map_err(|error| format!("Failed to read usage reasoning effort: {error}"))?;
+        let service_tier = row
+            .get::<_, Option<String>>(6)
+            .map_err(|error| format!("Failed to read usage service tier: {error}"))?;
+        let calls = row
+            .get::<_, i64>(7)
+            .map_err(|error| format!("Failed to read usage calls: {error}"))?
+            .max(0);
+        let tokens = row
+            .get::<_, i64>(8)
+            .map_err(|error| format!("Failed to read usage tokens: {error}"))?
+            .max(0);
+        let input_tokens = row
+            .get::<_, Option<i64>>(9)
+            .map_err(|error| format!("Failed to read usage input tokens: {error}"))?
+            .map(|value| value.max(0));
+        let output_tokens = row
+            .get::<_, Option<i64>>(10)
+            .map_err(|error| format!("Failed to read usage output tokens: {error}"))?
+            .map(|value| value.max(0));
+        let cached_input_tokens = row
+            .get::<_, Option<i64>>(11)
+            .map_err(|error| format!("Failed to read usage cached input tokens: {error}"))?
+            .map(|value| value.max(0));
+
+        write_api_proxy_usage_csv_record(
+            writer,
+            &[
+                "detail".to_string(),
+                String::new(),
+                String::new(),
+                format_api_proxy_usage_export_timestamp(timestamp),
+                timestamp.to_string(),
+                if calls > 0 && tokens > 0 {
+                    "combined"
+                } else if calls > 0 {
+                    "call"
+                } else {
+                    "tokens"
+                }
+                .to_string(),
+                key_id.clone().unwrap_or_default(),
+                key_label.clone().unwrap_or_default(),
+                model.clone(),
+                route.unwrap_or_default(),
+                reasoning_effort.unwrap_or_default(),
+                service_tier.unwrap_or_default(),
+                calls.to_string(),
+                input_tokens
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                output_tokens
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                cached_input_tokens
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                tokens.to_string(),
+            ],
+        )?;
+
+        if key_label
+            .as_deref()
+            .is_some_and(|label| !label.trim().is_empty())
+        {
+            // 查询按 timestamp/id 升序，覆盖后得到该 Key 在整个导出范围内统一的最新名称。
+            latest_key_labels.insert(key_id.clone(), key_label.clone().unwrap_or_default());
+        }
+        let summary = summaries.entry((key_id, model)).or_default();
+        summary.key_label = key_label.unwrap_or_default();
+        summary.calls = summary.calls.saturating_add(calls);
+        summary.tokens = summary.tokens.saturating_add(tokens);
+        if tokens > 0 {
+            summary.saw_token_event = true;
+            match input_tokens {
+                Some(value) => summary.input_tokens = summary.input_tokens.saturating_add(value),
+                None => summary.input_tokens_complete = false,
+            }
+            match output_tokens {
+                Some(value) => summary.output_tokens = summary.output_tokens.saturating_add(value),
+                None => summary.output_tokens_complete = false,
+            }
+            match cached_input_tokens {
+                Some(value) => {
+                    summary.cached_input_tokens = summary.cached_input_tokens.saturating_add(value)
+                }
+                None => summary.cached_input_tokens_complete = false,
+            }
+        }
+    }
+    Ok(())
+}
+
+fn complete_api_proxy_usage_token_component(
+    saw_token_event: bool,
+    complete: bool,
+    value: i64,
+) -> String {
+    // 历史行只有 total；只在范围内每个 token 事件都有分项时输出汇总，避免把部分数据伪装成完整值。
+    if saw_token_event && complete {
+        value.to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn write_api_proxy_usage_csv_record(
+    writer: &mut impl Write,
+    fields: &[String],
+) -> Result<(), String> {
+    for (index, value) in fields.iter().enumerate() {
+        if index > 0 {
+            writer
+                .write_all(b",")
+                .map_err(|error| format!("Failed to write API proxy usage CSV: {error}"))?;
+        }
+        let safe_value = if value
+            .chars()
+            .next()
+            .is_some_and(|first| matches!(first, '=' | '+' | '-' | '@' | '\t' | '\r'))
+        {
+            format!("'{value}")
+        } else {
+            value.clone()
+        };
+        let escaped = safe_value.replace('"', "\"\"");
+        write!(writer, "\"{escaped}\"")
+            .map_err(|error| format!("Failed to write API proxy usage CSV: {error}"))?;
+    }
+    writer
+        .write_all(b"\r\n")
+        .map_err(|error| format!("Failed to finish API proxy usage CSV row: {error}"))
+}
+
+fn format_api_proxy_usage_export_timestamp(timestamp: i64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(timestamp)
+        .ok()
+        .and_then(|value| {
+            value
+                .format(&time::format_description::well_known::Rfc3339)
+                .ok()
+        })
+        .unwrap_or_default()
 }
 
 fn build_api_proxy_usage_stats(
@@ -6806,13 +7665,13 @@ fn floor_timestamp_to_bucket(timestamp: i64, bucket_seconds: i64) -> i64 {
     timestamp - timestamp.rem_euclid(bucket_seconds)
 }
 
-fn api_proxy_usage_tokens_from_response(response: &Value) -> Option<i64> {
+fn api_proxy_usage_tokens_from_response(response: &Value) -> Option<ApiProxyTokenUsageBreakdown> {
     response
         .get("usage")
         .and_then(api_proxy_usage_tokens_from_usage)
 }
 
-fn api_proxy_usage_tokens_from_sse_event(event: &SseEvent) -> Option<i64> {
+fn api_proxy_usage_tokens_from_sse_event(event: &SseEvent) -> Option<ApiProxyTokenUsageBreakdown> {
     let parsed = serde_json::from_str::<Value>(&event.data).ok()?;
     let event_type = parsed
         .get("type")
@@ -6832,13 +7691,28 @@ fn api_proxy_usage_tokens_from_sse_event(event: &SseEvent) -> Option<i64> {
         })
 }
 
-fn api_proxy_usage_tokens_from_usage(usage: &Value) -> Option<i64> {
-    token_count_field(usage, "total_tokens").or_else(|| {
-        let input = token_count_field(usage, "input_tokens")
-            .or_else(|| token_count_field(usage, "prompt_tokens"))?;
-        let output = token_count_field(usage, "output_tokens")
-            .or_else(|| token_count_field(usage, "completion_tokens"))?;
-        input.checked_add(output)
+fn api_proxy_usage_tokens_from_usage(usage: &Value) -> Option<ApiProxyTokenUsageBreakdown> {
+    let input_tokens = token_count_field(usage, "input_tokens")
+        .or_else(|| token_count_field(usage, "prompt_tokens"));
+    let output_tokens = token_count_field(usage, "output_tokens")
+        .or_else(|| token_count_field(usage, "completion_tokens"));
+    let total_tokens = token_count_field(usage, "total_tokens")
+        .or_else(|| input_tokens?.checked_add(output_tokens?))?;
+    let cached_input_tokens = usage
+        .get("input_tokens_details")
+        .and_then(|details| token_count_field(details, "cached_tokens"))
+        .or_else(|| {
+            usage
+                .get("prompt_tokens_details")
+                .and_then(|details| token_count_field(details, "cached_tokens"))
+        })
+        .or_else(|| token_count_field(usage, "cached_input_tokens"));
+
+    Some(ApiProxyTokenUsageBreakdown {
+        total_tokens,
+        input_tokens,
+        output_tokens,
+        cached_input_tokens,
     })
 }
 
@@ -6870,6 +7744,18 @@ fn write_private_named_file_atomically(
     contents: &[u8],
     purpose: &str,
 ) -> Result<(), String> {
+    write_private_named_file_atomically_with(path, purpose, |temp_file| {
+        temp_file
+            .write_all(contents)
+            .map_err(|error| format!("写入 {purpose} 临时文件失败 {}: {error}", path.display()))
+    })
+}
+
+fn write_private_named_file_atomically_with(
+    path: &Path,
+    purpose: &str,
+    write_contents: impl FnOnce(&mut fs::File) -> Result<(), String>,
+) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("无法解析 {purpose} 存储目录 {}", path.display()))?;
@@ -6893,12 +7779,7 @@ fn write_private_named_file_atomically(
                     temp_path.display()
                 )
             })?;
-        temp_file.write_all(contents).map_err(|error| {
-            format!(
-                "写入 {purpose} 临时文件失败 {}: {error}",
-                temp_path.display()
-            )
-        })?;
+        write_contents(&mut temp_file)?;
         temp_file.sync_all().map_err(|error| {
             format!(
                 "刷新 {purpose} 临时文件失败 {}: {error}",
@@ -6993,9 +7874,18 @@ fn build_json_proxy_response(
     build_proxy_response(status, upstream_headers, body)
 }
 
-fn build_sse_bytes_response(status: StatusCode, body: Bytes) -> Response<Body> {
-    Response::builder()
-        .status(status)
+fn build_sse_bytes_response(
+    status: StatusCode,
+    upstream_headers: &HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let mut response = Response::builder().status(status);
+    for (name, value) in upstream_headers {
+        if should_forward_response_header(name.as_str()) {
+            response = response.header(name, value);
+        }
+    }
+    response
         .header("content-type", "text/event-stream")
         .header("cache-control", "no-cache")
         .header("connection", "keep-alive")
@@ -7022,7 +7912,8 @@ fn build_passthrough_sse_response(
                             &usage_metadata,
                             &event,
                             &mut recorded_usage,
-                        );
+                        )
+                        .await;
                         yield Ok::<Bytes, Infallible>(serialize_sse_event(
                             event.event.as_deref(),
                             &rewrite_sse_event_data_models_for_client(&event.data),
@@ -7039,7 +7930,8 @@ fn build_passthrough_sse_response(
                 &usage_metadata,
                 &event,
                 &mut recorded_usage,
-            );
+            )
+            .await;
             yield Ok::<Bytes, Infallible>(serialize_sse_event(
                 event.event.as_deref(),
                 &rewrite_sse_event_data_models_for_client(&event.data),
@@ -7080,7 +7972,8 @@ fn build_chat_streaming_response(
                             &usage_metadata,
                             &event,
                             &mut recorded_usage,
-                        );
+                        )
+                        .await;
                         for value in translate_sse_event_to_chat_chunk(&event, &mut state) {
                             yield Ok::<Bytes, Infallible>(sse_data_chunk(&value));
                         }
@@ -7104,7 +7997,8 @@ fn build_chat_streaming_response(
                 &usage_metadata,
                 &event,
                 &mut recorded_usage,
-            );
+            )
+            .await;
             for value in translate_sse_event_to_chat_chunk(&event, &mut state) {
                 yield Ok::<Bytes, Infallible>(sse_data_chunk(&value));
             }
@@ -7147,7 +8041,8 @@ fn build_anthropic_streaming_response(
                             &usage_metadata,
                             &event,
                             &mut recorded_usage,
-                        );
+                        )
+                        .await;
                         for value in translate_sse_event_to_anthropic_event(&event, &mut state) {
                             yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&value));
                         }
@@ -7172,7 +8067,8 @@ fn build_anthropic_streaming_response(
                 &usage_metadata,
                 &event,
                 &mut recorded_usage,
-            );
+            )
+            .await;
             for value in translate_sse_event_to_anthropic_event(&event, &mut state) {
                 yield Ok::<Bytes, Infallible>(anthropic_sse_chunk(&value));
             }
@@ -7215,7 +8111,8 @@ fn build_image_streaming_response(
                             &usage_metadata,
                             &event,
                             &mut recorded_usage,
-                        );
+                        )
+                        .await;
                         for value in translate_sse_event_to_image_chunk(&event, &mut emitted_final_image) {
                             yield Ok::<Bytes, Infallible>(sse_data_chunk(&value));
                         }
@@ -7239,7 +8136,8 @@ fn build_image_streaming_response(
                 &usage_metadata,
                 &event,
                 &mut recorded_usage,
-            );
+            )
+            .await;
             for value in translate_sse_event_to_image_chunk(&event, &mut emitted_final_image) {
                 yield Ok::<Bytes, Infallible>(sse_data_chunk(&value));
             }
@@ -8617,6 +9515,9 @@ mod tests {
     use super::api_proxy_visible_models_for_key;
     use super::append_api_proxy_usage_event;
     use super::build_api_proxy_usage_stats;
+    use super::build_compact_sse_failure;
+    use super::build_compact_sse_response;
+    use super::candidate_upstream_url;
     use super::clear_api_proxy_usage_stats_with_storage;
     use super::convert_anthropic_messages_request_to_codex;
     use super::convert_completed_response_to_anthropic_message;
@@ -8626,9 +9527,12 @@ mod tests {
     use super::convert_openai_image_generation_request_to_codex;
     use super::convert_responses_image_output_to_images_response;
     use super::create_api_proxy_key_with_runtime;
+    use super::decode_proxy_request_body;
     use super::delete_api_proxy_key_with_runtime;
+    use super::detect_content_encoding_by_magic;
     use super::ensure_api_proxy_key_allows_payload;
     use super::ensure_api_proxy_payload_models_enabled;
+    use super::export_api_proxy_usage_with_storage;
     use super::extract_completed_response_from_sse;
     use super::find_http_header_end;
     use super::get_api_proxy_key_usage_logs_with_storage;
@@ -8636,25 +9540,15 @@ mod tests {
     use super::host_matches_no_proxy;
     use super::is_responses_terminal_event;
     use super::list_api_proxy_keys_with_storage;
-    use super::build_compact_sse_failure;
-    use super::build_compact_sse_response;
-    use super::candidate_upstream_url;
-    use super::decode_proxy_request_body;
-    use super::detect_content_encoding_by_magic;
-    use super::parse_json_request;
-    use super::COMPACT_SSE_KEEPALIVE;
-    use super::COMPACT_SSE_KEEPALIVE_INTERVAL_SECS;
     use super::normalize_codex_compact_reasoning_effort;
     use super::normalize_openai_compact_request;
     use super::normalize_openai_responses_request;
     use super::normalize_responses_websocket_create;
-    use super::parse_compact_upstream_response;
-    use super::request_has_compaction_trigger;
-    use super::CodexUpstreamEndpoint;
-    use super::ProxyContext;
     use super::now_unix_seconds;
     use super::order_proxy_candidates_for_request;
+    use super::parse_compact_upstream_response;
     use super::parse_http_proxy_config;
+    use super::parse_json_request;
     use super::parse_proxy_request_body_limit_mib;
     use super::payload_for_candidate;
     use super::regenerate_api_proxy_key_with_runtime;
@@ -8674,8 +9568,10 @@ mod tests {
     use super::AnthropicStreamState;
     use super::ApiProxyUsageEvent;
     use super::ChatStreamState;
+    use super::CodexUpstreamEndpoint;
     use super::ImageMultipartRequest;
     use super::ProxyCandidate;
+    use super::ProxyContext;
     use super::ProxyLoadBalanceConfig;
     use super::ProxyStorageContext;
     use super::SseEvent;
@@ -8683,6 +9579,8 @@ mod tests {
     use super::API_PROXY_USAGE_FILE_NAME;
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RANGE_30D_SECONDS;
+    use super::COMPACT_SSE_KEEPALIVE;
+    use super::COMPACT_SSE_KEEPALIVE_INTERVAL_SECS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
     use crate::models::AccountSourceKind;
     use crate::models::ApiProxyKey;
@@ -8698,11 +9596,12 @@ mod tests {
     use axum::body::Bytes;
     use axum::http::HeaderMap;
     use axum::http::HeaderValue;
+    use axum::http::StatusCode;
     use serde_json::json;
     use serde_json::Value;
     use std::path::PathBuf;
-    use std::sync::RwLock;
     use std::sync::Arc;
+    use std::sync::RwLock;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
@@ -8793,6 +9692,9 @@ mod tests {
             service_tier: None,
             calls,
             tokens,
+            input_tokens: None,
+            output_tokens: None,
+            cached_input_tokens: None,
         }
     }
 
@@ -8937,34 +9839,59 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_compact_request_and_drops_stream_store_fields() {
+    fn normalizes_compact_request_and_preserves_supported_request_fields() {
         let payload = normalize_openai_compact_request(json!({
             "model": "gpt-5.4",
             "input": [{"type": "message", "role": "user", "content": "hi"}],
             "instructions": "be brief",
             "stream": true,
             "store": true,
-            "prompt_cache_key": "drop-me",
+            "prompt_cache_key": "cache-key",
+            "service_tier": "fast",
             "reasoning": {"effort": "high"}
         }))
         .expect("compact request should normalize");
 
-        assert_eq!(payload.get("model").and_then(Value::as_str), Some("gpt-5.4"));
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.4")
+        );
         assert!(payload.get("stream").is_none());
         assert!(payload.get("store").is_none());
-        assert!(payload.get("prompt_cache_key").is_none());
         assert_eq!(
-            payload
-                .pointer("/reasoning/effort")
-                .and_then(Value::as_str),
+            payload.get("prompt_cache_key").and_then(Value::as_str),
+            Some("cache-key")
+        );
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+        assert_eq!(
+            payload.pointer("/reasoning/effort").and_then(Value::as_str),
             Some("high")
         );
-        assert!(request_has_compaction_trigger(&json!({
-            "input": [{"type": "compaction_trigger"}]
-        })));
-        assert!(!request_has_compaction_trigger(&json!({
-            "input": [{"type": "message", "role": "user", "content": "hi"}]
-        })));
+
+        let default_tier = normalize_openai_compact_request(json!({
+            "model": "gpt-5.4",
+            "input": []
+        }))
+        .expect("compact request should apply the configured default tier");
+        assert_eq!(
+            default_tier.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+        assert!(normalize_openai_compact_request(json!({
+            "model": "gpt-5.4",
+            "input": [],
+            "service_tier": "turbo"
+        }))
+        .is_err());
+        assert!(normalize_openai_compact_request(json!({
+            "model": "gpt-5.4",
+            "input": [],
+            "prompt_cache_key": 7
+        }))
+        .is_err());
     }
 
     #[test]
@@ -8974,12 +9901,14 @@ mod tests {
                 data_dir: PathBuf::from("/tmp"),
                 store_lock: Arc::new(tokio::sync::Mutex::new(())),
                 auth_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+                usage_writer: Arc::new(tokio::sync::Mutex::new(None)),
                 sync_active_auth_on_refresh: false,
             },
             api_keys: Arc::new(RwLock::new(Vec::new())),
             upstream_base_url: "https://chatgpt.com/backend-api/codex".to_string(),
             client: reqwest::Client::new(),
             shared: Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default())),
+            request_body_limit_bytes: DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
         };
         let chatgpt = ProxyCandidate {
             id: "c1".to_string(),
@@ -9030,7 +9959,8 @@ mod tests {
             "output": [{"type": "compaction", "summary": "done"}],
             "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
         });
-        let sse = String::from_utf8(build_compact_sse_response(&response).unwrap().to_vec()).unwrap();
+        let sse =
+            String::from_utf8(build_compact_sse_response(&response).unwrap().to_vec()).unwrap();
         assert!(sse.contains("event: response.output_item.done"));
         assert!(sse.contains("event: response.completed"));
         assert!(sse.contains("\"type\":\"compaction\""));
@@ -9038,17 +9968,44 @@ mod tests {
         let failed = String::from_utf8(build_compact_sse_failure("timeout").to_vec()).unwrap();
         assert!(failed.contains("event: response.failed"));
         assert!(failed.contains("timeout"));
-        assert_eq!(COMPACT_SSE_KEEPALIVE, ": keepalive\n\n");
+        assert!(COMPACT_SSE_KEEPALIVE.contains("event: response.in_progress"));
         assert_eq!(COMPACT_SSE_KEEPALIVE_INTERVAL_SECS, 10);
 
         let raw = br#"{"model":"gpt-5.4","input":"hi"}"#;
         let zstd_body = zstd::stream::encode_all(&raw[..], 0).expect("zstd encode");
-        assert_eq!(detect_content_encoding_by_magic(&zstd_body).as_deref(), Some("zstd"));
-        let decoded = decode_proxy_request_body(&HeaderMap::new(), Bytes::from(zstd_body))
-            .expect("decode zstd body by magic");
+        assert_eq!(
+            detect_content_encoding_by_magic(&zstd_body).as_deref(),
+            Some("zstd")
+        );
+        let decoded = decode_proxy_request_body(
+            &HeaderMap::new(),
+            Bytes::from(zstd_body.clone()),
+            DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
+        )
+        .expect("decode zstd body by magic");
         assert_eq!(decoded.as_ref(), raw);
-        let parsed = parse_json_request(&HeaderMap::new(), decoded).expect("parse decoded json");
+        let parsed = parse_json_request(
+            &HeaderMap::new(),
+            decoded,
+            DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
+        )
+        .expect("parse decoded json");
         assert_eq!(parsed.get("model").and_then(Value::as_str), Some("gpt-5.4"));
+        let oversized =
+            decode_proxy_request_body(&HeaderMap::new(), Bytes::from(zstd_body), raw.len() - 1)
+                .expect_err("decoded body limit must be enforced");
+        assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let expansion_payload = vec![b'x'; super::MIN_PROXY_DECOMPRESSED_BODY_BUDGET_BYTES * 2];
+        let expansion_body =
+            zstd::stream::encode_all(&expansion_payload[..], 0).expect("zstd expansion encode");
+        let expansion_error = decode_proxy_request_body(
+            &HeaderMap::new(),
+            Bytes::from(expansion_body),
+            DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
+        )
+        .expect_err("high-ratio compressed bodies must be rejected");
+        assert_eq!(expansion_error.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
         let mut gzip_body = Vec::new();
         {
@@ -9061,14 +10018,35 @@ mod tests {
         }
         let mut headers = HeaderMap::new();
         headers.insert("content-encoding", HeaderValue::from_static("gzip"));
-        let decoded = decode_proxy_request_body(&headers, Bytes::from(gzip_body))
-            .expect("decode gzip body");
+        let decoded = decode_proxy_request_body(
+            &headers,
+            Bytes::from(gzip_body),
+            DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
+        )
+        .expect("decode gzip body");
         assert_eq!(decoded.as_ref(), raw);
 
-        let parsed = parse_compact_upstream_response(
-            br#"{"id":"resp_x","output":[{"type":"compaction"}]}"#,
+        let mut deflate_body = Vec::new();
+        {
+            use flate2::write::ZlibEncoder;
+            use flate2::Compression;
+            use std::io::Write as _;
+            let mut encoder = ZlibEncoder::new(&mut deflate_body, Compression::default());
+            encoder.write_all(raw).unwrap();
+            encoder.finish().unwrap();
+        }
+        headers.insert("content-encoding", HeaderValue::from_static("deflate"));
+        let decoded = decode_proxy_request_body(
+            &headers,
+            Bytes::from(deflate_body),
+            DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
         )
-        .unwrap();
+        .expect("decode standard zlib-wrapped HTTP deflate body");
+        assert_eq!(decoded.as_ref(), raw);
+
+        let parsed =
+            parse_compact_upstream_response(br#"{"id":"resp_x","output":[{"type":"compaction"}]}"#)
+                .unwrap();
         assert_eq!(parsed.get("id").and_then(Value::as_str), Some("resp_x"));
 
         let downgraded = normalize_codex_compact_reasoning_effort(json!({
@@ -9360,6 +10338,9 @@ mod tests {
                 service_tier: Some("fast".to_string()),
                 calls: 1,
                 tokens: 99,
+                input_tokens: Some(60),
+                output_tokens: Some(39),
+                cached_input_tokens: Some(10),
             },
         )
         .await
@@ -9464,6 +10445,27 @@ mod tests {
         let (storage, data_dir) = temp_proxy_storage_context("api-usage-migration");
         let now = now_unix_seconds();
         let old_timestamp = now - 60 * 24 * 60 * 60;
+        let database_path = data_dir.join(API_PROXY_USAGE_DATABASE_FILE_NAME);
+        {
+            let legacy_database = rusqlite::Connection::open(&database_path)
+                .expect("legacy usage database should be creatable");
+            legacy_database
+                .execute_batch(
+                    "CREATE TABLE api_proxy_usage_events (
+                        id INTEGER PRIMARY KEY,
+                        timestamp INTEGER NOT NULL,
+                        key_id TEXT,
+                        key_label TEXT,
+                        model TEXT NOT NULL,
+                        route TEXT,
+                        reasoning_effort TEXT,
+                        service_tier TEXT,
+                        calls INTEGER NOT NULL,
+                        tokens INTEGER NOT NULL
+                    );",
+                )
+                .expect("pre-breakdown usage schema should be creatable");
+        }
         let legacy = serde_json::to_string_pretty(&json!({
             "version": 1,
             "updatedAt": now,
@@ -9482,7 +10484,7 @@ mod tests {
                     "timestamp": now,
                     "keyId": "key-new",
                     "keyLabel": "New tenant",
-                    "model": "gpt-5.5",
+                    "model": "gpt-5.4",
                     "route": "/v1/responses",
                     "calls": 1,
                     "tokens": 12
@@ -9518,9 +10520,21 @@ mod tests {
             "migration must not overwrite the legacy JSON"
         );
 
-        let database_path = data_dir.join(API_PROXY_USAGE_DATABASE_FILE_NAME);
         let connection =
             rusqlite::Connection::open(&database_path).expect("usage database should be readable");
+        let migrated_columns = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(api_proxy_usage_events)")
+                .expect("usage columns should be inspectable");
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .expect("usage columns should be queryable")
+                .collect::<Result<std::collections::HashSet<_>, _>>()
+                .expect("usage columns should be readable")
+        };
+        assert!(migrated_columns.contains("input_tokens"));
+        assert!(migrated_columns.contains("output_tokens"));
+        assert!(migrated_columns.contains("cached_input_tokens"));
         let count = || {
             connection
                 .query_row("SELECT COUNT(*) FROM api_proxy_usage_events", [], |row| {
@@ -9534,13 +10548,119 @@ mod tests {
             .expect("reopening usage must not duplicate migration");
         assert_eq!(count(), 2);
 
+        append_api_proxy_usage_event(
+            &storage,
+            ApiProxyUsageEvent {
+                timestamp: now,
+                key_id: Some("key-new".to_string()),
+                key_label: Some("=Renamed, \"tenant\"\nrow".to_string()),
+                model: "gpt-5.5".to_string(),
+                route: Some("/v1/responses".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                service_tier: Some("fast".to_string()),
+                calls: 0,
+                tokens: 5,
+                input_tokens: Some(3),
+                output_tokens: Some(2),
+                cached_input_tokens: Some(1),
+            },
+        )
+        .await
+        .expect("latest usage should be queued before export");
+        append_api_proxy_usage_event(
+            &storage,
+            ApiProxyUsageEvent {
+                timestamp: now,
+                key_id: Some("key-other".to_string()),
+                key_label: Some("Other tenant".to_string()),
+                model: "gpt-5.4".to_string(),
+                route: Some("/v1/responses".to_string()),
+                reasoning_effort: None,
+                service_tier: None,
+                calls: 1,
+                tokens: 0,
+                input_tokens: None,
+                output_tokens: None,
+                cached_input_tokens: None,
+            },
+        )
+        .await
+        .expect("second usage should be queued before export");
+
+        let all_export_path = data_dir.join("all-usage.csv");
+        export_api_proxy_usage_with_storage(
+            &storage,
+            Some(API_PROXY_USAGE_RANGE_30D_SECONDS),
+            None,
+            all_export_path.clone(),
+        )
+        .await
+        .expect("all-key CSV export should succeed");
+        let all_csv = std::fs::read_to_string(&all_export_path)
+            .expect("all-key CSV export should be readable");
+        assert!(all_csv.starts_with('\u{feff}'));
+        assert!(all_csv.contains("\"event_type\""));
+        assert!(all_csv.contains(
+            "\"input_tokens\",\"output_tokens\",\"cached_input_tokens\",\"total_tokens\""
+        ));
+        assert!(all_csv.contains("\"high\",\"fast\",\"0\",\"3\",\"2\",\"1\",\"5\"\r\n"));
+        assert!(all_csv.contains("\"key-other\""));
+        assert!(all_csv.contains("\"summary_range_key_model\",\"20"));
+        assert_eq!(
+            all_csv
+                .matches("\"'=Renamed, \"\"tenant\"\"\nrow\"")
+                .count(),
+            3,
+            "detail and both model summaries must use the latest Key label"
+        );
+
+        let filtered_export_path = data_dir.join("filtered-usage.csv");
+        export_api_proxy_usage_with_storage(
+            &storage,
+            Some(API_PROXY_USAGE_RANGE_30D_SECONDS),
+            Some("key-new".to_string()),
+            filtered_export_path.clone(),
+        )
+        .await
+        .expect("per-key CSV export should succeed");
+        let filtered_csv = std::fs::read_to_string(&filtered_export_path)
+            .expect("per-key CSV export should be readable");
+        assert!(filtered_csv.contains("\"key-new\""));
+        assert!(!filtered_csv.contains("\"key-other\""));
+
+        let empty_export_path = data_dir.join("empty-usage.csv");
+        export_api_proxy_usage_with_storage(
+            &storage,
+            Some(API_PROXY_USAGE_RANGE_30D_SECONDS),
+            Some("missing-key".to_string()),
+            empty_export_path.clone(),
+        )
+        .await
+        .expect("empty CSV export should still succeed");
+        let empty_csv = std::fs::read_to_string(&empty_export_path)
+            .expect("empty CSV export should be readable");
+        assert_eq!(empty_csv.lines().count(), 1);
+
         clear_api_proxy_usage_stats_with_storage(&storage)
             .await
             .expect("manual clear should succeed");
         assert_eq!(count(), 0);
+        assert!(
+            !legacy_path.exists(),
+            "successful manual clear must remove the legacy JSON copy"
+        );
 
         drop(connection);
         drop(storage);
+        let reopened = super::open_api_proxy_usage_database(&data_dir)
+            .expect("cleared usage database should reopen without reimporting history");
+        let reopened_count = reopened
+            .query_row("SELECT COUNT(*) FROM api_proxy_usage_events", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("reopened usage rows should be countable");
+        assert_eq!(reopened_count, 0);
+        drop(reopened);
         std::fs::remove_dir_all(data_dir).expect("temporary proxy storage should be removable");
     }
 
@@ -10130,7 +11250,7 @@ mod tests {
             "input": []
         });
 
-        let payload = super::websocket_response_create_payload(&payload);
+        let payload = super::websocket_response_create_payload(&payload, Some("sticky-turn"));
 
         assert_eq!(
             payload
@@ -10140,6 +11260,13 @@ mod tests {
                 })
                 .and_then(Value::as_str),
             Some("true")
+        );
+        assert_eq!(
+            payload
+                .get("client_metadata")
+                .and_then(|value| value.get(super::CODEX_TURN_STATE_HEADER))
+                .and_then(Value::as_str),
+            Some("sticky-turn")
         );
     }
 

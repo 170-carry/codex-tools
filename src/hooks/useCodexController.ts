@@ -242,6 +242,7 @@ export function useCodexController(
     useState<ApiProxyUsageStats | null>(null);
   const [apiProxyUsageLoading, setApiProxyUsageLoading] = useState(true);
   const [apiProxyUsageClearing, setApiProxyUsageClearing] = useState(false);
+  const [apiProxyUsageExporting, setApiProxyUsageExporting] = useState(false);
   const [costAnalyticsLoading, setCostAnalyticsLoading] = useState(true);
   const [costAnalyticsExporting, setCostAnalyticsExporting] = useState<
     "csv" | "json" | null
@@ -2092,8 +2093,41 @@ export function useCodexController(
     [apiProxyUsageMetric],
   );
 
+  const onExportApiProxyUsage = useCallback(
+    async (keyId: string | null) => {
+      if (apiProxyUsageExporting || apiProxyUsageClearing) {
+        return;
+      }
+
+      setApiProxyUsageExporting(true);
+      try {
+        const exportPath = await invoke<string | null>("export_api_proxy_usage", {
+          rangeSeconds: API_PROXY_USAGE_RANGE_SECONDS[apiProxyUsageRange],
+          keyId,
+        });
+        if (exportPath) {
+          setNotice({ type: "ok", message: copy.notices.apiProxyUsageExported });
+        }
+      } catch (error) {
+        setNotice({
+          type: "error",
+          message: copy.notices.apiProxyUsageExportFailed(localizeError(String(error))),
+        });
+      } finally {
+        setApiProxyUsageExporting(false);
+      }
+    },
+    [
+      apiProxyUsageExporting,
+      apiProxyUsageClearing,
+      apiProxyUsageRange,
+      copy.notices,
+      localizeError,
+    ],
+  );
+
   const onClearApiProxyUsageStats = useCallback(async () => {
-    if (apiProxyUsageClearing) {
+    if (apiProxyUsageClearing || apiProxyUsageExporting) {
       return;
     }
 
@@ -2113,6 +2147,7 @@ export function useCodexController(
     }
   }, [
     apiProxyUsageClearing,
+    apiProxyUsageExporting,
     copy.notices,
     localizeError,
   ]);
@@ -3000,6 +3035,7 @@ export function useCodexController(
     apiProxyUsageMetric,
     apiProxyUsageLoading,
     apiProxyUsageClearing,
+    apiProxyUsageExporting,
     costAnalyticsLoading,
     costAnalyticsExporting,
     costAnalyticsProgress,
@@ -3070,6 +3106,7 @@ export function useCodexController(
     loadApiProxyStatus,
     onSelectApiProxyUsageRange,
     onSelectApiProxyUsageMetric,
+    onExportApiProxyUsage,
     onClearApiProxyUsageStats,
     onStartApiProxy,
     onStopApiProxy,

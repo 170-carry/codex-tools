@@ -168,6 +168,37 @@
   gap: 8px;
 }
 
+.proxyUsageExportGroup {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.proxyUsageExportPicker {
+  display: grid;
+  gap: 4px;
+  color: var(--subtle);
+  font: 650 0.68rem/1 var(--font-ui);
+}
+
+.proxyUsageExportPicker select {
+  min-width: 148px;
+  min-height: 34px;
+  padding: 0 30px 0 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--surface-tint) 14%);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--card);
+  font: 650 0.74rem/1 var(--font-ui);
+}
+
+.proxyUsageExportButton {
+  min-height: 34px;
+}
+
 .proxyUsageChip {
   min-height: 34px;
   padding: 0 12px;
@@ -2106,6 +2137,12 @@ button.bottomDockButton.isActive:focus-visible {
 }
 
 @media (max-width: 720px) {
+  .proxyUsageExportGroup {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
   .proxyControlRow,
   .proxyKeyCreateRow,
   .proxyKeySecretRow,
