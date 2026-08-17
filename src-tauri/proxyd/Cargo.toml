@@ -1,6 +1,6 @@
 [package]
 name = "codex-tools-proxyd"
-version = "2.5.0"
+version = "2.6.0"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -26,3 +26,6 @@ sha2 = "0.10"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 toml_edit = "0.22"
+rusqlite = { version = "0.32", features = ["bundled"] }
+flate2 = "1"
+zstd = "0.13"

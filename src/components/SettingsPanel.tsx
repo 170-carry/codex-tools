@@ -66,6 +66,7 @@ export function SettingsPanel({
   const { copy, locale, localeOptions, setLocale } = useI18n();
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [trayVisualPreviews, setTrayVisualPreviews] = useState<TrayVisualPreview[]>([]);
+  const [runtimePlatform, setRuntimePlatform] = useState<string | null>(null);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
   const [windowsWidgetsEnabled, setWindowsWidgetsEnabled] = useState(false);
   const [windowsWidgetsError, setWindowsWidgetsError] = useState(false);
@@ -76,8 +77,8 @@ export function SettingsPanel({
     label: item.nativeLabel,
   }));
   const versionValue = appVersion ? `v${appVersion}` : "...";
-  const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
-  const isMacos = typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const isWindows = runtimePlatform === "windows";
+  const isMacos = runtimePlatform === "macos";
   const trayPreviewScale = typeof window !== "undefined" ? Math.max(1, window.devicePixelRatio || 1) : 1;
   const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle | "hidden"; label: string }> = [
     { value: "gradientNumberPlate", label: copy.settings.windowsTrayIconStyle.gradientNumberPlate },
@@ -100,6 +101,34 @@ export function SettingsPanel({
         }
       })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void invoke<string>("get_runtime_platform")
+      .then((platform) => {
+        if (!cancelled) {
+          setRuntimePlatform(platform);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          // 浏览器预览没有 Tauri 命令；仅为本地预览保留平台回退，桌面包始终以后端为准。
+          const platform = navigator.platform.toLowerCase();
+          setRuntimePlatform(
+            platform.includes("mac")
+              ? "macos"
+              : platform.includes("win")
+                ? "windows"
+                : "other",
+          );
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -228,11 +257,12 @@ export function SettingsPanel({
             <ThemeSwitch themeMode={themeMode} onToggle={onToggleTheme} />
           </div>
 
-          <div className="settingRow settingRowTrayUsage">
-            <div className="settingMeta">
-              <strong>{copy.settings.trayUsageDisplay.label}</strong>
-            </div>
-            <div className="trayUsageSettingsControls">
+          {runtimePlatform === "macos" ? (
+            <div className="settingRow settingRowTrayUsage">
+              <div className="settingMeta">
+                <strong>{copy.settings.trayUsageDisplay.label}</strong>
+              </div>
+              <div className="trayUsageSettingsControls">
               <div
                 className="modeGroup trayUsageModeGroup"
                 role="radiogroup"
@@ -305,8 +335,9 @@ export function SettingsPanel({
                   <span className="themeSwitchThumb" />
                 </span>
               </label>
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {isWindows || isMacos ? (
             <div className="settingRow settingRowTrayUsage">

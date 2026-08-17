@@ -318,6 +318,10 @@ export type MessageCatalog = {
     chartEmptyDescription: string;
     chartClearHistory: string;
     chartUpdatedAt: string;
+    chartExportKeyLabel: string;
+    chartExportAllKeys: string;
+    chartExportCsv: string;
+    chartExporting: string;
     loadBalanceLabel: string;
     loadBalanceAverage: string;
     loadBalanceSequential: string;
@@ -747,6 +751,8 @@ export type MessageCatalog = {
     codexProxyRestoreFailed: (error: string) => string;
     apiProxyUsageCleared: string;
     apiProxyUsageClearFailed: (error: string) => string;
+    apiProxyUsageExported: string;
+    apiProxyUsageExportFailed: (error: string) => string;
     codexAnalyticsExported: string;
     codexAnalyticsExportFailed: (error: string) => string;
     codexSessionDeleted: (sessionId: string) => string;
@@ -965,6 +971,8 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.notices.codexProxyRestoreFailed, { error }),
       apiProxyUsageClearFailed: (error) =>
         fillTemplate(raw.notices.apiProxyUsageClearFailed, { error }),
+      apiProxyUsageExportFailed: (error) =>
+        fillTemplate(raw.notices.apiProxyUsageExportFailed, { error }),
       codexAnalyticsExportFailed: (error) =>
         fillTemplate(raw.notices.codexAnalyticsExportFailed, { error }),
       codexSessionDeleted: (sessionId) =>

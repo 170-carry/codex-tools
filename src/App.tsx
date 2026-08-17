@@ -85,6 +85,7 @@ function App() {
     apiProxyUsageMetric,
     apiProxyUsageLoading,
     apiProxyUsageClearing,
+    apiProxyUsageExporting,
     costAnalyticsLoading,
     costAnalyticsExporting,
     costAnalyticsProgress,
@@ -135,6 +136,7 @@ function App() {
     loadApiProxyStatus,
     onSelectApiProxyUsageRange,
     onSelectApiProxyUsageMetric,
+    onExportApiProxyUsage,
     onClearApiProxyUsageStats,
     onStartApiProxy,
     onStopApiProxy,
@@ -164,7 +166,7 @@ function App() {
     onSmartSwitch,
     onUpdateRemoteServers,
     smartSwitching,
-  } = useCodexController();
+  } = useCodexController(activeTab);
 
   useEffect(() => {
     const isMac =
@@ -251,11 +253,10 @@ function App() {
     }
     void refreshUsage(false);
     void refreshTokenUsage(false);
-    void loadCostAnalytics(true);
   };
 
   return (
-    <div className="shell">
+    <div className={`shell${mainWindowVisible ? "" : " isUiInactive"}`}>
       <div className="ambient" />
       <main className="panel">
         <AppTopBar
@@ -406,6 +407,7 @@ function App() {
               apiProxyUsageMetric={apiProxyUsageMetric}
               apiProxyUsageLoading={apiProxyUsageLoading}
               apiProxyUsageClearing={apiProxyUsageClearing}
+              apiProxyUsageExporting={apiProxyUsageExporting}
               cloudflaredStatus={cloudflaredStatus}
               accountCount={accounts.length}
               autoStartEnabled={settings.autoStartApiProxy}
@@ -444,6 +446,7 @@ function App() {
               onRegenerateApiProxyKey={onRegenerateApiProxyKey}
               onSelectApiProxyUsageRange={onSelectApiProxyUsageRange}
               onSelectApiProxyUsageMetric={onSelectApiProxyUsageMetric}
+              onExportApiProxyUsage={onExportApiProxyUsage}
               onClearApiProxyUsageStats={onClearApiProxyUsageStats}
               onRefreshApiKey={() => void onRefreshApiProxyKey()}
               onBindCodexProxy={() => void onBindCodexToApiProxy()}

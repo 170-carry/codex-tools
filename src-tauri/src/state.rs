@@ -18,6 +18,7 @@ use crate::auth::PendingOauthLogin;
 use crate::models::AccountSummary;
 use crate::models::ApiProxyKey;
 use crate::models::CloudflaredTunnelMode;
+use crate::proxy_service::ApiProxyUsageWriter;
 
 pub(crate) type UsageRefreshResult = Result<Vec<AccountSummary>, String>;
 
@@ -98,6 +99,7 @@ pub(crate) struct AppState {
     pub(crate) pending_oauth_login: Mutex<Option<PendingOauthLogin>>,
     pub(crate) oauth_listener: Mutex<Option<OauthCallbackListenerHandle>>,
     pub(crate) api_proxy: Mutex<Option<ApiProxyRuntimeHandle>>,
+    pub(crate) api_proxy_usage_writer: Arc<Mutex<Option<ApiProxyUsageWriter>>>,
     pub(crate) cloudflared: Mutex<Option<CloudflaredRuntimeHandle>>,
 }
 
@@ -111,6 +113,7 @@ impl Default for AppState {
             pending_oauth_login: Mutex::new(None),
             oauth_listener: Mutex::new(None),
             api_proxy: Mutex::new(None),
+            api_proxy_usage_writer: Arc::new(Mutex::new(None)),
             cloudflared: Mutex::new(None),
         }
     }
