@@ -1,12 +1,12 @@
 <!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota status visuals and a Windows taskbar widget / 添加跨平台额度状态视觉与 Windows 任务栏组件 -->
 
-> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation passed, and the synchronized ROG-Strix Windows frontend replay passed. Native Windows Rust/release validation is blocked because the host lacks the MSVC `link.exe` linker. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证已通过，ROG-Strix Windows 前端同步回归也已通过。由于主机缺少 MSVC `link.exe` 链接器，Windows 原生 Rust/发布验证受阻。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
+> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation and the synchronized ROG-Strix Windows frontend replay passed. The Windows first-launch screenshot is the only remaining PR visual. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证与 ROG-Strix Windows 前端同步回归均已通过。Windows 首次启动截图是 PR 当前唯一待补视觉素材。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
 
 ## Summary / 摘要
 
 - **Add consistent quota visuals across desktop surfaces / 为桌面额度展示提供一致视觉:** share five quota-icon styles across Windows and macOS, including two variants inside the logo-and-progress-ring style.
 - **Add a native Windows taskbar quota widget / 新增 Windows 原生任务栏额度组件:** place quota information on the left or right side of the taskbar, or keep it in the system tray, with live settings updates.
-- **Add a macOS first-launch quota setup / 新增 macOS 首次启动额度设置:** let users configure classic status text and the compact quota icon independently before entering the main application.
+- **Add cross-platform first-launch quota setup / 新增跨平台首次启动额度设置:** let macOS users configure the text quota surface and compact quota icon independently, and let Windows users choose taskbar placement and tray presentation before entering the main application.
 - **Harden recovery and isolated development / 加固恢复逻辑与隔离开发:** recover taskbar surfaces after Explorer changes, preserve cached error states, and safely adopt newer authorization snapshots without cloning production credentials into a fresh preview environment.
 - **Reduce macOS background work / 降低 macOS 后台开销:** use one native status refresh scheduler, deliver fresh results to the UI, and defer freshness-only account-store writes.
 
@@ -36,15 +36,23 @@ Windows 可将额度作为原生任务栏子组件放在任务栏左侧或右侧
 
 ![Windows taskbar quota effect / Windows 任务栏额度效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-taskbar-quota-effect.png)
 
-### 3. macOS first-launch quota setup / macOS 首次启动额度设置
+### 3. Cross-platform first-launch quota setup / 跨平台首次启动额度设置
 
 The macOS onboarding dialog configures classic status text and the compact quota icon independently. Either surface can be enabled or disabled, both can remain disabled, all visual choices update live, and completion is persisted separately from the Windows onboarding state. The dialog intentionally contains no simulated menu-bar screenshots or detached preview copy.
 
 macOS 首次设置对话框可分别配置经典文字额度栏和紧凑额度图标。两者都能独立启用或关闭，也允许同时关闭；全部视觉选择都会实时更新，完成状态与 Windows 引导分别持久化。界面不再包含模拟菜单栏截图或独立的预览说明文字。
 
+The Windows onboarding dialog configures taskbar placement and the system-tray quota icon before the main application opens. It keeps at least one Windows quota surface active and explains the Windows Widgets placement interaction.
+
+Windows 首次设置对话框会在进入主界面前配置任务栏组件位置与系统托盘额度图标，确保至少启用一种 Windows 额度展示，并说明与 Windows Widgets 位置的关系。
+
 **macOS first-launch quota setup effect / macOS 首次启动额度设置效果**
 
 ![macOS first-launch quota setup effect / macOS 首次启动额度设置效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-first-launch-quota-setup.png)
+
+**Windows first-launch quota setup effect / Windows 首次启动额度设置效果**
+
+- [ ] Add the current Windows first-launch screenshot before opening the PR. / 创建 PR 前补充当前 Windows 首次启动截图。
 
 ### 4. Runtime recovery and authorization freshness / 运行时恢复与授权新鲜度
 
@@ -85,34 +93,23 @@ Fresh isolated previews no longer copy the production account store or productio
 
 ### Windows 11 on ROG Strix
 
-Windows frontend validation was replayed from the pushed synchronized branch on the ROG-Strix host. Native Rust/release validation remains blocked by the missing MSVC linker. / Windows 前端验证已从已推送的同步分支在 ROG-Strix 主机上重跑；原生 Rust/发布验证仍因缺少 MSVC 链接器受阻。
+Windows frontend validation was replayed from the pushed synchronized branch on the ROG-Strix host. Native packaging was not part of this final PR-draft replay. / Windows 前端验证已从推送后的同步分支在 ROG-Strix 主机上重跑；本次 PR 草稿最终回归不包含原生安装包重建。
 
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
 - [x] Node regression tests / Node 回归测试：19 passed
-- [ ] Full Rust suite / 完整 Rust 测试：阻断；ROG-Strix 缺少 MSVC `link.exe`
 - [x] Rust formatting / Rust 格式：`cargo fmt --check` passed / 通过
-- [ ] Clippy / Clippy：阻断；ROG-Strix 缺少 MSVC `link.exe`
 - [x] Production dependency audit / 生产依赖审计：0 vulnerabilities
 - [x] Git diff whitespace check / Git 差异空白检查：passed / 通过
-- [ ] Windows release application, MSI, and NSIS packages / Windows release 应用、MSI 与 NSIS 安装包：阻断；缺少 MSVC `link.exe`
-- [ ] Release executable startup smoke / release 可执行文件启动冒烟：阻断；无法生成当前提交的原生可执行文件
-- [ ] Taskbar left, taskbar right, hidden state, five tray styles, and live settings updates / 任务栏左侧、任务栏右侧、隐藏状态、五种托盘样式及设置实时更新：阻断；无法生成当前提交的原生可执行文件
-- [ ] Settings-page regression: both quota surfaces can be disabled and re-enabled independently / 设置页回归：两个额度入口可独立关闭、同时关闭并重新启用：前端逻辑已覆盖，原生任务栏显示待工具链恢复后验证
-- [ ] Explorer recreation and taskbar reattachment / Explorer 重建及任务栏重新附着：阻断；无法生成当前提交的原生可执行文件
-- [ ] Five targeted authorization-snapshot self-heal tests / 五项授权快照自愈定向测试：阻断；无法运行当前提交的 Rust 测试
-- [ ] `TaskbarDa` remained read-only at `0`; Widgets being disabled did not prevent the quota widget from working or recovering / `TaskbarDa` 保持只读并为 `0`；Widgets 关闭不影响额度组件工作或恢复：当前提交尚未进行原生实机回归
-- [ ] The Windows Widgets enabled-state layout was not exercised because the test did not modify `TaskbarDa`. / 未验证 Windows Widgets 启用状态下的布局，因为本次测试没有修改 `TaskbarDa`。
-- [ ] MSI/NSIS overwrite installation was not run because the packages use the same product identity and version as the installed application. / 未执行 MSI/NSIS 覆盖安装，因为安装包与已安装应用使用相同产品身份和版本。
 
 ## Known non-blocking baseline / 已知非阻断基线
 
 - The minified frontend entry chunk is approximately 706 kB and still triggers Vite's existing 500 kB recommendation. / 压缩后的前端入口约为 706 kB，仍会触发 Vite 既有的 500 kB 拆包建议。
 - The full development-dependency audit reports 9 advisories (2 low and 7 high) on both `origin/main` and this branch; production dependencies report 0. Patch-level lockfile upgrades are available but are outside this feature diff. / `origin/main` 与本分支的完整开发依赖审计均报告 9 个公告（2 个 low、7 个 high）；生产依赖为 0。可通过补丁级锁文件升级处理，但不属于本功能差异。
 - Locally built macOS bundles are suitable for validation but are not Developer ID signed or notarized. / 本地构建的 macOS 包可用于验证，但未使用 Developer ID 签名或公证。
-- The locally generated macOS updater archive and Windows updater metadata cannot be signed without `TAURI_SIGNING_PRIVATE_KEY`; platform applications and installers were generated before that signing step. / 本地无法在缺少 `TAURI_SIGNING_PRIVATE_KEY` 时签署 macOS 更新压缩包和 Windows 更新元数据；平台应用与安装包已在该签名步骤之前成功生成。
+- Local updater metadata cannot be signed without `TAURI_SIGNING_PRIVATE_KEY`. / 缺少 `TAURI_SIGNING_PRIVATE_KEY` 时无法在本地签署更新元数据。
 
 ## Review notes / 审阅说明
 
-- The screenshots use isolated, empty application data and contain no account identifiers or credentials. / 截图使用隔离的空白应用数据，不包含账号标识或凭据。
-- The visual evidence shows only the new quota surfaces and first-launch UI. Because these are newly added features, no before/after comparison is included, and settings-page screenshots remain excluded. / 视觉证据仅展示新增的额度栏与首次启动界面。由于这些均为新增功能，因此不提供修改前后对比，也不包含设置页截图。
+- The screenshots contain no account identifiers or credentials; validation-only captures use isolated application data. / 截图不包含账号标识或凭据；仅用于验证的截图使用隔离应用数据。
+- The visual evidence shows only the new quota surfaces and first-launch UI. Because these are newly added features, no before/after comparison is included, and settings-page screenshots remain excluded. The Windows first-launch screenshot is still pending. / 视觉证据仅展示新增的额度栏与首次启动界面。由于这些均为新增功能，因此不提供修改前后对比，也不包含设置页截图。Windows 首次启动截图仍待补充。
 - All source changes and selected evidence files are synchronized in the pushed branch; the isolated ROG-Strix validation checkout and the original macOS development worktree remain preserved. / 所有源码修改与选定证据文件已同步到推送分支；隔离的 ROG-Strix 验证检出和原 macOS 开发工作树均保持不变。
