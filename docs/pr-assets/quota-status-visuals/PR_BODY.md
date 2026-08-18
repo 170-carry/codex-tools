@@ -1,6 +1,6 @@
 <!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota status visuals and a Windows taskbar widget / 添加跨平台额度状态视觉与 Windows 任务栏组件 -->
 
-> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation passed, and the synchronized ROG-Strix Windows frontend replay passed. Native Windows Rust/release validation is blocked because the host currently has no `rustc` or `cargo`. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证已通过，ROG-Strix Windows 前端同步回归也已通过。由于主机当前没有 `rustc` 或 `cargo`，Windows 原生 Rust/发布验证受阻。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
+> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation passed, and the synchronized ROG-Strix Windows frontend replay passed. Native Windows Rust/release validation is blocked because the host lacks the MSVC `link.exe` linker. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证已通过，ROG-Strix Windows 前端同步回归也已通过。由于主机缺少 MSVC `link.exe` 链接器，Windows 原生 Rust/发布验证受阻。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
 
 ## Summary / 摘要
 
@@ -85,15 +85,16 @@ Fresh isolated previews no longer copy the production account store or productio
 
 ### Windows 11 on ROG Strix
 
-Windows frontend validation was replayed from the pushed synchronized branch on the ROG-Strix host. Native Rust/release validation remains blocked by the missing toolchain. / Windows 前端验证已从已推送的同步分支在 ROG-Strix 主机上重跑；原生 Rust/发布验证仍因缺少工具链受阻。
+Windows frontend validation was replayed from the pushed synchronized branch on the ROG-Strix host. Native Rust/release validation remains blocked by the missing MSVC linker. / Windows 前端验证已从已推送的同步分支在 ROG-Strix 主机上重跑；原生 Rust/发布验证仍因缺少 MSVC 链接器受阻。
 
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
 - [x] Node regression tests / Node 回归测试：19 passed
-- [ ] Full Rust suite / 完整 Rust 测试：阻断；ROG-Strix 没有 `rustc`/`cargo`
-- [ ] Rust formatting and Clippy / Rust 格式与 Clippy：阻断；ROG-Strix 没有 `rustc`/`cargo`
+- [ ] Full Rust suite / 完整 Rust 测试：阻断；ROG-Strix 缺少 MSVC `link.exe`
+- [x] Rust formatting / Rust 格式：`cargo fmt --check` passed / 通过
+- [ ] Clippy / Clippy：阻断；ROG-Strix 缺少 MSVC `link.exe`
 - [x] Production dependency audit / 生产依赖审计：0 vulnerabilities
 - [x] Git diff whitespace check / Git 差异空白检查：passed / 通过
-- [ ] Windows release application, MSI, and NSIS packages / Windows release 应用、MSI 与 NSIS 安装包：阻断；缺少 `rustc`/`cargo`
+- [ ] Windows release application, MSI, and NSIS packages / Windows release 应用、MSI 与 NSIS 安装包：阻断；缺少 MSVC `link.exe`
 - [ ] Release executable startup smoke / release 可执行文件启动冒烟：阻断；无法生成当前提交的原生可执行文件
 - [ ] Taskbar left, taskbar right, hidden state, five tray styles, and live settings updates / 任务栏左侧、任务栏右侧、隐藏状态、五种托盘样式及设置实时更新：阻断；无法生成当前提交的原生可执行文件
 - [ ] Settings-page regression: both quota surfaces can be disabled and re-enabled independently / 设置页回归：两个额度入口可独立关闭、同时关闭并重新启用：前端逻辑已覆盖，原生任务栏显示待工具链恢复后验证
