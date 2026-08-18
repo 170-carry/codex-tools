@@ -56,9 +56,9 @@ Windows 首次设置对话框会在进入主界面前配置任务栏组件位置
 
 ### 4. Runtime recovery and authorization freshness / 运行时恢复与授权新鲜度
 
-Quota surfaces retain explicit fresh, stale, and error states instead of silently clearing a previous refresh failure. Windows recreates its taskbar surface after Explorer or taskbar changes. When the active instance receives a newer, rotated authorization snapshot whose refresh timestamp is not older than the stored snapshot, it can clear the obsolete authorization block and resume quota refresh; the same stale snapshot is never treated as recovery.
+Quota surfaces retain explicit fresh, stale, and error states instead of silently clearing a previous refresh failure. After Explorer or taskbar changes, Windows rebinds and lays out the quota surface again, recreating the widget window only if it was actually destroyed. When the active instance receives a newer, rotated authorization snapshot whose refresh timestamp is not older than the stored snapshot, it can clear the obsolete authorization block and resume quota refresh; the same stale snapshot is never treated as recovery.
 
-额度展示会明确保留正常、缓存过期和错误状态，不再因普通设置刷新而静默清除此前的额度错误。Windows 会在 Explorer 或任务栏变化后重新创建任务栏展示。当当前实例获得刷新令牌已轮换、且刷新时间不早于已保存快照的新授权时，可以清除旧授权阻塞并恢复额度刷新；相同的旧快照不会被误判为已经恢复。
+额度展示会明确保留正常、缓存过期和错误状态，不再因普通设置刷新而静默清除此前的额度错误。Explorer 或任务栏变化后，Windows 会重新绑定并布局额度展示，只有组件窗口确实被销毁时才重新创建。当当前实例获得刷新令牌已轮换、且刷新时间不早于已保存快照的新授权时，可以清除旧授权阻塞并恢复额度刷新；相同的旧快照不会被误判为已经恢复。
 
 On macOS, one native status-bar scheduler refreshes status data every 60 seconds even when both visible quota surfaces are disabled, then emits the fresh result to the frontend. Freshness-only account-store writes are deferred for up to five minutes; material quota, auth, error, startup, manual, and import changes still persist immediately.
 
@@ -68,9 +68,8 @@ Fresh isolated previews no longer copy the production account store or productio
 
 新的隔离预览不再复制正式版账号库或正式版 `auth.json`。已有预览数据保持不变，开发者可以主动迁移或重新授权，不会在启动时发生破坏性覆盖。
 
-### 5. Localization, documentation, and compatibility / 本地化、文档与兼容性
+### 5. Documentation and compatibility / 文档与兼容性
 
-- Add matching English, Simplified Chinese, Japanese, Korean, and Russian strings. / 补齐英文、简体中文、日文、韩文和俄文文案。
 - Document Windows taskbar placement, first-run behavior, and the Windows Widgets interaction. / 说明 Windows 任务栏位置、首次运行行为以及与 Windows Widgets 的交互。
 - Preserve existing account, API proxy, analytics, editor integration, and non-Windows behavior. / 保持现有账号、API 反代、分析、编辑器联动及非 Windows 行为。
 
@@ -88,7 +87,6 @@ Fresh isolated previews no longer copy the production account store or productio
 - [x] Debug app and DMG generated; the app launched with isolated data / 已生成 debug 应用与 DMG，并使用隔离数据启动应用
 - [x] Computer Use regression: live style updates, both quota surfaces disabled, completion persistence, and restart behavior / Computer Use 回归：视觉样式实时更新、两类额度展示同时关闭、完成状态持久化及重启行为
 - [x] Runtime scheduling regression: one 60-second native refresh, frontend event delivery, and five-minute freshness-only persistence throttling / 运行时调度回归：单一 60 秒原生刷新、前端事件传递及五分钟新鲜度写盘节流
-- [x] Five locale files have identical key sets / 五种语言文件的键集合完全一致
 - [x] Production dependency audit / 生产依赖审计：0 vulnerabilities
 
 ### Windows 11 on ROG Strix
