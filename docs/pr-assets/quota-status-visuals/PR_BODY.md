@@ -1,6 +1,6 @@
 <!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota status visuals and a Windows taskbar widget / 添加跨平台额度状态视觉与 Windows 任务栏组件 -->
 
-> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation has passed; the synchronized ROG-Strix Windows replay is still pending. Local release builds can generate the platform applications and installers, but updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证已通过；ROG-Strix Windows 同步回归仍待完成。本地发布构建可以生成平台应用与安装包，但更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
+> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation passed, and the synchronized ROG-Strix Windows frontend replay passed. Native Windows Rust/release validation is blocked because the host currently has no `rustc` or `cargo`. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证已通过，ROG-Strix Windows 前端同步回归也已通过。由于主机当前没有 `rustc` 或 `cargo`，Windows 原生 Rust/发布验证受阻。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
 
 ## Summary / 摘要
 
@@ -85,19 +85,21 @@ Fresh isolated previews no longer copy the production account store or productio
 
 ### Windows 11 on ROG Strix
 
-Windows validation is being replayed from the pushed synchronized branch on the ROG-Strix host. / Windows 验证将从已推送的同步分支在 ROG-Strix 主机上重新执行。
+Windows frontend validation was replayed from the pushed synchronized branch on the ROG-Strix host. Native Rust/release validation remains blocked by the missing toolchain. / Windows 前端验证已从已推送的同步分支在 ROG-Strix 主机上重跑；原生 Rust/发布验证仍因缺少工具链受阻。
 
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
-- [ ] Node regression tests / Node 回归测试：待 ROG-Strix 重跑
-- [ ] Full Rust suite / 完整 Rust 测试：待 ROG-Strix 重跑
-- [x] Rust formatting, Clippy, and diff whitespace checks / Rust 格式、Clippy 与差异空白检查：passed; Clippy reported 0 errors and 60 existing warnings / 通过；Clippy 报告 0 个错误和 60 个既有警告
-- [ ] Windows release application, MSI, and NSIS packages / Windows release 应用、MSI 与 NSIS 安装包：待 ROG-Strix 重跑
-- [ ] Release executable startup smoke / release 可执行文件启动冒烟：待 ROG-Strix 重跑
-- [ ] Taskbar left, taskbar right, hidden state, five tray styles, and live settings updates / 任务栏左侧、任务栏右侧、隐藏状态、五种托盘样式及设置实时更新：待 ROG-Strix 重跑
-- [ ] Settings-page regression: both quota surfaces can be disabled and re-enabled independently / 设置页回归：两个额度入口可独立关闭、同时关闭并重新启用：待 ROG-Strix 重跑
-- [ ] Explorer recreation and taskbar reattachment / Explorer 重建及任务栏重新附着：待 ROG-Strix 重跑
-- [ ] Five targeted authorization-snapshot self-heal tests / 五项授权快照自愈定向测试：待 ROG-Strix 重跑
-- [ ] `TaskbarDa` remained read-only at `0`; Widgets being disabled did not prevent the quota widget from working or recovering / `TaskbarDa` 保持只读并为 `0`；Widgets 关闭不影响额度组件工作或恢复：待 ROG-Strix 重跑
+- [x] Node regression tests / Node 回归测试：19 passed
+- [ ] Full Rust suite / 完整 Rust 测试：阻断；ROG-Strix 没有 `rustc`/`cargo`
+- [ ] Rust formatting and Clippy / Rust 格式与 Clippy：阻断；ROG-Strix 没有 `rustc`/`cargo`
+- [x] Production dependency audit / 生产依赖审计：0 vulnerabilities
+- [x] Git diff whitespace check / Git 差异空白检查：passed / 通过
+- [ ] Windows release application, MSI, and NSIS packages / Windows release 应用、MSI 与 NSIS 安装包：阻断；缺少 `rustc`/`cargo`
+- [ ] Release executable startup smoke / release 可执行文件启动冒烟：阻断；无法生成当前提交的原生可执行文件
+- [ ] Taskbar left, taskbar right, hidden state, five tray styles, and live settings updates / 任务栏左侧、任务栏右侧、隐藏状态、五种托盘样式及设置实时更新：阻断；无法生成当前提交的原生可执行文件
+- [ ] Settings-page regression: both quota surfaces can be disabled and re-enabled independently / 设置页回归：两个额度入口可独立关闭、同时关闭并重新启用：前端逻辑已覆盖，原生任务栏显示待工具链恢复后验证
+- [ ] Explorer recreation and taskbar reattachment / Explorer 重建及任务栏重新附着：阻断；无法生成当前提交的原生可执行文件
+- [ ] Five targeted authorization-snapshot self-heal tests / 五项授权快照自愈定向测试：阻断；无法运行当前提交的 Rust 测试
+- [ ] `TaskbarDa` remained read-only at `0`; Widgets being disabled did not prevent the quota widget from working or recovering / `TaskbarDa` 保持只读并为 `0`；Widgets 关闭不影响额度组件工作或恢复：当前提交尚未进行原生实机回归
 - [ ] The Windows Widgets enabled-state layout was not exercised because the test did not modify `TaskbarDa`. / 未验证 Windows Widgets 启用状态下的布局，因为本次测试没有修改 `TaskbarDa`。
 - [ ] MSI/NSIS overwrite installation was not run because the packages use the same product identity and version as the installed application. / 未执行 MSI/NSIS 覆盖安装，因为安装包与已安装应用使用相同产品身份和版本。
 
@@ -112,4 +114,4 @@ Windows validation is being replayed from the pushed synchronized branch on the 
 
 - The screenshots use isolated, empty application data and contain no account identifiers or credentials. / 截图使用隔离的空白应用数据，不包含账号标识或凭据。
 - The visual evidence shows only the new quota surfaces and first-launch UI. Because these are newly added features, no before/after comparison is included, and settings-page screenshots remain excluded. / 视觉证据仅展示新增的额度栏与首次启动界面。由于这些均为新增功能，因此不提供修改前后对比，也不包含设置页截图。
-- All source changes and selected evidence files will be synchronized after the ROG-Strix replay; the original ROG and macOS development worktrees remain preserved. / 所有源码修改与选定证据文件将在 ROG-Strix 回归后同步；原 ROG 与 macOS 开发工作树保持不变。
+- All source changes and selected evidence files are synchronized in the pushed branch; the isolated ROG-Strix validation checkout and the original macOS development worktree remain preserved. / 所有源码修改与选定证据文件已同步到推送分支；隔离的 ROG-Strix 验证检出和原 macOS 开发工作树均保持不变。
