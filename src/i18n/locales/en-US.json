@@ -19,7 +19,9 @@
     "description": "The new version can keep quota visible in the Windows taskbar and system tray. Enable at least one option. You can change this later in Settings.",
     "livePreview": "Changes are applied to the Windows taskbar and system tray immediately.",
     "macTitle": "Set up the macOS quota bar",
-    "macStatusBarTitle": "Classic text quota bar",
+    "macStatusBarTitle": "Text quota display",
+    "macCodexToolsIconOption": "Codex Tools icon",
+    "macProgressRingIconOption": "Progress ring icon",
     "macStatusBarDescription": "Show the current quota as text directly in the menu bar.",
     "macStatusBarModeLabel": "Classic text quota bar display mode",
     "macTrayTitle": "Quota icon",
@@ -587,18 +589,18 @@
       "uncheckedText": "Numbers only"
     },
     "windowsTrayIconStyle": {
-      "label": "Tray icon visual",
-      "description": "Choose one of five icons based on remaining quota, or hide it independently. The classic text status's Remaining/Used choice does not alter the icon.",
-      "groupAriaLabel": "Tray icon visual style",
-      "gradientNumberPlate": "Gradient number plate",
-      "gradientNumberCard": "Gradient number card",
-      "gradientNumber": "Gradient digits",
-      "numberProgressBar": "Number + progress bar",
-      "logoProgressRing": "Logo + progress ring",
+      "label": "Quota icon style",
+      "description": "Choose a compact icon based on remaining quota, or hide the quota icon independently. The classic text display does not change this icon.",
+      "groupAriaLabel": "Quota icon style",
+      "gradientNumberPlate": "Square number card",
+      "gradientNumberCard": "Wide number card",
+      "gradientNumber": "Gradient number",
+      "numberProgressBar": "Number progress bar",
+      "logoProgressRing": "App icon progress ring",
       "hidden": "Hide icon"
     },
     "macosTrayLogoRingVariants": {
-      "withPercentage": "Show exact percentage",
+      "withPercentage": "Show percentage",
       "withoutPercentage": "Progress ring only"
     },
     "windowsTaskbarWidget": {

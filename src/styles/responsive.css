@@ -140,10 +140,6 @@
     width: 100%;
   }
 
-  .quotaOnboardingMacModeGroup {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .debugFloatingTool {
     top: auto;
     right: 12px;
@@ -229,6 +225,19 @@
     grid-template-columns: 1fr;
     align-items: start;
     min-height: 0;
+  }
+
+  .settingRowMacosTrayTuning {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .macosTrayTuningControls {
+    width: 100%;
+  }
+
+  .macosTrayTuningField {
+    grid-template-columns: 84px minmax(0, 1fr) 68px;
   }
 
   .trayUsageSettingsControls {
@@ -521,8 +530,13 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .quotaOnboardingIconGrid {
+  .quotaOnboardingIconGrid,
+  .quotaOnboardingDialogMacos .quotaOnboardingIconGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .quotaOnboardingDialogMacos .quotaOnboardingTextGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .quotaPreviewWeather {
@@ -543,7 +557,8 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .quotaOnboardingIconGrid {
+  .quotaOnboardingIconGrid,
+  .quotaOnboardingDialogMacos .quotaOnboardingIconGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

@@ -79,6 +79,7 @@ const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进�
 const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
 const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
 const USAGE_REFRESH_REUSE_WINDOW: Duration = Duration::from_secs(25);
+const PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS: i64 = 5 * 60;
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -528,6 +529,7 @@ pub(crate) async fn refresh_all_usage_internal(
     app: &AppHandle,
     state: &AppState,
     force_auth_refresh: bool,
+    defer_freshness_only_persistence: bool,
 ) -> Result<Vec<AccountSummary>, String> {
     let current_auth_override: Option<(String, serde_json::Value)> =
         read_current_codex_auth_optional()
@@ -555,6 +557,7 @@ pub(crate) async fn refresh_all_usage_internal(
         let _auth_guard = state.auth_operation_lock.lock().await;
         let _guard = state.store_lock.lock().await;
         let mut latest_store = load_store(app)?;
+        let persisted_store = latest_store.clone();
         let merge_current_auth_json = read_current_codex_auth_optional().ok().flatten();
 
         for account in &mut latest_store.accounts {
@@ -618,7 +621,19 @@ pub(crate) async fn refresh_all_usage_internal(
         }
 
         dedupe_account_variants(&mut latest_store.accounts);
-        save_store(app, &latest_store)?;
+        if should_persist_refreshed_store(
+            &persisted_store,
+            &latest_store,
+            defer_freshness_only_persistence,
+            now_unix_seconds(),
+        ) {
+            save_store(app, &latest_store)?;
+        } else {
+            log::info!(
+                "USAGE_REFRESH_PERSIST action=defer reason=freshness-only interval_secs={}",
+                PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS,
+            );
+        }
         latest_store
     };
 
@@ -680,6 +695,57 @@ pub(crate) async fn refresh_all_usage_internal(
     Ok(summaries)
 }
 
+fn should_persist_refreshed_store(
+    persisted: &AccountsStore,
+    refreshed: &AccountsStore,
+    defer_freshness_only_persistence: bool,
+    now: i64,
+) -> bool {
+    if !defer_freshness_only_persistence {
+        return true;
+    }
+
+    let mut persisted_material = persisted.clone();
+    let mut refreshed_material = refreshed.clone();
+    clear_refresh_freshness(&mut persisted_material);
+    clear_refresh_freshness(&mut refreshed_material);
+
+    let material_changed = serde_json::to_value(&persisted_material)
+        .and_then(|persisted_value| {
+            serde_json::to_value(&refreshed_material)
+                .map(|refreshed_value| persisted_value != refreshed_value)
+        })
+        .unwrap_or(true);
+    if material_changed {
+        return true;
+    }
+
+    let last_persisted_refresh = persisted
+        .accounts
+        .iter()
+        .map(|account| {
+            account
+                .usage
+                .as_ref()
+                .map(|usage| usage.fetched_at)
+                .unwrap_or(account.updated_at)
+                .max(account.updated_at)
+        })
+        .max()
+        .unwrap_or(0);
+
+    now.saturating_sub(last_persisted_refresh) >= PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS
+}
+
+fn clear_refresh_freshness(store: &mut AccountsStore) {
+    for account in &mut store.accounts {
+        account.updated_at = 0;
+        if let Some(usage) = account.usage.as_mut() {
+            usage.fetched_at = 0;
+        }
+    }
+}
+
 /// Coordinates every full usage refresh through one in-flight future.
 ///
 /// Callers requesting the same or weaker auth behavior share the current
@@ -725,9 +791,16 @@ pub(crate) async fn refresh_all_usage_coordinated(
                 coordinator.next_id = coordinator.next_id.wrapping_add(1).max(1);
                 let flight_id = coordinator.next_id;
                 let app_handle = app.clone();
+                let defer_freshness_only_persistence = source == "macos-status-bar";
                 let future = async move {
                     let state = app_handle.state::<AppState>();
-                    refresh_all_usage_internal(&app_handle, state.inner(), force_auth_refresh).await
+                    refresh_all_usage_internal(
+                        &app_handle,
+                        state.inner(),
+                        force_auth_refresh,
+                        defer_freshness_only_persistence,
+                    )
+                    .await
                 }
                 .boxed()
                 .shared();
@@ -2150,6 +2223,7 @@ mod tests {
     use super::normalize_usage_error_message;
     use super::refresh_usage_worker_count_from_resources;
     use super::resolve_usage_first_plan_type;
+    use super::should_persist_refreshed_store;
     use super::should_refresh_membership_auth;
     use super::should_retry_with_token_refresh;
     use super::should_reuse_successful_usage_refresh;
@@ -2159,6 +2233,7 @@ mod tests {
     use super::AUTH_EXPIRED_NOTICE;
     use super::KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS;
     use super::KEEPALIVE_LAST_REFRESH_JITTER_SECS;
+    use super::PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS;
     use super::USAGE_AUTH_TOKEN_EXPIRED_NOTICE;
     use super::USAGE_REFRESH_REUSE_WINDOW;
     use crate::models::AccountsStore;
@@ -2290,6 +2365,82 @@ mod tests {
             credits: None,
             reset_credits: None,
         }
+    }
+
+    fn store_with_usage(updated_at: i64, fetched_at: i64, used_percent: f64) -> AccountsStore {
+        let mut usage = usage_snapshot("pro");
+        usage.fetched_at = fetched_at;
+        usage
+            .five_hour
+            .as_mut()
+            .expect("five hour usage")
+            .used_percent = used_percent;
+
+        AccountsStore {
+            accounts: vec![StoredAccount {
+                id: "account-1".to_string(),
+                label: "Account 1".to_string(),
+                source_kind: Default::default(),
+                principal_id: Some("principal-1".to_string()),
+                email: Some("account@example.com".to_string()),
+                account_id: "account-1".to_string(),
+                plan_type: Some("pro".to_string()),
+                auth_json: json!({"tokens": {"access_token": "token"}}),
+                api_base_url: None,
+                api_key: None,
+                model_name: None,
+                balance_text: None,
+                profile_auth_path: None,
+                profile_config_path: None,
+                profile_auth_ready: true,
+                profile_config_ready: true,
+                profile_integrity_error: None,
+                profile_last_validated_at: None,
+                profile_last_validation_error: None,
+                added_at: 1,
+                updated_at,
+                usage: Some(usage),
+                usage_error: None,
+                auth_refresh_blocked: false,
+                auth_refresh_error: None,
+                api_proxy_enabled: true,
+            }],
+            ..AccountsStore::default()
+        }
+    }
+
+    #[test]
+    fn periodic_refresh_defers_freshness_only_persistence_inside_interval() {
+        let persisted = store_with_usage(100, 100, 10.0);
+        let refreshed = store_with_usage(120, 120, 10.0);
+
+        assert!(!should_persist_refreshed_store(
+            &persisted, &refreshed, true, 120,
+        ));
+        assert!(should_persist_refreshed_store(
+            &persisted, &refreshed, false, 120,
+        ));
+    }
+
+    #[test]
+    fn periodic_refresh_persists_material_usage_changes_immediately() {
+        let persisted = store_with_usage(100, 100, 10.0);
+        let refreshed = store_with_usage(120, 120, 11.0);
+
+        assert!(should_persist_refreshed_store(
+            &persisted, &refreshed, true, 120,
+        ));
+    }
+
+    #[test]
+    fn periodic_refresh_checkpoints_freshness_after_interval() {
+        let persisted = store_with_usage(100, 100, 10.0);
+        let now = 100 + PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS;
+        let refreshed = store_with_usage(now, now, 10.0);
+
+        assert!(should_persist_refreshed_store(
+            &persisted, &refreshed, true, now,
+        ));
     }
 
     #[test]

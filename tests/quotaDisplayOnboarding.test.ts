@@ -13,12 +13,14 @@ test("macOS confirmation reapplies the complete selected configuration", () => {
     buildMacosQuotaOnboardingPatch({
       statusBarEnabled: true,
       statusBarMode: "remaining",
+      textIconStyle: "progressRing",
       trayEnabled: false,
       trayIconStyle: "logoProgressRing",
       showLogoRingPercentage: false,
     }),
     {
       trayUsageDisplayMode: "remaining",
+      macosTrayTextIconStyle: "progressRing",
       windowsTrayIconStyle: "logoProgressRing",
       trayQuotaIconVisible: false,
       macosTrayLogoRingShowPercentage: false,
@@ -31,6 +33,7 @@ test("macOS confirmation persists hidden status text when only the quota icon is
   const patch = buildMacosQuotaOnboardingPatch({
     statusBarEnabled: false,
     statusBarMode: "oneWeekRemaining",
+    textIconStyle: "codexTools",
     trayEnabled: true,
     trayIconStyle: "gradientNumberPlate",
     showLogoRingPercentage: true,
@@ -41,10 +44,27 @@ test("macOS confirmation persists hidden status text when only the quota icon is
   assert.equal(patch.macosQuotaOnboardingCompleted, true);
 });
 
+test("macOS text and quota icon selections persist independently", () => {
+  const patch = buildMacosQuotaOnboardingPatch({
+    statusBarEnabled: true,
+    statusBarMode: "oneWeekRemaining",
+    textIconStyle: "progressRing",
+    trayEnabled: true,
+    trayIconStyle: "gradientNumberCard",
+    showLogoRingPercentage: false,
+  });
+
+  assert.equal(patch.trayUsageDisplayMode, "oneWeekRemaining");
+  assert.equal(patch.macosTrayTextIconStyle, "progressRing");
+  assert.equal(patch.trayQuotaIconVisible, true);
+  assert.equal(patch.windowsTrayIconStyle, "gradientNumberCard");
+});
+
 test("macOS confirmation allows both quota displays to remain disabled", () => {
   const patch = buildMacosQuotaOnboardingPatch({
     statusBarEnabled: false,
     statusBarMode: "oneWeekRemaining",
+    textIconStyle: "codexTools",
     trayEnabled: false,
     trayIconStyle: "gradientNumber",
     showLogoRingPercentage: false,

@@ -53,12 +53,13 @@ import {
 
 const REFRESH_MS = 30_000;
 const COST_ANALYTICS_STALE_MS = 30 * 60 * 1000;
-const EDITOR_SCAN_MS = 60_000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
 const API_PROXY_USAGE_POLL_MS = 15_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT = "main-window-visibility-changed";
+const MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT =
+  "macos-status-bar-usage-refreshed";
 const DEFAULT_API_PROXY_USAGE_RANGE: ApiProxyUsageRange = "24h";
 const DEFAULT_API_PROXY_USAGE_METRIC: ApiProxyUsageMetric = "calls";
 const API_PROXY_USAGE_RANGE_SECONDS: Record<ApiProxyUsageRange, number> = {
@@ -72,6 +73,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   trayUsageDisplayMode: "oneWeekRemaining",
   trayUsageTitleShowWindowLabels: false,
+  macosTrayTextIconStyle: "codexTools",
   windowsTrayIconStyle: "gradientNumberPlate",
   trayQuotaIconVisible: true,
   macosTrayLogoRingShowPercentage: true,
@@ -201,6 +203,7 @@ function buildRemoteProxyFallback(
 
 export function useCodexController(
   activeTab: "accounts" | "analytics" | "proxy" | "settings",
+  isMacos: boolean,
 ) {
   const { copy, locale } = useI18n();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
@@ -1149,6 +1152,40 @@ export function useCodexController(
   }, []);
 
   useEffect(() => {
+    if (!isMacos) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+
+    void listen<AccountSummary[]>(
+      MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT,
+      (event) => {
+        if (!disposed) {
+          applyAccounts(event.payload);
+          setUsageRefreshError(null);
+        }
+      },
+    )
+      .then((fn) => {
+        if (disposed) {
+          void fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        void unlisten();
+      }
+    };
+  }, [applyAccounts, isMacos]);
+
+  useEffect(() => {
     let disposed = false;
     let unlistenResized: UnlistenFn | null = null;
     const currentWindow = getCurrentWindow();
@@ -1222,7 +1259,7 @@ export function useCodexController(
     const bootstrap = async () => {
       try {
         // 账号列表和已缓存用量都来自本地存储，必须优先完成，不能被
-        // 编辑器扫描、代理统计或网络请求阻塞首屏。
+        // 代理统计或网络请求阻塞首屏。编辑器仅在进入设置页时扫描。
         const initialAccounts = await loadAccounts();
         maybeShowProfileIntegrityNotice(initialAccounts);
       } finally {
@@ -1234,8 +1271,6 @@ export function useCodexController(
       const settingsTask = loadSettings();
       void Promise.allSettled([
         settingsTask,
-        loadInstalledEditorApps(),
-        loadOpencodeDesktopAppInstalled(),
         loadApiProxySupportedModels(),
         loadApiProxyKeys(),
         loadApiProxyStatus(),
@@ -1257,8 +1292,6 @@ export function useCodexController(
     loadApiProxySupportedModels,
     loadApiProxyStatus,
     loadCloudflaredStatus,
-    loadInstalledEditorApps,
-    loadOpencodeDesktopAppInstalled,
     loadSettings,
     maybeShowProfileIntegrityNotice,
     refreshTokenUsage,
@@ -1270,30 +1303,44 @@ export function useCodexController(
       return;
     }
 
-    const usageTimer = setInterval(() => {
-      void refreshUsage(true, false, false, "foreground-timer");
-    }, REFRESH_MS);
+    // macOS 的状态栏循环是唯一的周期额度刷新来源，并通过事件把结果
+    // 回送给可见窗口。其他平台仍保留前端 30 秒刷新，避免没有原生循环
+    // 时账号页停止更新。
+    const usageTimer = isMacos
+      ? undefined
+      : window.setInterval(() => {
+          void refreshUsage(true, false, false, "foreground-timer");
+        }, REFRESH_MS);
 
-    const editorTimer = setInterval(() => {
-      void loadInstalledEditorApps();
-      void loadOpencodeDesktopAppInstalled();
-    }, EDITOR_SCAN_MS);
-
-    const updateTimer = setInterval(() => {
+    const updateTimer = window.setInterval(() => {
       void checkForAppUpdate(true);
     }, UPDATE_CHECK_MS);
 
     return () => {
-      clearInterval(usageTimer);
-      clearInterval(editorTimer);
-      clearInterval(updateTimer);
+      if (usageTimer !== undefined) {
+        window.clearInterval(usageTimer);
+      }
+      window.clearInterval(updateTimer);
     };
   }, [
     checkForAppUpdate,
+    isMacos,
+    mainWindowVisible,
+    refreshUsage,
+  ]);
+
+  useEffect(() => {
+    if (!mainWindowVisible || activeTab !== "settings") {
+      return;
+    }
+
+    void loadInstalledEditorApps();
+    void loadOpencodeDesktopAppInstalled();
+  }, [
+    activeTab,
     loadInstalledEditorApps,
     loadOpencodeDesktopAppInstalled,
     mainWindowVisible,
-    refreshUsage,
   ]);
 
   useEffect(() => {

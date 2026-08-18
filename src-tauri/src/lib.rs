@@ -594,6 +594,21 @@ fn get_tray_visual_previews(
 }
 
 #[tauri::command]
+fn get_debug_macos_tray_card_tuning() -> Option<tray_visual::MacosTrayCardTuning> {
+    tray_visual::debug_macos_tray_card_tuning()
+}
+
+#[tauri::command]
+fn set_debug_macos_tray_card_tuning(
+    app: AppHandle,
+    tuning: tray_visual::MacosTrayCardTuning,
+) -> Result<tray_visual::MacosTrayCardTuning, String> {
+    let tuning = tray_visual::set_debug_macos_tray_card_tuning(tuning)?;
+    tray::refresh_macos_tray_snapshot(&app)?;
+    Ok(tuning)
+}
+
+#[tauri::command]
 async fn list_accounts(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1142,6 +1157,7 @@ async fn update_app_settings(
 ) -> Result<AppSettings, String> {
     let refresh_usage_surfaces = patch.tray_usage_display_mode.is_some()
         || patch.tray_usage_title_show_window_labels.is_some()
+        || patch.macos_tray_text_icon_style.is_some()
         || patch.windows_tray_icon_style.is_some()
         || patch.tray_quota_icon_visible.is_some()
         || patch.macos_tray_logo_ring_show_percentage.is_some()
@@ -1155,7 +1171,22 @@ async fn update_app_settings(
     let settings =
         settings_service::update_app_settings_internal(&app, state.inner(), patch).await?;
     if refresh_usage_surfaces {
-        if let Err(refresh_error) = tray::refresh_usage_surfaces_snapshot(&app) {
+        let rebuild_macos_status_items = previous_settings
+            .as_ref()
+            .map(|previous| {
+                let text_visibility_changed = (previous.tray_usage_display_mode
+                    == models::TrayUsageDisplayMode::Hidden)
+                    != (settings.tray_usage_display_mode == models::TrayUsageDisplayMode::Hidden);
+                text_visibility_changed
+                    || previous.tray_quota_icon_visible != settings.tray_quota_icon_visible
+            })
+            .unwrap_or(false);
+        let refresh_result = if rebuild_macos_status_items {
+            tray::rebuild_usage_surfaces_snapshot(&app)
+        } else {
+            tray::refresh_usage_surfaces_snapshot(&app)
+        };
+        if let Err(refresh_error) = refresh_result {
             let rollback_error = if let Some(previous_settings) = previous_settings {
                 settings_service::replace_app_settings_internal(
                     &app,
@@ -1167,7 +1198,11 @@ async fn update_app_settings(
             } else {
                 None
             };
-            let restore_error = tray::refresh_usage_surfaces_snapshot(&app).err();
+            let restore_error = if rebuild_macos_status_items {
+                tray::rebuild_usage_surfaces_snapshot(&app).err()
+            } else {
+                tray::refresh_usage_surfaces_snapshot(&app).err()
+            };
             return Err(match (rollback_error, restore_error) {
                 (None, None) => format!("Failed to apply quota display settings: {refresh_error}"),
                 (rollback_error, restore_error) => format!(
@@ -2925,6 +2960,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_tray_visual_previews,
+            get_debug_macos_tray_card_tuning,
+            set_debug_macos_tray_card_tuning,
             list_accounts,
             import_current_auth_account,
             create_api_account,

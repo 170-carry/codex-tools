@@ -166,7 +166,7 @@ function App() {
     onSmartSwitch,
     onUpdateRemoteServers,
     smartSwitching,
-  } = useCodexController(activeTab);
+  } = useCodexController(activeTab, isMacos);
 
   useEffect(() => {
     const isMac =

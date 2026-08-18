@@ -12,12 +12,12 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateRoundRectRgn, DeleteDC,
-    DeleteObject, DrawTextW, EndPaint, GetMonitorInfoW, GetTextExtentPoint32W, InvalidateRect,
-    MonitorFromPoint, MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode, SetTextColor,
-    SetWindowRgn, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER,
-    BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS,
-    DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HGDIOBJ, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+    DeleteObject, DrawTextW, EndPaint, GetMonitorInfoW, GetTextExtentPoint32W, GetTextFaceW,
+    InvalidateRect, MonitorFromPoint, MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode,
+    SetTextColor, SetWindowRgn, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
+    DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT,
+    HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
@@ -69,6 +69,11 @@ const BASE_EDGE_MARGIN: i32 = 12;
 const BASE_LEFT_EDGE_MARGIN: i32 = 6;
 const MIN_TEXT_WIDTH: i32 = 18;
 const MAX_WIDTH: i32 = 260;
+const WIDGET_FONT_SIZE_DIP: f32 = 13.0;
+const WIDGET_FONT_WEIGHT: i32 = 400;
+const TEXT_SUPERSAMPLE: u32 = 4;
+const SYSTEM_TITLE_FONT_PRIMARY: &str = "Segoe UI Variable Text";
+const SYSTEM_TITLE_FONT_FALLBACK: &str = "Segoe UI";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WindowsWidgetStatus {
@@ -575,61 +580,11 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
     let previous_bitmap = SelectObject(memory_dc, HGDIOBJ(bitmap.0));
     let byte_len = (width as usize) * (height as usize) * 4;
     let pixels = std::slice::from_raw_parts_mut(bits.cast::<u8>(), byte_len);
-    pixels.fill(0);
     let dpi = GetDpiForWindow(hwnd).max(96);
-    let font = CreateFontW(
-        -scale(11, dpi),
-        0,
-        0,
-        0,
-        500,
-        0,
-        0,
-        0,
-        DEFAULT_CHARSET,
-        OUT_TT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        ANTIALIASED_QUALITY,
-        u32::from(DEFAULT_PITCH.0 | FF_DONTCARE.0),
-        w!("Segoe UI"),
-    );
-    let previous_font = SelectObject(memory_dc, HGDIOBJ(font.0));
-    SetBkMode(memory_dc, TRANSPARENT);
     let foreground = widget_foreground(context.light_theme, context.snapshot.status);
-    SetTextColor(memory_dc, color_ref([255, 255, 255]));
-    let padding = scale(BASE_PADDING, dpi);
-    let icon_size = scale(BASE_ICON_SIZE, dpi);
-    let icon_gap = scale(BASE_ICON_GAP, dpi);
-    let text_left = padding + icon_size + icon_gap;
-    let lines = widget_text_lines(&context.snapshot.text);
-    for (index, line) in lines.iter().enumerate() {
-        let mut text = line.encode_utf16().collect::<Vec<_>>();
-        let mut text_rect = if lines.len() == 1 {
-            RECT {
-                left: text_left,
-                top: 0,
-                right: width - padding,
-                bottom: height,
-            }
-        } else {
-            let midpoint = height / 2;
-            RECT {
-                left: text_left,
-                top: if index == 0 { 0 } else { midpoint },
-                right: width - padding,
-                bottom: if index == 0 { midpoint } else { height },
-            }
-        };
-        DrawTextW(
-            memory_dc,
-            &mut text,
-            &mut text_rect,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
-        );
-    }
-
-    colorize_text_mask(pixels, foreground);
-    draw_taskbar_icon(pixels, width, height, padding, icon_size);
+    let rendered = render_widget_pixels(&context.snapshot.text, width, height, dpi, foreground);
+    debug_assert!(pixels_are_premultiplied_bgra(&rendered));
+    pixels.copy_from_slice(&rendered);
 
     let size = SIZE {
         cx: width,
@@ -654,11 +609,300 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
         ULW_ALPHA,
     );
 
-    SelectObject(memory_dc, previous_font);
     SelectObject(memory_dc, previous_bitmap);
-    let _ = DeleteObject(HGDIOBJ(font.0));
     let _ = DeleteObject(HGDIOBJ(bitmap.0));
     let _ = DeleteDC(memory_dc);
+}
+
+fn render_widget_pixels(
+    text: &str,
+    width: i32,
+    height: i32,
+    dpi: u32,
+    foreground: [u8; 3],
+) -> Vec<u8> {
+    if width <= 0 || height <= 0 {
+        return Vec::new();
+    }
+    let mut pixels = vec![0; width as usize * height as usize * 4];
+    let padding = scale(BASE_PADDING, dpi);
+    let icon_size = scale(BASE_ICON_SIZE, dpi);
+    let icon_gap = scale(BASE_ICON_GAP, dpi);
+    let text_left = padding + icon_size + icon_gap;
+    let lines = widget_text_lines(text);
+    for (index, line) in lines.iter().enumerate() {
+        let midpoint = height / 2;
+        let (top, bottom) = if lines.len() == 1 {
+            (0, height)
+        } else if index == 0 {
+            (0, midpoint)
+        } else {
+            (midpoint, height)
+        };
+        let text_width = (width - padding - text_left).max(0) as u32;
+        let text_height = (bottom - top).max(0) as u32;
+        let mask = rasterize_system_title_text_mask(line, text_width, text_height, dpi);
+        blend_text_mask(
+            &mut pixels,
+            width,
+            height,
+            text_left,
+            top,
+            &mask,
+            text_width as i32,
+            text_height as i32,
+            foreground,
+        );
+    }
+    draw_taskbar_icon(&mut pixels, width, height, padding, icon_size);
+    pixels
+}
+
+unsafe fn create_system_title_font(dpi: u32, prefer_variable: bool) -> HFONT {
+    let font_height =
+        -((WIDGET_FONT_SIZE_DIP * dpi as f32 / 96.0 * TEXT_SUPERSAMPLE as f32).round() as i32);
+    let face_name = if prefer_variable {
+        SYSTEM_TITLE_FONT_PRIMARY
+    } else {
+        SYSTEM_TITLE_FONT_FALLBACK
+    };
+    let face = to_wide(face_name);
+    CreateFontW(
+        font_height,
+        0,
+        0,
+        0,
+        WIDGET_FONT_WEIGHT,
+        0,
+        0,
+        0,
+        DEFAULT_CHARSET,
+        OUT_TT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        ANTIALIASED_QUALITY,
+        u32::from(DEFAULT_PITCH.0 | FF_DONTCARE.0),
+        PCWSTR(face.as_ptr()),
+    )
+}
+
+unsafe fn selected_text_face(dc: HDC) -> String {
+    let mut face = [0_u16; 64];
+    let copied = GetTextFaceW(dc, Some(&mut face)).max(0) as usize;
+    let end = face[..copied.min(face.len())]
+        .iter()
+        .position(|character| *character == 0)
+        .unwrap_or(copied.min(face.len()));
+    String::from_utf16_lossy(&face[..end])
+}
+
+unsafe fn select_system_title_font(dc: HDC, dpi: u32) -> (HFONT, HGDIOBJ, String) {
+    let preferred = create_system_title_font(dpi, true);
+    if !preferred.is_invalid() {
+        let previous = SelectObject(dc, HGDIOBJ(preferred.0));
+        let selected = selected_text_face(dc);
+        if selected.eq_ignore_ascii_case(SYSTEM_TITLE_FONT_PRIMARY) {
+            return (preferred, previous, selected);
+        }
+        SelectObject(dc, previous);
+        let _ = DeleteObject(HGDIOBJ(preferred.0));
+    }
+
+    let fallback = create_system_title_font(dpi, false);
+    if fallback.is_invalid() {
+        return (fallback, HGDIOBJ::default(), String::new());
+    }
+    let previous = SelectObject(dc, HGDIOBJ(fallback.0));
+    let selected = selected_text_face(dc);
+    (fallback, previous, selected)
+}
+
+fn measure_system_title_text(text: &str, dpi: u32) -> (i32, i32) {
+    if text.is_empty() {
+        return (0, 0);
+    }
+    unsafe {
+        let dc = CreateCompatibleDC(None);
+        if dc.is_invalid() {
+            return (0, 0);
+        }
+        let (font, previous_font, _) = select_system_title_font(dc, dpi);
+        if font.is_invalid() {
+            let _ = DeleteDC(dc);
+            return (0, 0);
+        }
+        let text_wide = text.encode_utf16().collect::<Vec<_>>();
+        let mut measured = SIZE::default();
+        let measured_ok = GetTextExtentPoint32W(dc, &text_wide, &mut measured).as_bool();
+        SelectObject(dc, previous_font);
+        let _ = DeleteObject(HGDIOBJ(font.0));
+        let _ = DeleteDC(dc);
+        if !measured_ok {
+            return (0, 0);
+        }
+        let supersample = TEXT_SUPERSAMPLE as i32;
+        (
+            (measured.cx + supersample - 1) / supersample + 2,
+            (measured.cy + supersample - 1) / supersample + 2,
+        )
+    }
+}
+
+fn rasterize_system_title_text_mask(text: &str, width: u32, height: u32, dpi: u32) -> Vec<u8> {
+    if width == 0 || height == 0 || text.is_empty() {
+        return vec![0; (width * height) as usize];
+    }
+    unsafe {
+        let source_width = width * TEXT_SUPERSAMPLE;
+        let source_height = height * TEXT_SUPERSAMPLE;
+        let dc = CreateCompatibleDC(None);
+        if dc.is_invalid() {
+            return vec![0; (width * height) as usize];
+        }
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: source_width as i32,
+                biHeight: -(source_height as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let Ok(bitmap) =
+            CreateDIBSection(Some(dc), &bitmap_info, DIB_RGB_COLORS, &mut bits, None, 0)
+        else {
+            let _ = DeleteDC(dc);
+            return vec![0; (width * height) as usize];
+        };
+        if bits.is_null() {
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+            let _ = DeleteDC(dc);
+            return vec![0; (width * height) as usize];
+        }
+
+        let previous_bitmap = SelectObject(dc, HGDIOBJ(bitmap.0));
+        let byte_len = source_width as usize * source_height as usize * 4;
+        let pixels = std::slice::from_raw_parts_mut(bits.cast::<u8>(), byte_len);
+        pixels.fill(0);
+        let (font, previous_font, _) = select_system_title_font(dc, dpi);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, COLORREF(0x00ff_ffff));
+        let mut text_wide = text.encode_utf16().collect::<Vec<_>>();
+        let mut text_rect = RECT {
+            left: 0,
+            top: 0,
+            right: source_width as i32,
+            bottom: source_height as i32,
+        };
+        DrawTextW(
+            dc,
+            &mut text_wide,
+            &mut text_rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+
+        let mut source = vec![0_u8; source_width as usize * source_height as usize];
+        for (coverage, pixel) in source.iter_mut().zip(pixels.chunks_exact(4)) {
+            *coverage = pixel[0].max(pixel[1]).max(pixel[2]);
+        }
+        SelectObject(dc, previous_font);
+        SelectObject(dc, previous_bitmap);
+        let _ = DeleteObject(HGDIOBJ(font.0));
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        let _ = DeleteDC(dc);
+        downsample_coverage(&source, source_width, source_height, width, height)
+    }
+}
+
+#[cfg(test)]
+fn resolved_system_title_font_face(dpi: u32) -> String {
+    unsafe {
+        let dc = CreateCompatibleDC(None);
+        if dc.is_invalid() {
+            return String::new();
+        }
+        let (font, previous_font, selected) = select_system_title_font(dc, dpi);
+        if !font.is_invalid() {
+            SelectObject(dc, previous_font);
+            let _ = DeleteObject(HGDIOBJ(font.0));
+        }
+        let _ = DeleteDC(dc);
+        selected
+    }
+}
+
+fn downsample_coverage(
+    source: &[u8],
+    source_width: u32,
+    source_height: u32,
+    destination_width: u32,
+    destination_height: u32,
+) -> Vec<u8> {
+    let mut destination = vec![0; (destination_width * destination_height) as usize];
+    for destination_y in 0..destination_height {
+        let top = destination_y * source_height / destination_height;
+        let bottom = ((destination_y + 1) * source_height / destination_height).max(top + 1);
+        for destination_x in 0..destination_width {
+            let left = destination_x * source_width / destination_width;
+            let right = ((destination_x + 1) * source_width / destination_width).max(left + 1);
+            let mut alpha_sum = 0_u32;
+            let mut count = 0_u32;
+            for source_y in top..bottom.min(source_height) {
+                for source_x in left..right.min(source_width) {
+                    alpha_sum += source[(source_y * source_width + source_x) as usize] as u32;
+                    count += 1;
+                }
+            }
+            destination[(destination_y * destination_width + destination_x) as usize] =
+                ((alpha_sum + count / 2) / count.max(1)) as u8;
+        }
+    }
+    destination
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blend_text_mask(
+    pixels: &mut [u8],
+    width: i32,
+    height: i32,
+    left: i32,
+    top: i32,
+    mask: &[u8],
+    mask_width: i32,
+    mask_height: i32,
+    foreground: [u8; 3],
+) {
+    for mask_y in 0..mask_height {
+        let target_y = top + mask_y;
+        if target_y < 0 || target_y >= height {
+            continue;
+        }
+        for mask_x in 0..mask_width {
+            let target_x = left + mask_x;
+            if target_x < 0 || target_x >= width {
+                continue;
+            }
+            let coverage = mask[(mask_y * mask_width + mask_x) as usize];
+            if coverage == 0 {
+                continue;
+            }
+            let index = ((target_y * width + target_x) * 4) as usize;
+            let alpha = coverage as u16;
+            pixels[index] = ((foreground[2] as u16 * alpha + 127) / 255) as u8;
+            pixels[index + 1] = ((foreground[1] as u16 * alpha + 127) / 255) as u8;
+            pixels[index + 2] = ((foreground[0] as u16 * alpha + 127) / 255) as u8;
+            pixels[index + 3] = coverage;
+        }
+    }
+}
+
+fn pixels_are_premultiplied_bgra(pixels: &[u8]) -> bool {
+    pixels
+        .chunks_exact(4)
+        .all(|pixel| pixel[0] <= pixel[3] && pixel[1] <= pixel[3] && pixel[2] <= pixel[3])
 }
 
 fn widget_foreground(light_theme: bool, status: WindowsWidgetStatus) -> [u8; 3] {
@@ -710,25 +954,6 @@ fn draw_taskbar_icon(pixels: &mut [u8], width: i32, height: i32, left: i32, icon
                 (source_alpha + (destination_alpha * inverse_alpha + 127) / 255) as u8;
         }
     }
-}
-
-fn colorize_text_mask(pixels: &mut [u8], foreground: [u8; 3]) {
-    for pixel in pixels.chunks_exact_mut(4) {
-        let coverage = pixel[0].max(pixel[1]).max(pixel[2]);
-        if coverage == 0 {
-            pixel.fill(0);
-            continue;
-        }
-        let alpha = coverage as u16;
-        pixel[0] = ((foreground[2] as u16 * alpha + 127) / 255) as u8;
-        pixel[1] = ((foreground[1] as u16 * alpha + 127) / 255) as u8;
-        pixel[2] = ((foreground[0] as u16 * alpha + 127) / 255) as u8;
-        pixel[3] = coverage;
-    }
-}
-
-fn color_ref(color: [u8; 3]) -> COLORREF {
-    COLORREF(color[0] as u32 | ((color[1] as u32) << 8) | ((color[2] as u32) << 16))
 }
 
 fn widget_text_lines(text: &str) -> Vec<&str> {
@@ -802,7 +1027,7 @@ unsafe fn position_widget(hwnd: HWND) {
     }
 
     let dpi = GetDpiForWindow(hwnd).max(96);
-    let (width, height) = desired_size(hwnd, &context.snapshot.text, dpi);
+    let (width, height) = desired_size(&context.snapshot.text, dpi);
     if matches!(
         context.snapshot.placement,
         WindowsTaskbarWidgetPlacement::Embedded | WindowsTaskbarWidgetPlacement::Left
@@ -1172,50 +1397,18 @@ fn log_layout_change(context: &mut WindowContext, detail: String) {
     }
 }
 
-unsafe fn desired_size(hwnd: HWND, text: &str, dpi: u32) -> (i32, i32) {
+fn desired_size(text: &str, dpi: u32) -> (i32, i32) {
     let lines = widget_text_lines(text);
     let height = scale(base_height_for_text(text), dpi);
     let padding = scale(BASE_PADDING, dpi);
     let icon_size = scale(BASE_ICON_SIZE, dpi);
     let icon_gap = scale(BASE_ICON_GAP, dpi);
-    let longest_line_length = lines
+    let text_width = lines
         .iter()
-        .map(|line| line.encode_utf16().count() as i32)
+        .map(|line| measure_system_title_text(line, dpi).0)
         .max()
-        .unwrap_or_default();
-    let fallback_text_width = scale(MIN_TEXT_WIDTH.max(longest_line_length * 7), dpi);
-
-    let mut text_width = fallback_text_width;
-    let hdc = windows::Win32::Graphics::Gdi::GetDC(Some(hwnd));
-    if !hdc.is_invalid() {
-        let font = CreateFontW(
-            -scale(11, dpi),
-            0,
-            0,
-            0,
-            500,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_TT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            ANTIALIASED_QUALITY,
-            u32::from(DEFAULT_PITCH.0 | FF_DONTCARE.0),
-            w!("Segoe UI"),
-        );
-        let previous = SelectObject(hdc, HGDIOBJ(font.0));
-        for line in lines {
-            let text_wide = line.encode_utf16().collect::<Vec<_>>();
-            let mut size = SIZE::default();
-            if GetTextExtentPoint32W(hdc, &text_wide, &mut size).as_bool() {
-                text_width = text_width.max(size.cx.max(scale(MIN_TEXT_WIDTH, dpi)));
-            }
-        }
-        SelectObject(hdc, previous);
-        let _ = DeleteObject(HGDIOBJ(font.0));
-        windows::Win32::Graphics::Gdi::ReleaseDC(Some(hwnd), hdc);
-    }
+        .unwrap_or_default()
+        .max(scale(MIN_TEXT_WIDTH, dpi));
 
     (
         (padding * 2 + icon_size + icon_gap + text_width).min(scale(MAX_WIDTH, dpi)),
@@ -1464,11 +1657,14 @@ fn to_wide(value: &str) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::{
-        base_height_for_text, colorize_text_mask, embedded_screen_position, left_screen_position,
-        popup_style, rect_covers_monitor, resolve_widgets_button_rect, scale,
+        base_height_for_text, blend_text_mask, desired_size, embedded_screen_position,
+        left_screen_position, measure_system_title_text, pixels_are_premultiplied_bgra,
+        popup_style, rasterize_system_title_text_mask, rect_covers_monitor, render_widget_pixels,
+        resolve_widgets_button_rect, resolved_system_title_font_face, scale,
         should_hide_for_fullscreen, taskbar_child_style, taskbar_edge, visible_taskbar_thickness,
         widget_foreground, widget_text_lines, TaskbarEdge, TaskbarPlacement, WindowsWidgetStatus,
-        BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING,
+        BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING, BASE_SINGLE_LINE_HEIGHT,
+        SYSTEM_TITLE_FONT_FALLBACK, SYSTEM_TITLE_FONT_PRIMARY,
     };
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Gdi::MONITORINFO;
@@ -1799,9 +1995,74 @@ mod tests {
 
     #[test]
     fn text_mask_is_converted_to_premultiplied_alpha() {
-        let mut pixels = vec![64, 64, 64, 0, 0, 0, 0, 0];
-        colorize_text_mask(&mut pixels, [32, 64, 128]);
+        let mut pixels = vec![0; 8];
+        blend_text_mask(&mut pixels, 2, 1, 0, 0, &[64, 0], 2, 1, [32, 64, 128]);
         assert_eq!(pixels, vec![32, 16, 8, 64, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn system_title_supersampling_produces_antialiased_edges() {
+        let mask = rasterize_system_title_text_mask("74%", 32, 22, 96);
+        assert!(mask.iter().any(|alpha| *alpha >= 128));
+        assert!(mask.iter().any(|alpha| (1..255).contains(alpha)));
+        let selected_face = resolved_system_title_font_face(96);
+        assert!(
+            selected_face.eq_ignore_ascii_case(SYSTEM_TITLE_FONT_PRIMARY)
+                || selected_face.eq_ignore_ascii_case(SYSTEM_TITLE_FONT_FALLBACK),
+            "unexpected system title font: {selected_face:?}"
+        );
+        let source = include_str!("windows_taskbar_widget.rs");
+        assert!(!source.contains(&["Outfit", "-SemiBold"].concat()));
+        assert!(!source.contains(&["OUTFIT", "_FONT_BYTES"].concat()));
+    }
+
+    #[test]
+    fn taskbar_74_percent_pixels_match_the_dpi_aware_target() {
+        for dpi in [96, 120, 144, 192] {
+            let (width, height) = desired_size("74%", dpi);
+            assert_eq!(height, scale(BASE_SINGLE_LINE_HEIGHT, dpi));
+            let pixels = render_widget_pixels("74%", width, height, dpi, [32, 32, 34]);
+            assert_eq!(pixels.len(), width as usize * height as usize * 4);
+            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        }
+    }
+
+    #[test]
+    fn layered_widget_pixels_are_premultiplied_bgra() {
+        let (width, height) = desired_size("74%", 144);
+        let pixels = render_widget_pixels("74%", width, height, 144, [245, 245, 247]);
+        assert!(pixels_are_premultiplied_bgra(&pixels));
+    }
+
+    #[test]
+    fn system_title_measurement_does_not_clip_rendered_glyphs() {
+        for dpi in [96, 144, 192] {
+            let (width, height) = measure_system_title_text("74%", dpi);
+            let mask = rasterize_system_title_text_mask("74%", width as u32, height as u32, dpi);
+            let mut min_x = width;
+            let mut max_x = -1;
+            let mut min_y = height;
+            let mut max_y = -1;
+            for (index, alpha) in mask.iter().copied().enumerate() {
+                if alpha == 0 {
+                    continue;
+                }
+                let x = index as i32 % width;
+                let y = index as i32 / width;
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+            assert!(
+                min_x > 0 && max_x < width - 1,
+                "dpi={dpi} x={min_x}..{max_x}/{width}"
+            );
+            assert!(
+                min_y > 0 && max_y < height - 1,
+                "dpi={dpi} y={min_y}..{max_y}/{height}"
+            );
+        }
     }
 
     #[test]

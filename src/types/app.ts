@@ -423,6 +423,7 @@ export type PendingUpdateInfo = {
 export type ThemeMode = "light" | "dark";
 
 export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "oneWeekRemaining" | "hidden";
+export type MacosTrayTextIconStyle = "codexTools" | "progressRing";
 export type WindowsTrayIconStyle =
   | "gradientNumberPlate"
   | "gradientNumberCard"
@@ -451,6 +452,7 @@ export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
   trayUsageTitleShowWindowLabels: boolean;
+  macosTrayTextIconStyle: MacosTrayTextIconStyle;
   windowsTrayIconStyle: WindowsTrayIconStyle;
   trayQuotaIconVisible: boolean;
   macosTrayLogoRingShowPercentage: boolean;

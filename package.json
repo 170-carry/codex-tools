@@ -17,6 +17,8 @@
     "dev:desktop": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-preview.ps1",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "macos:menu-bar:acceptance": "bash ./scripts/macos-menu-bar-validation.sh acceptance",
+    "macos:menu-bar:dev": "bash ./scripts/macos-menu-bar-validation.sh dev",
     "npm:sync-packages": "node scripts/sync-npm-package-version.mjs",
     "preview": "vite preview",
     "test:quota-onboarding": "node --test tests/quotaDisplayOnboarding.test.ts",

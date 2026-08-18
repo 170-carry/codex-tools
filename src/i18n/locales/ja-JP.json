@@ -19,7 +19,9 @@
     "description": "新しいバージョンでは、Windows のタスクバーとシステムトレイに使用量を常時表示できます。少なくとも 1 つを有効にしてください。後から設定で変更できます。",
     "livePreview": "選択内容は Windows のタスクバーとシステムトレイにすぐ反映されます。",
     "macTitle": "macOS の使用量バーを設定",
-    "macStatusBarTitle": "クラシックテキスト使用量バー",
+    "macStatusBarTitle": "テキスト使用量表示",
+    "macCodexToolsIconOption": "Codex Tools アイコン",
+    "macProgressRingIconOption": "進捗リングアイコン",
     "macStatusBarDescription": "現在の使用量をメニューバーにテキストで直接表示します。",
     "macStatusBarModeLabel": "クラシックテキスト使用量バーの表示モード",
     "macTrayTitle": "使用量アイコン",
@@ -590,15 +592,15 @@
       "label": "トレイアイコンの表示",
       "description": "残り使用量に基づく 5 つのアイコンから選ぶか、アイコンだけを個別に非表示にします。従来のテキスト表示の「残り/使用済み」はアイコンに影響しません。",
       "groupAriaLabel": "トレイアイコンの表示スタイル",
-      "gradientNumberPlate": "グラデーション数字プレート",
-      "gradientNumberCard": "グラデーション数字カード",
+      "gradientNumberPlate": "正方形数字カード",
+      "gradientNumberCard": "横長数字カード",
       "gradientNumber": "グラデーション数字",
-      "numberProgressBar": "数字 + 進捗バー",
-      "logoProgressRing": "ロゴ + 進捗リング",
+      "numberProgressBar": "数字進捗バー",
+      "logoProgressRing": "アプリアイコン進捗リング",
       "hidden": "表示しない"
     },
     "macosTrayLogoRingVariants": {
-      "withPercentage": "正確なパーセントを表示",
+      "withPercentage": "パーセントを表示",
       "withoutPercentage": "進捗リングのみ"
     },
     "windowsTaskbarWidget": {

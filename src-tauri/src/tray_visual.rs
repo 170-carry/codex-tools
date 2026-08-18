@@ -4,7 +4,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use fontdue::layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle};
 use fontdue::{Font, FontSettings};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::image::Image;
 
 use crate::models::WindowsTrayIconStyle;
@@ -13,13 +13,104 @@ const CODEX_TOOLS_ICON: Image<'_> = tauri::include_image!("./icons/icon.png");
 const TRAY_FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/Outfit-SemiBold.ttf");
 const SUPERSAMPLE: u32 = 4;
 const GLYPH_HORIZONTAL_SCALE: f32 = 0.95;
-const CARD_GLYPH_HORIZONTAL_SCALE: f32 = 0.84;
+const WINDOWS_CARD_GLYPH_HORIZONTAL_SCALE: f32 = 0.90;
+const WIDE_CARD_GLYPH_HORIZONTAL_SCALE: f32 = 0.84;
 const DARK_TEXT: [u8; 4] = [11, 25, 46, 255];
 const LIGHT_TEXT: [u8; 4] = [255, 255, 255, 255];
 const CARD_EMPTY: [u8; 4] = [48, 56, 77, 255];
 const CARD_BORDER_LIGHT: [u8; 4] = [105, 120, 146, 255];
 const CARD_BORDER_DARK: [u8; 4] = [135, 152, 183, 255];
 const RING_BLUE: [u8; 4] = [24, 102, 218, 255];
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MacosTrayCardTuning {
+    override_quota_percent: bool,
+    quota_percent: f64,
+    digit_scale: f32,
+    hundred_digit_scale: f32,
+    border_width: f32,
+    edge_outset: f32,
+    halo_alpha: u8,
+}
+
+impl Default for MacosTrayCardTuning {
+    fn default() -> Self {
+        Self {
+            override_quota_percent: false,
+            quota_percent: 97.0,
+            digit_scale: 1.0,
+            hundred_digit_scale: 1.3,
+            border_width: 3.75,
+            edge_outset: 1.0,
+            halo_alpha: 0,
+        }
+    }
+}
+
+impl MacosTrayCardTuning {
+    fn normalized(self) -> Result<Self, String> {
+        if !self.quota_percent.is_finite()
+            || !self.digit_scale.is_finite()
+            || !self.hundred_digit_scale.is_finite()
+            || !self.border_width.is_finite()
+            || !self.edge_outset.is_finite()
+        {
+            return Err("macOS tray card tuning values must be finite".to_string());
+        }
+        Ok(Self {
+            override_quota_percent: self.override_quota_percent,
+            quota_percent: self.quota_percent.clamp(0.0, 100.0).round(),
+            digit_scale: self.digit_scale.clamp(0.5, 2.0),
+            hundred_digit_scale: self.hundred_digit_scale.clamp(0.5, 2.0),
+            border_width: self.border_width.clamp(0.25, 16.0),
+            edge_outset: self.edge_outset.clamp(0.0, 8.0),
+            halo_alpha: self.halo_alpha,
+        })
+    }
+}
+
+static MACOS_TRAY_CARD_TUNING: OnceLock<std::sync::RwLock<MacosTrayCardTuning>> = OnceLock::new();
+
+fn current_macos_tray_card_tuning() -> MacosTrayCardTuning {
+    MACOS_TRAY_CARD_TUNING
+        .get_or_init(|| std::sync::RwLock::new(MacosTrayCardTuning::default()))
+        .read()
+        .map(|tuning| *tuning)
+        .unwrap_or_default()
+}
+
+pub(crate) fn debug_macos_tray_card_tuning() -> Option<MacosTrayCardTuning> {
+    if cfg!(all(target_os = "macos", debug_assertions)) {
+        Some(current_macos_tray_card_tuning())
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn debug_macos_tray_quota_percent() -> Option<f64> {
+    debug_macos_tray_card_tuning().and_then(|tuning| {
+        tuning
+            .override_quota_percent
+            .then_some(tuning.quota_percent)
+    })
+}
+
+pub(crate) fn set_debug_macos_tray_card_tuning(
+    tuning: MacosTrayCardTuning,
+) -> Result<MacosTrayCardTuning, String> {
+    if !cfg!(all(target_os = "macos", debug_assertions)) {
+        return Err("macOS tray card tuning is only available in debug builds".to_string());
+    }
+    let tuning = tuning.normalized()?;
+    let mut current = MACOS_TRAY_CARD_TUNING
+        .get_or_init(|| std::sync::RwLock::new(MacosTrayCardTuning::default()))
+        .write()
+        .map_err(|_| "macOS tray card tuning lock is unavailable".to_string())?;
+    *current = tuning;
+    Ok(tuning)
+}
 
 pub(crate) const TRAY_VISUAL_STYLES: [WindowsTrayIconStyle; 5] = [
     WindowsTrayIconStyle::GradientNumberPlate,
@@ -77,12 +168,49 @@ pub(crate) fn render_tray_visual(
     width: u32,
     height: u32,
 ) -> Image<'static> {
+    render_tray_visual_internal(style, percent, status, light_theme, width, height, false)
+}
+
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn render_native_macos_tray_visual(
+    style: WindowsTrayIconStyle,
+    percent: Option<f64>,
+    status: TrayVisualStatus,
+    light_theme: bool,
+    width: u32,
+    height: u32,
+) -> Image<'static> {
+    render_tray_visual_internal(style, percent, status, light_theme, width, height, true)
+}
+
+fn render_tray_visual_internal(
+    style: WindowsTrayIconStyle,
+    percent: Option<f64>,
+    status: TrayVisualStatus,
+    light_theme: bool,
+    width: u32,
+    height: u32,
+    native_macos: bool,
+) -> Image<'static> {
     let width = width.max(16);
     let height = height.max(16);
     let master_width = width * SUPERSAMPLE;
     let master_height = height * SUPERSAMPLE;
     let normalized_percent = percent.map(normalize_percent);
     let label = icon_label(normalized_percent, status);
+    let macos_tuning = current_macos_tray_card_tuning();
+    let digit_scale = if label == "100" {
+        macos_tuning.hundred_digit_scale
+    } else {
+        macos_tuning.digit_scale
+    };
+    let digit_rect = |rect: RectF| {
+        if native_macos {
+            scale_rect_from_center(rect, digit_scale)
+        } else {
+            rect
+        }
+    };
     let mut canvas = Canvas::new(master_width, master_height);
 
     match style {
@@ -101,25 +229,50 @@ pub(crate) fn render_tray_visual(
             draw_centered_label(
                 &mut canvas,
                 &label,
-                RectF::new(
+                digit_rect(RectF::new(
                     master_width as f32 * 0.19,
                     master_height as f32 * 0.18,
                     master_width as f32 * 0.81,
                     master_height as f32 * 0.82,
-                ),
+                )),
                 LabelPaint::Solid(LIGHT_TEXT),
                 None,
             );
         }
         WindowsTrayIconStyle::GradientNumberCard => {
-            let rect = RectF::new(
-                master_width as f32 * 0.02,
-                master_height as f32 * 0.03,
-                master_width as f32 * 0.98,
-                master_height as f32 * 0.97,
-            );
+            let windows_notification_cell = master_width == master_height;
+            let rect = if windows_notification_cell {
+                RectF::new(
+                    master_width as f32 * 0.02,
+                    master_height as f32 * 0.14,
+                    master_width as f32 * 0.98,
+                    master_height as f32 * 0.86,
+                )
+            } else {
+                RectF::new(
+                    master_width as f32 * 0.02,
+                    master_height as f32 * 0.03,
+                    master_width as f32 * 0.98,
+                    master_height as f32 * 0.97,
+                )
+            };
             let radius = master_height as f32 * 0.13;
-            let border_width = SUPERSAMPLE as f32;
+            let border_width = if native_macos && !windows_notification_cell {
+                SUPERSAMPLE as f32 * macos_tuning.border_width
+            } else {
+                SUPERSAMPLE as f32
+            };
+            let border_outset = if native_macos && !windows_notification_cell {
+                SUPERSAMPLE as f32 * macos_tuning.edge_outset
+            } else {
+                0.0
+            };
+            let border_rect = RectF::new(
+                rect.left - border_outset,
+                rect.top - border_outset,
+                rect.right + border_outset,
+                rect.bottom + border_outset,
+            );
             let inner_rect = RectF::new(
                 rect.left + border_width,
                 rect.top + border_width,
@@ -127,16 +280,12 @@ pub(crate) fn render_tray_visual(
                 rect.bottom - border_width,
             );
             let inner_radius = (radius - border_width).max(0.0);
-            draw_solid_rounded_rect(
-                &mut canvas,
-                rect,
-                radius,
-                if light_theme {
-                    CARD_BORDER_LIGHT
-                } else {
-                    CARD_BORDER_DARK
-                },
-            );
+            let border_color = if light_theme {
+                CARD_BORDER_LIGHT
+            } else {
+                CARD_BORDER_DARK
+            };
+            draw_solid_rounded_rect(&mut canvas, rect, radius, border_color);
             draw_solid_rounded_rect(&mut canvas, inner_rect, inner_radius, CARD_EMPTY);
             draw_gradient_progress_fill(
                 &mut canvas,
@@ -144,16 +293,40 @@ pub(crate) fn render_tray_visual(
                 inner_radius,
                 normalized_percent.unwrap_or(0.0) / 100.0,
             );
+            if border_outset > 0.0 && macos_tuning.halo_alpha > 0 {
+                let mut halo_color = border_color;
+                halo_color[3] = macos_tuning.halo_alpha;
+                draw_solid_rounded_rect_outline(
+                    &mut canvas,
+                    border_rect,
+                    radius + border_outset,
+                    border_outset * 2.0,
+                    halo_color,
+                );
+            }
             draw_centered_label_scaled(
                 &mut canvas,
                 &label,
-                RectF::new(
-                    master_width as f32 * 0.20,
-                    master_height as f32 * 0.20,
-                    master_width as f32 * 0.80,
-                    master_height as f32 * 0.80,
-                ),
-                CARD_GLYPH_HORIZONTAL_SCALE,
+                digit_rect(if windows_notification_cell {
+                    RectF::new(
+                        master_width as f32 * 0.11,
+                        master_height as f32 * 0.21,
+                        master_width as f32 * 0.89,
+                        master_height as f32 * 0.79,
+                    )
+                } else {
+                    RectF::new(
+                        master_width as f32 * 0.20,
+                        master_height as f32 * 0.20,
+                        master_width as f32 * 0.80,
+                        master_height as f32 * 0.80,
+                    )
+                }),
+                if windows_notification_cell {
+                    WINDOWS_CARD_GLYPH_HORIZONTAL_SCALE
+                } else {
+                    WIDE_CARD_GLYPH_HORIZONTAL_SCALE
+                },
                 LabelPaint::Solid(LIGHT_TEXT),
                 None,
             );
@@ -162,12 +335,12 @@ pub(crate) fn render_tray_visual(
             draw_centered_label(
                 &mut canvas,
                 &label,
-                RectF::new(
+                digit_rect(RectF::new(
                     0.0,
                     master_height as f32 * 0.02,
                     master_width as f32,
                     master_height as f32 * 0.98,
-                ),
+                )),
                 LabelPaint::Gradient,
                 Some(if light_theme {
                     [166, 178, 198, 220]
@@ -180,12 +353,12 @@ pub(crate) fn render_tray_visual(
             draw_centered_label(
                 &mut canvas,
                 &label,
-                RectF::new(
+                digit_rect(RectF::new(
                     master_width as f32 * 0.08,
                     master_height as f32 * 0.02,
                     master_width as f32 * 0.92,
                     master_height as f32 * 0.64,
-                ),
+                )),
                 LabelPaint::Solid(if light_theme { DARK_TEXT } else { LIGHT_TEXT }),
                 None,
             );
@@ -328,6 +501,21 @@ impl RectF {
     fn center_x(self) -> f32 {
         (self.left + self.right) / 2.0
     }
+
+    fn center_y(self) -> f32 {
+        (self.top + self.bottom) / 2.0
+    }
+}
+
+fn scale_rect_from_center(rect: RectF, scale: f32) -> RectF {
+    let half_width = rect.width() * scale / 2.0;
+    let half_height = rect.height() * scale / 2.0;
+    RectF::new(
+        rect.center_x() - half_width,
+        rect.center_y() - half_height,
+        rect.center_x() + half_width,
+        rect.center_y() + half_height,
+    )
 }
 
 struct Canvas {
@@ -690,6 +878,42 @@ fn draw_solid_rounded_rect(canvas: &mut Canvas, rect: RectF, radius: f32, color:
             rect.left.floor().max(0.0) as u32..rect.right.ceil().min(canvas.width as f32) as u32
         {
             if inside_rounded_rect(x as f32 + 0.5, y as f32 + 0.5, rect, radius) {
+                canvas.blend(x, y, color);
+            }
+        }
+    }
+}
+
+fn draw_solid_rounded_rect_outline(
+    canvas: &mut Canvas,
+    outer_rect: RectF,
+    outer_radius: f32,
+    thickness: f32,
+    color: [u8; 4],
+) {
+    let thickness = thickness.max(0.0);
+    if thickness <= 0.0 {
+        return;
+    }
+    let inner_rect = RectF::new(
+        outer_rect.left + thickness,
+        outer_rect.top + thickness,
+        outer_rect.right - thickness,
+        outer_rect.bottom - thickness,
+    );
+    let has_inner = inner_rect.left < inner_rect.right && inner_rect.top < inner_rect.bottom;
+    let inner_radius = (outer_radius - thickness).max(0.0);
+    for y in outer_rect.top.floor().max(0.0) as u32
+        ..outer_rect.bottom.ceil().min(canvas.height as f32) as u32
+    {
+        for x in outer_rect.left.floor().max(0.0) as u32
+            ..outer_rect.right.ceil().min(canvas.width as f32) as u32
+        {
+            let point_x = x as f32 + 0.5;
+            let point_y = y as f32 + 0.5;
+            if inside_rounded_rect(point_x, point_y, outer_rect, outer_radius)
+                && (!has_inner || !inside_rounded_rect(point_x, point_y, inner_rect, inner_radius))
+            {
                 canvas.blend(x, y, color);
             }
         }
@@ -1097,12 +1321,12 @@ mod tests {
             64,
         );
         let (min_x, min_y, max_x, max_y) = opaque_bounds(&image);
-        assert!(max_x - min_x > max_y - min_y);
+        assert!((max_x - min_x) * 100 >= (max_y - min_y) * 130);
         assert_eq!(image.rgba()[((32 * 64 + 63) * 4 + 3) as usize], 0);
     }
 
     #[test]
-    fn card_uses_nearly_the_full_windows_notification_cell() {
+    fn card_is_horizontal_inside_the_windows_notification_cell() {
         for size in [16, 20, 24, 32] {
             let image = render_tray_visual(
                 WindowsTrayIconStyle::GradientNumberCard,
@@ -1115,8 +1339,33 @@ mod tests {
             let (width, height) = bounds_size(opaque_bounds(&image));
             let dimensions = format!("size={size}, card={width}x{height}");
             assert!(width * 100 >= size * 94, "{dimensions}");
-            assert!(height * 100 >= size * 88, "{dimensions}");
+            assert!(height * 100 >= size * 68, "{dimensions}");
+            assert!(height * 100 <= size * 82, "{dimensions}");
+            assert!(width * 100 >= height * 120, "{dimensions}");
         }
+    }
+
+    #[test]
+    fn windows_card_number_is_legible_inside_the_notification_cell() {
+        let image = render_tray_visual(
+            WindowsTrayIconStyle::GradientNumberCard,
+            Some(88.0),
+            TrayVisualStatus::Fresh,
+            true,
+            32,
+            32,
+        );
+        let (width, height) = bounds_size(bounds_where(&image, |pixel| {
+            pixel[0] >= 245 && pixel[1] >= 245 && pixel[2] >= 245 && pixel[3] >= 200
+        }));
+        assert!(
+            width * 100 >= image.width() * 34,
+            "number width was {width}px"
+        );
+        assert!(
+            height * 100 >= image.height() * 45,
+            "number height was {height}px"
+        );
     }
 
     #[test]
@@ -1132,7 +1381,7 @@ mod tests {
                 128,
                 128,
             );
-            let sample_y = image.height() / 6;
+            let sample_y = image.height() / 5 + 1;
             let gradient_pixels = (0..image.width())
                 .filter(|x| {
                     let index = ((sample_y * image.width() + x) * 4) as usize;
@@ -1149,7 +1398,7 @@ mod tests {
 
         assert!(fill_widths.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(fill_widths[0] <= 8, "5% fill was {}px", fill_widths[0]);
-        assert!(fill_widths[3] >= 108, "97% fill was {}px", fill_widths[3]);
+        assert!(fill_widths[3] >= 55, "97% fill was {}px", fill_widths[3]);
         for bounds in number_bounds {
             let center_x_twice = bounds.0 + bounds.2;
             let center_y_twice = bounds.1 + bounds.3;
@@ -1182,7 +1431,7 @@ mod tests {
             128,
             128,
         );
-        let sample_index = ((21 * 128 + 110) * 4) as usize;
+        let sample_index = ((26 * 128 + 110) * 4) as usize;
         assert_eq!(&light.rgba()[sample_index..sample_index + 4], CARD_EMPTY);
         assert_eq!(&dark.rgba()[sample_index..sample_index + 4], CARD_EMPTY);
         assert_ne!(light.rgba(), dark.rgba());
@@ -1225,7 +1474,7 @@ mod tests {
     fn number_plate_and_card_match_the_concept_proportions() {
         for (style, width_range, height_range) in [
             (WindowsTrayIconStyle::GradientNumberPlate, 62..=70, 44..=51),
-            (WindowsTrayIconStyle::GradientNumberCard, 46..=54, 39..=46),
+            (WindowsTrayIconStyle::GradientNumberCard, 60..=68, 60..=70),
         ] {
             let image =
                 render_tray_visual(style, Some(97.0), TrayVisualStatus::Fresh, true, 128, 128);
@@ -1377,5 +1626,177 @@ mod tests {
             ),
             (80, 64)
         );
+    }
+
+    #[test]
+    fn native_macos_approved_border_is_thicker_without_moving_the_number() {
+        let preview = render_tray_visual(
+            WindowsTrayIconStyle::GradientNumberCard,
+            Some(97.0),
+            TrayVisualStatus::Fresh,
+            true,
+            85,
+            64,
+        );
+        let native = render_native_macos_tray_visual(
+            WindowsTrayIconStyle::GradientNumberCard,
+            Some(97.0),
+            TrayVisualStatus::Fresh,
+            true,
+            85,
+            64,
+        );
+
+        let preview_number = bounds_where(&preview, |pixel| pixel == LIGHT_TEXT);
+        let native_number = bounds_where(&native, |pixel| pixel == LIGHT_TEXT);
+        assert_eq!(preview_number, native_number);
+        assert_ne!(preview.rgba(), native.rgba());
+
+        let border_pixels = |image: &Image<'_>| {
+            image
+                .rgba()
+                .chunks_exact(4)
+                .filter(|pixel| *pixel == CARD_BORDER_LIGHT)
+                .count()
+        };
+        assert!(border_pixels(&native) > border_pixels(&preview));
+    }
+
+    #[test]
+    fn macos_tray_card_tuning_rejects_non_finite_values_and_clamps_debug_ranges() {
+        let tuning = MacosTrayCardTuning {
+            override_quota_percent: true,
+            quota_percent: 150.0,
+            digit_scale: 1.0,
+            hundred_digit_scale: 1.3,
+            border_width: 9.0,
+            edge_outset: -2.0,
+            halo_alpha: 240,
+        }
+        .normalized()
+        .expect("finite tuning should normalize");
+        assert_eq!(tuning.quota_percent, 100.0);
+        assert_eq!(tuning.digit_scale, 1.0);
+        assert_eq!(tuning.hundred_digit_scale, 1.3);
+        assert_eq!(tuning.border_width, 9.0);
+        assert_eq!(tuning.edge_outset, 0.0);
+        assert_eq!(tuning.halo_alpha, 240);
+
+        let upper_bounds = MacosTrayCardTuning {
+            override_quota_percent: false,
+            quota_percent: -20.0,
+            digit_scale: 8.0,
+            hundred_digit_scale: 8.0,
+            border_width: 40.0,
+            edge_outset: 40.0,
+            halo_alpha: 255,
+        }
+        .normalized()
+        .expect("finite tuning should normalize");
+        assert!(!upper_bounds.override_quota_percent);
+        assert_eq!(upper_bounds.quota_percent, 0.0);
+        assert_eq!(upper_bounds.digit_scale, 2.0);
+        assert_eq!(upper_bounds.hundred_digit_scale, 2.0);
+        assert_eq!(upper_bounds.border_width, 16.0);
+        assert_eq!(upper_bounds.edge_outset, 8.0);
+
+        assert!(MacosTrayCardTuning {
+            border_width: f32::NAN,
+            ..MacosTrayCardTuning::default()
+        }
+        .normalized()
+        .is_err());
+    }
+
+    #[test]
+    fn macos_tray_card_defaults_match_the_approved_parameters() {
+        let tuning = MacosTrayCardTuning::default();
+        assert_eq!(tuning.quota_percent, 97.0);
+        assert_eq!(tuning.digit_scale, 1.0);
+        assert_eq!(tuning.hundred_digit_scale, 1.3);
+        assert_eq!(tuning.border_width, 3.75);
+        assert_eq!(tuning.edge_outset, 1.0);
+        assert_eq!(tuning.halo_alpha, 0);
+    }
+
+    #[test]
+    fn native_macos_uses_the_separate_scale_only_for_one_hundred() {
+        let render_number_bounds = |percent, native_macos| {
+            let image = render_tray_visual_internal(
+                WindowsTrayIconStyle::GradientNumberCard,
+                Some(percent),
+                TrayVisualStatus::Fresh,
+                true,
+                85,
+                64,
+                native_macos,
+            );
+            bounds_size(bounds_where(&image, |pixel| pixel == LIGHT_TEXT))
+        };
+
+        assert_eq!(
+            render_number_bounds(97.0, true),
+            render_number_bounds(97.0, false)
+        );
+        let native_hundred = render_number_bounds(100.0, true);
+        let preview_hundred = render_number_bounds(100.0, false);
+        assert!(native_hundred.0 > preview_hundred.0);
+        assert!(native_hundred.1 > preview_hundred.1);
+    }
+
+    #[test]
+    fn macos_digit_scale_enlarges_the_three_digit_quota_without_changing_its_font() {
+        let base_rect = RectF::new(68.0, 51.0, 272.0, 205.0);
+        let render = |scale: f32| {
+            let mut canvas = Canvas::new(340, 256);
+            draw_centered_label_scaled(
+                &mut canvas,
+                "100",
+                scale_rect_from_center(base_rect, scale),
+                WIDE_CARD_GLYPH_HORIZONTAL_SCALE,
+                LabelPaint::Solid(LIGHT_TEXT),
+                None,
+            );
+            Image::new_owned(canvas.pixels, canvas.width, canvas.height)
+        };
+
+        let normal = bounds_size(bounds_where(&render(1.0), |pixel| pixel == LIGHT_TEXT));
+        let enlarged = bounds_size(bounds_where(&render(1.5), |pixel| pixel == LIGHT_TEXT));
+        assert!(
+            enlarged.0 > normal.0,
+            "normal={normal:?}, enlarged={enlarged:?}"
+        );
+        assert!(
+            enlarged.1 > normal.1,
+            "normal={normal:?}, enlarged={enlarged:?}"
+        );
+    }
+
+    #[test]
+    fn macos_edge_softening_keeps_growing_after_the_outer_canvas_edge_is_clipped() {
+        let render_outline = |edge_width: f32| {
+            let mut canvas = Canvas::new(64, 64);
+            let card_rect = RectF::new(2.0, 2.0, 62.0, 62.0);
+            let outer_rect = RectF::new(
+                card_rect.left - edge_width,
+                card_rect.top - edge_width,
+                card_rect.right + edge_width,
+                card_rect.bottom + edge_width,
+            );
+            draw_solid_rounded_rect_outline(
+                &mut canvas,
+                outer_rect,
+                9.0 + edge_width,
+                edge_width * 2.0,
+                [105, 120, 146, 192],
+            );
+            canvas
+                .pixels
+                .chunks_exact(4)
+                .filter(|pixel| pixel[3] > 0)
+                .count()
+        };
+
+        assert!(render_outline(8.0) > render_outline(2.0));
     }
 }

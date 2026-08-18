@@ -54,6 +54,9 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.tray_usage_title_show_window_labels {
             store.settings.tray_usage_title_show_window_labels = value;
         }
+        if let Some(value) = patch.macos_tray_text_icon_style {
+            store.settings.macos_tray_text_icon_style = value;
+        }
         if let Some(value) = patch.windows_tray_icon_style {
             store.settings.windows_tray_icon_style = value;
         }

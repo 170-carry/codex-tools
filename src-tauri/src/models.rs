@@ -591,6 +591,14 @@ pub(crate) enum TrayUsageDisplayMode {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+pub(crate) enum MacosTrayTextIconStyle {
+    #[default]
+    CodexTools,
+    ProgressRing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum WindowsTrayIconStyle {
     #[serde(alias = "blueGauge", alias = "codexToolsBadge")]
     #[default]
@@ -661,6 +669,8 @@ pub(crate) struct AppSettings {
     #[serde(default)]
     pub(crate) tray_usage_title_show_window_labels: bool,
     #[serde(default)]
+    pub(crate) macos_tray_text_icon_style: MacosTrayTextIconStyle,
+    #[serde(default)]
     pub(crate) windows_tray_icon_style: WindowsTrayIconStyle,
     #[serde(
         default = "default_tray_quota_icon_visible",
@@ -712,6 +722,7 @@ impl Default for AppSettings {
             launch_at_startup: false,
             tray_usage_display_mode: TrayUsageDisplayMode::OneWeekRemaining,
             tray_usage_title_show_window_labels: false,
+            macos_tray_text_icon_style: MacosTrayTextIconStyle::CodexTools,
             windows_tray_icon_style: WindowsTrayIconStyle::GradientNumberPlate,
             tray_quota_icon_visible: true,
             macos_tray_logo_ring_show_percentage: true,
@@ -749,6 +760,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) tray_usage_title_show_window_labels: Option<bool>,
+    pub(crate) macos_tray_text_icon_style: Option<MacosTrayTextIconStyle>,
     pub(crate) windows_tray_icon_style: Option<WindowsTrayIconStyle>,
     #[serde(alias = "macosTrayQuotaIconVisible")]
     pub(crate) tray_quota_icon_visible: Option<bool>,
@@ -1001,6 +1013,7 @@ mod tests {
     use super::mark_current_account_summary;
     use super::AppSettings;
     use super::AppSettingsPatch;
+    use super::MacosTrayTextIconStyle;
     use super::StoredAccount;
     use super::TrayUsageDisplayMode;
     use super::UsageSnapshot;
@@ -1038,6 +1051,10 @@ mod tests {
         );
         assert!(!AppSettings::default().tray_usage_title_show_window_labels);
         assert_eq!(
+            AppSettings::default().macos_tray_text_icon_style,
+            MacosTrayTextIconStyle::CodexTools
+        );
+        assert_eq!(
             AppSettings::default().windows_tray_icon_style,
             WindowsTrayIconStyle::GradientNumberPlate
         );
@@ -1056,6 +1073,10 @@ mod tests {
             TrayUsageDisplayMode::OneWeekRemaining
         );
         assert!(!missing_mode.tray_usage_title_show_window_labels);
+        assert_eq!(
+            missing_mode.macos_tray_text_icon_style,
+            MacosTrayTextIconStyle::CodexTools
+        );
         assert_eq!(
             missing_mode.windows_tray_icon_style,
             WindowsTrayIconStyle::GradientNumberPlate
@@ -1085,6 +1106,7 @@ mod tests {
         let patch: AppSettingsPatch = serde_json::from_value(json!({
             "trayUsageDisplayMode": "oneWeekRemaining",
             "trayUsageTitleShowWindowLabels": true,
+            "macosTrayTextIconStyle": "progressRing",
             "windowsTrayIconStyle": "codexToolsBadge",
             "trayQuotaIconVisible": false,
             "macosTrayLogoRingShowPercentage": false,
@@ -1098,6 +1120,10 @@ mod tests {
             Some(TrayUsageDisplayMode::OneWeekRemaining)
         );
         assert_eq!(patch.tray_usage_title_show_window_labels, Some(true));
+        assert_eq!(
+            patch.macos_tray_text_icon_style,
+            Some(MacosTrayTextIconStyle::ProgressRing)
+        );
         assert_eq!(
             patch.windows_tray_icon_style,
             Some(WindowsTrayIconStyle::GradientNumberPlate)

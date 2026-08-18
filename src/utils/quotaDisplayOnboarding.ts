@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  MacosTrayTextIconStyle,
   TrayUsageDisplayMode,
   WindowsTrayIconStyle,
 } from "../types/app";
@@ -51,12 +52,14 @@ export async function applyLiveQuotaDisplayUpdate<TPatch>(options: {
 export function buildMacosQuotaOnboardingPatch(options: {
   statusBarEnabled: boolean;
   statusBarMode: Exclude<TrayUsageDisplayMode, "hidden">;
+  textIconStyle: MacosTrayTextIconStyle;
   trayEnabled: boolean;
   trayIconStyle: WindowsTrayIconStyle;
   showLogoRingPercentage: boolean;
 }): Pick<
   AppSettings,
   | "trayUsageDisplayMode"
+  | "macosTrayTextIconStyle"
   | "windowsTrayIconStyle"
   | "trayQuotaIconVisible"
   | "macosTrayLogoRingShowPercentage"
@@ -64,6 +67,7 @@ export function buildMacosQuotaOnboardingPatch(options: {
 > {
   return {
     trayUsageDisplayMode: options.statusBarEnabled ? options.statusBarMode : "hidden",
+    macosTrayTextIconStyle: options.textIconStyle,
     windowsTrayIconStyle: options.trayIconStyle,
     trayQuotaIconVisible: options.trayEnabled,
     macosTrayLogoRingShowPercentage: options.showLogoRingPercentage,

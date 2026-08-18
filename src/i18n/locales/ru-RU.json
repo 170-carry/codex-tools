@@ -19,7 +19,9 @@
     "description": "В новой версии квота может постоянно отображаться на панели задач Windows и в системном трее. Включите хотя бы один вариант. Позже его можно изменить в настройках.",
     "livePreview": "Изменения сразу применяются к панели задач и системному трею Windows.",
     "macTitle": "Настройка квоты в macOS",
-    "macStatusBarTitle": "Классическая текстовая квота",
+    "macStatusBarTitle": "Текстовое отображение квоты",
+    "macCodexToolsIconOption": "Значок Codex Tools",
+    "macProgressRingIconOption": "Значок кольца прогресса",
     "macStatusBarDescription": "Показывает текущую квоту текстом прямо в строке меню.",
     "macStatusBarModeLabel": "Режим классической текстовой квоты",
     "macTrayTitle": "Значок квоты",
@@ -590,15 +592,15 @@
       "label": "Вид значка в трее",
       "description": "Выберите один из пяти значков оставшейся квоты или скройте его независимо. Выбор «Осталось/Использовано» для классического текста не меняет значок.",
       "groupAriaLabel": "Стиль значка в трее",
-      "gradientNumberPlate": "Градиентная плитка с числом",
-      "gradientNumberCard": "Градиентная карточка с числом",
-      "gradientNumber": "Градиентные цифры",
-      "numberProgressBar": "Число + шкала прогресса",
-      "logoProgressRing": "Логотип + кольцо прогресса",
+      "gradientNumberPlate": "Квадратная карточка с числом",
+      "gradientNumberCard": "Горизонтальная карточка с числом",
+      "gradientNumber": "Градиентное число",
+      "numberProgressBar": "Число со шкалой прогресса",
+      "logoProgressRing": "Значок приложения с кольцом прогресса",
       "hidden": "Не показывать"
     },
     "macosTrayLogoRingVariants": {
-      "withPercentage": "Показывать точный процент",
+      "withPercentage": "Показывать процент",
       "withoutPercentage": "Только кольцо прогресса"
     },
     "windowsTaskbarWidget": {
