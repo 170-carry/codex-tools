@@ -2,8 +2,24 @@ import type {
   AppSettings,
   MacosTrayTextIconStyle,
   TrayUsageDisplayMode,
+  WindowsTaskbarWidgetPlacement,
   WindowsTrayIconStyle,
 } from "../types/app";
+
+type EnabledWindowsTaskbarWidgetPlacement = Exclude<
+  WindowsTaskbarWidgetPlacement,
+  "hidden"
+>;
+
+export function activateWindowsTaskbarPlacement(
+  placement: EnabledWindowsTaskbarWidgetPlacement,
+) {
+  return {
+    taskbarEnabled: true as const,
+    taskbarPlacement: placement,
+    patch: { windowsTaskbarWidgetPlacement: placement },
+  };
+}
 
 export function hasActiveQuotaDisplay(taskbarEnabled: boolean, trayEnabled: boolean): boolean {
   return taskbarEnabled || trayEnabled;

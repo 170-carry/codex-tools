@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n/I18nProvider";
 import {
+  activateWindowsTaskbarPlacement,
   applyLiveQuotaDisplayUpdate,
   buildMacosQuotaOnboardingPatch,
   canDisableQuotaDisplay,
@@ -763,14 +764,22 @@ function QuotaDisplayOnboardingContent({
   const selectTaskbarPlacement = (
     placement: Exclude<WindowsTaskbarWidgetPlacement, "hidden">,
   ) => {
-    if (placement === taskbarPlacement || !taskbarEnabled) {
+    if (placement === taskbarPlacement && taskbarEnabled) {
       return;
     }
     const previousPlacement = taskbarPlacement;
+    const previousEnabled = taskbarEnabled;
+    const selection = activateWindowsTaskbarPlacement(placement);
     void runLiveUpdate(
-      { windowsTaskbarWidgetPlacement: placement },
-      () => setTaskbarPlacement(placement),
-      () => setTaskbarPlacement(previousPlacement),
+      selection.patch,
+      () => {
+        setTaskbarPlacement(selection.taskbarPlacement);
+        setTaskbarEnabled(selection.taskbarEnabled);
+      },
+      () => {
+        setTaskbarPlacement(previousPlacement);
+        setTaskbarEnabled(previousEnabled);
+      },
     );
   };
 
@@ -882,18 +891,20 @@ function QuotaDisplayOnboardingContent({
             >
               <button
                 type="button"
-                className={taskbarPlacement === "left" ? "primary" : "ghost"}
-                aria-pressed={taskbarPlacement === "left"}
-                disabled={!taskbarEnabled || busy}
+                className={taskbarEnabled && taskbarPlacement === "left" ? "primary" : "ghost"}
+                aria-pressed={taskbarEnabled && taskbarPlacement === "left"}
+                disabled={busy}
                 onClick={() => selectTaskbarPlacement("left")}
               >
                 {copy.quotaOnboarding.taskbarLeft}
               </button>
               <button
                 type="button"
-                className={taskbarPlacement === "embedded" ? "primary" : "ghost"}
-                aria-pressed={taskbarPlacement === "embedded"}
-                disabled={!taskbarEnabled || busy}
+                className={
+                  taskbarEnabled && taskbarPlacement === "embedded" ? "primary" : "ghost"
+                }
+                aria-pressed={taskbarEnabled && taskbarPlacement === "embedded"}
+                disabled={busy}
                 onClick={() => selectTaskbarPlacement("embedded")}
               >
                 {copy.quotaOnboarding.taskbarRight}

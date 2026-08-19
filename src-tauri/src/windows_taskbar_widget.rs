@@ -13,11 +13,11 @@ use windows::Win32::Foundation::{
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateRoundRectRgn, DeleteDC,
     DeleteObject, DrawTextW, EndPaint, GetMonitorInfoW, GetTextExtentPoint32W, GetTextFaceW,
-    InvalidateRect, MonitorFromPoint, MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode,
-    SetTextColor, SetWindowRgn, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
-    DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT,
-    HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+    MonitorFromPoint, MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode, SetTextColor,
+    SetWindowRgn, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS,
+    DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT, HGDIOBJ,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
@@ -113,6 +113,7 @@ struct WindowContext {
     cached_widgets_button_rect: Option<RECT>,
     cached_widgets_enabled: Option<bool>,
     last_widgets_scan: Option<Instant>,
+    surface_needs_refresh: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -281,6 +282,7 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
             cached_widgets_button_rect: None,
             cached_widgets_enabled: None,
             last_widgets_scan: None,
+            surface_needs_refresh: true,
         });
         let context_ptr = Box::into_raw(context);
 
@@ -373,13 +375,17 @@ unsafe extern "system" fn window_proc(
         }
         WM_TIMER if wparam.0 == LAYOUT_TIMER_ID => {
             let light_theme = system_uses_light_theme();
+            let mut needs_refresh = false;
             if let Some(context) = context_mut(hwnd) {
                 if context.light_theme != light_theme {
                     context.light_theme = light_theme;
-                    let _ = InvalidateRect(Some(hwnd), None, true);
+                    needs_refresh = true;
                 }
             }
-            position_widget(hwnd);
+            needs_refresh |= position_widget(hwnd);
+            if needs_refresh {
+                refresh_widget_surface(hwnd);
+            }
             LRESULT(0)
         }
         WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => {
@@ -459,8 +465,19 @@ unsafe fn apply_snapshot_and_layout(hwnd: HWND) {
         context.snapshot = snapshot;
         update_tooltip(hwnd, context);
     }
-    let _ = InvalidateRect(Some(hwnd), None, true);
-    position_widget(hwnd);
+    let _ = position_widget(hwnd);
+    refresh_widget_surface(hwnd);
+}
+
+unsafe fn refresh_widget_surface(hwnd: HWND) {
+    let mut client = RECT::default();
+    let _ = GetClientRect(hwnd, &mut client);
+    if client.right <= 0 || client.bottom <= 0 {
+        return;
+    }
+    if let Some(context) = context_mut(hwnd) {
+        render_layered_text(hwnd, context, client.right, client.bottom);
+    }
 }
 
 unsafe fn create_tooltip(hwnd: HWND, context: &mut WindowContext) -> Option<HWND> {
@@ -597,7 +614,7 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
         SourceConstantAlpha: 255,
         AlphaFormat: AC_SRC_ALPHA as u8,
     };
-    let _ = UpdateLayeredWindow(
+    if let Err(error) = UpdateLayeredWindow(
         hwnd,
         None,
         None,
@@ -607,7 +624,13 @@ unsafe fn render_layered_text(hwnd: HWND, context: &WindowContext, width: i32, h
         COLORREF(0),
         Some(&blend),
         ULW_ALPHA,
-    );
+    ) {
+        log::warn!(
+            "WINDOWS_QUOTA_WIDGET action=update-layered-window-failed width={} height={} error={error}",
+            width,
+            height
+        );
+    }
 
     SelectObject(memory_dc, previous_bitmap);
     let _ = DeleteObject(HGDIOBJ(bitmap.0));
@@ -971,17 +994,20 @@ fn base_height_for_text(text: &str) -> i32 {
     }
 }
 
-unsafe fn position_widget(hwnd: HWND) {
+unsafe fn position_widget(hwnd: HWND) -> bool {
     let Some(context) = context_mut(hwnd) else {
-        return;
+        return false;
     };
     if !context.snapshot.visible
         || context.snapshot.placement == WindowsTaskbarWidgetPlacement::Hidden
     {
-        detach_from_taskbar(hwnd, context);
+        // Keep an embedded layered window attached while the user disables it.
+        // Detaching it to a popup and parenting it back later can leave a
+        // successfully updated pixel surface absent from taskbar composition.
+        context.surface_needs_refresh = true;
         log_layout_change(context, "visible=false reason=setting-hidden".to_string());
         let _ = ShowWindow(hwnd, SW_HIDE);
-        return;
+        return false;
     }
 
     let scan_widgets = context.last_widgets_scan.map_or(true, |last_scan| {
@@ -992,12 +1018,13 @@ unsafe fn position_widget(hwnd: HWND) {
         .flatten();
     let Some(mut taskbar) = locate_taskbar(context.anchor_hwnd, automation, scan_widgets) else {
         detach_from_taskbar(hwnd, context);
+        context.surface_needs_refresh = true;
         log_layout_change(
             context,
             "visible=false reason=taskbar-unavailable".to_string(),
         );
         let _ = ShowWindow(hwnd, SW_HIDE);
-        return;
+        return false;
     };
     if scan_widgets {
         context.last_widgets_scan = Some(Instant::now());
@@ -1014,6 +1041,7 @@ unsafe fn position_widget(hwnd: HWND) {
     taskbar.widgets_button_rect = widgets_button_rect;
     context.cached_widgets_button_rect = widgets_button_rect;
     if taskbar.auto_hide && !taskbar.revealed {
+        context.surface_needs_refresh = true;
         log_layout_change(
             context,
             format!(
@@ -1023,7 +1051,7 @@ unsafe fn position_widget(hwnd: HWND) {
             ),
         );
         let _ = ShowWindow(hwnd, SW_HIDE);
-        return;
+        return false;
     }
 
     let dpi = GetDpiForWindow(hwnd).max(96);
@@ -1056,7 +1084,9 @@ unsafe fn position_widget(hwnd: HWND) {
                         ),
                     );
                     position_floating_widget(hwnd, context, &taskbar, width, height, dpi);
-                    return;
+                    let needs_refresh = context.surface_needs_refresh;
+                    context.surface_needs_refresh = false;
+                    return needs_refresh;
                 };
                 apply_widget_region(hwnd, width, height, dpi);
                 let _ = SetWindowPos(
@@ -1095,7 +1125,9 @@ unsafe fn position_widget(hwnd: HWND) {
                         center_hit == hwnd,
                     ),
                 );
-                return;
+                let needs_refresh = context.surface_needs_refresh;
+                context.surface_needs_refresh = false;
+                return needs_refresh;
             }
         }
         log_layout_change(
@@ -1109,6 +1141,7 @@ unsafe fn position_widget(hwnd: HWND) {
 
     if foreground_window_covers_monitor(taskbar.monitor.rcMonitor) {
         detach_from_taskbar(hwnd, context);
+        context.surface_needs_refresh = true;
         log_layout_change(
             context,
             format!(
@@ -1121,11 +1154,14 @@ unsafe fn position_widget(hwnd: HWND) {
             ),
         );
         let _ = ShowWindow(hwnd, SW_HIDE);
-        return;
+        return false;
     }
 
     detach_from_taskbar(hwnd, context);
     position_floating_widget(hwnd, context, &taskbar, width, height, dpi);
+    let needs_refresh = context.surface_needs_refresh;
+    context.surface_needs_refresh = false;
+    needs_refresh
 }
 
 unsafe fn position_floating_widget(
@@ -1286,6 +1322,7 @@ unsafe fn embed_in_taskbar(hwnd: HWND, context: &mut WindowContext, parent: HWND
     }
 
     let _ = ShowWindow(hwnd, SW_HIDE);
+    context.surface_needs_refresh = true;
     SetWindowLongPtrW(hwnd, GWL_STYLE, taskbar_child_style(style) as isize);
     let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style & !WS_EX_TOPMOST.0) as isize);
@@ -1322,6 +1359,7 @@ unsafe fn detach_from_taskbar(hwnd: HWND, context: &mut WindowContext) {
     }
 
     let _ = ShowWindow(hwnd, SW_HIDE);
+    context.surface_needs_refresh = true;
     let _ = SetParent(hwnd, None);
     SetWindowLongPtrW(hwnd, GWL_STYLE, popup_style(style) as isize);
     let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;

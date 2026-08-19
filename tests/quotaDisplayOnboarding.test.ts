@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  activateWindowsTaskbarPlacement,
   applyLiveQuotaDisplayUpdate,
   buildMacosQuotaOnboardingPatch,
   canDisableQuotaDisplay,
@@ -81,6 +82,16 @@ test("at least one quota display remains enabled", () => {
   assert.equal(hasActiveQuotaDisplay(false, false), false);
   assert.equal(canDisableQuotaDisplay(true), true);
   assert.equal(canDisableQuotaDisplay(false), false);
+});
+
+test("selecting a taskbar placement enables a hidden taskbar component", () => {
+  for (const placement of ["left", "embedded"] as const) {
+    assert.deepEqual(activateWindowsTaskbarPlacement(placement), {
+      taskbarEnabled: true,
+      taskbarPlacement: placement,
+      patch: { windowsTaskbarWidgetPlacement: placement },
+    });
+  }
 });
 
 test("successful live updates keep the optimistic selection", async () => {
