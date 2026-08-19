@@ -68,11 +68,6 @@ Fresh isolated previews no longer copy the production account store or productio
 
 新的隔离预览不再复制正式版账号库或正式版 `auth.json`。已有预览数据保持不变，开发者可以主动迁移或重新授权，不会在启动时发生破坏性覆盖。
 
-### 5. Documentation and compatibility / 文档与兼容性
-
-- Document Windows taskbar placement, first-run behavior, and the Windows Widgets interaction. / 说明 Windows 任务栏位置、首次运行行为以及与 Windows Widgets 的交互。
-- Preserve existing account, API proxy, analytics, editor integration, and non-Windows behavior. / 保持现有账号、API 反代、分析、编辑器联动及非 Windows 行为。
-
 ## Validation / 验证
 
 ### macOS Apple Silicon
