@@ -1,6 +1,6 @@
 <!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota status visuals and a Windows taskbar widget / 添加跨平台额度状态视觉与 Windows 任务栏组件 -->
 
-> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation and the synchronized ROG-Strix Windows frontend replay passed. The Windows first-launch screenshot is the only remaining PR visual. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证与 ROG-Strix Windows 前端同步回归均已通过。Windows 首次启动截图是 PR 当前唯一待补视觉素材。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
+> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation and the synchronized ROG-Strix Windows frontend replay passed, and the required quota and first-launch visuals are included. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证与 ROG-Strix Windows 前端同步回归均已通过，所需的额度效果与首次启动视觉素材也已补齐。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
 
 ## Summary / 摘要
 
@@ -52,7 +52,7 @@ Windows 首次设置对话框会在进入主界面前配置任务栏组件位置
 
 **Windows first-launch quota setup effect / Windows 首次启动额度设置效果**
 
-- [ ] Add the current Windows first-launch screenshot before opening the PR. / 创建 PR 前补充当前 Windows 首次启动截图。
+![Windows first-launch quota setup effect / Windows 首次启动额度设置效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-first-launch-quota-setup.png)
 
 ### 4. Runtime recovery and authorization freshness / 运行时恢复与授权新鲜度
 
@@ -104,5 +104,5 @@ Windows frontend validation was replayed from the pushed synchronized branch on 
 ## Review notes / 审阅说明
 
 - The screenshots contain no account identifiers or credentials; validation-only captures use isolated application data. / 截图不包含账号标识或凭据；仅用于验证的截图使用隔离应用数据。
-- The visual evidence shows only the new quota surfaces and first-launch UI. Because these are newly added features, no before/after comparison is included, and settings-page screenshots remain excluded. The Windows first-launch screenshot is still pending. / 视觉证据仅展示新增的额度栏与首次启动界面。由于这些均为新增功能，因此不提供修改前后对比，也不包含设置页截图。Windows 首次启动截图仍待补充。
+- The visual evidence shows only the new quota surfaces and first-launch UI. Because these are newly added features, no before/after comparison is included, and settings-page screenshots remain excluded. / 视觉证据仅展示新增的额度栏与首次启动界面。由于这些均为新增功能，因此不提供修改前后对比，也不包含设置页截图。
 - All source changes and selected evidence files are synchronized in the pushed branch; the isolated ROG-Strix validation checkout and the original macOS development worktree remain preserved. / 所有源码修改与选定证据文件已同步到推送分支；隔离的 ROG-Strix 验证检出和原 macOS 开发工作树均保持不变。
