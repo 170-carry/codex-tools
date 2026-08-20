@@ -11,10 +11,15 @@ Profiles:
   acceptance  Production Bundle ID for final macOS menu-bar validation,
               while still using isolated runtime data.
 
+Debug builds add "Open Quota Setup Preview" to the application menu and a
+matching action in Settings. It reopens the real first-launch quota setup
+without changing Bundle IDs or clearing application data.
+
 Optional environment overrides:
   CODEX_TOOLS_MACOS_VALIDATION_RUNTIME_ROOT
   CODEX_TOOLS_MACOS_VALIDATION_CODEX_DIR
   CODEX_TOOLS_MACOS_VALIDATION_DATA_DIR
+  CODEX_TOOLS_MACOS_VALIDATION_CONTROL_CENTER_PLIST
 
 The default isolated runtime is stored under:
   ~/Library/Application Support/Codex Tools Menu Bar Validation
@@ -80,6 +85,119 @@ if [[ "$profile" == "dev" && "$bundle_id" == "com.carry.codex-tools" ]]; then
   echo "Development builds must not use the production Bundle ID." >&2
   exit 1
 fi
+
+running_codex_tools_apps() {
+  osascript -l JavaScript -e '
+    ObjC.import("AppKit");
+    var apps = $.NSWorkspace.sharedWorkspace.runningApplications;
+    for (var i = 0; i < apps.count; i++) {
+      var app = apps.objectAtIndex(i);
+      var identifier = ObjC.unwrap(app.bundleIdentifier);
+      if (identifier && identifier.indexOf("com.carry.codex-tools") === 0) {
+        var url = app.bundleURL;
+        var path = url ? ObjC.unwrap(url.path) : "<unknown path>";
+        console.log(identifier + "\t" + path);
+      }
+    }
+  ' 2>&1
+}
+
+reject_other_codex_tools_apps() {
+  local running_apps other_apps
+  running_apps="$(running_codex_tools_apps)"
+  other_apps="$(awk -F '\t' -v target="$bundle_id" '$1 != target' <<<"$running_apps")"
+  if [[ -z "$other_apps" ]]; then
+    return
+  fi
+
+  echo "Another Codex Tools validation identity is already running:" >&2
+  echo "$other_apps" >&2
+  echo "Quit it before launching $bundle_id; parallel menu-bar identities are not accepted." >&2
+  exit 1
+}
+
+check_control_center_records() {
+  local control_center_plist tracked_json blocked_record foreign_references stale_identities
+  control_center_plist="${CODEX_TOOLS_MACOS_VALIDATION_CONTROL_CENTER_PLIST:-$HOME/Library/Group Containers/group.com.apple.controlcenter/Library/Preferences/group.com.apple.controlcenter.plist}"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq is unavailable; the read-only Control Center pollution check was skipped." >&2
+    return
+  fi
+
+  if ! tracked_json="$(
+    plutil -extract trackedApplications raw -o - "$control_center_plist" 2>/dev/null \
+      | base64 -D 2>/dev/null \
+      | plutil -convert json -o - - 2>/dev/null
+  )"; then
+    echo "Warning: Control Center status-item records could not be read; the read-only pollution check was skipped." >&2
+    echo "This is expected when the launching terminal does not have permission to read the Control Center group container." >&2
+    return
+  fi
+
+  blocked_record="$(
+    jq -r --arg target "$bundle_id" '
+      .[]
+      | select(type == "object" and has("isAllowed"))
+      | select(.location.bundle._0 == $target and .isAllowed != true)
+      | "\(.location.bundle._0) isAllowed=\(.isAllowed)"
+    ' <<<"$tracked_json"
+  )"
+  foreign_references="$(
+    jq -r --arg prefix "com.carry.codex-tools" '
+      .[]
+      | select(type == "object" and has("isAllowed"))
+      | . as $entry
+      | [
+          (.menuItemLocations // [])[]?
+          | .bundle?._0?
+          | select(type == "string" and startswith($prefix))
+        ] as $matches
+      | select(($matches | length) > 0)
+      | (.location.bundle._0 // .location.adhocBinary._0.relative // "<unknown owner>") as $owner
+      | select(($owner | startswith($prefix)) | not)
+      | "owner=\($owner) items=\($matches | join(",")) allowed=\($entry.isAllowed)"
+    ' <<<"$tracked_json"
+  )"
+  stale_identities="$(
+    jq -r \
+      --arg prefix "com.carry.codex-tools" \
+      --arg production "com.carry.codex-tools" \
+      --arg development "com.carry.codex-tools.menubar-dev" '
+        [
+          .[]
+          | select(type == "object" and has("isAllowed"))
+          | .location.bundle._0?
+          | select(
+              type == "string"
+              and startswith($prefix)
+              and . != $production
+              and . != $development
+            )
+        ]
+        | unique[]
+      ' <<<"$tracked_json"
+  )"
+
+  if [[ -n "$stale_identities" ]]; then
+    echo "Warning: stale Codex Tools test identities remain in Control Center records:" >&2
+    echo "$stale_identities" >&2
+  fi
+  if [[ -n "$blocked_record" || -n "$foreign_references" ]]; then
+    echo "Control Center status-item pollution was detected; validation has been stopped." >&2
+    if [[ -n "$blocked_record" ]]; then
+      echo "$blocked_record" >&2
+    fi
+    if [[ -n "$foreign_references" ]]; then
+      echo "$foreign_references" >&2
+    fi
+    echo "The script is read-only and did not modify Control Center data." >&2
+    exit 1
+  fi
+}
+
+reject_other_codex_tools_apps
+check_control_center_records
 
 build_config="{\"productName\":\"$product_name\",\"identifier\":\"$bundle_id\",\"bundle\":{\"targets\":[\"app\"],\"createUpdaterArtifacts\":false}}"
 

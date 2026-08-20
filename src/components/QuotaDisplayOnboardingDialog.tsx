@@ -16,7 +16,7 @@ import type {
   WindowsTaskbarWidgetPlacement,
   WindowsTrayIconStyle,
 } from "../types/app";
-import macosClassicStatusBarExampleUrl from "../../docs/pr-assets/quota-status-visuals/macos-menu-bar-quota-effect.png";
+import macosClassicStatusBarExampleUrl from "../assets/macos-text-quota-onboarding-preview.png";
 
 const WINDOWS_TASKBAR_PREVIEW_ASSET_VERSION = "20260811-layout2";
 

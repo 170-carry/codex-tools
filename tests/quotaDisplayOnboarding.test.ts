@@ -5,9 +5,17 @@ import {
   applyLiveQuotaDisplayUpdate,
   buildMacosQuotaOnboardingPatch,
   canDisableQuotaDisplay,
+  effectiveWindowsUsageDisplayMode,
   hasActiveQuotaDisplay,
   shouldOpenQuotaOnboarding,
 } from "../src/utils/quotaDisplayOnboarding.ts";
+
+test("Windows treats a legacy hidden usage mode as one-week remaining", () => {
+  assert.equal(effectiveWindowsUsageDisplayMode("hidden"), "oneWeekRemaining");
+  assert.equal(effectiveWindowsUsageDisplayMode("remaining"), "remaining");
+  assert.equal(effectiveWindowsUsageDisplayMode("used"), "used");
+  assert.equal(effectiveWindowsUsageDisplayMode("fiveHourRemaining"), "fiveHourRemaining");
+});
 
 test("macOS confirmation reapplies the complete selected configuration", () => {
   assert.deepEqual(

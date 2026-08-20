@@ -622,6 +622,11 @@ export type MessageCatalog = {
       withPercentage: string;
       withoutPercentage: string;
     };
+    macosQuotaOnboardingPreview: {
+      label: string;
+      description: string;
+      open: string;
+    };
     windowsTaskbarWidget: {
       label: string;
       description: string;

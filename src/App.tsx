@@ -25,6 +25,7 @@ import {
 type AppTab = "accounts" | "analytics" | "proxy" | "settings";
 const APP_MENU_OPEN_SETTINGS_EVENT = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT = "app-menu-check-update";
+const APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT = "app-menu-open-quota-onboarding";
 const TOKEN_USAGE_FRESHNESS_MS = 5 * 60 * 1000;
 
 function App() {
@@ -210,14 +211,28 @@ function App() {
             void checkForAppUpdate(false);
           },
         );
+        const openQuotaOnboardingUnlisten = await listen<void>(
+          APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT,
+          () => {
+            void updateSettings(
+              { macosQuotaOnboardingCompleted: false },
+              { silent: true, throwOnError: true, keepInteractive: true },
+            );
+          },
+        );
 
         if (disposed) {
           void openSettingsUnlisten();
           void checkUpdateUnlisten();
+          void openQuotaOnboardingUnlisten();
           return;
         }
 
-        unlistenFns.push(openSettingsUnlisten, checkUpdateUnlisten);
+        unlistenFns.push(
+          openSettingsUnlisten,
+          checkUpdateUnlisten,
+          openQuotaOnboardingUnlisten,
+        );
       } catch {
         // The app can still run in a browser-only preview where Tauri events are unavailable.
       }
@@ -231,7 +246,7 @@ function App() {
         void unlisten();
       }
     };
-  }, [checkForAppUpdate]);
+  }, [checkForAppUpdate, updateSettings]);
 
   useEffect(() => {
     if (activeTab !== "accounts" || !mainWindowVisible) {

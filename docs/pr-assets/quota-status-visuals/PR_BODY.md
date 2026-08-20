@@ -1,110 +1,128 @@
-<!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota status visuals and a Windows taskbar widget / 添加跨平台额度状态视觉与 Windows 任务栏组件 -->
+<!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota displays and first-launch setup / 添加跨平台额度展示与首次设置 -->
 
-> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. macOS validation and the synchronized ROG-Strix Windows frontend and native taskbar regressions passed, and the required quota and first-launch visuals are included. Local updater metadata still requires the repository's `TAURI_SIGNING_PRIVATE_KEY`. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 验证与 ROG-Strix Windows 前端、原生任务栏同步回归均已通过，所需的额度效果与首次启动视觉素材也已补齐。本地更新元数据仍需仓库的 `TAURI_SIGNING_PRIVATE_KEY` 才能签名。
+> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. Final macOS validation passed and all required quota and first-launch visuals are included. ROG-Strix Windows regressions passed for the synchronized `063bc8b` baseline; the final Windows replay remains pending until the last Windows settings migration is committed and pushed. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 最终验证已通过，所需的额度效果与首次启动视觉素材也已补齐。ROG-Strix Windows 回归已在同步的 `063bc8b` 基线上通过；最后一项 Windows 设置迁移提交并推送后，仍需重跑最终 Windows 门禁。
 
 ## Summary / 摘要
 
-- **Add consistent quota visuals across desktop surfaces / 新增 MacOS&Windows 双端额度图标:** share five quota-icon styles across Windows and macOS, including two variants inside the logo-and-progress-ring style.
-- **Add a native Windows taskbar quota widget / 新增 Windows 任务栏额度组件:** place quota information on the left or right side of the taskbar, or keep it in the system tray, with live settings updates and reliable restoration after re-enabling.
-- **Add cross-platform first-launch quota setup / 新增新版本首次启动额度图标设置:** let macOS users configure the text quota surface and compact quota icon independently, and let Windows users choose taskbar placement and tray presentation before entering the main application.
-- **Harden recovery and isolated development / 加固恢复逻辑与隔离开发:** recover taskbar surfaces after Explorer changes, preserve cached error states, and safely adopt newer authorization snapshots without cloning production credentials into a fresh preview environment.
-- **Reduce macOS background work / 降低 macOS 后台开销:** use one native status refresh scheduler, deliver fresh results to the UI, and defer freshness-only account-store writes.
+- **Add shared quota icon styles / 新增共享额度图标样式:** provide five compact styles for the macOS menu bar and Windows system tray, with live settings updates.
+- **Add a native Windows taskbar quota component / 新增 Windows 原生任务栏额度组件:** show quota on the left or right side of the taskbar, or keep only the system-tray icon.
+- **Add platform-specific first-launch setup / 新增分平台首次启动设置:** configure macOS text/icon quota surfaces and Windows taskbar/tray surfaces before entering the main application.
+- **Harden lifecycle, refresh, and validation / 加固生命周期、刷新与验收流程:** stabilize macOS status items, recover Windows taskbar surfaces, preserve meaningful refresh states, and keep preview data isolated.
 
 ## Changes / 改动
 
-### 1. Shared quota visual styles and settings / 共享额度视觉样式与设置
+### 1. Shared quota icon styles and live settings / 共享额度图标样式与实时设置
 
-The menu bar and taskbar surfaces now support a square number card, wide number card, gradient number, number progress bar, and app-icon progress ring. The app-icon ring style contains ring-only and ring-with-percentage variants. The same stored configuration drives supported Windows and macOS surfaces, and changes apply immediately.
+macOS and Windows now share five compact quota styles: square number card, wide number card, gradient number, number progress bar, and app-icon progress ring. On macOS, the progress-ring choice contains ring-only and ring-with-percentage variants. Users can also hide the compact quota icon, and settings apply immediately.
 
-菜单栏与任务栏展示现在支持方形数字卡、横向数字卡、渐变数字、数字进度条和图标进度环；图标进度环同时提供“仅显示进度环”和“显示百分比”两个子方案。
+macOS 和 Windows 现在共享五种紧凑额度样式：方形数字卡、横向数字卡、渐变数字、数字进度条和图标进度环。macOS 的图标进度环包含“仅显示进度环”和“显示百分比”两个子方案。用户也可以隐藏紧凑额度图标，设置会立即生效。
 
-**macOS quota icon style choices / macOS 额度图标样式选择**
+#### macOS quota icon choices / macOS 额度图标选择
 
-![macOS quota icon style choices / macOS 额度图标样式选择](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-quota-icon-style-settings.png)
+![macOS quota icon choices / macOS 额度图标选择](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-quota-icon-style-settings.png)
 
-**Windows quota icon style choices / Windows 额度图标样式选择**
+#### Windows quota icon choices / Windows 额度图标选择
 
-![Windows quota icon style choices / Windows 额度图标样式选择](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-quota-icon-style-settings.png)
+![Windows quota icon choices / Windows 额度图标选择](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-quota-icon-style-settings.png)
 
-**macOS menu-bar quota effect / macOS 菜单栏额度效果**
+#### Actual macOS menu-bar result / macOS 菜单栏实机效果
 
-![macOS menu-bar quota effect / macOS 菜单栏额度效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-menu-bar-quota-effect.png)
+![Actual macOS menu-bar quota result / macOS 菜单栏额度实机效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-menu-bar-quota-effect.png)
 
-**Windows tray quota icon effect / Windows 托盘额度图标效果**
+#### Actual Windows tray result / Windows 托盘实机效果
 
-![Windows tray quota icon effect / Windows 托盘额度图标效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-tray-quota-icon-effect.png)
+![Actual Windows tray quota result / Windows 托盘额度实机效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-tray-quota-icon-effect.png)
 
-### 2. Native Windows taskbar and tray quota surfaces / Windows 原生任务栏与托盘额度展示
+### 2. Native Windows taskbar quota component / Windows 原生任务栏额度组件
 
-Windows can render quota information as a native taskbar child surface on either side of the taskbar or as a system-tray icon. The implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI and Explorer recreation, uses premultiplied transparency, and rate-limits UI Automation scans.
+Windows can show quota at the far left or right side of the taskbar, or keep only the system-tray icon. The native implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI changes, Explorer recreation, premultiplied transparency, and rate-limited UI Automation scans.
 
-Windows 可将额度作为原生任务栏子组件放在任务栏左侧或右侧，也可以仅使用系统托盘图标。实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 与 Explorer 重建，采用预乘透明渲染，并限制 UI Automation 扫描频率。
+Windows 可以在任务栏最左侧或右侧显示额度，也可以仅保留系统托盘图标。原生实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 变化、Explorer 重建、预乘透明渲染和限频 UI Automation 扫描。
 
-Disabling the taskbar component now keeps its layered child window attached to the taskbar. Re-enabling it refreshes the native surface so the quota pixels reliably return; selecting either placement in the first-launch dialog also re-enables a hidden component.
+Turning the component off keeps its transparent child window attached to the taskbar. Turning it back on refreshes the native surface so its pixels return reliably. Selecting either taskbar placement during first-launch setup also re-enables a previously hidden component.
 
-关闭任务栏组件时，现在会保留透明分层子窗口与任务栏的挂载关系。重新启用时会刷新原生表面，确保额度像素恢复显示；在首次启动界面选择任一任务栏位置，也会自动重新启用已隐藏的组件。
+关闭组件时会保留其挂载在任务栏上的透明子窗口；重新开启时会刷新原生表面，使额度像素可靠恢复。在首次启动设置中选择任一任务栏位置，也会重新启用此前隐藏的组件。
 
-**Windows taskbar quota effect / Windows 任务栏额度效果**
+Windows Settings now exposes the four usable quota modes: remaining, used, five-hour remaining, and one-week remaining. A legacy or imported `hidden` text mode is treated as the default one-week mode on Windows, so selecting a taskbar position cannot leave the component invisibly disabled.
 
-![Windows taskbar quota effect / Windows 任务栏额度效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-taskbar-quota-effect.png)
+Windows 设置现在提供四种可用额度口径：剩余、已用、仅 5 小时剩余和仅 1 周剩余。历史或导入数据中的 `hidden` 文字模式在 Windows 上会安全回退为默认的“仅 1 周剩余”，避免已经选择任务栏位置但组件仍被隐式隐藏。
 
-### 3. Cross-platform first-launch quota setup / 应用首次启动额度图标设置
+#### Actual Windows taskbar result / Windows 任务栏实机效果
 
-The macOS onboarding dialog configures classic status text and the compact quota icon independently. Either surface can be enabled or disabled, both can remain disabled, all visual choices update live, and completion is persisted separately from the Windows onboarding state. The dialog intentionally contains no simulated menu-bar screenshots or detached preview copy.
+![Actual Windows taskbar quota result / Windows 任务栏额度实机效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-taskbar-quota-effect.png)
 
-macOS & Windows 首次设置对话框可分别配置经典文字额度栏和紧凑额度图标。两者都能独立启用或关闭，也允许同时关闭；全部视觉选择都会实时更新，完成状态与 Windows 引导分别持久化。界面不再包含模拟菜单栏截图或独立的预览说明文字。
+### 3. Platform-specific first-launch setup / 分平台首次启动设置
 
-The Windows onboarding dialog configures taskbar placement and the system-tray quota icon before the main application opens. It keeps at least one Windows quota surface active and explains the Windows Widgets placement interaction.
+The macOS dialog configures two independent surfaces. The text quota display can use either the Codex Tools icon or a progress-ring icon, while the compact quota icon can use any of the five shared styles. Either surface can be enabled independently, both can remain enabled, and both can also remain disabled.
 
-Windows 首次设置对话框会在进入主界面前配置任务栏组件位置与系统托盘额度图标，确保至少启用一种 Windows 额度展示，并说明与 Windows Widgets 位置的关系。
+macOS 对话框分别配置两个互相独立的展示入口。文字额度栏可以使用 Codex Tools 图标或进度环图标，紧凑额度图标可以使用五种共享样式中的任意一种。两个入口可以分别启用，也可以同时启用或同时关闭。
 
-**macOS first-launch quota setup effect / macOS 首次启动额度设置效果**
+The classic text choice uses a tightly cropped real menu-bar sample. A new user without an account sees a temporary 100% menu-bar preview while onboarding is incomplete, so the selected result is visible before an account is added.
 
-![macOS first-launch quota setup effect / macOS 首次启动额度设置效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-first-launch-quota-setup.png)
+经典文字方案使用经过紧凑裁切的真实菜单栏示例。未添加账号的新用户在完成引导前会看到临时的 100% 菜单栏预览，因此可以在添加账号前看到所选方案的实际效果。
 
-**Windows first-launch quota setup effect / Windows 首次启动额度设置效果**
+The Windows dialog configures taskbar placement and the system-tray quota icon before the main application opens. Windows keeps at least one quota surface enabled and explains how Windows Widgets affects left-side placement.
 
-![Windows first-launch quota setup effect / Windows 首次启动额度设置效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-first-launch-quota-setup.png)
+Windows 对话框会在进入主界面前配置任务栏位置和系统托盘额度图标。Windows 会保持至少一种额度展示处于启用状态，并说明 Windows Widgets 对任务栏左侧位置的影响。
 
-### 4. Runtime recovery and authorization freshness / 运行时恢复与授权新鲜度
+#### macOS first-launch setup / macOS 首次启动设置
 
-Quota surfaces retain explicit fresh, stale, and error states instead of silently clearing a previous refresh failure. After Explorer or taskbar changes, Windows rebinds and lays out the quota surface again, recreating the widget window only if it was actually destroyed. When the active instance receives a newer, rotated authorization snapshot whose refresh timestamp is not older than the stored snapshot, it can clear the obsolete authorization block and resume quota refresh; the same stale snapshot is never treated as recovery.
+![macOS first-launch quota setup / macOS 首次启动额度设置](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/macos-first-launch-quota-setup.png)
 
-额度展示会明确保留正常、缓存过期和错误状态，不再因普通设置刷新而静默清除此前的额度错误。Explorer 或任务栏变化后，Windows 会重新绑定并布局额度展示，只有组件窗口确实被销毁时才重新创建。当当前实例获得刷新令牌已轮换、且刷新时间不早于已保存快照的新授权时，可以清除旧授权阻塞并恢复额度刷新；相同的旧快照不会被误判为已经恢复。
+#### Windows first-launch setup / Windows 首次启动设置
 
-On macOS, one native status-bar scheduler refreshes status data every 60 seconds even when both visible quota surfaces are disabled, then emits the fresh result to the frontend. Freshness-only account-store writes are deferred for up to five minutes; material quota, auth, error, startup, manual, and import changes still persist immediately.
+![Windows first-launch quota setup / Windows 首次启动额度设置](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-first-launch-quota-setup.png)
 
-在 macOS 上，即使两个可见额度入口都关闭，单一原生状态栏调度器仍每 60 秒刷新一次状态，并将最新结果发送给前端。仅更新时间的新鲜度写盘最多延后五分钟；额度、授权、错误、启动、手动和导入等实质变化仍会立即持久化。
+### 4. Status-item and refresh reliability / 状态项与刷新可靠性
 
-Fresh isolated previews no longer copy the production account store or production `auth.json`. Existing preview data is preserved, so developers can migrate or reauthorize intentionally without destructive startup behavior.
+The macOS text and compact quota surfaces have separate persistent status-item identities. Old native items are removed before replacements are created, preventing an older wrapper from unregistering a newly created item. Three-digit quota values, including 100, are constrained to the icon canvas so they are not clipped.
 
-新的隔离预览不再复制正式版账号库或正式版 `auth.json`。已有预览数据保持不变，开发者可以主动迁移或重新授权，不会在启动时发生破坏性覆盖。
+macOS 的文字额度栏和紧凑额度图标拥有各自独立、持久的状态项身份。创建替代项前会先移除旧原生状态项，防止旧包装对象反向注销刚创建的新状态项。包括 100 在内的三位数额度会被限制在图标画布内，避免显示不完整。
+
+Quota surfaces keep explicit fresh, stale, and error states instead of clearing a previous refresh failure during an unrelated settings update. After Explorer or taskbar changes, Windows rebinds and lays out the existing quota surface, recreating its window only when that window was actually destroyed.
+
+额度展示会明确保留正常、缓存过期和错误状态，不会在无关的设置更新中清除此前的刷新错误。Explorer 或任务栏变化后，Windows 会重新绑定并布局现有额度展示，只有组件窗口确实被销毁时才重新创建窗口。
+
+When a genuinely newer rotated authorization snapshot arrives, the app can clear an obsolete authorization block and resume quota refresh. Reusing the same stale snapshot cannot falsely unlock refresh.
+
+当应用收到确实更新、且刷新令牌已经轮换的授权快照时，可以清除过时的授权阻塞并恢复额度刷新；重复使用同一份旧快照不会被误判为已经恢复。
+
+### 5. Background work and isolated macOS validation / 后台工作与 macOS 隔离验收
+
+macOS uses one native 60-second status refresh scheduler and sends fresh results to the frontend. Writes that only update freshness timestamps are deferred for up to five minutes, while quota, authorization, error, startup, manual, and import changes are still saved immediately.
+
+macOS 使用一个原生 60 秒状态刷新调度器，并将最新结果发送给前端。仅更新时间戳的新鲜度写盘最多延后五分钟；额度、授权、错误、启动、手动和导入等实质变化仍会立即保存。
+
+Fresh preview environments no longer copy the production account store or production `auth.json`. Debug macOS builds expose the real first-launch dialog from both Settings and the application menu, without a global keyboard shortcut. The validation script uses stable bundle identities, refuses concurrent `com.carry.codex-tools*` variants, and performs a best-effort read-only check for confirmed Control Center status-item pollution.
+
+新的预览环境不再复制正式版账号库或正式版 `auth.json`。macOS 调试构建可以从设置页和应用菜单重新打开真实首次启动对话框，并且不占用全局快捷键。验收脚本使用固定的应用身份，拒绝同时运行多个 `com.carry.codex-tools*` 变体，并以只读方式尽力检查已经确认的 Control Center 状态项污染。
 
 ## Validation / 验证
 
 ### macOS Apple Silicon
 
 - [x] Frontend production build and TypeScript / 前端生产构建与 TypeScript：`npm run build`
-- [x] ESLint completed with zero errors and four baseline unused-disable warnings / ESLint 完成，0 个错误、4 个基线 unused-disable 警告：`npm run lint`
-- [x] Onboarding tests / 首次设置测试：8 passed
-- [x] Usage-error tests / 额度错误测试：8 passed
-- [x] Full Rust suite / 完整 Rust 测试：238 passed
-- [x] Rust formatting / Rust 格式：`cargo fmt --check`
-- [x] Clippy completed successfully; macOS reports cross-platform dead-code warnings for Windows-only rendering helpers / Clippy 成功完成；macOS 对 Windows 专用渲染辅助代码报告跨平台 dead-code 警告
-- [x] Debug app and DMG generated; the app launched with isolated data / 已生成 debug 应用与 DMG，并使用隔离数据启动应用
-- [x] Computer Use regression: live style updates, both quota surfaces disabled, completion persistence, and restart behavior / Computer Use 回归：视觉样式实时更新、两类额度展示同时关闭、完成状态持久化及重启行为
-- [x] Runtime scheduling regression: one 60-second native refresh, frontend event delivery, and five-minute freshness-only persistence throttling / 运行时调度回归：单一 60 秒原生刷新、前端事件传递及五分钟新鲜度写盘节流
-- [x] Production dependency audit / 生产依赖审计：0 vulnerabilities
+- [x] ESLint completed with zero errors and four pre-existing unused-disable warnings / ESLint 完成，0 个错误、4 个既有 unused-disable 警告：`npm run lint`
+- [x] First-launch setup tests / 首次启动设置测试：10 passed
+- [x] Usage-error presentation tests / 额度错误展示测试：8 passed
+- [x] Full Rust suite / 完整 Rust 测试：240 passed
+- [x] Rust formatting / Rust 格式：`cargo fmt --manifest-path src-tauri/Cargo.toml --check`
+- [x] Git whitespace validation / Git 空白差异检查：`git diff --check`
+- [x] Release `.app` packaging with production Bundle ID, ad-hoc/no Team ID signing, and no debug-only quota-preview UI / Release `.app` 已使用正式 Bundle ID 完成打包，仅为 ad-hoc、无 Team ID，且不包含额度预览调试入口
+- [x] Debug acceptance app built and launched with isolated runtime and application data / Debug 验收应用已使用隔离的运行目录和应用数据完成构建、启动
+- [x] Live UI regression: Settings preview entry, application-menu entry without a shortcut, and real first-launch dialog reopening / 实时界面回归：设置页预览入口、无快捷键的应用菜单入口和真实首屏重新打开
+- [x] Menu-bar regression: independent text/icon visibility, live style changes, completion persistence, restart behavior, and new-user 100% preview / 菜单栏回归：文字与图标独立显示、样式实时切换、完成状态持久化、重启行为和新用户 100% 预览
+- [x] Runtime regression: one native refresh scheduler, frontend event delivery, and five-minute freshness-only write throttling / 运行时回归：单一原生刷新调度器、前端事件传递和五分钟新鲜度写盘节流
+- [x] npm production dependency audit / npm 生产依赖审计：0 vulnerabilities
 
 ### Windows 11
 
-Windows frontend validation was replayed from the pushed synchronized branch on the ROG-Strix host. Native packaging was not part of this final PR-draft replay. / Windows 前端验证已从推送后的同步分支在 ROG-Strix 主机上重跑；本次 PR 草稿最终回归不包含原生安装包重建。
-
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
-- [x] Node regression tests / Node 回归测试：19 passed
-- [x] Re-enable and placement regressions / 重新启用与位置选择回归：9/9 frontend and 17/17 Windows native tests passed / 前端 9/9、Windows 原生 17/17 通过
-- [x] ROG-Strix real-taskbar regression: off → on restores the visible widget; left → right → left remains visible / ROG-Strix 真实任务栏回归：关闭 → 开启恢复可见组件；左侧 → 右侧 → 左侧后仍正常显示
-- [x] Windows Rust compilation / Windows Rust 编译：`cargo check` passed / 通过
-- [x] Rust formatting / Rust 格式：`cargo fmt --check` passed / 通过
-- [x] Production dependency audit / 生产依赖审计：0 vulnerabilities
-- [x] Git diff whitespace check / Git 差异空白检查：passed / 通过
+- [x] Node regression tests / Node 回归测试：18 passed
+- [x] Re-enable and placement regressions / 重新启用与位置回归：9/9 frontend and 17/17 Windows native tests passed / 前端 9/9、Windows 原生测试 17/17 通过
+- [x] Real taskbar regression: off → on restores the visible component; left → right → left remains visible / 真实任务栏回归：关闭 → 开启后可见组件恢复；左侧 → 右侧 → 左侧切换后仍保持可见
+- [ ] Final Windows settings regression: four quota modes update live and a legacy `hidden` mode falls back to one-week remaining / Windows 设置最终回归：四种额度口径实时生效，历史 `hidden` 模式回退为仅 1 周剩余
+- [ ] Final Windows Rust compilation after the last settings migration is committed and synchronized / 最后一项设置迁移提交并同步后的 Windows Rust 最终编译：`cargo check`
+- [x] Rust formatting / Rust 格式：`cargo fmt --check`
+- [x] npm production dependency audit / npm 生产依赖审计：0 vulnerabilities
+- [x] Git whitespace validation / Git 空白差异检查：passed

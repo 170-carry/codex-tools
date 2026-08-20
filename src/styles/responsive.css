@@ -227,19 +227,6 @@
     min-height: 0;
   }
 
-  .settingRowMacosTrayTuning {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-
-  .macosTrayTuningControls {
-    width: 100%;
-  }
-
-  .macosTrayTuningField {
-    grid-template-columns: 84px minmax(0, 1fr) 68px;
-  }
-
   .trayUsageSettingsControls {
     width: 100%;
     justify-items: stretch;

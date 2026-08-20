@@ -590,7 +590,7 @@
     },
     "windowsTrayIconStyle": {
       "label": "트레이 아이콘 표시",
-      "description": "남은 할당량을 기준으로 그리는 5가지 아이콘 중 하나를 선택하거나 아이콘만 독립적으로 숨깁니다. 기존 텍스트 상태의 남음/사용됨 선택은 아이콘에 영향을 주지 않습니다.",
+      "description": "남은 할당량을 기준으로 그리는 5가지 아이콘 중 하나를 선택하거나 할당량 아이콘을 숨깁니다.",
       "groupAriaLabel": "트레이 아이콘 표시 스타일",
       "gradientNumberPlate": "정사각형 숫자 카드",
       "gradientNumberCard": "가로형 숫자 카드",
@@ -602,6 +602,11 @@
     "macosTrayLogoRingVariants": {
       "withPercentage": "백분율 표시",
       "withoutPercentage": "진행률 링만 표시"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "최초 할당량 설정 미리보기(디버그)",
+      "description": "계정 데이터를 지우거나 앱 ID를 변경하지 않고 실제 최초 설정을 다시 엽니다.",
+      "open": "설정 열기"
     },
     "windowsTaskbarWidget": {
       "label": "Windows 작업 표시줄 할당량 구성 요소",

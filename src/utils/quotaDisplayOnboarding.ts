@@ -11,6 +11,12 @@ type EnabledWindowsTaskbarWidgetPlacement = Exclude<
   "hidden"
 >;
 
+export function effectiveWindowsUsageDisplayMode(
+  mode: TrayUsageDisplayMode,
+): Exclude<TrayUsageDisplayMode, "hidden"> {
+  return mode === "hidden" ? "oneWeekRemaining" : mode;
+}
+
 export function activateWindowsTaskbarPlacement(
   placement: EnabledWindowsTaskbarWidgetPlacement,
 ) {

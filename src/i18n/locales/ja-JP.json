@@ -590,7 +590,7 @@
     },
     "windowsTrayIconStyle": {
       "label": "トレイアイコンの表示",
-      "description": "残り使用量に基づく 5 つのアイコンから選ぶか、アイコンだけを個別に非表示にします。従来のテキスト表示の「残り/使用済み」はアイコンに影響しません。",
+      "description": "残り使用量に基づく 5 つのアイコンから選ぶか、使用量アイコンを非表示にします。",
       "groupAriaLabel": "トレイアイコンの表示スタイル",
       "gradientNumberPlate": "正方形数字カード",
       "gradientNumberCard": "横長数字カード",
@@ -602,6 +602,11 @@
     "macosTrayLogoRingVariants": {
       "withPercentage": "パーセントを表示",
       "withoutPercentage": "進捗リングのみ"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "初回クォータ設定プレビュー（デバッグ）",
+      "description": "アカウントデータの削除やアプリ識別子の変更を行わず、実際の初回設定を再表示します。",
+      "open": "設定を開く"
     },
     "windowsTaskbarWidget": {
       "label": "Windows タスクバー使用量コンポーネント",

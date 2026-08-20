@@ -28,8 +28,7 @@ use crate::state::AppState;
 use crate::store::load_store;
 #[cfg(target_os = "macos")]
 use crate::tray_visual::{
-    debug_macos_tray_quota_percent, render_native_macos_tray_visual, tray_visual_dimensions,
-    TrayVisualPlatform, TrayVisualStatus,
+    render_native_macos_tray_visual, tray_visual_dimensions, TrayVisualPlatform, TrayVisualStatus,
 };
 #[cfg(target_os = "windows")]
 use crate::windows_taskbar_widget::WindowsTaskbarWidgetSnapshot;
@@ -43,7 +42,13 @@ use std::time::Duration;
 #[cfg(target_os = "macos")]
 const REFRESH_INTERVAL_SECONDS: u64 = 60;
 #[cfg(target_os = "macos")]
+const MACOS_ONBOARDING_PREVIEW_PERCENT: f64 = 100.0;
+#[cfg(target_os = "macos")]
 const MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT: &str = "macos-status-bar-usage-refreshed";
+#[cfg(target_os = "macos")]
+const MACOS_TEXT_STATUS_AUTOSAVE_NAME: &str = "com.carry.codex-tools.status-item.text";
+#[cfg(target_os = "macos")]
+const MACOS_QUOTA_STATUS_AUTOSAVE_NAME: &str = "com.carry.codex-tools.status-item.quota";
 #[cfg(target_os = "windows")]
 const WINDOWS_WIDGET_STALE_AFTER_SECONDS: i64 = 10 * 60;
 
@@ -174,7 +179,7 @@ struct WindowsUsageSurfaceConfig {
 fn read_windows_usage_config(app: &AppHandle) -> WindowsUsageSurfaceConfig {
     load_store(app)
         .map(|store| WindowsUsageSurfaceConfig {
-            mode: store.settings.tray_usage_display_mode,
+            mode: effective_windows_usage_display_mode(store.settings.tray_usage_display_mode),
             show_window_labels: store.settings.tray_usage_title_show_window_labels,
             tray_icon_style: store.settings.windows_tray_icon_style,
             tray_quota_icon_visible: store.settings.tray_quota_icon_visible,
@@ -187,6 +192,19 @@ fn read_windows_usage_config(app: &AppHandle) -> WindowsUsageSurfaceConfig {
             tray_quota_icon_visible: true,
             widget_placement: WindowsTaskbarWidgetPlacement::default(),
         })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn effective_windows_usage_display_mode(mode: TrayUsageDisplayMode) -> TrayUsageDisplayMode {
+    if mode == TrayUsageDisplayMode::Hidden {
+        // Windows has a dedicated taskbar placement switch. Older or imported
+        // settings may still contain the macOS-only hidden text mode; treating
+        // that value as the Windows default prevents a selected taskbar
+        // placement from remaining invisibly disabled.
+        TrayUsageDisplayMode::OneWeekRemaining
+    } else {
+        mode
+    }
 }
 
 fn tray_icon_percent(accounts: &[AccountSummary], mode: TrayUsageDisplayMode) -> Option<f64> {
@@ -216,8 +234,12 @@ fn quota_icon_percent(accounts: &[AccountSummary]) -> Option<f64> {
 }
 
 #[cfg(target_os = "macos")]
-fn macos_quota_icon_percent(accounts: &[AccountSummary]) -> Option<f64> {
-    debug_macos_tray_quota_percent().or_else(|| quota_icon_percent(accounts))
+fn macos_onboarding_preview_percent(
+    onboarding_completed: bool,
+    accounts: &[AccountSummary],
+) -> Option<f64> {
+    (!onboarding_completed && !accounts.iter().any(|account| account.is_current))
+        .then_some(MACOS_ONBOARDING_PREVIEW_PERCENT)
 }
 
 #[cfg(target_os = "macos")]
@@ -452,6 +474,35 @@ fn build_tray_usage_title(
         "5h -- / 1w --".to_string()
     } else {
         "-- / --".to_string()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_onboarding_preview_title(
+    mode: TrayUsageDisplayMode,
+    show_window_labels: bool,
+    percent: f64,
+) -> String {
+    if mode == TrayUsageDisplayMode::Hidden {
+        return String::new();
+    }
+
+    let percent = format_percent(Some(percent));
+    if only_show_single_window(mode) {
+        if !show_window_labels {
+            return percent;
+        }
+        return match mode {
+            TrayUsageDisplayMode::FiveHourRemaining => format!("5h {percent}"),
+            TrayUsageDisplayMode::OneWeekRemaining => format!("1w {percent}"),
+            _ => unreachable!("single-window modes are handled above"),
+        };
+    }
+
+    if show_window_labels {
+        format!("5h {percent} / 1w {percent}")
+    } else {
+        format!("{percent} / {percent}")
     }
 }
 
@@ -720,6 +771,7 @@ fn build_macos_tray_menu(
 fn build_native_macos_status_bar_tray(
     app: &AppHandle,
     id: &str,
+    autosave_name: &str,
     accounts: &[AccountSummary],
     mode: TrayUsageDisplayMode,
     icon: tray_icon::Icon,
@@ -729,7 +781,7 @@ fn build_native_macos_status_bar_tray(
 ) -> Result<tray_icon::TrayIcon, String> {
     use tray_icon::TrayIconBuilder;
 
-    TrayIconBuilder::new()
+    let tray = TrayIconBuilder::new()
         .with_id(id)
         .with_menu(Box::new(build_macos_tray_menu(app, accounts, mode)?))
         .with_icon(icon)
@@ -738,7 +790,13 @@ fn build_native_macos_status_bar_tray(
         .with_tooltip(tooltip)
         .with_menu_on_left_click(true)
         .build()
-        .map_err(|error| format!("创建 {description} macOS 状态栏失败: {error}"))
+        .map_err(|error| format!("创建 {description} macOS 状态栏失败: {error}"))?;
+    let status_item = tray
+        .ns_status_item()
+        .ok_or_else(|| format!("读取 {description} macOS 状态项失败"))?;
+    let autosave_name = objc2_foundation::NSString::from_str(autosave_name);
+    status_item.setAutosaveName(Some(&autosave_name));
+    Ok(tray)
 }
 
 #[cfg(target_os = "macos")]
@@ -768,10 +826,15 @@ fn update_macos_tray_snapshot_on_main_thread(
     let quota_icon_visible = read_tray_quota_icon_visible(app);
     let logo_ring_show_percentage = read_macos_tray_logo_ring_show_percentage(app);
     let locale = i18n::app_locale(app);
-    let percent = macos_quota_icon_percent(accounts);
+    let onboarding_preview_percent = load_store(app).ok().and_then(|store| {
+        macos_onboarding_preview_percent(store.settings.macos_quota_onboarding_completed, accounts)
+    });
+    let percent = quota_icon_percent(accounts).or(onboarding_preview_percent);
 
     if should_show_usage_surface(mode) {
-        let title = build_tray_usage_title(accounts, mode, show_window_labels);
+        let title = onboarding_preview_percent
+            .map(|percent| build_macos_onboarding_preview_title(mode, show_window_labels, percent))
+            .unwrap_or_else(|| build_tray_usage_title(accounts, mode, show_window_labels));
         let tooltip = build_macos_tray_tooltip(accounts, mode, locale);
         #[cfg(debug_assertions)]
         log_macos_status_bar_render("update", accounts, &title);
@@ -790,6 +853,7 @@ fn update_macos_tray_snapshot_on_main_thread(
             let tray = build_native_macos_status_bar_tray(
                 app,
                 text_tray_id(text_icon_style),
+                MACOS_TEXT_STATUS_AUTOSAVE_NAME,
                 accounts,
                 mode,
                 native_macos_text_status_icon(app, text_icon_style, percent)?,
@@ -836,6 +900,7 @@ fn update_macos_tray_snapshot_on_main_thread(
         let tray = build_native_macos_status_bar_tray(
             app,
             "codex_tools_native_status_bar",
+            MACOS_QUOTA_STATUS_AUTOSAVE_NAME,
             accounts,
             quota_mode,
             native_macos_tray_icon(app, icon_style, percent)?,
@@ -1236,19 +1301,26 @@ fn create_macos_status_bar_trays(
         current_account_key.as_deref(),
         current_variant_key.as_deref(),
     );
-    let title = build_tray_usage_title(&summaries, mode, show_window_labels);
+    let onboarding_preview_percent = macos_onboarding_preview_percent(
+        store.settings.macos_quota_onboarding_completed,
+        &summaries,
+    );
+    let title = onboarding_preview_percent
+        .map(|percent| build_macos_onboarding_preview_title(mode, show_window_labels, percent))
+        .unwrap_or_else(|| build_tray_usage_title(&summaries, mode, show_window_labels));
     let tooltip = build_macos_tray_tooltip(&summaries, mode, locale);
     #[cfg(debug_assertions)]
     log_macos_status_bar_render(_log_context, &summaries, &title);
 
     let quota_mode = TrayUsageDisplayMode::Remaining;
-    let percent = macos_quota_icon_percent(&summaries);
+    let percent = quota_icon_percent(&summaries).or(onboarding_preview_percent);
     let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
     let quota_tooltip = build_macos_tray_tooltip(&summaries, quota_mode, locale);
     let quota_tray = if quota_icon_visible {
         Some(build_native_macos_status_bar_tray(
             app,
             "codex_tools_native_status_bar",
+            MACOS_QUOTA_STATUS_AUTOSAVE_NAME,
             &summaries,
             quota_mode,
             native_macos_tray_icon(app, icon_style, percent)?,
@@ -1266,6 +1338,7 @@ fn create_macos_status_bar_trays(
             build_native_macos_status_bar_tray(
                 app,
                 text_tray_id(MacosTrayTextIconStyle::CodexTools),
+                MACOS_TEXT_STATUS_AUTOSAVE_NAME,
                 &summaries,
                 mode,
                 native_macos_text_status_icon(app, MacosTrayTextIconStyle::CodexTools, percent)?,
@@ -1280,6 +1353,7 @@ fn create_macos_status_bar_trays(
             build_native_macos_status_bar_tray(
                 app,
                 text_tray_id(MacosTrayTextIconStyle::ProgressRing),
+                MACOS_TEXT_STATUS_AUTOSAVE_NAME,
                 &summaries,
                 mode,
                 native_macos_text_status_icon(app, MacosTrayTextIconStyle::ProgressRing, percent)?,
@@ -1483,9 +1557,14 @@ pub(crate) fn handle_status_bar_menu_event(app: &AppHandle, event: tauri::menu::
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use super::build_macos_onboarding_preview_title;
     use super::build_tray_usage_title;
     #[cfg(target_os = "windows")]
     use super::build_windows_widget_snapshot;
+    use super::effective_windows_usage_display_mode;
+    #[cfg(target_os = "macos")]
+    use super::macos_onboarding_preview_percent;
     #[cfg(target_os = "macos")]
     use super::macos_quota_icon_title;
     #[cfg(target_os = "macos")]
@@ -1496,6 +1575,10 @@ mod tests {
     use super::tray_account_usage_line;
     #[cfg(target_os = "windows")]
     use super::tray_icon_percent;
+    #[cfg(target_os = "macos")]
+    use super::MACOS_QUOTA_STATUS_AUTOSAVE_NAME;
+    #[cfg(target_os = "macos")]
+    use super::MACOS_TEXT_STATUS_AUTOSAVE_NAME;
     #[cfg(target_os = "macos")]
     use super::REFRESH_INTERVAL_SECONDS;
     use crate::models::AccountSummary;
@@ -1514,6 +1597,29 @@ mod tests {
     #[test]
     fn macos_status_bar_refreshes_once_per_minute() {
         assert_eq!(REFRESH_INTERVAL_SECONDS, 60);
+    }
+
+    #[test]
+    fn windows_legacy_hidden_usage_mode_falls_back_to_one_week_remaining() {
+        assert_eq!(
+            effective_windows_usage_display_mode(TrayUsageDisplayMode::Hidden),
+            TrayUsageDisplayMode::OneWeekRemaining
+        );
+        assert_eq!(
+            effective_windows_usage_display_mode(TrayUsageDisplayMode::FiveHourRemaining),
+            TrayUsageDisplayMode::FiveHourRemaining
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_text_and_quota_status_items_have_distinct_persistent_names() {
+        assert!(!MACOS_TEXT_STATUS_AUTOSAVE_NAME.is_empty());
+        assert!(!MACOS_QUOTA_STATUS_AUTOSAVE_NAME.is_empty());
+        assert_ne!(
+            MACOS_TEXT_STATUS_AUTOSAVE_NAME,
+            MACOS_QUOTA_STATUS_AUTOSAVE_NAME
+        );
     }
 
     fn current_account_with_usage() -> AccountSummary {
@@ -1558,6 +1664,25 @@ mod tests {
             api_proxy_enabled: false,
             is_current: true,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_new_user_without_an_account_gets_a_one_hundred_percent_preview() {
+        assert_eq!(macos_onboarding_preview_percent(false, &[]), Some(100.0));
+        assert_eq!(
+            build_macos_onboarding_preview_title(
+                TrayUsageDisplayMode::OneWeekRemaining,
+                false,
+                100.0,
+            ),
+            "100%"
+        );
+        assert_eq!(
+            macos_onboarding_preview_percent(false, &[current_account_with_usage()]),
+            None
+        );
+        assert_eq!(macos_onboarding_preview_percent(true, &[]), None);
     }
 
     #[test]

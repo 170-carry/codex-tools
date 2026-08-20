@@ -158,6 +158,8 @@ dependencies = [
  "futures-util",
  "if-addrs",
  "log",
+ "objc2-app-kit",
+ "objc2-foundation",
  "png",
  "reqwest 0.12.28",
  "rfd",

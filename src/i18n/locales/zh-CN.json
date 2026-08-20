@@ -590,7 +590,7 @@
     },
     "windowsTrayIconStyle": {
       "label": "额度图标样式",
-      "description": "选择一种按剩余额度绘制的紧凑图标，或单独关闭额度图标；经典文字额度栏的显示方式不会改变这里的图标。",
+      "description": "选择一种按剩余额度绘制的紧凑图标，或关闭额度图标。",
       "groupAriaLabel": "额度图标样式",
       "gradientNumberPlate": "方形数字卡",
       "gradientNumberCard": "横向数字卡",
@@ -602,6 +602,11 @@
     "macosTrayLogoRingVariants": {
       "withPercentage": "显示百分比",
       "withoutPercentage": "仅显示进度环"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "首次额度设置预览（调试）",
+      "description": "重新打开真实首屏设置；不会清除账号数据，也不会更换应用身份。",
+      "open": "打开首屏设置"
     },
     "windowsTaskbarWidget": {
       "label": "Windows 任务栏额度组件",

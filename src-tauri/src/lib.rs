@@ -81,11 +81,15 @@ use utils::new_background_command;
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
 const APP_MENU_OPEN_SETTINGS_EVENT: &str = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT: &str = "app-menu-check-update";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT: &str = "app-menu-open-quota-onboarding";
 const CODEX_COST_ANALYTICS_PROGRESS_EVENT: &str = "codex-cost-analytics-progress";
 const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT: &str = "main-window-visibility-changed";
 const CODEX_COST_ANALYTICS_CACHE_FILE: &str = "codex-cost-analytics-cache.json";
 const APP_MENU_SETTINGS_ID: &str = "app_menu_settings";
 const APP_MENU_CHECK_UPDATES_ID: &str = "app_menu_check_updates";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const APP_MENU_OPEN_QUOTA_ONBOARDING_ID: &str = "app_menu_open_quota_onboarding";
 #[cfg(not(target_os = "macos"))]
 const BACKGROUND_USAGE_REFRESH_INTERVAL_SECS: u64 = 300;
 const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
@@ -591,21 +595,6 @@ fn get_tray_visual_previews(
     let _ = device_pixel_ratio;
 
     tray_visual::render_tray_visual_previews(platform, base_size, light_theme)
-}
-
-#[tauri::command]
-fn get_debug_macos_tray_card_tuning() -> Option<tray_visual::MacosTrayCardTuning> {
-    tray_visual::debug_macos_tray_card_tuning()
-}
-
-#[tauri::command]
-fn set_debug_macos_tray_card_tuning(
-    app: AppHandle,
-    tuning: tray_visual::MacosTrayCardTuning,
-) -> Result<tray_visual::MacosTrayCardTuning, String> {
-    let tuning = tray_visual::set_debug_macos_tray_card_tuning(tuning)?;
-    tray::refresh_macos_tray_snapshot(&app)?;
-    Ok(tuning)
 }
 
 #[tauri::command]
@@ -1161,6 +1150,7 @@ async fn update_app_settings(
         || patch.windows_tray_icon_style.is_some()
         || patch.tray_quota_icon_visible.is_some()
         || patch.macos_tray_logo_ring_show_percentage.is_some()
+        || patch.macos_quota_onboarding_completed.is_some()
         || patch.windows_taskbar_widget_placement.is_some()
         || patch.locale.is_some();
     let previous_settings = if refresh_usage_surfaces {
@@ -1341,6 +1331,11 @@ async fn pick_codex_launch_path(
 fn get_runtime_platform() -> &'static str {
     // 前端据此隐藏仅 macOS 有实现的状态栏标题选项，避免其他平台保存后静默无效。
     std::env::consts::OS
+}
+
+#[tauri::command]
+fn is_debug_build() -> bool {
+    cfg!(debug_assertions)
 }
 
 #[tauri::command]
@@ -2820,6 +2815,23 @@ fn setup_macos_app_menu(app: &AppHandle) -> Result<(), String> {
     )
     .map_err(|e| format!("创建应用菜单失败: {e}"))?;
 
+    #[cfg(debug_assertions)]
+    {
+        let open_quota_onboarding = MenuItem::with_id(
+            app,
+            APP_MENU_OPEN_QUOTA_ONBOARDING_ID,
+            "Open Quota Setup Preview",
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| format!("创建额度首屏调试菜单失败: {e}"))?;
+        // Keep the preview command next to Settings and Check for Updates. The
+        // following production separator remains in place after this insertion.
+        app_menu
+            .insert(&open_quota_onboarding, 4)
+            .map_err(|e| format!("插入额度首屏调试菜单失败: {e}"))?;
+    }
+
     let file_menu = Submenu::with_items(
         app,
         "File",
@@ -2912,6 +2924,13 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         return;
     }
 
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if id == APP_MENU_OPEN_QUOTA_ONBOARDING_ID {
+        restore_main_window(app);
+        let _ = app.emit(APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT, ());
+        return;
+    }
+
     tray::handle_status_bar_menu_event(app, event);
 }
 
@@ -2960,8 +2979,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_tray_visual_previews,
-            get_debug_macos_tray_card_tuning,
-            set_debug_macos_tray_card_tuning,
             list_accounts,
             import_current_auth_account,
             create_api_account,
@@ -2988,6 +3005,7 @@ pub fn run() {
             open_external_url,
             pick_codex_launch_path,
             get_runtime_platform,
+            is_debug_build,
             prepare_oauth_login,
             complete_oauth_callback_login,
             cancel_oauth_login,

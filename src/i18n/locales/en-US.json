@@ -590,7 +590,7 @@
     },
     "windowsTrayIconStyle": {
       "label": "Quota icon style",
-      "description": "Choose a compact icon based on remaining quota, or hide the quota icon independently. The classic text display does not change this icon.",
+      "description": "Choose a compact icon based on remaining quota, or hide the quota icon.",
       "groupAriaLabel": "Quota icon style",
       "gradientNumberPlate": "Square number card",
       "gradientNumberCard": "Wide number card",
@@ -602,6 +602,11 @@
     "macosTrayLogoRingVariants": {
       "withPercentage": "Show percentage",
       "withoutPercentage": "Progress ring only"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "First-launch quota setup preview (Debug)",
+      "description": "Reopens the real setup without clearing account data or changing the app identity.",
+      "open": "Open setup"
     },
     "windowsTaskbarWidget": {
       "label": "Windows taskbar quota component",

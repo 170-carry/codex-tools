@@ -1352,59 +1352,6 @@
   line-height: 1.2;
 }
 
-.settingRowMacosTrayTuning {
-  grid-template-columns: minmax(180px, 1fr) minmax(400px, 520px);
-  align-items: start;
-  min-height: 174px;
-  padding-block: 12px;
-}
-
-.macosTrayTuningControls {
-  display: grid;
-  gap: 10px;
-  width: 100%;
-}
-
-.macosTrayTuningOverride {
-  display: flex;
-  grid-column: 1 / -1;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.macosTrayTuningField {
-  display: grid;
-  grid-template-columns: 88px minmax(180px, 1fr) 72px;
-  align-items: center;
-  gap: 10px;
-  color: var(--subtle);
-  font: 600 0.76rem/1.2 var(--font-ui);
-}
-
-.macosTrayTuningField input[type="range"] {
-  width: 100%;
-  accent-color: var(--brand-cool);
-}
-
-.macosTrayTuningField output {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.macosTrayTuningActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.macosTrayTuningActions .settingDescription {
-  margin-top: 0;
-}
-
 .settingRowNested {
   background: color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%);
 }

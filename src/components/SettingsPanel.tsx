@@ -9,6 +9,7 @@ import {
   PROJECT_REPOSITORY_URL,
 } from "../constants/externalLinks";
 import { useI18n } from "../i18n/I18nProvider";
+import { effectiveWindowsUsageDisplayMode } from "../utils/quotaDisplayOnboarding";
 import { EditorMultiSelect } from "./EditorMultiSelect";
 import { ThemeSwitch } from "./ThemeSwitch";
 import { SwitchField } from "./SwitchField";
@@ -51,26 +52,6 @@ type TrayVisualPreview = {
   pixelHeight: number;
 };
 
-type MacosTrayCardTuning = {
-  overrideQuotaPercent: boolean;
-  quotaPercent: number;
-  digitScale: number;
-  hundredDigitScale: number;
-  borderWidth: number;
-  edgeOutset: number;
-  haloAlpha: number;
-};
-
-const DEFAULT_MACOS_TRAY_CARD_TUNING: MacosTrayCardTuning = {
-  overrideQuotaPercent: false,
-  quotaPercent: 97,
-  digitScale: 1,
-  hundredDigitScale: 1.3,
-  borderWidth: 3.75,
-  edgeOutset: 1,
-  haloAlpha: 0,
-};
-
 export function SettingsPanel({
   themeMode,
   onToggleTheme,
@@ -87,14 +68,11 @@ export function SettingsPanel({
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [trayVisualPreviews, setTrayVisualPreviews] = useState<TrayVisualPreview[]>([]);
   const [runtimePlatform, setRuntimePlatform] = useState<string | null>(null);
+  const [debugBuild, setDebugBuild] = useState(false);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
   const [windowsWidgetsEnabled, setWindowsWidgetsEnabled] = useState(false);
   const [windowsWidgetsError, setWindowsWidgetsError] = useState(false);
   const [openingWindowsTaskbarSettings, setOpeningWindowsTaskbarSettings] = useState(false);
-  const [macosTrayCardTuning, setMacosTrayCardTuning] = useState<MacosTrayCardTuning | null>(null);
-  const [macosTrayCardTuningLoaded, setMacosTrayCardTuningLoaded] = useState(false);
-  const [macosTrayCardTuningApplying, setMacosTrayCardTuningApplying] = useState(false);
-  const [macosTrayCardTuningError, setMacosTrayCardTuningError] = useState(false);
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
     id: item.code,
@@ -103,6 +81,10 @@ export function SettingsPanel({
   const versionValue = appVersion ? `v${appVersion}` : "...";
   const isWindows = runtimePlatform === "windows";
   const isMacos = runtimePlatform === "macos";
+  const selectedTrayUsageDisplayMode =
+    isWindows
+      ? effectiveWindowsUsageDisplayMode(settings.trayUsageDisplayMode)
+      : settings.trayUsageDisplayMode;
   const trayPreviewScale = typeof window !== "undefined" ? Math.max(1, window.devicePixelRatio || 1) : 1;
   const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle | "hidden"; label: string }> = [
     { value: "gradientNumberPlate", label: copy.settings.windowsTrayIconStyle.gradientNumberPlate },
@@ -151,6 +133,26 @@ export function SettingsPanel({
                 ? "windows"
                 : "other",
           );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void invoke<boolean>("is_debug_build")
+      .then((enabled) => {
+        if (!cancelled) {
+          setDebugBuild(enabled);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDebugBuild(false);
         }
       });
 
@@ -221,54 +223,6 @@ export function SettingsPanel({
     };
   }, [isWindows]);
 
-  useEffect(() => {
-    if (!isMacos) {
-      return;
-    }
-
-    let cancelled = false;
-    void invoke<MacosTrayCardTuning | null>("get_debug_macos_tray_card_tuning")
-      .then((tuning) => {
-        if (!cancelled && tuning) {
-          setMacosTrayCardTuning(tuning);
-          setMacosTrayCardTuningLoaded(true);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isMacos]);
-
-  useEffect(() => {
-    if (!isMacos || !macosTrayCardTuningLoaded || !macosTrayCardTuning) {
-      return;
-    }
-
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      setMacosTrayCardTuningApplying(true);
-      setMacosTrayCardTuningError(false);
-      void invoke("set_debug_macos_tray_card_tuning", { tuning: macosTrayCardTuning })
-        .catch(() => {
-          if (!cancelled) {
-            setMacosTrayCardTuningError(true);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setMacosTrayCardTuningApplying(false);
-          }
-        });
-    }, 100);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [isMacos, macosTrayCardTuning, macosTrayCardTuningLoaded]);
-
   const openWindowsTaskbarSettings = async () => {
     if (openingWindowsTaskbarSettings) {
       return;
@@ -329,7 +283,7 @@ export function SettingsPanel({
             <ThemeSwitch themeMode={themeMode} onToggle={onToggleTheme} />
           </div>
 
-          {runtimePlatform === "macos" ? (
+          {isMacos || isWindows ? (
             <div className="settingRow settingRowTrayUsage">
               <div className="settingMeta">
                 <strong>{copy.settings.trayUsageDisplay.label}</strong>
@@ -341,45 +295,47 @@ export function SettingsPanel({
                 aria-label={copy.settings.trayUsageDisplay.groupAriaLabel}
               >
                 <button
-                  className={settings.trayUsageDisplayMode === "remaining" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "remaining" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "remaining" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "remaining"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "remaining"}
                 >
                   {copy.settings.trayUsageDisplay.remaining}
                 </button>
                 <button
-                  className={settings.trayUsageDisplayMode === "used" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "used" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "used" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "used"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "used"}
                 >
                   {copy.settings.trayUsageDisplay.used}
                 </button>
                 <button
-                  className={settings.trayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "fiveHourRemaining" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "fiveHourRemaining"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "fiveHourRemaining"}
                 >
                   {copy.settings.trayUsageDisplay.fiveHourRemaining}
                 </button>
                 <button
-                  className={settings.trayUsageDisplayMode === "oneWeekRemaining" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "oneWeekRemaining" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "oneWeekRemaining" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "oneWeekRemaining"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "oneWeekRemaining"}
                 >
                   {copy.settings.trayUsageDisplay.oneWeekRemaining}
                 </button>
-                <button
-                  className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
-                  disabled={savingSettings}
-                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "hidden"}
-                >
-                  {copy.settings.trayUsageDisplay.hidden}
-                </button>
+                {isMacos ? (
+                  <button
+                    className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
+                    aria-pressed={settings.trayUsageDisplayMode === "hidden"}
+                  >
+                    {copy.settings.trayUsageDisplay.hidden}
+                  </button>
+                ) : null}
               </div>
               <label
                 className="themeSwitch trayUsageTitleSwitch"
@@ -538,156 +494,28 @@ export function SettingsPanel({
             </div>
           ) : null}
 
-          {isMacos && macosTrayCardTuning ? (
-            <div className="settingRow settingRowMacosTrayTuning">
+          {isMacos && debugBuild ? (
+            <div className="settingRow">
               <div className="settingMeta">
-                <strong>菜单栏边框调试（测试版）</strong>
+                <strong>{copy.settings.macosQuotaOnboardingPreview.label}</strong>
                 <span className="settingDescription">
-                  外观参数实时生效；默认跟随当前账号，也可临时启用测试额度。重启应用会恢复默认值。
+                  {copy.settings.macosQuotaOnboardingPreview.description}
                 </span>
               </div>
-              <div className="macosTrayTuningControls">
-                <label className="macosTrayTuningOverride">
-                  <input
-                    type="checkbox"
-                    checked={macosTrayCardTuning.overrideQuotaPercent}
-                    aria-label="使用 macOS 菜单栏测试额度"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current
-                          ? { ...current, overrideQuotaPercent: event.target.checked }
-                          : current,
-                      )
-                    }
-                  />
-                  <span>使用测试额度（关闭时跟随当前账号）</span>
-                </label>
-                <label className="macosTrayTuningField">
-                  <span>显示额度</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={macosTrayCardTuning.quotaPercent}
-                    disabled={!macosTrayCardTuning.overrideQuotaPercent}
-                    aria-label="macOS 菜单栏测试显示额度"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current ? { ...current, quotaPercent: Number(event.target.value) } : current,
-                      )
-                    }
-                  />
-                  <output>{macosTrayCardTuning.quotaPercent}%</output>
-                </label>
-                <label className="macosTrayTuningField">
-                  <span>其他数字大小</span>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.05"
-                    value={macosTrayCardTuning.digitScale}
-                    aria-label="macOS 菜单栏其他数字大小"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current ? { ...current, digitScale: Number(event.target.value) } : current,
-                      )
-                    }
-                  />
-                  <output>{macosTrayCardTuning.digitScale.toFixed(2)}×</output>
-                </label>
-                <label className="macosTrayTuningField">
-                  <span>100 数字大小</span>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.05"
-                    value={macosTrayCardTuning.hundredDigitScale}
-                    aria-label="macOS 菜单栏 100 数字大小"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current
-                          ? { ...current, hundredDigitScale: Number(event.target.value) }
-                          : current,
-                      )
-                    }
-                  />
-                  <output>{macosTrayCardTuning.hundredDigitScale.toFixed(2)}×</output>
-                </label>
-                <label className="macosTrayTuningField">
-                  <span>边框宽度</span>
-                  <input
-                    type="range"
-                    min="0.25"
-                    max="16"
-                    step="0.25"
-                    value={macosTrayCardTuning.borderWidth}
-                    aria-label="macOS 菜单栏卡片边框宽度"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current ? { ...current, borderWidth: Number(event.target.value) } : current,
-                      )
-                    }
-                  />
-                  <output>{macosTrayCardTuning.borderWidth.toFixed(2)} px</output>
-                </label>
-                <label className="macosTrayTuningField">
-                  <span>边缘柔化</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="8"
-                    step="0.25"
-                    value={macosTrayCardTuning.edgeOutset}
-                    aria-label="macOS 菜单栏卡片边缘柔化宽度"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current ? { ...current, edgeOutset: Number(event.target.value) } : current,
-                      )
-                    }
-                  />
-                  <output>{macosTrayCardTuning.edgeOutset.toFixed(2)} px</output>
-                </label>
-                <label className="macosTrayTuningField">
-                  <span>残影透明度</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="255"
-                    step="1"
-                    value={macosTrayCardTuning.haloAlpha}
-                    aria-label="macOS 菜单栏卡片残影透明度"
-                    onChange={(event) =>
-                      setMacosTrayCardTuning((current) =>
-                        current ? { ...current, haloAlpha: Number(event.target.value) } : current,
-                      )
-                    }
-                  />
-                  <output>{macosTrayCardTuning.haloAlpha}</output>
-                </label>
-                <div className="macosTrayTuningActions">
-                  <span
-                    className={`settingDescription ${macosTrayCardTuningError ? "isError" : ""}`}
-                    role={macosTrayCardTuningError ? "alert" : undefined}
-                  >
-                    {macosTrayCardTuningError
-                      ? "应用参数失败"
-                      : macosTrayCardTuningApplying
-                        ? "正在应用…"
-                        : macosTrayCardTuning.overrideQuotaPercent
-                          ? "已使用测试额度"
-                          : "已跟随当前账号额度"}
-                  </span>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => setMacosTrayCardTuning(DEFAULT_MACOS_TRAY_CARD_TUNING)}
-                  >
-                    恢复默认值
-                  </button>
-                </div>
+              <div className="settingActionGroup">
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={savingSettings}
+                  onClick={() =>
+                    onUpdateSettings(
+                      { macosQuotaOnboardingCompleted: false },
+                      { silent: true, throwOnError: true, keepInteractive: true },
+                    )
+                  }
+                >
+                  {copy.settings.macosQuotaOnboardingPreview.open}
+                </button>
               </div>
             </div>
           ) : null}
