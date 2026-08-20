@@ -354,6 +354,15 @@ fn write_store_file(path: &Path, store: &AccountsStore) -> Result<(), String> {
 fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStore {
     let mut changed = false;
 
+    #[cfg(target_os = "windows")]
+    if normalize_legacy_windows_usage_mode(&mut store.settings) {
+        log::warn!(
+            "Windows 历史额度显示模式已迁移为一周剩余 {}",
+            path.display()
+        );
+        changed = true;
+    }
+
     for account in &mut store.accounts {
         if account
             .principal_id
@@ -390,6 +399,16 @@ fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStor
     }
 
     store
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn normalize_legacy_windows_usage_mode(settings: &mut crate::models::AppSettings) -> bool {
+    if settings.tray_usage_display_mode != crate::models::TrayUsageDisplayMode::Hidden {
+        return false;
+    }
+
+    settings.tray_usage_display_mode = crate::models::TrayUsageDisplayMode::OneWeekRemaining;
+    true
 }
 
 fn repair_missing_profile_files(path: &Path, account: &mut StoredAccount) -> bool {
@@ -679,13 +698,16 @@ fn backup_corrupted_store_file(path: &Path, raw: &str) -> Result<PathBuf, String
 #[cfg(test)]
 mod tests {
     use super::load_store_from_path;
+    use super::normalize_legacy_windows_usage_mode;
     use super::save_store_to_path;
     use super::sync_current_auth_account_on_startup_with_auth;
     use super::LAST_GOOD_BACKUP_FILE_NAME;
     use super::PREVIOUS_GOOD_BACKUP_FILE_NAME;
     use crate::models::AccountSourceKind;
     use crate::models::AccountsStore;
+    use crate::models::AppSettings;
     use crate::models::StoredAccount;
+    use crate::models::TrayUsageDisplayMode;
     use crate::models::UsageSnapshot;
     use crate::models::UsageWindow;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -734,6 +756,45 @@ mod tests {
             }],
             settings: Default::default(),
         }
+    }
+
+    #[test]
+    fn windows_legacy_hidden_usage_mode_migrates_once() {
+        let mut settings = AppSettings {
+            tray_usage_display_mode: TrayUsageDisplayMode::Hidden,
+            ..AppSettings::default()
+        };
+
+        assert!(normalize_legacy_windows_usage_mode(&mut settings));
+        assert_eq!(
+            settings.tray_usage_display_mode,
+            TrayUsageDisplayMode::OneWeekRemaining
+        );
+        assert!(!normalize_legacy_windows_usage_mode(&mut settings));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn loading_a_windows_store_persists_the_legacy_hidden_mode_migration() {
+        let dir = temp_dir();
+        let store_path = dir.join("accounts.json");
+        let mut store = sample_store("legacy-hidden", "workspace-hidden", 10);
+        store.settings.tray_usage_display_mode = TrayUsageDisplayMode::Hidden;
+        save_store_to_path(&store_path, &store).expect("save legacy hidden store");
+
+        let loaded = load_store_from_path(&store_path).expect("load migrated store");
+        assert_eq!(
+            loaded.settings.tray_usage_display_mode,
+            TrayUsageDisplayMode::OneWeekRemaining
+        );
+
+        let persisted: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&store_path).expect("read migrated store"))
+                .expect("parse migrated store");
+        assert_eq!(
+            persisted["settings"]["trayUsageDisplayMode"],
+            json!("oneWeekRemaining")
+        );
     }
 
     fn usage_snapshot(plan_type: &str) -> UsageSnapshot {
