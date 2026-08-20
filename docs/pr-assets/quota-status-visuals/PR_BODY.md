@@ -1,6 +1,6 @@
 <!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota displays and first-launch setup / 添加跨平台额度展示与首次设置 -->
 
-> **Draft status / 草稿状态:** The feature branch is based on the latest `origin/main` v2.6.0. Final macOS validation passed and all required quota and first-launch visuals are included. ROG-Strix Windows regressions passed for the synchronized `063bc8b` baseline; the final Windows replay remains pending until the last Windows settings migration is committed and pushed. / 当前功能分支已基于最新的 `origin/main` v2.6.0。macOS 最终验证已通过，所需的额度效果与首次启动视觉素材也已补齐。ROG-Strix Windows 回归已在同步的 `063bc8b` 基线上通过；最后一项 Windows 设置迁移提交并推送后，仍需重跑最终 Windows 门禁。
+> **Draft status / 草稿状态:** The feature branch contains the current `origin/main` v2.6.0 baseline (`3949010`). Final macOS validation passed, and the frozen Windows implementation candidate `3a39a4129574715e3170e54da64a3659b30d9ff3` passed the exact-build ROG-Strix replay, including real taskbar-pixel gates before and after Explorer recreation. All required quota and first-launch visuals are included. / 当前功能分支已包含 `origin/main` v2.6.0 基线（`3949010`）。macOS 最终验证已通过，冻结的 Windows 实现候选 `3a39a4129574715e3170e54da64a3659b30d9ff3` 也已通过 ROG-Strix 精确构建复测，包括 Explorer 重建前后的真实任务栏像素门禁。所需的额度效果与首次启动视觉素材均已补齐。
 
 ## Summary / 摘要
 
@@ -117,12 +117,19 @@ Fresh preview environments no longer copy the production account store or produc
 
 ### Windows 11
 
+- [x] Frozen implementation identity / 冻结实现身份：HEAD `3a39a4129574715e3170e54da64a3659b30d9ff3`, tree `3270ce2943a0f0a344369fdb396521b9aedf595b`
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
 - [x] Node regression tests / Node 回归测试：18 passed
 - [x] Re-enable and placement regressions / 重新启用与位置回归：9/9 frontend and 17/17 Windows native tests passed / 前端 9/9、Windows 原生测试 17/17 通过
 - [x] Real taskbar regression: off → on restores the visible component; left → right → left remains visible / 真实任务栏回归：关闭 → 开启后可见组件恢复；左侧 → 右侧 → 左侧切换后仍保持可见
-- [ ] Final Windows settings regression: four quota modes update live and a legacy `hidden` mode falls back to one-week remaining / Windows 设置最终回归：四种额度口径实时生效，历史 `hidden` 模式回退为仅 1 周剩余
-- [ ] Final Windows Rust compilation after the last settings migration is committed and synchronized / 最后一项设置迁移提交并同步后的 Windows Rust 最终编译：`cargo check`
+- [x] Final settings migration regression: legacy `hidden` mode migration tests passed 3/3; hidden state survived Explorer recreation and re-enabling restored the component / 设置迁移最终回归：历史 `hidden` 模式迁移测试 3/3 通过；隐藏状态在 Explorer 重建后保持，重新启用后组件恢复
+- [x] Exact-candidate Rust compilation / 精确候选 Rust 编译：`cargo check --all-targets --all-features --offline`
+- [x] Exact-candidate Windows debug build / 精确候选 Windows Debug 构建：passed / 通过
+- [x] Native taskbar pixel gate A: initial launch showed the app icon and `40%` / 原生任务栏像素门禁 A：首次启动真实显示应用图标与 `40%`
+- [x] Native taskbar pixel gate B: the visible component returned after Explorer restart, with `recreate-after-destroy` → `taskbar-ready-for-recreate` → `started` in order / 原生任务栏像素门禁 B：Explorer 重启后可见组件恢复，日志依次出现 `recreate-after-destroy` → `taskbar-ready-for-recreate` → `started`
+- [x] Native taskbar pixel gate C: after restarting Explorer while hidden, re-enabling the left component restored real pixels / 原生任务栏像素门禁 C：隐藏状态下重启 Explorer 后，重新启用左侧组件即可恢复真实像素
 - [x] Rust formatting / Rust 格式：`cargo fmt --check`
+- [x] Dependency installation / 依赖安装：`npm ci` completed; npm reported 9 advisories in the complete dependency tree / `npm ci` 完成；npm 对完整依赖树报告 9 项 advisory
 - [x] npm production dependency audit / npm 生产依赖审计：0 vulnerabilities
 - [x] Git whitespace validation / Git 空白差异检查：passed
+- [x] Isolation cleanup: candidate app and Vite stopped, port 5173 released, production account file length/mtime/SHA-256 unchanged / 隔离环境清理：候选应用与 Vite 已关闭、5173 端口已释放，正式账号文件的长度、修改时间与 SHA-256 均未变化
