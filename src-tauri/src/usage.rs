@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::error::Error as StdError;
 
 use crate::app_paths;
+use crate::models::align_zero_five_hour_usage_with_weekly;
 use crate::models::CreditSnapshot;
 use crate::models::ResetCredit;
 use crate::models::ResetCreditsSnapshot;
@@ -302,7 +303,7 @@ fn map_usage_payload(
     let five_hour = pick_nearest_window(&windows, 5 * 60 * 60).map(to_usage_window);
     let one_week = pick_nearest_window(&windows, 7 * 24 * 60 * 60).map(to_usage_window);
 
-    UsageSnapshot {
+    let mut snapshot = UsageSnapshot {
         fetched_at: now_unix_seconds(),
         plan_type: payload.plan_type,
         five_hour,
@@ -313,7 +314,9 @@ fn map_usage_payload(
             balance: credit.balance,
         }),
         reset_credits,
-    }
+    };
+    align_zero_five_hour_usage_with_weekly(&mut snapshot);
+    snapshot
 }
 
 fn map_reset_credits_payload(payload: serde_json::Value) -> ResetCreditsSnapshot {

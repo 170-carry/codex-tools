@@ -226,6 +226,33 @@ pub(crate) struct UsageWindow {
     pub(crate) reset_at: Option<i64>,
 }
 
+pub(crate) fn align_zero_five_hour_usage_with_weekly(snapshot: &mut UsageSnapshot) -> bool {
+    const FIVE_HOURS_SECONDS: i64 = 5 * 60 * 60;
+    const ONE_WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+    let Some(one_week) = snapshot.one_week.as_ref() else {
+        return false;
+    };
+    if one_week.window_seconds < ONE_WEEK_SECONDS || one_week.used_percent <= f64::EPSILON {
+        return false;
+    }
+    let weekly_used_percent = one_week.used_percent.clamp(0.0, 100.0);
+
+    let Some(five_hour) = snapshot.five_hour.as_mut() else {
+        return false;
+    };
+    if five_hour.window_seconds != FIVE_HOURS_SECONDS || five_hour.used_percent.abs() > f64::EPSILON
+    {
+        return false;
+    }
+
+    // The current usage API can retain a zero-valued 5h-shaped placeholder
+    // after the 5h limit is removed. Keep the legacy surface meaningful by
+    // mirroring the weekly usage until the API exposes an explicit capability.
+    five_hour.used_percent = weekly_used_percent;
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreditSnapshot {
@@ -1009,6 +1036,7 @@ fn duplicate_account_merge_score(account: &StoredAccount) -> (u8, u8, u8, u8, i6
 
 #[cfg(test)]
 mod tests {
+    use super::align_zero_five_hour_usage_with_weekly;
     use super::dedupe_account_variants;
     use super::mark_current_account_summary;
     use super::AppSettings;
@@ -1041,6 +1069,26 @@ mod tests {
             credits: None,
             reset_credits: None,
         }
+    }
+
+    #[test]
+    fn zero_five_hour_placeholder_tracks_weekly_usage() {
+        let mut snapshot = usage_snapshot("pro");
+        snapshot.five_hour.as_mut().unwrap().used_percent = 0.0;
+        snapshot.one_week.as_mut().unwrap().used_percent = 37.0;
+
+        assert!(align_zero_five_hour_usage_with_weekly(&mut snapshot));
+        assert_eq!(snapshot.five_hour.unwrap().used_percent, 37.0);
+    }
+
+    #[test]
+    fn nonzero_five_hour_usage_remains_independent() {
+        let mut snapshot = usage_snapshot("pro");
+        snapshot.five_hour.as_mut().unwrap().used_percent = 4.0;
+        snapshot.one_week.as_mut().unwrap().used_percent = 37.0;
+
+        assert!(!align_zero_five_hour_usage_with_weekly(&mut snapshot));
+        assert_eq!(snapshot.five_hour.unwrap().used_percent, 4.0);
     }
 
     #[test]
