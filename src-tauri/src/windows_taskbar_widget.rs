@@ -38,27 +38,27 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW,
     GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW,
-    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, LoadCursorW,
-    PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, SendMessageW,
-    SetCursor, SetParent, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-    UpdateLayeredWindow, WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT, GWLP_USERDATA,
-    GWL_EXSTYLE, GWL_STYLE, HTCLIENT, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
-    SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE, WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
-    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
-    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS,
-    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZE, WS_POPUP,
+    GetWindowLongPtrW, GetWindowRect, IsIconic, LoadCursorW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, SendMessageW, SetCursor, SetParent, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
+    WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT, GWLP_USERDATA, GWL_EXSTYLE, GWL_STYLE,
+    HTCLIENT, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE,
+    WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY,
+    WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW,
+    WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_MAXIMIZE, WS_POPUP,
 };
 
 use crate::models::WindowsTaskbarWidgetPlacement;
 use crate::windows_tray_icon::codex_tools_icon_rgba;
 
 const WINDOW_CLASS_NAME: PCWSTR = w!("CodexToolsTaskbarQuotaWidget");
-const TASKBAR_WATCHER_CLASS_NAME: PCWSTR = w!("CodexToolsTaskbarQuotaWatcher");
 const UPDATE_MESSAGE: u32 = WM_APP + 0x41;
-const TASKBAR_RECREATED_MESSAGE: u32 = WM_APP + 0x42;
 const LAYOUT_TIMER_ID: usize = 1;
 const LAYOUT_TIMER_MS: u32 = 1_000;
+const TASKBAR_RECREATE_READY_TIMEOUT: Duration = Duration::from_secs(15);
+const TASKBAR_RECREATE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const WIDGETS_SCAN_INTERVAL: Duration = Duration::from_secs(30);
 const BASE_SINGLE_LINE_HEIGHT: i32 = 22;
 const BASE_STACKED_HEIGHT: i32 = 34;
@@ -111,7 +111,6 @@ struct WindowContext {
     light_theme: bool,
     last_layout_log: String,
     taskbar_parent: Option<HWND>,
-    taskbar_parent_process_id: Option<u32>,
     automation: Option<IUIAutomation>,
     cached_widgets_button_rect: Option<RECT>,
     cached_widgets_enabled: Option<bool>,
@@ -176,28 +175,20 @@ pub(crate) fn setup(
             }
             let anchor_hwnd = HWND(anchor_hwnd_raw as *mut c_void);
             let mut ready_tx = Some(ready_tx);
+            let mut recreating_after_destroy = false;
             loop {
+                if recreating_after_destroy {
+                    wait_for_recreated_taskbar(anchor_hwnd);
+                }
                 match create_widget_window(app_handle.clone(), anchor_hwnd) {
                     Ok(hwnd) => {
                         log::info!("WINDOWS_QUOTA_WIDGET action=started");
-                        let watcher = match create_taskbar_watcher_window() {
-                            Ok(watcher) => Some(watcher),
-                            Err(error) => {
-                                log::warn!("Windows taskbar recreation watcher failed: {error}");
-                                None
-                            }
-                        };
                         if let Some(sender) = ready_tx.take() {
                             let _ = sender.send(Ok(()));
                         }
                         run_message_loop(hwnd);
-                        if let Some(watcher) = watcher {
-                            unsafe {
-                                let _ =
-                                    windows::Win32::UI::WindowsAndMessaging::DestroyWindow(watcher);
-                            }
-                        }
                         log::info!("WINDOWS_QUOTA_WIDGET action=recreate-after-destroy");
+                        recreating_after_destroy = true;
                     }
                     Err(error) => {
                         if let Some(sender) = ready_tx.take() {
@@ -235,6 +226,45 @@ pub(crate) fn update(snapshot: WindowsTaskbarWidgetSnapshot) -> Result<(), Strin
         }
     }
     Ok(())
+}
+
+fn wait_for_recreated_taskbar(anchor_hwnd: HWND) {
+    let deadline = Instant::now() + TASKBAR_RECREATE_READY_TIMEOUT;
+    loop {
+        let snapshot = RUNTIME
+            .get()
+            .and_then(|runtime| runtime.snapshot.lock().ok().map(|value| value.clone()));
+        let ready = snapshot.as_ref().is_some_and(|snapshot| unsafe {
+            let Some(taskbar) = locate_taskbar(anchor_hwnd, None, true) else {
+                return false;
+            };
+            let dpi = GetDpiForWindow(taskbar.hwnd).max(96);
+            let (width, height) = desired_size(&snapshot.text, dpi);
+            match snapshot.placement {
+                WindowsTaskbarWidgetPlacement::Embedded => {
+                    embedded_screen_position(&taskbar, width, height, dpi).is_some()
+                }
+                WindowsTaskbarWidgetPlacement::Left => {
+                    left_screen_position(&taskbar, width, height, dpi).is_some()
+                }
+                WindowsTaskbarWidgetPlacement::Hidden => {
+                    taskbar.revealed && taskbar.tray_rect.is_some()
+                }
+            }
+        });
+        if ready {
+            log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-ready-for-recreate");
+            return;
+        }
+        if Instant::now() >= deadline {
+            log::warn!(
+                "WINDOWS_QUOTA_WIDGET action=taskbar-recreate-wait-timeout timeout_ms={}",
+                TASKBAR_RECREATE_READY_TIMEOUT.as_millis()
+            );
+            return;
+        }
+        std::thread::sleep(TASKBAR_RECREATE_POLL_INTERVAL);
+    }
 }
 
 fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, String> {
@@ -294,7 +324,6 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
             light_theme: system_uses_light_theme(),
             last_layout_log: String::new(),
             taskbar_parent: None,
-            taskbar_parent_process_id: None,
             automation,
             cached_widgets_button_rect: None,
             cached_widgets_enabled: None,
@@ -336,79 +365,6 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
     }
 }
 
-fn create_taskbar_watcher_window() -> Result<HWND, String> {
-    unsafe {
-        let module = GetModuleHandleW(None)
-            .map_err(|error| format!("Failed to resolve taskbar watcher module: {error}"))?;
-        let hinstance = HINSTANCE(module.0);
-        let class = WNDCLASSEXW {
-            cbSize: size_of::<WNDCLASSEXW>() as u32,
-            style: Default::default(),
-            lpfnWndProc: Some(taskbar_watcher_proc),
-            cbClsExtra: 0,
-            cbWndExtra: 0,
-            hInstance: hinstance,
-            hIcon: Default::default(),
-            hCursor: Default::default(),
-            hbrBackground: Default::default(),
-            lpszMenuName: PCWSTR::null(),
-            lpszClassName: TASKBAR_WATCHER_CLASS_NAME,
-            hIconSm: Default::default(),
-        };
-
-        if RegisterClassExW(&class) == 0 {
-            let error = windows::Win32::Foundation::GetLastError();
-            if error != ERROR_CLASS_ALREADY_EXISTS {
-                return Err(format!(
-                    "Failed to register taskbar watcher class: {error:?}"
-                ));
-            }
-        }
-
-        CreateWindowExW(
-            WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
-            TASKBAR_WATCHER_CLASS_NAME,
-            w!("Codex Tools taskbar watcher"),
-            WS_POPUP,
-            0,
-            0,
-            0,
-            0,
-            None,
-            None,
-            Some(hinstance),
-            None,
-        )
-        .map_err(|error| format!("Failed to create taskbar watcher window: {error}"))
-    }
-}
-
-unsafe extern "system" fn taskbar_watcher_proc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let taskbar_created = TASKBAR_CREATED_MESSAGE.load(Ordering::Acquire);
-    if taskbar_created != 0 && message == taskbar_created {
-        log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-created source=watcher");
-        if let Some(runtime) = RUNTIME.get() {
-            let raw_hwnd = runtime.hwnd.load(Ordering::Acquire);
-            if raw_hwnd != 0 {
-                let widget = HWND(raw_hwnd as *mut c_void);
-                let _ = PostMessageW(
-                    Some(widget),
-                    TASKBAR_RECREATED_MESSAGE,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-            }
-        }
-        return LRESULT(0);
-    }
-    DefWindowProcW(hwnd, message, wparam, lparam)
-}
-
 fn run_message_loop(hwnd: HWND) {
     unsafe {
         let mut message = MSG::default();
@@ -436,22 +392,11 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     let taskbar_created = TASKBAR_CREATED_MESSAGE.load(Ordering::Acquire);
     if taskbar_created != 0 && message == taskbar_created {
-        log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-created source=widget");
+        log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-created");
         if let Some(context) = context_mut(hwnd) {
             context.cached_widgets_button_rect = None;
             context.cached_widgets_enabled = None;
             context.last_widgets_scan = None;
-            detach_from_taskbar(hwnd, context);
-        }
-        apply_snapshot_and_layout(hwnd);
-        return LRESULT(0);
-    }
-    if message == TASKBAR_RECREATED_MESSAGE {
-        if let Some(context) = context_mut(hwnd) {
-            context.cached_widgets_button_rect = None;
-            context.cached_widgets_enabled = None;
-            context.last_widgets_scan = None;
-            detach_from_taskbar(hwnd, context);
         }
         apply_snapshot_and_layout(hwnd);
         return LRESULT(0);
@@ -1105,6 +1050,11 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
         // Keep an embedded layered window attached while the user disables it.
         // Detaching it to a popup and parenting it back later can leave a
         // successfully updated pixel surface absent from taskbar composition.
+        if context.taskbar_parent.is_none() {
+            if let Some(taskbar) = locate_taskbar(context.anchor_hwnd, None, false) {
+                let _ = embed_in_taskbar(hwnd, context, taskbar.hwnd);
+            }
+        }
         context.surface_needs_refresh = true;
         log_layout_change(context, "visible=false reason=setting-hidden".to_string());
         let _ = ShowWindow(hwnd, SW_HIDE);
@@ -1408,57 +1358,22 @@ fn taskbar_child_style(style: u32) -> u32 {
     (style & !WS_POPUP.0) | WS_CHILD.0 | WS_CLIPSIBLINGS.0
 }
 
-fn taskbar_parent_is_current(
-    remembered_parent: Option<isize>,
-    remembered_process_id: Option<u32>,
-    actual_parent: isize,
-    style: u32,
-    candidate_parent: isize,
-    candidate_process_id: Option<u32>,
-) -> bool {
-    let process_matches = match (remembered_process_id, candidate_process_id) {
-        (Some(remembered), Some(candidate)) => remembered == candidate,
-        _ => true,
-    };
-    remembered_parent == Some(candidate_parent)
-        && actual_parent == candidate_parent
-        && style & WS_CHILD.0 != 0
-        && process_matches
-}
-
 fn popup_style(style: u32) -> u32 {
     (style & !(WS_CHILD.0 | WS_CLIPSIBLINGS.0)) | WS_POPUP.0
 }
 
 unsafe fn embed_in_taskbar(hwnd: HWND, context: &mut WindowContext, parent: HWND) -> bool {
     let parent_raw = parent.0 as isize;
-    let parent_process_id = window_process_id(parent);
     let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-    if taskbar_parent_is_current(
-        context.taskbar_parent.map(|value| value.0 as isize),
-        context.taskbar_parent_process_id,
-        GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT),
-        style,
-        parent_raw,
-        parent_process_id,
-    ) {
+    if context.taskbar_parent == Some(parent)
+        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == parent_raw
+        && style & WS_CHILD.0 != 0
+    {
         return true;
-    }
-
-    if context.taskbar_parent.is_some() {
-        log::info!(
-            "WINDOWS_QUOTA_WIDGET action=taskbar-parent-changed old_parent={:?} old_pid={:?} new_parent={:?} new_pid={:?}",
-            context.taskbar_parent,
-            context.taskbar_parent_process_id,
-            parent,
-            parent_process_id,
-        );
-        detach_from_taskbar(hwnd, context);
     }
 
     let _ = ShowWindow(hwnd, SW_HIDE);
     context.surface_needs_refresh = true;
-    let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
     SetWindowLongPtrW(hwnd, GWL_STYLE, taskbar_child_style(style) as isize);
     let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style & !WS_EX_TOPMOST.0) as isize);
@@ -1466,7 +1381,6 @@ unsafe fn embed_in_taskbar(hwnd: HWND, context: &mut WindowContext, parent: HWND
         && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == parent_raw
     {
         context.taskbar_parent = Some(parent);
-        context.taskbar_parent_process_id = parent_process_id;
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOP),
@@ -1483,7 +1397,6 @@ unsafe fn embed_in_taskbar(hwnd: HWND, context: &mut WindowContext, parent: HWND
     SetWindowLongPtrW(hwnd, GWL_STYLE, popup_style(style) as isize);
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOPMOST.0) as isize);
     context.taskbar_parent = None;
-    context.taskbar_parent_process_id = None;
     false
 }
 
@@ -1503,7 +1416,6 @@ unsafe fn detach_from_taskbar(hwnd: HWND, context: &mut WindowContext) {
     let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOPMOST.0) as isize);
     context.taskbar_parent = None;
-    context.taskbar_parent_process_id = None;
     let _ = SetWindowPos(
         hwnd,
         Some(HWND_TOPMOST),
@@ -1513,12 +1425,6 @@ unsafe fn detach_from_taskbar(hwnd: HWND, context: &mut WindowContext) {
         0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
     );
-}
-
-unsafe fn window_process_id(hwnd: HWND) -> Option<u32> {
-    let mut process_id = 0;
-    GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-    (process_id != 0).then_some(process_id)
 }
 
 unsafe fn screen_to_taskbar_client(
@@ -1844,10 +1750,10 @@ mod tests {
         left_screen_position, measure_system_title_text, pixels_are_premultiplied_bgra,
         popup_style, rasterize_system_title_text_mask, rect_covers_monitor, render_widget_pixels,
         resolve_widgets_button_rect, resolved_system_title_font_face, scale,
-        should_hide_for_fullscreen, taskbar_child_style, taskbar_edge, taskbar_parent_is_current,
-        visible_taskbar_thickness, widget_foreground, widget_text_lines, TaskbarEdge,
-        TaskbarPlacement, WindowsWidgetStatus, BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING,
-        BASE_SINGLE_LINE_HEIGHT, SYSTEM_TITLE_FONT_FALLBACK, SYSTEM_TITLE_FONT_PRIMARY,
+        should_hide_for_fullscreen, taskbar_child_style, taskbar_edge, visible_taskbar_thickness,
+        widget_foreground, widget_text_lines, TaskbarEdge, TaskbarPlacement, WindowsWidgetStatus,
+        BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING, BASE_SINGLE_LINE_HEIGHT,
+        SYSTEM_TITLE_FONT_FALLBACK, SYSTEM_TITLE_FONT_PRIMARY,
     };
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Gdi::MONITORINFO;
@@ -1866,27 +1772,6 @@ mod tests {
         assert_ne!(popup & WS_POPUP.0, 0);
         assert_eq!(popup & WS_CHILD.0, 0);
         assert_eq!(popup & WS_CLIPSIBLINGS.0, 0);
-    }
-
-    #[test]
-    fn taskbar_parent_process_change_requires_reembedding() {
-        let parent = 0x1234isize;
-        assert!(taskbar_parent_is_current(
-            Some(parent),
-            Some(100),
-            parent,
-            WS_CHILD.0,
-            parent,
-            Some(100),
-        ));
-        assert!(!taskbar_parent_is_current(
-            Some(parent),
-            Some(100),
-            parent,
-            WS_CHILD.0,
-            parent,
-            Some(101),
-        ));
     }
 
     #[test]
