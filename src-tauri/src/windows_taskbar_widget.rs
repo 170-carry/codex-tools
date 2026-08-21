@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager};
-use windows::core::{w, BOOL, PCWSTR, PWSTR};
+use tauri::AppHandle;
+use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
     COLORREF, ERROR_CLASS_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HINSTANCE, HWND,
     LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM,
@@ -13,11 +13,11 @@ use windows::Win32::Foundation::{
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateRoundRectRgn, DeleteDC,
     DeleteObject, DrawTextW, EndPaint, GetMonitorInfoW, GetTextExtentPoint32W, GetTextFaceW,
-    MonitorFromPoint, MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode, SetTextColor,
-    SetWindowRgn, AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER,
-    BI_RGB, BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS,
-    DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT, HGDIOBJ,
-    MONITORINFO, MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+    MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
+    AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+    BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER,
+    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT, HGDIOBJ, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
@@ -36,18 +36,17 @@ use windows::Win32::UI::Shell::{
     QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW,
-    GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW,
-    GetWindowLongPtrW, GetWindowRect, IsIconic, LoadCursorW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, RegisterWindowMessageW, SendMessageW, SetCursor, SetParent, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
-    WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT, GWLP_USERDATA, GWL_EXSTYLE, GWL_STYLE,
-    HTCLIENT, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE,
-    WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY,
-    WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW,
-    WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_MAXIMIZE, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowExW, FindWindowW, GetClientRect,
+    GetForegroundWindow, GetMessageW, GetWindowLongPtrW, GetWindowRect, IsIconic, LoadCursorW,
+    PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, SendMessageW,
+    SetCursor, SetParent, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
+    UpdateLayeredWindow, WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT, GWLP_USERDATA,
+    GWL_EXSTYLE, GWL_STYLE, HTCLIENT, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
+    SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE, WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
+    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
+    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZE, WS_POPUP,
 };
 
 use crate::models::WindowsTaskbarWidgetPlacement;
@@ -104,7 +103,6 @@ static TASKBAR_CREATED_MESSAGE: AtomicU32 = AtomicU32::new(0);
 
 struct WindowContext {
     app: AppHandle,
-    anchor_hwnd: HWND,
     snapshot: WindowsTaskbarWidgetSnapshot,
     tooltip: Option<HWND>,
     tooltip_text: Vec<u16>,
@@ -154,14 +152,6 @@ pub(crate) fn setup(
         })
         .map_err(|_| "Windows quota widget runtime was already initialized".to_string())?;
 
-    // Resolve HWND-backed resources on Tauri's setup thread before waiting for
-    // the widget thread. Asking the WebView for its HWND from the new thread
-    // while setup blocks the main thread can otherwise deadlock until timeout.
-    let anchor_hwnd = app
-        .get_webview_window("main")
-        .and_then(|window| window.hwnd().ok())
-        .unwrap_or_default();
-    let anchor_hwnd_raw = anchor_hwnd.0 as isize;
     let app_handle = app.clone();
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
     std::thread::Builder::new()
@@ -173,14 +163,13 @@ pub(crate) fn setup(
                     "Windows quota widget UI Automation initialization failed: {com_result:?}"
                 );
             }
-            let anchor_hwnd = HWND(anchor_hwnd_raw as *mut c_void);
             let mut ready_tx = Some(ready_tx);
             let mut recreating_after_destroy = false;
             loop {
                 if recreating_after_destroy {
-                    wait_for_recreated_taskbar(anchor_hwnd);
+                    wait_for_recreated_taskbar();
                 }
-                match create_widget_window(app_handle.clone(), anchor_hwnd) {
+                match create_widget_window(app_handle.clone()) {
                     Ok(hwnd) => {
                         log::info!("WINDOWS_QUOTA_WIDGET action=started");
                         if let Some(sender) = ready_tx.take() {
@@ -228,14 +217,14 @@ pub(crate) fn update(snapshot: WindowsTaskbarWidgetSnapshot) -> Result<(), Strin
     Ok(())
 }
 
-fn wait_for_recreated_taskbar(anchor_hwnd: HWND) {
+fn wait_for_recreated_taskbar() {
     let deadline = Instant::now() + TASKBAR_RECREATE_READY_TIMEOUT;
     loop {
         let snapshot = RUNTIME
             .get()
             .and_then(|runtime| runtime.snapshot.lock().ok().map(|value| value.clone()));
         let ready = snapshot.as_ref().is_some_and(|snapshot| unsafe {
-            let Some(taskbar) = locate_taskbar(anchor_hwnd, None, true) else {
+            let Some(taskbar) = locate_taskbar(None, true) else {
                 return false;
             };
             let dpi = GetDpiForWindow(taskbar.hwnd).max(96);
@@ -267,7 +256,7 @@ fn wait_for_recreated_taskbar(anchor_hwnd: HWND) {
     }
 }
 
-fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, String> {
+fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
     unsafe {
         let module = GetModuleHandleW(None)
             .map_err(|error| format!("Failed to resolve widget module handle: {error}"))?;
@@ -317,7 +306,6 @@ fn create_widget_window(app: AppHandle, anchor_hwnd: HWND) -> Result<HWND, Strin
         let initial_height = base_height_for_text(&snapshot.text);
         let context = Box::new(WindowContext {
             app,
-            anchor_hwnd,
             snapshot,
             tooltip: None,
             tooltip_text: Vec::new(),
@@ -1051,7 +1039,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
         // Detaching it to a popup and parenting it back later can leave a
         // successfully updated pixel surface absent from taskbar composition.
         if context.taskbar_parent.is_none() {
-            if let Some(taskbar) = locate_taskbar(context.anchor_hwnd, None, false) {
+            if let Some(taskbar) = locate_taskbar(None, false) {
                 let _ = embed_in_taskbar(hwnd, context, taskbar.hwnd);
             }
         }
@@ -1067,7 +1055,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
     let automation = scan_widgets
         .then_some(context.automation.as_ref())
         .flatten();
-    let Some(mut taskbar) = locate_taskbar(context.anchor_hwnd, automation, scan_widgets) else {
+    let Some(mut taskbar) = locate_taskbar(automation, scan_widgets) else {
         detach_from_taskbar(hwnd, context);
         context.surface_needs_refresh = true;
         log_layout_change(
@@ -1506,30 +1494,14 @@ fn desired_size(text: &str, dpi: u32) -> (i32, i32) {
 }
 
 unsafe fn locate_taskbar(
-    anchor_hwnd: HWND,
     automation: Option<&IUIAutomation>,
     inspect_widgets: bool,
 ) -> Option<TaskbarPlacement> {
-    let target_monitor = if anchor_hwnd.0.is_null() {
-        let mut cursor = POINT::default();
-        GetCursorPos(&mut cursor)
-            .ok()
-            .map(|_| MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST))
-    } else {
-        Some(MonitorFromWindow(anchor_hwnd, MONITOR_DEFAULTTONEAREST))
-    }?;
-
-    let mut search = TaskbarSearch {
-        target_monitor,
-        found: None,
-    };
-    let _ = EnumWindows(
-        Some(enum_taskbars),
-        LPARAM((&mut search as *mut TaskbarSearch) as isize),
-    );
-    let taskbar = search
-        .found
-        .or_else(|| FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()).ok())?;
+    // Keep the quota component on the system's primary taskbar. Secondary
+    // taskbars do not expose the same stable child hierarchy as Shell_TrayWnd,
+    // so following the app window across monitors can make right-side
+    // placement disappear or fall back to a detached floating surface.
+    let taskbar = FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()).ok()?;
     let mut rect = RECT::default();
     GetWindowRect(taskbar, &mut rect).ok()?;
     let monitor_handle = MonitorFromWindow(taskbar, MONITOR_DEFAULTTONEAREST);
@@ -1624,29 +1596,6 @@ unsafe fn child_window_rect(parent: HWND, class_name: PCWSTR) -> Option<RECT> {
     let mut rect = RECT::default();
     GetWindowRect(child, &mut rect).ok()?;
     Some(rect)
-}
-
-struct TaskbarSearch {
-    target_monitor: windows::Win32::Graphics::Gdi::HMONITOR,
-    found: Option<HWND>,
-}
-
-unsafe extern "system" fn enum_taskbars(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let search = &mut *(lparam.0 as *mut TaskbarSearch);
-    let mut class_name = [0_u16; 64];
-    let length = GetClassNameW(hwnd, &mut class_name);
-    if length <= 0 {
-        return true.into();
-    }
-    let class_name = String::from_utf16_lossy(&class_name[..length as usize]);
-    if class_name != "Shell_TrayWnd" && class_name != "Shell_SecondaryTrayWnd" {
-        return true.into();
-    }
-    if MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) == search.target_monitor {
-        search.found = Some(hwnd);
-        return false.into();
-    }
-    true.into()
 }
 
 fn taskbar_edge(rect: RECT, monitor: RECT) -> TaskbarEdge {
@@ -1772,6 +1721,18 @@ mod tests {
         assert_ne!(popup & WS_POPUP.0, 0);
         assert_eq!(popup & WS_CHILD.0, 0);
         assert_eq!(popup & WS_CLIPSIBLINGS.0, 0);
+    }
+
+    #[test]
+    fn taskbar_lookup_is_pinned_to_the_primary_shell_window() {
+        let source = include_str!("windows_taskbar_widget.rs");
+        let primary_lookup = ["FindWindowW(w!(\"", "Shell_TrayWnd", "\")"].concat();
+        let secondary_class = ["Shell_", "SecondaryTrayWnd"].concat();
+        let anchor_monitor_lookup = ["MonitorFromWindow(", "anchor_hwnd"].concat();
+
+        assert!(source.contains(&primary_lookup));
+        assert!(!source.contains(&secondary_class));
+        assert!(!source.contains(&anchor_monitor_lookup));
     }
 
     #[test]
