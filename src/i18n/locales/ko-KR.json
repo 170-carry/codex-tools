@@ -27,7 +27,7 @@
     "macTrayTitle": "할당량 아이콘",
     "macTrayDescription": "메뉴 막대에 간결한 할당량 아이콘을 표시합니다.",
     "macApplying": "macOS에 적용 중...",
-    "taskbarTitle": "작업 표시줄 할당량 구성 요소",
+    "taskbarTitle": "작업 표시줄 할당량 구성 요소(실험적 기능)",
     "taskbarDescription": "현재 할당량을 기본 작업 표시줄 맨 왼쪽이나 오른쪽에 표시합니다.",
     "trayTitle": "트레이 할당량 아이콘",
     "trayDescription": "Windows 시스템 트레이에 할당량 아이콘을 유지합니다.",
@@ -609,7 +609,7 @@
       "open": "설정 열기"
     },
     "windowsTaskbarWidget": {
-      "label": "Windows 작업 표시줄 할당량 구성 요소",
+      "label": "Windows 작업 표시줄 할당량 구성 요소(실험적 기능)",
       "description": "할당량 왼쪽에 Codex Tools 원본 아이콘을 표시하여 macOS 상태 표시줄과 맞춥니다. 배경은 투명합니다.",
       "groupAriaLabel": "Windows 기본 작업 표시줄 할당량 구성 요소 위치",
       "left": "기본 작업 표시줄 맨 왼쪽",

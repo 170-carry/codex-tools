@@ -27,7 +27,7 @@
     "macTrayTitle": "Quota icon",
     "macTrayDescription": "Show a compact quota icon in the menu bar.",
     "macApplying": "Applying to macOS...",
-    "taskbarTitle": "Taskbar quota component",
+    "taskbarTitle": "Taskbar quota component (Experimental)",
     "taskbarDescription": "Show the current quota at the far left or right side of the primary taskbar.",
     "trayTitle": "Tray quota icon",
     "trayDescription": "Keep a quota icon available in the Windows system tray.",
@@ -609,7 +609,7 @@
       "open": "Open setup"
     },
     "windowsTaskbarWidget": {
-      "label": "Windows taskbar quota component",
+      "label": "Windows taskbar quota component (Experimental)",
       "description": "Shows the Codex Tools icon before the quota, matching the macOS status bar. Its transparent background exposes the taskbar's real color, gradient, and material.",
       "groupAriaLabel": "Windows primary taskbar quota component placement",
       "left": "Primary taskbar far left",

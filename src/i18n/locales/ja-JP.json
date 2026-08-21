@@ -27,7 +27,7 @@
     "macTrayTitle": "使用量アイコン",
     "macTrayDescription": "メニューバーにコンパクトな使用量アイコンを表示します。",
     "macApplying": "macOS に適用中...",
-    "taskbarTitle": "タスクバー使用量コンポーネント",
+    "taskbarTitle": "タスクバー使用量コンポーネント（実験的機能）",
     "taskbarDescription": "現在の使用量をメインタスクバーの左端または右側に表示します。",
     "trayTitle": "トレイ使用量アイコン",
     "trayDescription": "Windows のシステムトレイに使用量アイコンを表示します。",
@@ -609,7 +609,7 @@
       "open": "設定を開く"
     },
     "windowsTaskbarWidget": {
-      "label": "Windows タスクバー使用量コンポーネント",
+      "label": "Windows タスクバー使用量コンポーネント（実験的機能）",
       "description": "使用量の左側に Codex Tools の元アイコンを表示し、macOS のステータスバーに合わせます。背景は透明です。",
       "groupAriaLabel": "Windows メインタスクバー使用量コンポーネントの配置",
       "left": "メインタスクバーの左端",

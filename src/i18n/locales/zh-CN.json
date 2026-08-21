@@ -27,7 +27,7 @@
     "macTrayTitle": "额度图标",
     "macTrayDescription": "在菜单栏中显示紧凑的额度图标。",
     "macApplying": "正在应用到 macOS...",
-    "taskbarTitle": "任务栏额度组件",
+    "taskbarTitle": "任务栏额度组件（实验性功能）",
     "taskbarDescription": "在系统主任务栏最左侧或右侧直接显示当前额度。",
     "trayTitle": "托盘额度图标",
     "trayDescription": "在系统托盘保留一个可随时查看额度的图标。",
@@ -609,7 +609,7 @@
       "open": "打开首屏设置"
     },
     "windowsTaskbarWidget": {
-      "label": "Windows 任务栏额度组件",
+      "label": "Windows 任务栏额度组件（实验性功能）",
       "description": "在额度左侧显示 Codex Tools 原图，与 macOS 状态栏保持一致；背景透明，直接透出 Windows 任务栏的真实颜色、渐变与材质。",
       "groupAriaLabel": "Windows 主任务栏额度组件位置",
       "left": "主任务栏最左侧",
