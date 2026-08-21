@@ -31,11 +31,11 @@ macOS 和 Windows 现在共享五种紧凑额度样式：方形数字卡、横�
 
 ![Actual Windows tray quota result / Windows 托盘额度实机效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-tray-quota-icon-effect.png)
 
-### 2. Experimental native Windows taskbar quota component / 实验性 Windows 原生任务栏额度组件
+### 2. Experimental native Windows taskbar quota component /  Windows 原生任务栏额度组件（实验性功能）
 
 Windows can experimentally show quota at the far left or right side of the primary taskbar, or keep only the system-tray icon. The native implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI changes, Explorer recreation, premultiplied transparency, and rate-limited UI Automation scans.
 
-Windows 可以通过实验性功能在系统主任务栏最左侧或右侧显示额度，也可以仅保留系统托盘图标。原生实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 变化、Explorer 重建、预乘透明渲染和限频 UI Automation 扫描。
+Windows 可以通过该实验性功能在系统主任务栏最左侧或右侧显示额度，也可以仅保留系统托盘图标。原生实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 变化、Explorer 重建、预乘透明渲染和限频 UI Automation 扫描。
 
 The component is deliberately pinned to the primary taskbar. Moving the Codex Tools window to a secondary monitor does not move or duplicate the component, avoiding incompatible `Shell_SecondaryTrayWnd` child hierarchies. Because the surface still integrates with the Explorer taskbar window hierarchy, both onboarding and Settings label it as experimental; the independent system-tray icon remains available as a fallback.
 
@@ -88,6 +88,10 @@ Quota surfaces keep explicit fresh, stale, and error states instead of clearing 
 When a genuinely newer rotated authorization snapshot arrives, the app can clear an obsolete authorization block and resume quota refresh. Reusing the same stale snapshot cannot falsely unlock refresh.
 
 当应用收到确实更新、且刷新令牌已经轮换的授权快照时，可以清除过时的授权阻塞并恢复额度刷新；重复使用同一份旧快照不会被误判为已经恢复。
+
+Quick account actions now use “Re-login” instead of “Test login”, matching the action's actual reauthorization behavior.
+
+账号快捷操作现使用“重新登录”而非“测试登录”，与实际执行的重新授权行为一致。
 
 ### 5. Background work and isolated macOS validation / 后台工作与 macOS 隔离验收
 
