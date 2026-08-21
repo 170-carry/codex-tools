@@ -5,7 +5,7 @@
 ## Summary / 摘要
 
 - **Add shared quota icon styles / 新增共享额度图标样式:** provide five compact styles for the macOS menu bar and Windows system tray, with live settings updates.
-- **Add a native Windows taskbar quota component / 新增 Windows 原生任务栏额度组件:** show quota on the left or right side of the taskbar, or keep only the system-tray icon.
+- **Add an experimental native Windows taskbar quota component / 新增实验性 Windows 原生任务栏额度组件:** show quota on the left or right side of the primary taskbar, or keep only the system-tray icon.
 - **Add platform-specific first-launch setup / 新增分平台首次启动设置:** configure macOS text/icon quota surfaces and Windows taskbar/tray surfaces before entering the main application.
 - **Harden lifecycle, refresh, and validation / 加固生命周期、刷新与验收流程:** stabilize macOS status items, recover Windows taskbar surfaces, preserve meaningful refresh states, and keep preview data isolated.
 
@@ -33,11 +33,11 @@ macOS 和 Windows 现在共享五种紧凑额度样式：方形数字卡、横�
 
 ![Actual Windows tray quota result / Windows 托盘额度实机效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-tray-quota-icon-effect.png)
 
-### 2. Native Windows taskbar quota component / Windows 原生任务栏额度组件
+### 2. Experimental native Windows taskbar quota component / 实验性 Windows 原生任务栏额度组件
 
-Windows can show quota at the far left or right side of the taskbar, or keep only the system-tray icon. The native implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI changes, Explorer recreation, premultiplied transparency, and rate-limited UI Automation scans.
+Windows can experimentally show quota at the far left or right side of the primary taskbar, or keep only the system-tray icon. The native implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI changes, Explorer recreation, premultiplied transparency, and rate-limited UI Automation scans.
 
-Windows 可以在任务栏最左侧或右侧显示额度，也可以仅保留系统托盘图标。原生实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 变化、Explorer 重建、预乘透明渲染和限频 UI Automation 扫描。
+Windows 可以通过实验性功能在系统主任务栏最左侧或右侧显示额度，也可以仅保留系统托盘图标。原生实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 变化、Explorer 重建、预乘透明渲染和限频 UI Automation 扫描。
 
 Turning the component off keeps its transparent child window attached to the taskbar. Turning it back on refreshes the native surface so its pixels return reliably. Selecting either taskbar placement during first-launch setup also re-enables a previously hidden component.
 
