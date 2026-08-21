@@ -1,7 +1,5 @@
 <!-- PR title / PR 标题: [EN/ZH] Add cross-platform quota displays and first-launch setup / 添加跨平台额度展示与首次设置 -->
 
-> **Draft status / 草稿状态:** The feature branch contains the current `origin/main` v2.6.0 baseline (`3949010`). Final macOS validation passed, and the frozen Windows implementation candidate `3a39a4129574715e3170e54da64a3659b30d9ff3` passed the exact-build ROG-Strix replay, including real taskbar-pixel gates before and after Explorer recreation. All required quota and first-launch visuals are included. / 当前功能分支已包含 `origin/main` v2.6.0 基线（`3949010`）。macOS 最终验证已通过，冻结的 Windows 实现候选 `3a39a4129574715e3170e54da64a3659b30d9ff3` 也已通过 ROG-Strix 精确构建复测，包括 Explorer 重建前后的真实任务栏像素门禁。所需的额度效果与首次启动视觉素材均已补齐。
-
 ## Summary / 摘要
 
 - **Add shared quota icon styles / 新增共享额度图标样式:** provide five compact styles for the macOS menu bar and Windows system tray, with live settings updates.
@@ -38,6 +36,10 @@ macOS 和 Windows 现在共享五种紧凑额度样式：方形数字卡、横�
 Windows can experimentally show quota at the far left or right side of the primary taskbar, or keep only the system-tray icon. The native implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI changes, Explorer recreation, premultiplied transparency, and rate-limited UI Automation scans.
 
 Windows 可以通过实验性功能在系统主任务栏最左侧或右侧显示额度，也可以仅保留系统托盘图标。原生实现覆盖 Windows Widgets 位置、任务栏自动隐藏、全屏窗口、DPI 变化、Explorer 重建、预乘透明渲染和限频 UI Automation 扫描。
+
+The component is deliberately pinned to the primary taskbar. Moving the Codex Tools window to a secondary monitor does not move or duplicate the component, avoiding incompatible `Shell_SecondaryTrayWnd` child hierarchies. Because the surface still integrates with the Explorer taskbar window hierarchy, both onboarding and Settings label it as experimental; the independent system-tray icon remains available as a fallback.
+
+该组件会固定在系统主任务栏。将 Codex Tools 窗口移到副屏时，组件不会跟随或复制，从而避开不兼容的 `Shell_SecondaryTrayWnd` 子窗口层级。由于该展示面仍需接入 Explorer 任务栏窗口层级，首次启动页和设置页都会将其标记为实验性功能；独立的系统托盘图标仍可作为回退方案。
 
 Turning the component off keeps its transparent child window attached to the taskbar. Turning it back on refreshes the native surface so its pixels return reliably. Selecting either taskbar placement during first-launch setup also re-enables a previously hidden component.
 
@@ -105,7 +107,7 @@ Fresh preview environments no longer copy the production account store or produc
 - [x] ESLint completed with zero errors and four pre-existing unused-disable warnings / ESLint 完成，0 个错误、4 个既有 unused-disable 警告：`npm run lint`
 - [x] First-launch setup tests / 首次启动设置测试：10 passed
 - [x] Usage-error presentation tests / 额度错误展示测试：8 passed
-- [x] Full Rust suite / 完整 Rust 测试：240 passed
+- [x] Full Rust suite / 完整 Rust 测试：246 passed
 - [x] Rust formatting / Rust 格式：`cargo fmt --manifest-path src-tauri/Cargo.toml --check`
 - [x] Git whitespace validation / Git 空白差异检查：`git diff --check`
 - [x] Release `.app` packaging with production Bundle ID, ad-hoc/no Team ID signing, and no debug-only quota-preview UI / Release `.app` 已使用正式 Bundle ID 完成打包，仅为 ad-hoc、无 Team ID，且不包含额度预览调试入口
@@ -117,19 +119,23 @@ Fresh preview environments no longer copy the production account store or produc
 
 ### Windows 11
 
-- [x] Frozen implementation identity / 冻结实现身份：HEAD `3a39a4129574715e3170e54da64a3659b30d9ff3`, tree `3270ce2943a0f0a344369fdb396521b9aedf595b`
+- [x] Exact release identity / 精确发布身份：HEAD `6e96f6edcf25b96067a6428a35e6e5c2c0cfdfc2`, tree `35ca2b26de20263859b328481a248ee88f9aede4`
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
 - [x] Node regression tests / Node 回归测试：18 passed
-- [x] Re-enable and placement regressions / 重新启用与位置回归：9/9 frontend and 17/17 Windows native tests passed / 前端 9/9、Windows 原生测试 17/17 通过
-- [x] Real taskbar regression: off → on restores the visible component; left → right → left remains visible / 真实任务栏回归：关闭 → 开启后可见组件恢复；左侧 → 右侧 → 左侧切换后仍保持可见
+- [x] Re-enable and placement regressions / 重新启用与位置回归：10/10 frontend and 18/18 Windows native tests passed / 前端 10/10、Windows 原生测试 18/18 通过
+- [x] Real taskbar regression: left and right both survive visible → hidden → visible transitions / 真实任务栏回归：主任务栏左侧和右侧均通过显示 → 隐藏 → 恢复测试
 - [x] Final settings migration regression: legacy `hidden` mode migration tests passed 3/3; hidden state survived Explorer recreation and re-enabling restored the component / 设置迁移最终回归：历史 `hidden` 模式迁移测试 3/3 通过；隐藏状态在 Explorer 重建后保持，重新启用后组件恢复
 - [x] Exact-candidate Rust compilation / 精确候选 Rust 编译：`cargo check --all-targets --all-features --offline`
-- [x] Exact-candidate Windows debug build / 精确候选 Windows Debug 构建：passed / 通过
-- [x] Native taskbar pixel gate A: initial launch showed the app icon and `40%` / 原生任务栏像素门禁 A：首次启动真实显示应用图标与 `40%`
-- [x] Native taskbar pixel gate B: the visible component returned after Explorer restart, with `recreate-after-destroy` → `taskbar-ready-for-recreate` → `started` in order / 原生任务栏像素门禁 B：Explorer 重启后可见组件恢复，日志依次出现 `recreate-after-destroy` → `taskbar-ready-for-recreate` → `started`
-- [x] Native taskbar pixel gate C: after restarting Explorer while hidden, re-enabling the left component restored real pixels / 原生任务栏像素门禁 C：隐藏状态下重启 Explorer 后，重新启用左侧组件即可恢复真实像素
+- [x] Exact-candidate Windows release build / 精确候选 Windows Release 构建：passed / 通过
+- [x] Mixed-DPI dual-monitor gate: 2560×1600 at 150% primary display plus 3072×1920 at 200% secondary display / 混合 DPI 双屏门禁：主屏 2560×1600、150%，副屏 3072×1920、200%
+- [x] Primary-taskbar pinning: moving the main window to the secondary display kept the component on `Shell_TrayWnd`, with no secondary copy or residual pixels / 主任务栏固定：主窗口移到副屏后，组件仍挂载在 `Shell_TrayWnd`，副屏没有副本或残留像素
+- [x] Native taskbar pixel gate A: primary-taskbar left and right placements remained visible while the main window was on either display / 原生任务栏像素门禁 A：无论主窗口位于主屏还是副屏，主任务栏左侧和右侧均保持可见
+- [x] Native taskbar pixel gate B: visible left placement returned after Explorer restart on the recreated primary taskbar / 原生任务栏像素门禁 B：Explorer 重启后，左侧组件在重建的主任务栏中恢复
+- [x] Native taskbar pixel gate C: hidden state survived Explorer restart and re-enabling left placement restored real pixels / 原生任务栏像素门禁 C：隐藏状态在 Explorer 重启后保持，重新启用左侧后真实像素恢复
+- [x] Native taskbar pixel gate D: right placement returned after Explorer restart without creating a secondary-taskbar copy / 原生任务栏像素门禁 D：Explorer 重启后右侧组件恢复，且未在副任务栏创建副本
 - [x] Rust formatting / Rust 格式：`cargo fmt --check`
 - [x] Dependency installation / 依赖安装：`npm ci` completed; npm reported 9 advisories in the complete dependency tree / `npm ci` 完成；npm 对完整依赖树报告 9 项 advisory
 - [x] npm production dependency audit / npm 生产依赖审计：0 vulnerabilities
 - [x] Git whitespace validation / Git 空白差异检查：passed
-- [x] Isolation cleanup: candidate app and Vite stopped, port 5173 released, production account file length/mtime/SHA-256 unchanged / 隔离环境清理：候选应用与 Vite 已关闭、5173 端口已释放，正式账号文件的长度、修改时间与 SHA-256 均未变化
+
+Related issue / 关联问题：#168
