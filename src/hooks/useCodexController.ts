@@ -51,15 +51,13 @@ import {
   getUnreleasedChangelogEntry,
 } from "../utils/changelog";
 
-const REFRESH_MS = 30_000;
 const COST_ANALYTICS_STALE_MS = 30 * 60 * 1000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
 const API_PROXY_USAGE_POLL_MS = 15_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT = "main-window-visibility-changed";
-const MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT =
-  "macos-status-bar-usage-refreshed";
+const PERIODIC_USAGE_REFRESHED_EVENT = "periodic-usage-refreshed";
 const DEFAULT_API_PROXY_USAGE_RANGE: ApiProxyUsageRange = "24h";
 const DEFAULT_API_PROXY_USAGE_METRIC: ApiProxyUsageMetric = "calls";
 const API_PROXY_USAGE_RANGE_SECONDS: Record<ApiProxyUsageRange, number> = {
@@ -203,7 +201,6 @@ function buildRemoteProxyFallback(
 
 export function useCodexController(
   activeTab: "accounts" | "analytics" | "proxy" | "settings",
-  isMacos: boolean,
 ) {
   const { copy, locale } = useI18n();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
@@ -675,19 +672,9 @@ export function useCodexController(
       quiet = false,
       forceAuthRefresh = !quiet,
       initialRefresh = false,
-      source: "startup" | "foreground-timer" | "account-import" | "manual" =
+      source: "startup" | "account-import" | "manual" =
         "manual",
     ) => {
-      // React effects can restart while an interval callback is already queued.
-      // Drop a duplicate periodic tick; stronger manual/import refreshes still
-      // reach the Rust coordinator and can upgrade after the current flight.
-      if (
-        source === "foreground-timer" &&
-        usageRefreshCountRef.current > 0
-      ) {
-        return;
-      }
-
       const requestId = usageRefreshSequenceRef.current + 1;
       usageRefreshSequenceRef.current = requestId;
       usageRefreshCountRef.current += 1;
@@ -1152,15 +1139,11 @@ export function useCodexController(
   }, []);
 
   useEffect(() => {
-    if (!isMacos) {
-      return;
-    }
-
     let disposed = false;
     let unlisten: UnlistenFn | null = null;
 
     void listen<AccountSummary[]>(
-      MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT,
+      PERIODIC_USAGE_REFRESHED_EVENT,
       (event) => {
         if (!disposed) {
           applyAccounts(event.payload);
@@ -1183,7 +1166,7 @@ export function useCodexController(
         void unlisten();
       }
     };
-  }, [applyAccounts, isMacos]);
+  }, [applyAccounts]);
 
   useEffect(() => {
     let disposed = false;
@@ -1303,30 +1286,16 @@ export function useCodexController(
       return;
     }
 
-    // macOS 的状态栏循环是唯一的周期额度刷新来源，并通过事件把结果
-    // 回送给可见窗口。其他平台仍保留前端 30 秒刷新，避免没有原生循环
-    // 时账号页停止更新。
-    const usageTimer = isMacos
-      ? undefined
-      : window.setInterval(() => {
-          void refreshUsage(true, false, false, "foreground-timer");
-        }, REFRESH_MS);
-
     const updateTimer = window.setInterval(() => {
       void checkForAppUpdate(true);
     }, UPDATE_CHECK_MS);
 
     return () => {
-      if (usageTimer !== undefined) {
-        window.clearInterval(usageTimer);
-      }
       window.clearInterval(updateTimer);
     };
   }, [
     checkForAppUpdate,
-    isMacos,
     mainWindowVisible,
-    refreshUsage,
   ]);
 
   useEffect(() => {

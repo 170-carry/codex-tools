@@ -2,10 +2,10 @@
 
 ## Summary / 摘要
 
-- **Add shared quota icon styles / 新增共享额度图标样式:** provide five compact styles for the macOS menu bar and Windows system tray, with live settings updates.
-- **Add an experimental native Windows taskbar quota component / 新增实验性 Windows 原生任务栏额度组件:** show quota on the left or right side of the primary taskbar, or keep only the system-tray icon.
-- **Add platform-specific first-launch setup / 新增分平台首次启动设置:** configure macOS text/icon quota surfaces and Windows taskbar/tray surfaces before entering the main application.
-- **Harden lifecycle, refresh, and validation / 加固生命周期、刷新与验收流程:** stabilize macOS status items, recover Windows taskbar surfaces, preserve meaningful refresh states, and keep preview data isolated.
+- **Add shared quota icon styles / 新增共享额度图标样式:** provide five compact styles for the macOS menu bar and Windows system tray, with live settings updates. / 为 macOS 菜单栏和 Windows 系统托盘提供五种紧凑样式，并支持设置实时生效。
+- **Add an experimental native Windows taskbar quota component / 新增实验性 Windows 原生任务栏额度组件:** show quota on the left or right side of the primary taskbar, or keep only the system-tray icon. / 在主任务栏左侧或右侧显示额度，也可以仅保留系统托盘图标。
+- **Add platform-specific first-launch setup / 新增分平台首次启动设置:** configure macOS text/icon quota surfaces and Windows taskbar/tray surfaces before entering the main application. / 在进入主界面前分别配置 macOS 文字与图标额度展示，以及 Windows 任务栏与托盘展示。
+- **Harden refresh and validation / 加固刷新与验收流程:** recover renewed authorization snapshots, coordinate 60-second quota refreshes across platforms, restore Windows taskbar surfaces after Explorer restarts, and keep preview data isolated. / 恢复已经更新的授权快照，统一跨平台 60 秒额度刷新，在 Explorer 重启后恢复 Windows 任务栏组件，并隔离预览数据。
 
 ## Changes / 改动
 
@@ -31,7 +31,7 @@ macOS 和 Windows 现在共享五种紧凑额度样式：方形数字卡、横�
 
 ![Actual Windows tray quota result / Windows 托盘额度实机效果](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-tray-quota-icon-effect.png)
 
-### 2. Experimental native Windows taskbar quota component /  Windows 原生任务栏额度组件（实验性功能）
+### 2. Experimental native Windows taskbar quota component / Windows 原生任务栏额度组件（实验性功能）
 
 Windows can experimentally show quota at the far left or right side of the primary taskbar, or keep only the system-tray icon. The native implementation handles Windows Widgets placement, taskbar auto-hide, fullscreen windows, DPI changes, Explorer recreation, premultiplied transparency, and rate-limited UI Automation scans.
 
@@ -41,9 +41,9 @@ The component is deliberately pinned to the primary taskbar. Moving the Codex To
 
 该组件会固定在系统主任务栏。将 Codex Tools 窗口移到副屏时，组件不会跟随或复制，从而避开不兼容的 `Shell_SecondaryTrayWnd` 子窗口层级。由于该展示面仍需接入 Explorer 任务栏窗口层级，首次启动页和设置页都会将其标记为实验性功能；独立的系统托盘图标仍可作为回退方案。
 
-Turning the component off keeps its transparent child window attached to the taskbar. Turning it back on refreshes the native surface so its pixels return reliably. Selecting either taskbar placement during first-launch setup also re-enables a previously hidden component.
+After Explorer restarts, a visible component returns to its previous primary-taskbar placement. If the user hides it, it remains hidden through the restart; selecting the left or right placement in Settings or first-launch setup makes it visible again.
 
-关闭组件时会保留其挂载在任务栏上的透明子窗口；重新开启时会刷新原生表面，使额度像素可靠恢复。在首次启动设置中选择任一任务栏位置，也会重新启用此前隐藏的组件。
+Explorer 重启后，正在显示的组件会回到此前的主任务栏位置；如果用户主动将其隐藏，则重启后仍保持隐藏。在设置或首次启动界面重新选择主任务栏左侧或右侧，即可再次显示。
 
 Windows Settings now exposes the four usable quota modes: remaining, used, five-hour remaining, and one-week remaining. A legacy or imported `hidden` text mode is treated as the default one-week mode on Windows, so selecting a taskbar position cannot leave the component invisibly disabled.
 
@@ -75,35 +75,35 @@ Windows 对话框会在进入主界面前配置任务栏位置和系统托盘额
 
 ![Windows first-launch quota setup / Windows 首次启动额度设置](https://raw.githubusercontent.com/Nonex111/codex-tools/codex/macos-first-launch-quota/docs/pr-assets/quota-status-visuals/windows-first-launch-quota-setup.png)
 
-### 4. Status-item and refresh reliability / 状态项与刷新可靠性
+### 4. Authorization recovery / 授权恢复
 
-The macOS text and compact quota surfaces have separate persistent status-item identities. Old native items are removed before replacements are created, preventing an older wrapper from unregistering a newly created item. Three-digit quota values, including 100, are constrained to the icon canvas so they are not clipped.
+In the previous version, an account could remain blocked even after its login credentials (`auth.json`) had been updated, because the blocked refresh path did not inspect the newer authorization snapshot. The app now recognizes a genuinely newer rotated credential, clears the obsolete block, and prevents account deduplication from restoring it. An unchanged or older snapshot is not misclassified as a successful recovery.
 
-macOS 的文字额度栏和紧凑额度图标拥有各自独立、持久的状态项身份。创建替代项前会先移除旧原生状态项，防止旧包装对象反向注销刚创建的新状态项。包括 100 在内的三位数额度会被限制在图标画布内，避免显示不完整。
+在旧版本中，即使 `auth.json` 已经更新，账号仍可能继续处于授权刷新受阻状态，因为被阻止的刷新链路不会检查新的授权快照。现在会识别确实更新且已经轮换的凭据，清除过时的阻塞状态，并避免账号去重重新恢复该状态；相同或更旧的凭据不会被误判为恢复成功。
 
-Quota surfaces keep explicit fresh, stale, and error states instead of clearing a previous refresh failure during an unrelated settings update. After Explorer or taskbar changes, Windows rebinds and lays out the existing quota surface, recreating its window only when that window was actually destroyed.
+### 5. Quota refresh and persistence improvements / 额度刷新与写入机制优化
 
-额度展示会明确保留正常、缓存过期和错误状态，不会在无关的设置更新中清除此前的刷新错误。Explorer 或任务栏变化后，Windows 会重新绑定并布局现有额度展示，只有组件窗口确实被销毁时才重新创建窗口。
+In the previous version, quota refresh behavior depended on whether the main window was visible and whether a persistent quota surface was enabled, and quota could remain unchanged for up to five minutes. The app now uses a fixed 60-second refresh schedule. The same result updates the menu bar, taskbar or system tray, and the application window.
 
-When a genuinely newer rotated authorization snapshot arrives, the app can clear an obsolete authorization block and resume quota refresh. Reusing the same stale snapshot cannot falsely unlock refresh.
+旧版本的额度刷新机制区分主窗口是否可见、是否启用了常驻额度展示，最长不更新时间为五分钟。现在使用固定 60 秒额度刷新调度。同一份刷新结果会同步更新菜单栏、任务栏或系统托盘，以及应用窗口。
 
-当应用收到确实更新、且刷新令牌已经轮换的授权快照时，可以清除过时的授权阻塞并恢复额度刷新；重复使用同一份旧快照不会被误判为已经恢复。
+In the previous version, startup, manual, frontend, and native status-bar refreshes could run independently, so overlapping refreshes could repeat the same network work. Every completed refresh also saved the account store, even when only freshness timestamps changed. Now startup, manual, and periodic refreshes share one coordinator, so overlapping requests no longer duplicate network work. For periodic refreshes, timestamp-only changes are written at most once every five minutes, while quota, authorization, and error changes are still saved immediately.
 
-Quick account actions now use “Re-login” instead of “Test login”, matching the action's actual reauthorization behavior.
+在旧版本中，启动、手动、前端和原生状态栏刷新会分别运行，同时发生时可能重复发起相同的网络请求。每次刷新完成后也都会保存账号库，即使变化只有新鲜度时间戳。现在，启动、手动和周期刷新共用同一个协调器，重叠请求不会重复发起网络访问。对于周期刷新，仅更新时间戳的变化最多每五分钟写盘一次；额度、授权和错误等实质变化仍会立即保存。
 
-账号快捷操作现使用“重新登录”而非“测试登录”，与实际执行的重新授权行为一致。
+### 6. Correct the re-login action label / 更正“重新登录”操作字样
 
-### 5. Background work and isolated macOS validation / 后台工作与 macOS 隔离验收
+In v2.0.0, the “Re-login” label in the account menu and details view was mistakenly changed to “Test login”. It has now been corrected.
 
-macOS uses one native 60-second status refresh scheduler and sends fresh results to the frontend. Writes that only update freshness timestamps are deferred for up to five minutes, while quota, authorization, error, startup, manual, and import changes are still saved immediately.
-
-macOS 使用一个原生 60 秒状态刷新调度器，并将最新结果发送给前端。仅更新时间戳的新鲜度写盘最多延后五分钟；额度、授权、错误、启动、手动和导入等实质变化仍会立即保存。
-
-Fresh preview environments no longer copy the production account store or production `auth.json`. Debug macOS builds expose the real first-launch dialog from both Settings and the application menu, without a global keyboard shortcut. The validation script uses stable bundle identities, refuses concurrent `com.carry.codex-tools*` variants, and performs a best-effort read-only check for confirmed Control Center status-item pollution.
-
-新的预览环境不再复制正式版账号库或正式版 `auth.json`。macOS 调试构建可以从设置页和应用菜单重新打开真实首次启动对话框，并且不占用全局快捷键。验收脚本使用固定的应用身份，拒绝同时运行多个 `com.carry.codex-tools*` 变体，并以只读方式尽力检查已经确认的 Control Center 状态项污染。
+账号菜单和详情视图中的“重新登录”字样在 v2.0.0 被误改为“测试登录”，现已更正。
 
 ## Validation / 验证
+
+### Isolated validation environment / 隔离验收环境
+
+Fresh Windows preview environments no longer copy the production account store or `auth.json`; existing isolated preview data is preserved. The new macOS menu-bar validation script uses dedicated data and Codex directories with stable Bundle IDs, refuses concurrent `com.carry.codex-tools*` variants, and warns when known stale Control Center status-item identities are detected.
+
+新的 Windows 预览环境不再复制正式版账号库或 `auth.json`，已有的隔离预览数据会继续保留。新增的 macOS 菜单栏验收脚本使用独立的数据与 Codex 目录及固定 Bundle ID，拒绝多个 `com.carry.codex-tools*` 变体并行运行，并在检测到已知的控制中心旧状态项身份残留时发出警告。
 
 ### macOS Apple Silicon
 
@@ -118,19 +118,20 @@ Fresh preview environments no longer copy the production account store or produc
 - [x] Debug acceptance app built and launched with isolated runtime and application data / Debug 验收应用已使用隔离的运行目录和应用数据完成构建、启动
 - [x] Live UI regression: Settings preview entry, application-menu entry without a shortcut, and real first-launch dialog reopening / 实时界面回归：设置页预览入口、无快捷键的应用菜单入口和真实首屏重新打开
 - [x] Menu-bar regression: independent text/icon visibility, live style changes, completion persistence, restart behavior, and new-user 100% preview / 菜单栏回归：文字与图标独立显示、样式实时切换、完成状态持久化、重启行为和新用户 100% 预览
-- [x] Runtime regression: one native refresh scheduler, frontend event delivery, and five-minute freshness-only write throttling / 运行时回归：单一原生刷新调度器、前端事件传递和五分钟新鲜度写盘节流
+- [x] Runtime regression: shared native 60-second scheduler, frontend event delivery, and five-minute freshness-only write throttling / 运行时回归：共享原生 60 秒调度器、前端事件传递和五分钟纯时间戳写盘节流
 - [x] npm production dependency audit / npm 生产依赖审计：0 vulnerabilities
 
 ### Windows 11
 
-- [x] Exact release identity / 精确发布身份：HEAD `6e96f6edcf25b96067a6428a35e6e5c2c0cfdfc2`, tree `35ca2b26de20263859b328481a248ee88f9aede4`
+- [x] Exact current-candidate Windows build and isolated runtime check: the native scheduler continued at about 61-second intervals with the main window both visible and hidden, legacy periodic sources stayed inactive, and the taskbar child surface remained visible under `Shell_TrayWnd` / 当前精确候选版本 Windows 构建及隔离实机检查：主窗口可见和隐藏时，原生调度均保持约 61 秒间隔，旧周期刷新来源均未触发，任务栏子组件在 `Shell_TrayWnd` 下保持可见
 - [x] Frontend dependency preflight, production build, TypeScript, and ESLint / 前端依赖预检、生产构建、TypeScript 与 ESLint
 - [x] Node regression tests / Node 回归测试：18 passed
+- [x] Current-candidate Windows full Rust suite / 当前候选版本 Windows 完整 Rust 测试：259 passed
 - [x] Re-enable and placement regressions / 重新启用与位置回归：10/10 frontend and 18/18 Windows native tests passed / 前端 10/10、Windows 原生测试 18/18 通过
 - [x] Real taskbar regression: left and right both survive visible → hidden → visible transitions / 真实任务栏回归：主任务栏左侧和右侧均通过显示 → 隐藏 → 恢复测试
 - [x] Final settings migration regression: legacy `hidden` mode migration tests passed 3/3; hidden state survived Explorer recreation and re-enabling restored the component / 设置迁移最终回归：历史 `hidden` 模式迁移测试 3/3 通过；隐藏状态在 Explorer 重建后保持，重新启用后组件恢复
-- [x] Exact-candidate Rust compilation / 精确候选 Rust 编译：`cargo check --all-targets --all-features --offline`
-- [x] Exact-candidate Windows release build / 精确候选 Windows Release 构建：passed / 通过
+- [x] Previously tested candidate Rust compilation / 先前候选版本 Rust 编译：`cargo check --all-targets --all-features --offline`
+- [x] Previously tested candidate Windows release build / 先前候选版本 Windows Release 构建：passed / 通过
 - [x] Mixed-DPI dual-monitor gate: 2560×1600 at 150% primary display plus 3072×1920 at 200% secondary display / 混合 DPI 双屏门禁：主屏 2560×1600、150%，副屏 3072×1920、200%
 - [x] Primary-taskbar pinning: moving the main window to the secondary display kept the component on `Shell_TrayWnd`, with no secondary copy or residual pixels / 主任务栏固定：主窗口移到副屏后，组件仍挂载在 `Shell_TrayWnd`，副屏没有副本或残留像素
 - [x] Native taskbar pixel gate A: primary-taskbar left and right placements remained visible while the main window was on either display / 原生任务栏像素门禁 A：无论主窗口位于主屏还是副屏，主任务栏左侧和右侧均保持可见

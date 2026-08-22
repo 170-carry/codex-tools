@@ -81,6 +81,7 @@ use utils::new_background_command;
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
 const APP_MENU_OPEN_SETTINGS_EVENT: &str = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT: &str = "app-menu-check-update";
+const PERIODIC_USAGE_REFRESHED_EVENT: &str = "periodic-usage-refreshed";
 #[cfg(all(target_os = "macos", debug_assertions))]
 const APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT: &str = "app-menu-open-quota-onboarding";
 const CODEX_COST_ANALYTICS_PROGRESS_EVENT: &str = "codex-cost-analytics-progress";
@@ -90,8 +91,7 @@ const APP_MENU_SETTINGS_ID: &str = "app_menu_settings";
 const APP_MENU_CHECK_UPDATES_ID: &str = "app_menu_check_updates";
 #[cfg(all(target_os = "macos", debug_assertions))]
 const APP_MENU_OPEN_QUOTA_ONBOARDING_ID: &str = "app_menu_open_quota_onboarding";
-#[cfg(not(target_os = "macos"))]
-const BACKGROUND_USAGE_REFRESH_INTERVAL_SECS: u64 = 300;
+const PERIODIC_USAGE_REFRESH_INTERVAL_SECS: u64 = 60;
 const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
 
 #[cfg(target_os = "macos")]
@@ -741,26 +741,11 @@ async fn refresh_all_usage(
     let force_auth_refresh = force_auth_refresh.unwrap_or(false);
     let source = match source.as_deref() {
         Some("startup") => "startup",
-        Some("foreground-timer") => "foreground-timer",
         Some("account-import") => "account-import",
         Some("manual") => "manual",
         _ => "frontend",
     };
-    let main_window_visible = app
-        .get_webview_window("main")
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false);
-    if source == "foreground-timer" && !main_window_visible {
-        log::info!(
-            "USAGE_REFRESH_SCHEDULE source=foreground-timer window_visible=false action=skip"
-        );
-        return account_service::list_accounts_internal(&app, state.inner()).await;
-    }
-    log::info!(
-        "USAGE_REFRESH_SCHEDULE source={} window_visible={} action=request",
-        source,
-        main_window_visible,
-    );
+    log::info!("USAGE_REFRESH_SCHEDULE source={} action=request", source);
     if force_auth_refresh {
         {
             let _auth_guard = state.auth_operation_lock.lock().await;
@@ -1409,6 +1394,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::macos_codex_main_app_bundle_for_executable;
     use super::should_noop_switch_account;
+    use super::PERIODIC_USAGE_REFRESH_INTERVAL_SECS;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use serde_json::json;
@@ -1422,6 +1408,11 @@ mod tests {
     use std::path::PathBuf;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn periodic_usage_refresh_runs_once_per_minute_on_every_platform() {
+        assert_eq!(PERIODIC_USAGE_REFRESH_INTERVAL_SECS, 60);
+    }
 
     fn unique_test_dir(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -2702,42 +2693,31 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn start_background_usage_refresh_loop(app: AppHandle) {
+fn start_periodic_usage_refresh_loop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(BACKGROUND_USAGE_REFRESH_INTERVAL_SECS)).await;
-            let main_window_visible = app
-                .get_webview_window("main")
-                .and_then(|window| window.is_visible().ok())
-                .unwrap_or(false);
-            if main_window_visible {
-                log::info!(
-                    "USAGE_REFRESH_SCHEDULE source=background-hidden window_visible=true action=skip"
-                );
-                continue;
-            }
-
-            // Windows 没有 macOS 状态栏刷新循环。窗口隐藏时保留一条低频兜底，
-            // 仅刷新真实用量并按需更新 OAuth 令牌，绝不调用 Codex 推理接口。
+            tokio::time::sleep(Duration::from_secs(PERIODIC_USAGE_REFRESH_INTERVAL_SECS)).await;
             let state = app.state::<AppState>();
-            log::info!(
-                "USAGE_REFRESH_SCHEDULE source=background-hidden window_visible=false action=request"
-            );
+            log::info!("USAGE_REFRESH_SCHEDULE source=periodic-background action=request");
             match account_service::refresh_all_usage_coordinated(
                 &app,
                 state.inner(),
-                true,
-                "background-hidden",
+                false,
+                "periodic-background",
             )
             .await
             {
                 Ok(summaries) => {
-                    let _ = tray::update_usage_surfaces_snapshot(&app, &summaries);
+                    if let Err(error) = tray::update_usage_surfaces_snapshot(&app, &summaries) {
+                        log::warn!("更新周期额度展示失败: {error}");
+                    }
+                    if let Err(error) = app.emit(PERIODIC_USAGE_REFRESHED_EVENT, &summaries) {
+                        log::warn!("发送周期额度刷新事件失败: {error}");
+                    }
                 }
                 Err(error) => {
                     tray::update_usage_surfaces_error(&app, &error);
-                    log::warn!("后台账号认证检查失败: {error}");
+                    log::warn!("周期额度刷新失败: {error}");
                 }
             }
         }
@@ -2973,8 +2953,7 @@ pub fn run() {
             store::sync_current_auth_account_on_startup(app.handle())?;
             setup_macos_app_menu(app.handle())?;
             tray::setup_system_tray(app.handle())?;
-            #[cfg(not(target_os = "macos"))]
-            start_background_usage_refresh_loop(app.handle().clone());
+            start_periodic_usage_refresh_loop(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

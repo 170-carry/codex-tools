@@ -791,7 +791,7 @@ pub(crate) async fn refresh_all_usage_coordinated(
                 coordinator.next_id = coordinator.next_id.wrapping_add(1).max(1);
                 let flight_id = coordinator.next_id;
                 let app_handle = app.clone();
-                let defer_freshness_only_persistence = source == "macos-status-bar";
+                let defer_freshness_only_persistence = source == "periodic-background";
                 let future = async move {
                     let state = app_handle.state::<AppState>();
                     refresh_all_usage_internal(
@@ -867,10 +867,8 @@ fn should_reuse_successful_usage_refresh(
     requested_force_auth_refresh: bool,
     now: Instant,
 ) -> bool {
-    matches!(
-        source,
-        "foreground-timer" | "macos-status-bar" | "background-hidden"
-    ) && (!requested_force_auth_refresh || completed_force_auth_refresh)
+    matches!(source, "periodic-background")
+        && (!requested_force_auth_refresh || completed_force_auth_refresh)
         && now.saturating_duration_since(completed_at) < USAGE_REFRESH_REUSE_WINDOW
 }
 
@@ -2252,7 +2250,7 @@ mod tests {
         let now = Instant::now();
 
         assert!(should_reuse_successful_usage_refresh(
-            "macos-status-bar",
+            "periodic-background",
             now - Duration::from_secs(5),
             false,
             false,
@@ -2265,14 +2263,14 @@ mod tests {
         let now = Instant::now();
 
         assert!(!should_reuse_successful_usage_refresh(
-            "foreground-timer",
+            "periodic-background",
             now - Duration::from_secs(5),
             false,
             true,
             now,
         ));
         assert!(should_reuse_successful_usage_refresh(
-            "background-hidden",
+            "periodic-background",
             now - Duration::from_secs(5),
             true,
             true,
@@ -2285,7 +2283,7 @@ mod tests {
         let now = Instant::now();
 
         assert!(!should_reuse_successful_usage_refresh(
-            "macos-status-bar",
+            "periodic-background",
             now - USAGE_REFRESH_REUSE_WINDOW,
             true,
             false,

@@ -1,8 +1,6 @@
 #[cfg(target_os = "macos")]
 use std::cell::RefCell;
 use tauri::AppHandle;
-#[cfg(target_os = "macos")]
-use tauri::Emitter;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
@@ -37,14 +35,7 @@ use crate::windows_taskbar_widget::WindowsWidgetStatus;
 #[cfg(target_os = "windows")]
 use crate::windows_tray_icon::{render_windows_tray_icon, static_codex_tools_icon};
 #[cfg(target_os = "macos")]
-use std::time::Duration;
-
-#[cfg(target_os = "macos")]
-const REFRESH_INTERVAL_SECONDS: u64 = 60;
-#[cfg(target_os = "macos")]
 const MACOS_ONBOARDING_PREVIEW_PERCENT: f64 = 100.0;
-#[cfg(target_os = "macos")]
-const MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT: &str = "macos-status-bar-usage-refreshed";
 #[cfg(target_os = "macos")]
 const MACOS_TEXT_STATUS_AUTOSAVE_NAME: &str = "com.carry.codex-tools.status-item.text";
 #[cfg(target_os = "macos")]
@@ -1239,25 +1230,6 @@ fn log_current_macos_status_bar_rects(context: &str) {
 }
 
 #[cfg(target_os = "macos")]
-fn start_macos_tray_refresh_loop(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        loop {
-            // 状态栏刷新不依赖窗口可见性：最小化、被遮挡或留在其他空间的
-            // 主窗口仍可能被系统报告为可见。协调器会与前端和手动刷新共享
-            // in-flight 请求，并短时复用刚完成的结果，避免重复网络访问。
-            tokio::time::sleep(Duration::from_secs(REFRESH_INTERVAL_SECONDS)).await;
-            let state = app.state::<AppState>();
-            if let Ok(summaries) =
-                refresh_all_usage_coordinated(&app, state.inner(), false, "macos-status-bar").await
-            {
-                let _ = update_macos_tray_snapshot(&app, &summaries);
-                let _ = app.emit(MACOS_STATUS_BAR_USAGE_REFRESHED_EVENT, &summaries);
-            }
-        }
-    });
-}
-
-#[cfg(target_os = "macos")]
 fn create_macos_status_bar_trays(
     app: &AppHandle,
     _log_context: &str,
@@ -1400,10 +1372,7 @@ fn replace_macos_status_bar_trays(app: &AppHandle, log_context: &str) -> Result<
 
 #[cfg(target_os = "macos")]
 fn setup_macos_status_bar(app: &AppHandle) -> Result<(), String> {
-    replace_macos_status_bar_trays(app, "setup")?;
-
-    start_macos_tray_refresh_loop(app.clone());
-    Ok(())
+    replace_macos_status_bar_trays(app, "setup")
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1579,8 +1548,6 @@ mod tests {
     use super::MACOS_QUOTA_STATUS_AUTOSAVE_NAME;
     #[cfg(target_os = "macos")]
     use super::MACOS_TEXT_STATUS_AUTOSAVE_NAME;
-    #[cfg(target_os = "macos")]
-    use super::REFRESH_INTERVAL_SECONDS;
     use crate::models::AccountSummary;
     use crate::models::AppLocale;
     #[cfg(target_os = "macos")]
@@ -1592,12 +1559,6 @@ mod tests {
     use crate::models::WindowsTaskbarWidgetPlacement;
     #[cfg(target_os = "macos")]
     use crate::models::WindowsTrayIconStyle;
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_status_bar_refreshes_once_per_minute() {
-        assert_eq!(REFRESH_INTERVAL_SECONDS, 60);
-    }
 
     #[test]
     fn windows_legacy_hidden_usage_mode_falls_back_to_one_week_remaining() {
