@@ -289,11 +289,11 @@ docs/                    Extra documentation
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=170-carry/codex-tools&type=date&legend=top-left">
+<a href="https://star-history.dera.page/#170-carry/codex-tools&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=170-carry/codex-tools&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=170-carry/codex-tools&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=170-carry/codex-tools&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=170-carry/codex-tools&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=170-carry/codex-tools&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=170-carry/codex-tools&type=date&legend=top-left" />
  </picture>
 </a>
 
