@@ -38,11 +38,13 @@ pub(crate) async fn update_app_settings_internal(
     patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
     let mut launch_at_startup_to_apply = None;
+    let mut previous_launch_at_startup = None;
     let settings = {
         let _guard = state.store_lock.lock().await;
         let mut store = load_store(app)?;
 
         if let Some(value) = patch.launch_at_startup {
+            previous_launch_at_startup = Some(store.settings.launch_at_startup);
             store.settings.launch_at_startup = value;
             launch_at_startup_to_apply = Some(value);
         }
@@ -51,6 +53,27 @@ pub(crate) async fn update_app_settings_internal(
         }
         if let Some(value) = patch.tray_usage_title_show_window_labels {
             store.settings.tray_usage_title_show_window_labels = value;
+        }
+        if let Some(value) = patch.macos_tray_text_icon_style {
+            store.settings.macos_tray_text_icon_style = value;
+        }
+        if let Some(value) = patch.windows_tray_icon_style {
+            store.settings.windows_tray_icon_style = value;
+        }
+        if let Some(value) = patch.tray_quota_icon_visible {
+            store.settings.tray_quota_icon_visible = value;
+        }
+        if let Some(value) = patch.macos_tray_logo_ring_show_percentage {
+            store.settings.macos_tray_logo_ring_show_percentage = value;
+        }
+        if let Some(value) = patch.windows_taskbar_widget_placement {
+            store.settings.windows_taskbar_widget_placement = value;
+        }
+        if let Some(value) = patch.windows_quota_onboarding_completed {
+            store.settings.windows_quota_onboarding_completed = value;
+        }
+        if let Some(value) = patch.macos_quota_onboarding_completed {
+            store.settings.macos_quota_onboarding_completed = value;
         }
         if let Some(value) = patch.launch_codex_after_switch {
             store.settings.launch_codex_after_switch = value;
@@ -112,10 +135,37 @@ pub(crate) async fn update_app_settings_internal(
     };
 
     if let Some(value) = launch_at_startup_to_apply {
-        set_system_autostart(app, value)?;
+        if let Err(error) = set_system_autostart(app, value) {
+            let _guard = state.store_lock.lock().await;
+            let mut store = load_store(app)?;
+            store.settings.launch_at_startup = previous_launch_at_startup.unwrap_or(!value);
+            save_store(app, &store)?;
+            return Err(error);
+        }
     }
 
     Ok(settings)
+}
+
+pub(crate) async fn replace_app_settings_internal(
+    app: &AppHandle,
+    state: &AppState,
+    settings: AppSettings,
+) -> Result<(), String> {
+    let launch_at_startup_changed = {
+        let _guard = state.store_lock.lock().await;
+        let mut store = load_store(app)?;
+        let changed = store.settings.launch_at_startup != settings.launch_at_startup;
+        store.settings = settings.clone();
+        save_store(app, &store)?;
+        changed
+    };
+
+    if launch_at_startup_changed {
+        set_system_autostart(app, settings.launch_at_startup)?;
+    }
+
+    Ok(())
 }
 
 /// 启动时根据本地设置校准系统开机启动状态，避免“设置与系统实际状态不一致”。

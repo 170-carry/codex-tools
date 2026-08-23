@@ -11,20 +11,34 @@ import { DebugFloatingTool } from "./components/DebugFloatingTool";
 import { DeleteAccountDialog } from "./components/DeleteAccountDialog";
 import { MetaStrip } from "./components/MetaStrip";
 import { NoticeBanner } from "./components/NoticeBanner";
+import { QuotaDisplayOnboardingDialog } from "./components/QuotaDisplayOnboardingDialog";
 import { RemoteDeployProgressToast } from "./components/RemoteDeployProgressToast";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useCodexController } from "./hooks/useCodexController";
 import { useThemeMode } from "./hooks/useThemeMode";
+import {
+  shouldOpenQuotaOnboarding,
+  type QuotaOnboardingPlatform,
+} from "./utils/quotaDisplayOnboarding";
 
 type AppTab = "accounts" | "analytics" | "proxy" | "settings";
 const APP_MENU_OPEN_SETTINGS_EVENT = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT = "app-menu-check-update";
+const APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT = "app-menu-open-quota-onboarding";
 const TOKEN_USAGE_FRESHNESS_MS = 5 * 60 * 1000;
 
 function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
   const { themeMode, toggleTheme } = useThemeMode();
+  const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  const isMacos =
+    typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const quotaOnboardingPlatform: QuotaOnboardingPlatform = isWindows
+    ? "windows"
+    : isMacos
+      ? "macos"
+      : null;
   const {
     accounts,
     tokenUsage,
@@ -58,6 +72,7 @@ function App() {
     notice,
     openExternalUrl,
     settings,
+    settingsLoaded,
     installedEditorApps,
     hasOpencodeDesktopApp,
     savingSettings,
@@ -196,14 +211,28 @@ function App() {
             void checkForAppUpdate(false);
           },
         );
+        const openQuotaOnboardingUnlisten = await listen<void>(
+          APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT,
+          () => {
+            void updateSettings(
+              { macosQuotaOnboardingCompleted: false },
+              { silent: true, throwOnError: true, keepInteractive: true },
+            );
+          },
+        );
 
         if (disposed) {
           void openSettingsUnlisten();
           void checkUpdateUnlisten();
+          void openQuotaOnboardingUnlisten();
           return;
         }
 
-        unlistenFns.push(openSettingsUnlisten, checkUpdateUnlisten);
+        unlistenFns.push(
+          openSettingsUnlisten,
+          checkUpdateUnlisten,
+          openQuotaOnboardingUnlisten,
+        );
       } catch {
         // The app can still run in a browser-only preview where Tauri events are unavailable.
       }
@@ -217,7 +246,7 @@ function App() {
         void unlisten();
       }
     };
-  }, [checkForAppUpdate]);
+  }, [checkForAppUpdate, updateSettings]);
 
   useEffect(() => {
     if (activeTab !== "accounts" || !mainWindowVisible) {
@@ -294,6 +323,28 @@ function App() {
           onManualDownload={() => void openManualDownloadPage()}
           onSkipVersion={() => void skipPendingUpdateVersion()}
           onInstallNow={() => void installPendingUpdate()}
+        />
+        <QuotaDisplayOnboardingDialog
+          open={shouldOpenQuotaOnboarding({
+            platform: quotaOnboardingPlatform,
+            settingsLoaded,
+            windowsCompleted: settings.windowsQuotaOnboardingCompleted,
+            macosCompleted: settings.macosQuotaOnboardingCompleted,
+          })}
+          platform={quotaOnboardingPlatform === "macos" ? "macos" : "windows"}
+          lightTheme={themeMode !== "dark"}
+          settings={settings}
+          saving={savingSettings}
+          onPreviewSettings={(patch) =>
+            updateSettings(patch, {
+              silent: true,
+              throwOnError: true,
+              keepInteractive: true,
+            })
+          }
+          onConfirm={(patch) =>
+            updateSettings(patch, { silent: true, throwOnError: true })
+          }
         />
 
         <section className="viewStage">

@@ -14,6 +14,37 @@
     "toggleLanguage": "Switch language (next: {{nextLanguage}})",
     "languagePicker": "Language"
   },
+  "quotaOnboarding": {
+    "title": "Choose how to show quota",
+    "description": "The new version can keep quota visible in the Windows taskbar and system tray. Enable at least one option. You can change this later in Settings.",
+    "livePreview": "Changes are applied to the Windows taskbar and system tray immediately.",
+    "macTitle": "Set up the macOS quota bar",
+    "macStatusBarTitle": "Text quota display",
+    "macCodexToolsIconOption": "Codex Tools icon",
+    "macProgressRingIconOption": "Progress ring icon",
+    "macStatusBarDescription": "Show the current quota as text directly in the menu bar.",
+    "macStatusBarModeLabel": "Classic text quota bar display mode",
+    "macTrayTitle": "Quota icon",
+    "macTrayDescription": "Show a compact quota icon in the menu bar.",
+    "macApplying": "Applying to macOS...",
+    "taskbarTitle": "Taskbar quota component (Experimental)",
+    "taskbarDescription": "Show the current quota at the far left or right side of the primary taskbar.",
+    "trayTitle": "Tray quota icon",
+    "trayDescription": "Keep a quota icon available in the Windows system tray.",
+    "enable": "Enable",
+    "enabled": "Enabled",
+    "taskbarPlacementLabel": "Primary taskbar quota component placement",
+    "taskbarLeft": "Primary taskbar far left",
+    "taskbarRight": "Primary taskbar right",
+    "trayHint": "Choose from all five icon styles below. Selecting a style also enables the tray icon.",
+    "requireOne": "Enable at least one quota display option.",
+    "ready": "At least one quota display is active. You can still change it later in Settings.",
+    "applying": "Applying to Windows...",
+    "liveUpdateFailed": "This change could not be applied. The previous setting was restored.",
+    "confirm": "Finish setup",
+    "saving": "Finishing...",
+    "saveFailed": "Could not save your selection. Try again."
+  },
   "metaStrip": {
     "ariaLabel": "Account overview",
     "accountCount": "Accounts",
@@ -556,6 +587,39 @@
       "label": "Show 5h / 1w labels",
       "checkedText": "Show labels",
       "uncheckedText": "Numbers only"
+    },
+    "windowsTrayIconStyle": {
+      "label": "Quota icon style",
+      "description": "Choose a compact icon based on remaining quota, or hide the quota icon.",
+      "groupAriaLabel": "Quota icon style",
+      "gradientNumberPlate": "Square number card",
+      "gradientNumberCard": "Wide number card",
+      "gradientNumber": "Gradient number",
+      "numberProgressBar": "Number progress bar",
+      "logoProgressRing": "App icon progress ring",
+      "hidden": "Hide icon"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "Show percentage",
+      "withoutPercentage": "Progress ring only"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "First-launch quota setup preview (Debug)",
+      "description": "Reopens the real setup without clearing account data or changing the app identity.",
+      "open": "Open setup"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows taskbar quota component (Experimental)",
+      "description": "Shows the Codex Tools icon before the quota, matching the macOS status bar. Its transparent background exposes the taskbar's real color, gradient, and material.",
+      "groupAriaLabel": "Windows primary taskbar quota component placement",
+      "left": "Primary taskbar far left",
+      "right": "Primary taskbar right",
+      "hidden": "Hide"
+    },
+    "windowsWidgets": {
+      "disable": "Turn off Windows weather widget",
+      "disableAriaLabel": "Open Windows taskbar settings to turn off the weather widget",
+      "openFailed": "Unable to open Windows taskbar settings."
     },
     "theme": {
       "label": "Dark mode",

@@ -18,8 +18,13 @@ mod state;
 mod store;
 mod token_usage;
 mod tray;
+mod tray_visual;
 mod usage;
 mod utils;
+#[cfg(target_os = "windows")]
+mod windows_taskbar_widget;
+#[cfg(target_os = "windows")]
+mod windows_tray_icon;
 
 #[cfg(target_os = "macos")]
 use std::collections::HashSet;
@@ -76,13 +81,17 @@ use utils::new_background_command;
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
 const APP_MENU_OPEN_SETTINGS_EVENT: &str = "app-menu-open-settings";
 const APP_MENU_CHECK_UPDATE_EVENT: &str = "app-menu-check-update";
+const PERIODIC_USAGE_REFRESHED_EVENT: &str = "periodic-usage-refreshed";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT: &str = "app-menu-open-quota-onboarding";
 const CODEX_COST_ANALYTICS_PROGRESS_EVENT: &str = "codex-cost-analytics-progress";
 const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT: &str = "main-window-visibility-changed";
 const CODEX_COST_ANALYTICS_CACHE_FILE: &str = "codex-cost-analytics-cache.json";
 const APP_MENU_SETTINGS_ID: &str = "app_menu_settings";
 const APP_MENU_CHECK_UPDATES_ID: &str = "app_menu_check_updates";
-#[cfg(not(target_os = "macos"))]
-const BACKGROUND_USAGE_REFRESH_INTERVAL_SECS: u64 = 300;
+#[cfg(all(target_os = "macos", debug_assertions))]
+const APP_MENU_OPEN_QUOTA_ONBOARDING_ID: &str = "app_menu_open_quota_onboarding";
+const PERIODIC_USAGE_REFRESH_INTERVAL_SECS: u64 = 60;
 const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
 
 #[cfg(target_os = "macos")]
@@ -335,7 +344,7 @@ async fn import_oauth_auth_json(
     .await?;
 
     if result.imported_count > 0 || result.updated_count > 0 {
-        let _ = tray::refresh_macos_tray_snapshot(app);
+        let _ = tray::refresh_usage_surfaces_snapshot(app);
     }
 
     Ok(result)
@@ -563,6 +572,32 @@ async fn start_oauth_callback_listener(
 // 核心业务逻辑放在 account_service/auth/store/tray 等模块。
 
 #[tauri::command]
+fn get_tray_visual_previews(
+    light_theme: bool,
+    device_pixel_ratio: f64,
+) -> Result<Vec<tray_visual::TrayVisualPreview>, String> {
+    #[cfg(target_os = "windows")]
+    let (platform, base_size) = (
+        tray_visual::TrayVisualPlatform::Windows,
+        windows_tray_icon::windows_tray_icon_size(),
+    );
+    #[cfg(target_os = "macos")]
+    let (platform, base_size) = (
+        tray_visual::TrayVisualPlatform::Macos,
+        (18.0 * device_pixel_ratio.clamp(1.0, 4.0)).round() as u32,
+    );
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let (platform, base_size) = (
+        tray_visual::TrayVisualPlatform::Windows,
+        (16.0 * device_pixel_ratio.clamp(1.0, 4.0)).round() as u32,
+    );
+    #[cfg(target_os = "windows")]
+    let _ = device_pixel_ratio;
+
+    tray_visual::render_tray_visual_previews(platform, base_size, light_theme)
+}
+
+#[tauri::command]
 async fn list_accounts(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -580,7 +615,7 @@ async fn import_current_auth_account(
     ensure_no_pending_auth_operation(state.inner()).await?;
     let summary =
         account_service::import_current_auth_account_internal(&app, state.inner(), label).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(summary)
 }
 
@@ -591,7 +626,7 @@ async fn create_api_account(
     input: CreateApiAccountInput,
 ) -> Result<AccountSummary, String> {
     let summary = account_service::create_api_account_internal(&app, state.inner(), input).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(summary)
 }
 
@@ -613,7 +648,7 @@ async fn import_auth_json_accounts(
     let result =
         account_service::import_auth_json_accounts_internal(&app, state.inner(), items).await?;
     if result.imported_count > 0 || result.updated_count > 0 {
-        let _ = tray::refresh_macos_tray_snapshot(&app);
+        let _ = tray::refresh_usage_surfaces_snapshot(&app);
     }
     Ok(result)
 }
@@ -634,7 +669,7 @@ async fn delete_account(
     id: String,
 ) -> Result<(), String> {
     account_service::delete_account_internal(&app, state.inner(), &id).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(())
 }
 
@@ -659,7 +694,7 @@ async fn update_account_label(
         }
     }
 
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(resolved_label)
 }
 
@@ -701,19 +736,39 @@ async fn refresh_all_usage(
     app: AppHandle,
     state: State<'_, AppState>,
     force_auth_refresh: Option<bool>,
+    source: Option<String>,
 ) -> Result<Vec<AccountSummary>, String> {
     let force_auth_refresh = force_auth_refresh.unwrap_or(false);
+    let source = match source.as_deref() {
+        Some("startup") => "startup",
+        Some("account-import") => "account-import",
+        Some("manual") => "manual",
+        _ => "frontend",
+    };
+    log::info!("USAGE_REFRESH_SCHEDULE source={} action=request", source);
     if force_auth_refresh {
         {
             let _auth_guard = state.auth_operation_lock.lock().await;
             ensure_no_pending_auth_operation(state.inner()).await?;
         }
     }
-    let summaries =
-        account_service::refresh_all_usage_internal(&app, state.inner(), force_auth_refresh)
-            .await?;
-    let _ = tray::update_macos_tray_snapshot(&app, &summaries);
-    Ok(summaries)
+    match account_service::refresh_all_usage_coordinated(
+        &app,
+        state.inner(),
+        force_auth_refresh,
+        source,
+    )
+    .await
+    {
+        Ok(summaries) => {
+            let _ = tray::update_usage_surfaces_snapshot(&app, &summaries);
+            Ok(summaries)
+        }
+        Err(error) => {
+            tray::update_usage_surfaces_error(&app, &error);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -1074,10 +1129,95 @@ async fn update_app_settings(
     state: State<'_, AppState>,
     patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
+    let refresh_usage_surfaces = patch.tray_usage_display_mode.is_some()
+        || patch.tray_usage_title_show_window_labels.is_some()
+        || patch.macos_tray_text_icon_style.is_some()
+        || patch.windows_tray_icon_style.is_some()
+        || patch.tray_quota_icon_visible.is_some()
+        || patch.macos_tray_logo_ring_show_percentage.is_some()
+        || patch.macos_quota_onboarding_completed.is_some()
+        || patch.windows_taskbar_widget_placement.is_some()
+        || patch.locale.is_some();
+    let previous_settings = if refresh_usage_surfaces {
+        Some(settings_service::get_app_settings_internal(&app, state.inner()).await?)
+    } else {
+        None
+    };
     let settings =
         settings_service::update_app_settings_internal(&app, state.inner(), patch).await?;
-    let _ = tray::refresh_macos_tray_snapshot(&app);
+    if refresh_usage_surfaces {
+        let rebuild_macos_status_items = previous_settings
+            .as_ref()
+            .map(|previous| {
+                let text_visibility_changed = (previous.tray_usage_display_mode
+                    == models::TrayUsageDisplayMode::Hidden)
+                    != (settings.tray_usage_display_mode == models::TrayUsageDisplayMode::Hidden);
+                text_visibility_changed
+                    || previous.tray_quota_icon_visible != settings.tray_quota_icon_visible
+            })
+            .unwrap_or(false);
+        let refresh_result = if rebuild_macos_status_items {
+            tray::rebuild_usage_surfaces_snapshot(&app)
+        } else {
+            tray::refresh_usage_surfaces_snapshot(&app)
+        };
+        if let Err(refresh_error) = refresh_result {
+            let rollback_error = if let Some(previous_settings) = previous_settings {
+                settings_service::replace_app_settings_internal(
+                    &app,
+                    state.inner(),
+                    previous_settings,
+                )
+                .await
+                .err()
+            } else {
+                None
+            };
+            let restore_error = if rebuild_macos_status_items {
+                tray::rebuild_usage_surfaces_snapshot(&app).err()
+            } else {
+                tray::refresh_usage_surfaces_snapshot(&app).err()
+            };
+            return Err(match (rollback_error, restore_error) {
+                (None, None) => format!("Failed to apply quota display settings: {refresh_error}"),
+                (rollback_error, restore_error) => format!(
+                    "Failed to apply quota display settings: {refresh_error}; rollback error: {}; display restore error: {}",
+                    rollback_error.as_deref().unwrap_or("none"),
+                    restore_error.as_deref().unwrap_or("none")
+                ),
+            });
+        }
+    }
     Ok(settings)
+}
+
+#[tauri::command]
+fn get_windows_widgets_enabled() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_taskbar_widget::windows_widgets_enabled();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("The Windows Widgets setting is only available on Windows".to_string())
+    }
+}
+
+#[tauri::command]
+fn open_windows_taskbar_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = new_background_command("explorer.exe");
+        command
+            .arg("ms-settings:taskbar")
+            .spawn()
+            .map_err(|error| format!("Failed to open Windows taskbar settings: {error}"))?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Windows taskbar settings are only available on Windows".to_string())
+    }
 }
 
 #[tauri::command]
@@ -1179,6 +1319,11 @@ fn get_runtime_platform() -> &'static str {
 }
 
 #[tauri::command]
+fn is_debug_build() -> bool {
+    cfg!(debug_assertions)
+}
+
+#[tauri::command]
 async fn prepare_oauth_login(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1249,6 +1394,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::macos_codex_main_app_bundle_for_executable;
     use super::should_noop_switch_account;
+    use super::PERIODIC_USAGE_REFRESH_INTERVAL_SECS;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use serde_json::json;
@@ -1262,6 +1408,11 @@ mod tests {
     use std::path::PathBuf;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn periodic_usage_refresh_runs_once_per_minute_on_every_platform() {
+        assert_eq!(PERIODIC_USAGE_REFRESH_INTERVAL_SECS, 60);
+    }
 
     fn unique_test_dir(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -1729,7 +1880,7 @@ async fn switch_account_and_launch(
             account = stored_account.clone();
             store::save_store(&app, &latest_store)?;
         }
-        let _ = tray::refresh_macos_tray_snapshot(&app);
+        let _ = tray::refresh_usage_surfaces_snapshot(&app);
 
         (
             account,
@@ -2542,28 +2693,31 @@ async fn auto_start_api_proxy_if_enabled(app: AppHandle) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn start_background_usage_refresh_loop(app: AppHandle) {
+fn start_periodic_usage_refresh_loop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(BACKGROUND_USAGE_REFRESH_INTERVAL_SECS)).await;
-            let main_window_visible = app
-                .get_webview_window("main")
-                .and_then(|window| window.is_visible().ok())
-                .unwrap_or(false);
-            if main_window_visible {
-                continue;
-            }
-
-            // Windows 没有 macOS 状态栏刷新循环。窗口隐藏时保留一条低频兜底，
-            // 仅刷新真实用量并按需更新 OAuth 令牌，绝不调用 Codex 推理接口。
+            tokio::time::sleep(Duration::from_secs(PERIODIC_USAGE_REFRESH_INTERVAL_SECS)).await;
             let state = app.state::<AppState>();
-            match account_service::refresh_all_usage_internal(&app, state.inner(), true).await {
+            log::info!("USAGE_REFRESH_SCHEDULE source=periodic-background action=request");
+            match account_service::refresh_all_usage_coordinated(
+                &app,
+                state.inner(),
+                false,
+                "periodic-background",
+            )
+            .await
+            {
                 Ok(summaries) => {
-                    let _ = tray::update_macos_tray_snapshot(&app, &summaries);
+                    if let Err(error) = tray::update_usage_surfaces_snapshot(&app, &summaries) {
+                        log::warn!("更新周期额度展示失败: {error}");
+                    }
+                    if let Err(error) = app.emit(PERIODIC_USAGE_REFRESHED_EVENT, &summaries) {
+                        log::warn!("发送周期额度刷新事件失败: {error}");
+                    }
                 }
                 Err(error) => {
-                    log::warn!("后台账号认证检查失败: {error}");
+                    tray::update_usage_surfaces_error(&app, &error);
+                    log::warn!("周期额度刷新失败: {error}");
                 }
             }
         }
@@ -2640,6 +2794,23 @@ fn setup_macos_app_menu(app: &AppHandle) -> Result<(), String> {
         ],
     )
     .map_err(|e| format!("创建应用菜单失败: {e}"))?;
+
+    #[cfg(debug_assertions)]
+    {
+        let open_quota_onboarding = MenuItem::with_id(
+            app,
+            APP_MENU_OPEN_QUOTA_ONBOARDING_ID,
+            "Open Quota Setup Preview",
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| format!("创建额度首屏调试菜单失败: {e}"))?;
+        // Keep the preview command next to Settings and Check for Updates. The
+        // following production separator remains in place after this insertion.
+        app_menu
+            .insert(&open_quota_onboarding, 4)
+            .map_err(|e| format!("插入额度首屏调试菜单失败: {e}"))?;
+    }
 
     let file_menu = Submenu::with_items(
         app,
@@ -2733,6 +2904,13 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         return;
     }
 
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if id == APP_MENU_OPEN_QUOTA_ONBOARDING_ID {
+        restore_main_window(app);
+        let _ = app.emit(APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT, ());
+        return;
+    }
+
     tray::handle_status_bar_menu_event(app, event);
 }
 
@@ -2775,11 +2953,11 @@ pub fn run() {
             store::sync_current_auth_account_on_startup(app.handle())?;
             setup_macos_app_menu(app.handle())?;
             tray::setup_system_tray(app.handle())?;
-            #[cfg(not(target_os = "macos"))]
-            start_background_usage_refresh_loop(app.handle().clone());
+            start_periodic_usage_refresh_loop(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_tray_visual_previews,
             list_accounts,
             import_current_auth_account,
             create_api_account,
@@ -2798,12 +2976,15 @@ pub fn run() {
             delete_codex_session,
             get_app_settings,
             update_app_settings,
+            get_windows_widgets_enabled,
+            open_windows_taskbar_settings,
             detect_codex_app,
             list_installed_editor_apps,
             is_opencode_desktop_app_installed,
             open_external_url,
             pick_codex_launch_path,
             get_runtime_platform,
+            is_debug_build,
             prepare_oauth_login,
             complete_oauth_callback_login,
             cancel_oauth_login,

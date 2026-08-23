@@ -66,6 +66,37 @@ export type MessageCatalog = {
     toggleLanguage: (nextLanguage: string) => string;
     languagePicker: string;
   };
+  quotaOnboarding: {
+    title: string;
+    description: string;
+    livePreview: string;
+    macTitle: string;
+    macStatusBarTitle: string;
+    macCodexToolsIconOption: string;
+    macProgressRingIconOption: string;
+    macStatusBarDescription: string;
+    macStatusBarModeLabel: string;
+    macTrayTitle: string;
+    macTrayDescription: string;
+    macApplying: string;
+    taskbarTitle: string;
+    taskbarDescription: string;
+    trayTitle: string;
+    trayDescription: string;
+    enable: string;
+    enabled: string;
+    taskbarPlacementLabel: string;
+    taskbarLeft: string;
+    taskbarRight: string;
+    trayHint: string;
+    requireOne: string;
+    ready: string;
+    applying: string;
+    liveUpdateFailed: string;
+    confirm: string;
+    saving: string;
+    saveFailed: string;
+  };
   metaStrip: {
     ariaLabel: string;
     accountCount: string;
@@ -576,6 +607,39 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    windowsTrayIconStyle: {
+      label: string;
+      description: string;
+      groupAriaLabel: string;
+      gradientNumberPlate: string;
+      gradientNumberCard: string;
+      gradientNumber: string;
+      numberProgressBar: string;
+      logoProgressRing: string;
+      hidden: string;
+    };
+    macosTrayLogoRingVariants: {
+      withPercentage: string;
+      withoutPercentage: string;
+    };
+    macosQuotaOnboardingPreview: {
+      label: string;
+      description: string;
+      open: string;
+    };
+    windowsTaskbarWidget: {
+      label: string;
+      description: string;
+      groupAriaLabel: string;
+      left: string;
+      right: string;
+      hidden: string;
+    };
+    windowsWidgets: {
+      disable: string;
+      disableAriaLabel: string;
+      openFailed: string;
+    };
     theme: {
       label: string;
       description: string;
@@ -751,6 +815,7 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
       toggleLanguage: (nextLanguage) =>
         fillTemplate(raw.topBar.toggleLanguage, { nextLanguage }),
     },
+    quotaOnboarding: raw.quotaOnboarding,
     metaStrip: raw.metaStrip,
     addAccount: {
       ...raw.addAccount,

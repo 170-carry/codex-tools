@@ -1987,11 +1987,15 @@ export function ApiProxyPanel({
     if (modelMenuOpen) {
       return;
     }
+    // Keep the closed-menu draft synchronized with the persisted selection.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setModelMenuDraft(effectiveDisabledModels);
   }, [effectiveDisabledModels, modelMenuOpen]);
 
   useEffect(() => {
     if (!modelMenuOpen) {
+      // Closing the menu is the lifecycle boundary for its transient search.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setModelSearchQuery("");
       return;
     }

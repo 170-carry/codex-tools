@@ -14,6 +14,37 @@
     "toggleLanguage": "言語を切り替え（次: {{nextLanguage}}）",
     "languagePicker": "言語"
   },
+  "quotaOnboarding": {
+    "title": "使用量の表示方法を選択",
+    "description": "新しいバージョンでは、Windows のタスクバーとシステムトレイに使用量を常時表示できます。少なくとも 1 つを有効にしてください。後から設定で変更できます。",
+    "livePreview": "選択内容は Windows のタスクバーとシステムトレイにすぐ反映されます。",
+    "macTitle": "macOS の使用量バーを設定",
+    "macStatusBarTitle": "テキスト使用量表示",
+    "macCodexToolsIconOption": "Codex Tools アイコン",
+    "macProgressRingIconOption": "進捗リングアイコン",
+    "macStatusBarDescription": "現在の使用量をメニューバーにテキストで直接表示します。",
+    "macStatusBarModeLabel": "クラシックテキスト使用量バーの表示モード",
+    "macTrayTitle": "使用量アイコン",
+    "macTrayDescription": "メニューバーにコンパクトな使用量アイコンを表示します。",
+    "macApplying": "macOS に適用中...",
+    "taskbarTitle": "タスクバー使用量コンポーネント（実験的機能）",
+    "taskbarDescription": "現在の使用量をメインタスクバーの左端または右側に表示します。",
+    "trayTitle": "トレイ使用量アイコン",
+    "trayDescription": "Windows のシステムトレイに使用量アイコンを表示します。",
+    "enable": "有効にする",
+    "enabled": "有効",
+    "taskbarPlacementLabel": "メインタスクバー使用量コンポーネントの位置",
+    "taskbarLeft": "メインタスクバーの左端",
+    "taskbarRight": "メインタスクバーの右側",
+    "trayHint": "下から 5 種類すべてのアイコンを選べます。スタイルを選ぶとトレイアイコンも有効になります。",
+    "requireOne": "少なくとも 1 つの表示方法を有効にしてください。",
+    "ready": "少なくとも 1 つの表示が有効です。後から設定で変更できます。",
+    "applying": "Windows に適用中...",
+    "liveUpdateFailed": "変更を適用できなかったため、以前の設定に戻しました。",
+    "confirm": "設定を完了",
+    "saving": "完了処理中...",
+    "saveFailed": "選択内容を保存できませんでした。もう一度お試しください。"
+  },
   "metaStrip": {
     "ariaLabel": "アカウント概要",
     "accountCount": "アカウント数",
@@ -556,6 +587,39 @@
       "label": "5h / 1週間ラベルを表示",
       "checkedText": "ラベルを表示",
       "uncheckedText": "数値のみ"
+    },
+    "windowsTrayIconStyle": {
+      "label": "トレイアイコンの表示",
+      "description": "残り使用量に基づく 5 つのアイコンから選ぶか、使用量アイコンを非表示にします。",
+      "groupAriaLabel": "トレイアイコンの表示スタイル",
+      "gradientNumberPlate": "正方形数字カード",
+      "gradientNumberCard": "横長数字カード",
+      "gradientNumber": "グラデーション数字",
+      "numberProgressBar": "数字進捗バー",
+      "logoProgressRing": "アプリアイコン進捗リング",
+      "hidden": "表示しない"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "パーセントを表示",
+      "withoutPercentage": "進捗リングのみ"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "初回クォータ設定プレビュー（デバッグ）",
+      "description": "アカウントデータの削除やアプリ識別子の変更を行わず、実際の初回設定を再表示します。",
+      "open": "設定を開く"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows タスクバー使用量コンポーネント（実験的機能）",
+      "description": "使用量の左側に Codex Tools の元アイコンを表示し、macOS のステータスバーに合わせます。背景は透明です。",
+      "groupAriaLabel": "Windows メインタスクバー使用量コンポーネントの配置",
+      "left": "メインタスクバーの左端",
+      "right": "メインタスクバーの右側",
+      "hidden": "非表示"
+    },
+    "windowsWidgets": {
+      "disable": "Windows 天気ウィジェットをオフにする",
+      "disableAriaLabel": "天気ウィジェットをオフにするため Windows のタスクバー設定を開く",
+      "openFailed": "Windows のタスクバー設定を開けませんでした。"
     },
     "theme": {
       "label": "ダークモード",

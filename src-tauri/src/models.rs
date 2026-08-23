@@ -226,6 +226,33 @@ pub(crate) struct UsageWindow {
     pub(crate) reset_at: Option<i64>,
 }
 
+pub(crate) fn align_zero_five_hour_usage_with_weekly(snapshot: &mut UsageSnapshot) -> bool {
+    const FIVE_HOURS_SECONDS: i64 = 5 * 60 * 60;
+    const ONE_WEEK_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+    let Some(one_week) = snapshot.one_week.as_ref() else {
+        return false;
+    };
+    if one_week.window_seconds < ONE_WEEK_SECONDS || one_week.used_percent <= f64::EPSILON {
+        return false;
+    }
+    let weekly_used_percent = one_week.used_percent.clamp(0.0, 100.0);
+
+    let Some(five_hour) = snapshot.five_hour.as_mut() else {
+        return false;
+    };
+    if five_hour.window_seconds != FIVE_HOURS_SECONDS || five_hour.used_percent.abs() > f64::EPSILON
+    {
+        return false;
+    }
+
+    // The current usage API can retain a zero-valued 5h-shaped placeholder
+    // after the 5h limit is removed. Keep the legacy surface meaningful by
+    // mirroring the weekly usage until the API exposes an explicit capability.
+    five_hour.used_percent = weekly_used_percent;
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreditSnapshot {
@@ -589,6 +616,44 @@ pub(crate) enum TrayUsageDisplayMode {
     Remaining,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MacosTrayTextIconStyle {
+    #[default]
+    CodexTools,
+    ProgressRing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WindowsTrayIconStyle {
+    #[serde(alias = "blueGauge", alias = "codexToolsBadge")]
+    #[default]
+    GradientNumberPlate,
+    GradientNumberCard,
+    GradientNumber,
+    NumberProgressBar,
+    LogoProgressRing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WindowsTaskbarWidgetPlacement {
+    Embedded,
+    #[default]
+    #[serde(alias = "floating")]
+    Left,
+    Hidden,
+}
+
+fn default_tray_quota_icon_visible() -> bool {
+    true
+}
+
+fn default_macos_tray_logo_ring_show_percentage() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum EditorAppId {
@@ -630,6 +695,23 @@ pub(crate) struct AppSettings {
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
     #[serde(default)]
     pub(crate) tray_usage_title_show_window_labels: bool,
+    #[serde(default)]
+    pub(crate) macos_tray_text_icon_style: MacosTrayTextIconStyle,
+    #[serde(default)]
+    pub(crate) windows_tray_icon_style: WindowsTrayIconStyle,
+    #[serde(
+        default = "default_tray_quota_icon_visible",
+        alias = "macosTrayQuotaIconVisible"
+    )]
+    pub(crate) tray_quota_icon_visible: bool,
+    #[serde(default = "default_macos_tray_logo_ring_show_percentage")]
+    pub(crate) macos_tray_logo_ring_show_percentage: bool,
+    #[serde(default)]
+    pub(crate) windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement,
+    #[serde(default)]
+    pub(crate) windows_quota_onboarding_completed: bool,
+    #[serde(default)]
+    pub(crate) macos_quota_onboarding_completed: bool,
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
@@ -667,6 +749,13 @@ impl Default for AppSettings {
             launch_at_startup: false,
             tray_usage_display_mode: TrayUsageDisplayMode::OneWeekRemaining,
             tray_usage_title_show_window_labels: false,
+            macos_tray_text_icon_style: MacosTrayTextIconStyle::CodexTools,
+            windows_tray_icon_style: WindowsTrayIconStyle::GradientNumberPlate,
+            tray_quota_icon_visible: true,
+            macos_tray_logo_ring_show_percentage: true,
+            windows_taskbar_widget_placement: WindowsTaskbarWidgetPlacement::Left,
+            windows_quota_onboarding_completed: false,
+            macos_quota_onboarding_completed: false,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
             launch_codex_as_admin: false,
@@ -698,6 +787,14 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) tray_usage_title_show_window_labels: Option<bool>,
+    pub(crate) macos_tray_text_icon_style: Option<MacosTrayTextIconStyle>,
+    pub(crate) windows_tray_icon_style: Option<WindowsTrayIconStyle>,
+    #[serde(alias = "macosTrayQuotaIconVisible")]
+    pub(crate) tray_quota_icon_visible: Option<bool>,
+    pub(crate) macos_tray_logo_ring_show_percentage: Option<bool>,
+    pub(crate) windows_taskbar_widget_placement: Option<WindowsTaskbarWidgetPlacement>,
+    pub(crate) windows_quota_onboarding_completed: Option<bool>,
+    pub(crate) macos_quota_onboarding_completed: Option<bool>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) launch_codex_as_admin: Option<bool>,
@@ -876,11 +973,10 @@ fn merge_duplicate_account_variant(left: StoredAccount, right: StoredAccount) ->
     if preferred.usage_error.is_none() {
         preferred.usage_error = alternate.usage_error.clone();
     }
-    if !preferred.auth_refresh_blocked && alternate.auth_refresh_blocked {
-        preferred.auth_refresh_blocked = true;
-    }
-    if preferred.auth_refresh_error.is_none() {
+    if preferred.auth_refresh_blocked && preferred.auth_refresh_error.is_none() {
         preferred.auth_refresh_error = alternate.auth_refresh_error.clone();
+    } else if !preferred.auth_refresh_blocked {
+        preferred.auth_refresh_error = None;
     }
     preferred.api_proxy_enabled = preferred.api_proxy_enabled && alternate.api_proxy_enabled;
     if preferred.auth_json.is_null() && !alternate.auth_json.is_null() {
@@ -922,8 +1018,8 @@ fn merge_duplicate_account_variant(left: StoredAccount, right: StoredAccount) ->
 
 fn duplicate_account_merge_score(account: &StoredAccount) -> (u8, u8, u8, u8, i64, i64) {
     (
-        u8::from(account.usage.is_some() && account.usage_error.is_none()),
         u8::from(!account.auth_refresh_blocked),
+        u8::from(account.usage.is_some() && account.usage_error.is_none()),
         u8::from(account.resolved_plan_type().is_some()),
         u8::from(
             account
@@ -940,14 +1036,18 @@ fn duplicate_account_merge_score(account: &StoredAccount) -> (u8, u8, u8, u8, i6
 
 #[cfg(test)]
 mod tests {
+    use super::align_zero_five_hour_usage_with_weekly;
     use super::dedupe_account_variants;
     use super::mark_current_account_summary;
     use super::AppSettings;
     use super::AppSettingsPatch;
+    use super::MacosTrayTextIconStyle;
     use super::StoredAccount;
     use super::TrayUsageDisplayMode;
     use super::UsageSnapshot;
     use super::UsageWindow;
+    use super::WindowsTaskbarWidgetPlacement;
+    use super::WindowsTrayIconStyle;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use serde_json::json;
@@ -972,12 +1072,48 @@ mod tests {
     }
 
     #[test]
+    fn zero_five_hour_placeholder_tracks_weekly_usage() {
+        let mut snapshot = usage_snapshot("pro");
+        snapshot.five_hour.as_mut().unwrap().used_percent = 0.0;
+        snapshot.one_week.as_mut().unwrap().used_percent = 37.0;
+
+        assert!(align_zero_five_hour_usage_with_weekly(&mut snapshot));
+        assert_eq!(snapshot.five_hour.unwrap().used_percent, 37.0);
+    }
+
+    #[test]
+    fn nonzero_five_hour_usage_remains_independent() {
+        let mut snapshot = usage_snapshot("pro");
+        snapshot.five_hour.as_mut().unwrap().used_percent = 4.0;
+        snapshot.one_week.as_mut().unwrap().used_percent = 37.0;
+
+        assert!(!align_zero_five_hour_usage_with_weekly(&mut snapshot));
+        assert_eq!(snapshot.five_hour.unwrap().used_percent, 4.0);
+    }
+
+    #[test]
     fn new_settings_default_to_one_week_remaining_without_overwriting_existing_modes() {
         assert_eq!(
             AppSettings::default().tray_usage_display_mode,
             TrayUsageDisplayMode::OneWeekRemaining
         );
         assert!(!AppSettings::default().tray_usage_title_show_window_labels);
+        assert_eq!(
+            AppSettings::default().macos_tray_text_icon_style,
+            MacosTrayTextIconStyle::CodexTools
+        );
+        assert_eq!(
+            AppSettings::default().windows_tray_icon_style,
+            WindowsTrayIconStyle::GradientNumberPlate
+        );
+        assert!(AppSettings::default().tray_quota_icon_visible);
+        assert!(AppSettings::default().macos_tray_logo_ring_show_percentage);
+        assert_eq!(
+            AppSettings::default().windows_taskbar_widget_placement,
+            WindowsTaskbarWidgetPlacement::Left
+        );
+        assert!(!AppSettings::default().windows_quota_onboarding_completed);
+        assert!(!AppSettings::default().macos_quota_onboarding_completed);
 
         let missing_mode: AppSettings = serde_json::from_value(json!({})).unwrap();
         assert_eq!(
@@ -985,6 +1121,22 @@ mod tests {
             TrayUsageDisplayMode::OneWeekRemaining
         );
         assert!(!missing_mode.tray_usage_title_show_window_labels);
+        assert_eq!(
+            missing_mode.macos_tray_text_icon_style,
+            MacosTrayTextIconStyle::CodexTools
+        );
+        assert_eq!(
+            missing_mode.windows_tray_icon_style,
+            WindowsTrayIconStyle::GradientNumberPlate
+        );
+        assert!(missing_mode.tray_quota_icon_visible);
+        assert!(missing_mode.macos_tray_logo_ring_show_percentage);
+        assert_eq!(
+            missing_mode.windows_taskbar_widget_placement,
+            WindowsTaskbarWidgetPlacement::Left
+        );
+        assert!(!missing_mode.windows_quota_onboarding_completed);
+        assert!(!missing_mode.macos_quota_onboarding_completed);
 
         assert_eq!(
             serde_json::to_value(TrayUsageDisplayMode::OneWeekRemaining).unwrap(),
@@ -1001,7 +1153,14 @@ mod tests {
 
         let patch: AppSettingsPatch = serde_json::from_value(json!({
             "trayUsageDisplayMode": "oneWeekRemaining",
-            "trayUsageTitleShowWindowLabels": true
+            "trayUsageTitleShowWindowLabels": true,
+            "macosTrayTextIconStyle": "progressRing",
+            "windowsTrayIconStyle": "codexToolsBadge",
+            "trayQuotaIconVisible": false,
+            "macosTrayLogoRingShowPercentage": false,
+            "windowsTaskbarWidgetPlacement": "floating",
+            "windowsQuotaOnboardingCompleted": true,
+            "macosQuotaOnboardingCompleted": true
         }))
         .unwrap();
         assert_eq!(
@@ -1009,6 +1168,48 @@ mod tests {
             Some(TrayUsageDisplayMode::OneWeekRemaining)
         );
         assert_eq!(patch.tray_usage_title_show_window_labels, Some(true));
+        assert_eq!(
+            patch.macos_tray_text_icon_style,
+            Some(MacosTrayTextIconStyle::ProgressRing)
+        );
+        assert_eq!(
+            patch.windows_tray_icon_style,
+            Some(WindowsTrayIconStyle::GradientNumberPlate)
+        );
+        assert_eq!(patch.tray_quota_icon_visible, Some(false));
+        assert_eq!(patch.macos_tray_logo_ring_show_percentage, Some(false));
+        assert_eq!(
+            patch.windows_taskbar_widget_placement,
+            Some(WindowsTaskbarWidgetPlacement::Left)
+        );
+        assert_eq!(patch.windows_quota_onboarding_completed, Some(true));
+        assert_eq!(patch.macos_quota_onboarding_completed, Some(true));
+
+        let legacy_patch: AppSettingsPatch = serde_json::from_value(json!({
+            "macosTrayQuotaIconVisible": false
+        }))
+        .unwrap();
+        assert_eq!(legacy_patch.tray_quota_icon_visible, Some(false));
+
+        let legacy_settings: AppSettings = serde_json::from_value(json!({
+            "macosTrayQuotaIconVisible": false
+        }))
+        .unwrap();
+        assert!(!legacy_settings.tray_quota_icon_visible);
+        let serialized_settings = serde_json::to_value(&legacy_settings).unwrap();
+        assert_eq!(serialized_settings["trayQuotaIconVisible"], json!(false));
+        assert!(serialized_settings
+            .get("macosTrayQuotaIconVisible")
+            .is_none());
+
+        let left_patch: AppSettingsPatch = serde_json::from_value(json!({
+            "windowsTaskbarWidgetPlacement": "left"
+        }))
+        .unwrap();
+        assert_eq!(
+            left_patch.windows_taskbar_widget_placement,
+            Some(WindowsTaskbarWidgetPlacement::Left)
+        );
     }
 
     fn jwt_with_plan(plan_type: &str) -> String {
@@ -1078,6 +1279,36 @@ mod tests {
         assert_eq!(accounts[0].label, "fresh");
         assert_eq!(accounts[0].added_at, 99);
         assert_eq!(accounts[0].updated_at, 200);
+    }
+
+    #[test]
+    fn dedupe_account_variants_does_not_reintroduce_a_stale_refresh_block() {
+        let mut healthy =
+            stored_account("healthy", "healthy", "account-1", Some("team"), None, 100);
+        healthy.auth_json = json!({ "kind": "healthy-auth" });
+
+        let mut stale_blocked = stored_account(
+            "blocked",
+            "blocked",
+            "account-1",
+            Some("team"),
+            Some("team"),
+            200,
+        );
+        stale_blocked.auth_json = json!({ "kind": "stale-auth" });
+        stale_blocked.auth_refresh_blocked = true;
+        stale_blocked.auth_refresh_error = Some("stale refresh failure".to_string());
+
+        let mut accounts = vec![stale_blocked, healthy];
+        let changed = dedupe_account_variants(&mut accounts);
+
+        assert!(changed);
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].id, "healthy");
+        assert!(accounts[0].usage.is_some());
+        assert!(!accounts[0].auth_refresh_blocked);
+        assert!(accounts[0].auth_refresh_error.is_none());
+        assert_eq!(accounts[0].auth_json, json!({ "kind": "healthy-auth" }));
     }
 
     #[test]

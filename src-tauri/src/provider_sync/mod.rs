@@ -1104,6 +1104,9 @@ mod tests {
         assert_eq!(cwd, "/tmp/project");
         assert_eq!(db_only_provider, "openai");
 
+        // Windows keeps the SQLite file locked until the connection is
+        // explicitly dropped, so release it before removing the sandbox.
+        drop(conn);
         fs::remove_dir_all(sandbox).expect("cleanup");
     }
 

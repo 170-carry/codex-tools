@@ -14,6 +14,37 @@
     "toggleLanguage": "切换语言（下一项：{{nextLanguage}}）",
     "languagePicker": "语言"
   },
+  "quotaOnboarding": {
+    "title": "选择额度显示方式",
+    "description": "新版本支持在 Windows 任务栏和系统托盘中持续显示额度。请至少启用一种，之后可随时在设置中调整。",
+    "livePreview": "选择会立即应用到 Windows 任务栏和系统托盘。",
+    "macTitle": "设置 macOS 额度栏",
+    "macStatusBarTitle": "文字额度栏",
+    "macCodexToolsIconOption": "Codex Tools 图标",
+    "macProgressRingIconOption": "进度环图标",
+    "macStatusBarDescription": "直接在菜单栏中显示当前额度文字。",
+    "macStatusBarModeLabel": "经典文字额度栏显示模式",
+    "macTrayTitle": "额度图标",
+    "macTrayDescription": "在菜单栏中显示紧凑的额度图标。",
+    "macApplying": "正在应用到 macOS...",
+    "taskbarTitle": "任务栏额度组件（实验性功能）",
+    "taskbarDescription": "在系统主任务栏最左侧或右侧直接显示当前额度。",
+    "trayTitle": "托盘额度图标",
+    "trayDescription": "在系统托盘保留一个可随时查看额度的图标。",
+    "enable": "启用",
+    "enabled": "已启用",
+    "taskbarPlacementLabel": "主任务栏额度组件位置",
+    "taskbarLeft": "主任务栏最左侧",
+    "taskbarRight": "主任务栏右侧",
+    "trayHint": "可在下方选择全部五种图标样式；选择任一样式也会启用托盘图标。",
+    "requireOne": "请至少启用一种额度显示方式。",
+    "ready": "至少一种额度显示已启用。确认后仍可随时在设置中修改。",
+    "applying": "正在应用到 Windows...",
+    "liveUpdateFailed": "未能应用本次更改，已恢复之前的设置。",
+    "confirm": "完成设置",
+    "saving": "正在完成...",
+    "saveFailed": "保存失败，请重试。"
+  },
   "metaStrip": {
     "ariaLabel": "账号概览",
     "accountCount": "账号数",
@@ -556,6 +587,39 @@
       "label": "显示 5h / 1w 标签",
       "checkedText": "显示标签",
       "uncheckedText": "仅显示数值"
+    },
+    "windowsTrayIconStyle": {
+      "label": "额度图标样式",
+      "description": "选择一种按剩余额度绘制的紧凑图标，或关闭额度图标。",
+      "groupAriaLabel": "额度图标样式",
+      "gradientNumberPlate": "方形数字卡",
+      "gradientNumberCard": "横向数字卡",
+      "gradientNumber": "渐变数字",
+      "numberProgressBar": "数字进度条",
+      "logoProgressRing": "图标进度环",
+      "hidden": "不显示"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "显示百分比",
+      "withoutPercentage": "仅显示进度环"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "首次额度设置预览（调试）",
+      "description": "重新打开真实首屏设置；不会清除账号数据，也不会更换应用身份。",
+      "open": "打开首屏设置"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows 任务栏额度组件（实验性功能）",
+      "description": "在额度左侧显示 Codex Tools 原图，与 macOS 状态栏保持一致；背景透明，直接透出 Windows 任务栏的真实颜色、渐变与材质。",
+      "groupAriaLabel": "Windows 主任务栏额度组件位置",
+      "left": "主任务栏最左侧",
+      "right": "主任务栏右侧",
+      "hidden": "不显示"
+    },
+    "windowsWidgets": {
+      "disable": "关闭 Windows 天气小组件",
+      "disableAriaLabel": "打开 Windows 任务栏设置以关闭天气小组件",
+      "openFailed": "无法打开 Windows 任务栏设置。"
     },
     "theme": {
       "label": "深色模式",

@@ -14,6 +14,37 @@
     "toggleLanguage": "언어 전환 (다음: {{nextLanguage}})",
     "languagePicker": "언어"
   },
+  "quotaOnboarding": {
+    "title": "할당량 표시 방법 선택",
+    "description": "새 버전에서는 Windows 작업 표시줄과 시스템 트레이에 할당량을 계속 표시할 수 있습니다. 하나 이상을 활성화하세요. 나중에 설정에서 변경할 수 있습니다.",
+    "livePreview": "선택 사항은 Windows 작업 표시줄과 시스템 트레이에 즉시 적용됩니다.",
+    "macTitle": "macOS 할당량 막대 설정",
+    "macStatusBarTitle": "텍스트 할당량 표시",
+    "macCodexToolsIconOption": "Codex Tools 아이콘",
+    "macProgressRingIconOption": "진행률 링 아이콘",
+    "macStatusBarDescription": "현재 할당량을 메뉴 막대에 텍스트로 직접 표시합니다.",
+    "macStatusBarModeLabel": "클래식 텍스트 할당량 막대 표시 모드",
+    "macTrayTitle": "할당량 아이콘",
+    "macTrayDescription": "메뉴 막대에 간결한 할당량 아이콘을 표시합니다.",
+    "macApplying": "macOS에 적용 중...",
+    "taskbarTitle": "작업 표시줄 할당량 구성 요소(실험적 기능)",
+    "taskbarDescription": "현재 할당량을 기본 작업 표시줄 맨 왼쪽이나 오른쪽에 표시합니다.",
+    "trayTitle": "트레이 할당량 아이콘",
+    "trayDescription": "Windows 시스템 트레이에 할당량 아이콘을 유지합니다.",
+    "enable": "활성화",
+    "enabled": "활성화됨",
+    "taskbarPlacementLabel": "기본 작업 표시줄 할당량 구성 요소 위치",
+    "taskbarLeft": "기본 작업 표시줄 맨 왼쪽",
+    "taskbarRight": "기본 작업 표시줄 오른쪽",
+    "trayHint": "아래에서 다섯 가지 아이콘 스타일을 모두 선택할 수 있습니다. 스타일을 선택하면 트레이 아이콘도 활성화됩니다.",
+    "requireOne": "할당량 표시 방법을 하나 이상 활성화하세요.",
+    "ready": "하나 이상의 할당량 표시가 활성화되어 있습니다. 나중에 설정에서 변경할 수 있습니다.",
+    "applying": "Windows에 적용 중...",
+    "liveUpdateFailed": "변경 사항을 적용하지 못해 이전 설정으로 복원했습니다.",
+    "confirm": "설정 완료",
+    "saving": "완료 중...",
+    "saveFailed": "선택 내용을 저장할 수 없습니다. 다시 시도하세요."
+  },
   "metaStrip": {
     "ariaLabel": "계정 개요",
     "accountCount": "계정 수",
@@ -556,6 +587,39 @@
       "label": "5h / 1주 라벨 표시",
       "checkedText": "라벨 표시",
       "uncheckedText": "숫자만"
+    },
+    "windowsTrayIconStyle": {
+      "label": "트레이 아이콘 표시",
+      "description": "남은 할당량을 기준으로 그리는 5가지 아이콘 중 하나를 선택하거나 할당량 아이콘을 숨깁니다.",
+      "groupAriaLabel": "트레이 아이콘 표시 스타일",
+      "gradientNumberPlate": "정사각형 숫자 카드",
+      "gradientNumberCard": "가로형 숫자 카드",
+      "gradientNumber": "그라데이션 숫자",
+      "numberProgressBar": "숫자 진행률 막대",
+      "logoProgressRing": "앱 아이콘 진행률 링",
+      "hidden": "표시 안 함"
+    },
+    "macosTrayLogoRingVariants": {
+      "withPercentage": "백분율 표시",
+      "withoutPercentage": "진행률 링만 표시"
+    },
+    "macosQuotaOnboardingPreview": {
+      "label": "최초 할당량 설정 미리보기(디버그)",
+      "description": "계정 데이터를 지우거나 앱 ID를 변경하지 않고 실제 최초 설정을 다시 엽니다.",
+      "open": "설정 열기"
+    },
+    "windowsTaskbarWidget": {
+      "label": "Windows 작업 표시줄 할당량 구성 요소(실험적 기능)",
+      "description": "할당량 왼쪽에 Codex Tools 원본 아이콘을 표시하여 macOS 상태 표시줄과 맞춥니다. 배경은 투명합니다.",
+      "groupAriaLabel": "Windows 기본 작업 표시줄 할당량 구성 요소 위치",
+      "left": "기본 작업 표시줄 맨 왼쪽",
+      "right": "기본 작업 표시줄 오른쪽",
+      "hidden": "숨기기"
+    },
+    "windowsWidgets": {
+      "disable": "Windows 날씨 위젯 끄기",
+      "disableAriaLabel": "날씨 위젯을 끄려면 Windows 작업 표시줄 설정 열기",
+      "openFailed": "Windows 작업 표시줄 설정을 열 수 없습니다."
     },
     "theme": {
       "label": "다크 모드",

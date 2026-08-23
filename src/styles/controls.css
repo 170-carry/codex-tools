@@ -546,6 +546,466 @@
   border: 0;
 }
 
+.quotaOnboardingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-scrim-strong);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: fadeIn 140ms ease both;
+}
+
+.quotaOnboardingDialog {
+  width: min(1560px, 100%);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line) 82%);
+  border-radius: 18px;
+  background: var(--panel-bg);
+  box-shadow:
+    0 24px 64px rgba(15, 23, 42, 0.22),
+    inset 0 1px var(--surface-highlight-strong);
+  animation: riseIn 220ms ease both;
+}
+
+.quotaOnboardingDialogMacos {
+  width: min(720px, 100%);
+}
+
+.quotaOnboardingHeader {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+}
+
+.quotaOnboardingHeader h2 {
+  margin: 0;
+  color: var(--ink);
+  font: 750 1.24rem/1.2 var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.quotaOnboardingHeader p {
+  max-width: 780px;
+  margin: 7px 0 0;
+  color: var(--subtle);
+  font: 500 0.82rem/1.5 var(--font-ui);
+}
+
+.quotaOnboardingLiveNotice {
+  width: fit-content;
+  margin-top: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line) 76%);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--brand-strong);
+  background: color-mix(in srgb, var(--brand-soft) 36%, var(--card) 64%);
+  font: 650 0.72rem/1.3 var(--font-ui);
+}
+
+.quotaOnboardingLiveNotice > span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.quotaOnboardingOptions {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px 22px;
+}
+
+.quotaOnboardingRow {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--card) 89%, var(--surface-tint) 11%);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.quotaOnboardingRow.isSelected {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line) 58%);
+  background: color-mix(in srgb, var(--brand-soft) 22%, var(--card) 78%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--brand) 7%, transparent),
+    inset 0 1px var(--surface-highlight-strong);
+}
+
+.quotaOnboardingRowHeader {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.quotaOnboardingRowHeader h3 {
+  margin: 0;
+  color: var(--ink);
+  font: 720 0.9rem/1.25 var(--font-ui);
+}
+
+.quotaOnboardingRowHeaderText {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.quotaOnboardingRowHeaderText p {
+  margin: 0;
+  color: var(--subtle);
+  font: 500 0.72rem/1.4 var(--font-ui);
+}
+
+.quotaOnboardingSwitch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--subtle);
+  cursor: pointer;
+  font: 650 0.72rem/1 var(--font-ui);
+  user-select: none;
+}
+
+.quotaOnboardingSwitch:has(input:checked) {
+  color: var(--brand-strong);
+}
+
+.quotaOnboardingSwitch:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.quotaOnboardingSwitch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quotaOnboardingSwitchTrack {
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--subtle) 26%, var(--line) 74%);
+  border-radius: 999px;
+  padding: 2px;
+  background: color-mix(in srgb, var(--surface-tint) 42%, var(--card) 58%);
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.quotaOnboardingSwitchTrack > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--subtle);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22);
+  transition:
+    transform 150ms ease,
+    background 150ms ease;
+}
+
+.quotaOnboardingSwitch input:checked + .quotaOnboardingSwitchTrack {
+  border-color: var(--button-primary-border);
+  background: var(--button-primary-bg);
+}
+
+.quotaOnboardingSwitch input:checked + .quotaOnboardingSwitchTrack > span {
+  background: #ffffff;
+  transform: translateX(16px);
+}
+
+.quotaOnboardingSwitch input:focus-visible + .quotaOnboardingSwitchTrack {
+  outline: 2px solid color-mix(in srgb, var(--brand) 42%, transparent);
+  outline-offset: 2px;
+}
+
+.quotaOnboardingInlineRowHeader {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.quotaOnboardingInlineRowHeader .quotaOnboardingSwitch {
+  gap: 6px;
+}
+
+/* The onboarding preview uses a real Windows 11 taskbar capture as its base.
+   Only the quota surfaces stay live so users can compare placements and icon styles. */
+.quotaOnboardingWindowsPreview {
+  position: relative;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 64 / 9;
+  container-type: inline-size;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(77, 98, 132, 0.34);
+  border-radius: 10px;
+  background: #101237;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.56),
+    0 6px 18px rgba(38, 69, 113, 0.12);
+}
+
+[data-theme="dark"] .quotaOnboardingWindowsPreview {
+  background: #101237;
+}
+
+.quotaPreviewReference {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  object-position: center bottom;
+  user-select: none;
+  pointer-events: none;
+}
+
+.quotaPreviewReferenceWidgets {
+  clip-path: inset(80% 86% 0 0);
+}
+
+.quotaPreviewReferenceTray {
+  clip-path: inset(80% 0 0 65%);
+}
+
+.quotaPreviewTaskbarBadge {
+  position: absolute;
+  bottom: 1.11328125cqw;
+  z-index: 2;
+  width: 3.2421875cqw;
+  min-width: 0;
+  height: 1.2890625cqw;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.234375cqw;
+  border: 0;
+  border-radius: 0.29296875cqw;
+  padding: 0 0.3515625cqw;
+  color: #172033;
+  background: transparent;
+  box-shadow: none;
+  font: 500 0.64453125cqw/1 "Segoe UI", var(--font-ui);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.quotaPreviewTaskbarBadge.isLeft {
+  left: 0.3515625%;
+}
+
+.quotaPreviewTaskbarBadge.isLeft.hasWindowsWidgets {
+  left: 9.609375%;
+}
+
+.quotaPreviewTaskbarBadge.isEmbedded {
+  left: 75.82%;
+}
+
+[data-theme="dark"] .quotaPreviewTaskbarBadge {
+  color: #172033;
+  background: transparent;
+}
+
+.quotaPreviewTaskbarBadge img {
+  width: 1.0546875cqw;
+  height: 1.0546875cqw;
+  border-radius: 0.29296875cqw;
+  box-shadow: none;
+}
+
+.quotaPreviewTaskbarBadge strong {
+  font: inherit;
+}
+
+.quotaPreviewTrayIcon.isOverlay {
+  position: absolute;
+  left: 81.9025%;
+  bottom: 1.2890625cqw;
+  z-index: 3;
+  width: 0.9375cqw;
+  min-width: 0;
+  height: 0.9375cqw;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+}
+
+.quotaPreviewTrayIcon.isOverlay img {
+  width: auto !important;
+  height: auto !important;
+  max-width: 0.9375cqw;
+  max-height: 0.9375cqw;
+  object-fit: contain;
+  filter: none;
+}
+
+.quotaOnboardingWidgetsAction {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.quotaOnboardingWidgetsAction .settingDescription {
+  margin-top: 0;
+}
+
+.quotaOnboardingWidgetsButton {
+  min-height: 36px;
+}
+
+.quotaOnboardingPlacement {
+  width: 100%;
+}
+
+.quotaOnboardingPlacement > button {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+
+.quotaOnboardingIconGrid {
+  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quotaOnboardingIconGrid > button {
+  min-width: 0;
+  min-height: 70px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--surface-tint) 16%);
+  border-radius: 11px;
+  padding: 8px 5px;
+  color: var(--subtle);
+  background: color-mix(in srgb, var(--card) 91%, var(--surface-tint) 9%);
+  box-shadow: inset 0 1px var(--surface-highlight-soft);
+  font: 600 0.66rem/1.25 var(--font-ui);
+}
+
+.quotaOnboardingIconGrid > button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--line) 70%);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--brand-soft) 16%, var(--card) 84%);
+}
+
+.quotaOnboardingIconGrid > button.isSelected {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line) 42%);
+  color: var(--brand-strong);
+  background: color-mix(in srgb, var(--brand-soft) 42%, var(--card) 58%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--brand) 10%, transparent),
+    inset 0 1px var(--surface-highlight-strong);
+}
+
+.quotaOnboardingIconArtwork {
+  min-width: 54px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quotaOnboardingIconArtwork img {
+  max-width: 76px;
+  max-height: 36px;
+  object-fit: contain;
+}
+
+.quotaOnboardingDialogMacos .quotaOnboardingIconGrid {
+  grid-template-columns: repeat(5, minmax(0, 118px));
+  justify-content: center;
+}
+
+.quotaOnboardingDialogMacos .quotaOnboardingTextGrid {
+  grid-template-columns: repeat(2, minmax(0, 118px));
+}
+
+.quotaOnboardingDialogMacos .quotaOnboardingIconGrid > button {
+  min-height: 58px;
+  gap: 4px;
+  padding: 5px 4px;
+}
+
+.quotaOnboardingDialogMacos .quotaOnboardingIconArtwork {
+  min-width: 44px;
+  height: 28px;
+}
+
+.quotaOnboardingDialogMacos .quotaOnboardingIconArtwork img {
+  max-width: 68px;
+  max-height: 26px;
+}
+
+.quotaOnboardingClassicTextPreview {
+  width: 56px;
+  height: auto;
+  border-radius: 6px;
+}
+
+.quotaOnboardingFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface-tint) 18%);
+  padding: 14px 22px 18px;
+}
+
+.quotaOnboardingRequirement {
+  margin: 0 auto 0 0;
+  color: var(--subtle);
+  font: 600 0.76rem/1.4 var(--font-ui);
+}
+
+.quotaOnboardingRequirement.isError {
+  color: var(--danger);
+}
+
+.quotaOnboardingConfirm {
+  min-width: 142px;
+  white-space: nowrap;
+}
+
 .updateOverlay {
   position: fixed;
   inset: 0;
@@ -731,6 +1191,167 @@
   min-width: 78px;
 }
 
+.trayUsageSettingsControls .trayIconStyleGroup,
+.trayIconStyleGroup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 6px;
+  width: min(100%, 720px);
+}
+
+.trayIconStyleControls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(100%, 720px);
+}
+
+.trayIconStyleControls .trayIconStyleGroup {
+  width: 100%;
+}
+
+.trayIconStyleCompound {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--subtle);
+  box-shadow: none;
+}
+
+.trayIconStyleCompound.isSelected {
+  border-color: color-mix(in srgb, var(--brand-hot) 26%, var(--line) 74%);
+  background: color-mix(in srgb, var(--card) 84%, var(--surface-tint) 16%);
+  color: var(--ink);
+  box-shadow:
+    0 1px 2px rgba(18, 36, 62, 0.05),
+    inset 0 1px var(--surface-highlight-strong);
+}
+
+.trayLogoRingVariantPreviews {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+.trayLogoRingVariant {
+  width: 38px;
+  height: 30px;
+  min-width: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 7px;
+  background: var(--body-bg);
+  color: var(--ink);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.trayLogoRingVariant:hover,
+.trayLogoRingVariant:focus-visible {
+  transform: none;
+  border-color: color-mix(in srgb, var(--brand-cool) 52%, var(--line) 48%);
+  background: color-mix(in srgb, var(--body-bg) 82%, var(--brand-cool) 18%);
+  box-shadow: none;
+}
+
+.trayLogoRingVariant.isSelected {
+  border-color: color-mix(in srgb, var(--brand-hot) 72%, var(--line) 28%);
+  background: color-mix(in srgb, var(--body-bg) 78%, var(--brand-hot) 22%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-hot) 24%, transparent);
+}
+
+.trayLogoRingVariantArtwork {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.trayLogoRingVariantArtwork img {
+  display: block;
+  max-width: none;
+  flex: 0 0 auto;
+}
+
+.trayLogoRingVariantNumber {
+  font: 650 9px/1 var(--font-ui);
+  letter-spacing: -0.04em;
+}
+
+.trayIconStyleGroup > .trayIconStyleOption {
+  min-width: 0;
+  min-height: 68px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.trayIconPreviewFrame {
+  width: 52px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 7px;
+  background: var(--body-bg);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.trayIconPreviewFrame img {
+  display: block;
+  max-width: none;
+  flex: 0 0 auto;
+  image-rendering: auto;
+}
+
+.trayIconPreviewPlaceholder {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--subtle) 18%, transparent);
+}
+
+.trayIconHiddenPreview {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.72;
+}
+
+.trayIconHiddenPreview::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 8px;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
+.trayIconStyleLabel {
+  max-width: 100%;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .settingRowNested {
   background: color-mix(in srgb, var(--body-bg) 14%, var(--surface-tint) 86%);
 }
@@ -744,6 +1365,52 @@
   display: block;
   font: 600 0.84rem/1.2 var(--font-ui);
   letter-spacing: -0.01em;
+}
+
+.settingDescription {
+  display: block;
+  margin-top: 4px;
+  color: var(--subtle);
+  font: 500 0.72rem/1.35 var(--font-ui);
+}
+
+.settingDescription.isError {
+  color: var(--danger);
+}
+
+.settingRowWindowsTaskbar {
+  align-items: start;
+  min-height: 96px;
+  padding-block: 10px;
+}
+
+.settingRowWindowsTaskbar > .settingMeta {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+}
+
+.windowsTaskbarWidgetControls {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.windowsWidgetsActionRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.windowsWidgetsActionRow .settingDescription {
+  margin-top: 0;
+}
+
+.windowsWidgetsButton {
+  white-space: nowrap;
 }
 
 .settingMetaInline {

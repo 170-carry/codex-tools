@@ -9,6 +9,7 @@ import {
   PROJECT_REPOSITORY_URL,
 } from "../constants/externalLinks";
 import { useI18n } from "../i18n/I18nProvider";
+import { effectiveWindowsUsageDisplayMode } from "../utils/quotaDisplayOnboarding";
 import { EditorMultiSelect } from "./EditorMultiSelect";
 import { ThemeSwitch } from "./ThemeSwitch";
 import { SwitchField } from "./SwitchField";
@@ -17,6 +18,7 @@ import type {
   InstalledEditorApp,
   ThemeMode,
   UpdateSettingsOptions,
+  WindowsTrayIconStyle,
 } from "../types/app";
 
 function GitHubIcon() {
@@ -43,6 +45,13 @@ type SettingsPanelProps = {
   onUpdateSettings: (patch: Partial<AppSettings>, options?: UpdateSettingsOptions) => void;
 };
 
+type TrayVisualPreview = {
+  style: WindowsTrayIconStyle;
+  dataUrl: string;
+  pixelWidth: number;
+  pixelHeight: number;
+};
+
 export function SettingsPanel({
   themeMode,
   onToggleTheme,
@@ -57,14 +66,36 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { copy, locale, localeOptions, setLocale } = useI18n();
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [trayVisualPreviews, setTrayVisualPreviews] = useState<TrayVisualPreview[]>([]);
   const [runtimePlatform, setRuntimePlatform] = useState<string | null>(null);
+  const [debugBuild, setDebugBuild] = useState(false);
   const [pickingCodexLaunchPathKind, setPickingCodexLaunchPathKind] = useState<"file" | "directory" | null>(null);
+  const [windowsWidgetsEnabled, setWindowsWidgetsEnabled] = useState(false);
+  const [windowsWidgetsError, setWindowsWidgetsError] = useState(false);
+  const [openingWindowsTaskbarSettings, setOpeningWindowsTaskbarSettings] = useState(false);
   const languageLabel = copy.topBar.languagePicker;
   const languageOptions = localeOptions.map((item) => ({
     id: item.code,
     label: item.nativeLabel,
   }));
   const versionValue = appVersion ? `v${appVersion}` : "...";
+  const isWindows = runtimePlatform === "windows";
+  const isMacos = runtimePlatform === "macos";
+  const selectedTrayUsageDisplayMode =
+    isWindows
+      ? effectiveWindowsUsageDisplayMode(settings.trayUsageDisplayMode)
+      : settings.trayUsageDisplayMode;
+  const trayPreviewScale = typeof window !== "undefined" ? Math.max(1, window.devicePixelRatio || 1) : 1;
+  const trayIconStyleOptions: Array<{ value: WindowsTrayIconStyle | "hidden"; label: string }> = [
+    { value: "gradientNumberPlate", label: copy.settings.windowsTrayIconStyle.gradientNumberPlate },
+    { value: "gradientNumberCard", label: copy.settings.windowsTrayIconStyle.gradientNumberCard },
+    { value: "gradientNumber", label: copy.settings.windowsTrayIconStyle.gradientNumber },
+    { value: "numberProgressBar", label: copy.settings.windowsTrayIconStyle.numberProgressBar },
+    { value: "logoProgressRing", label: copy.settings.windowsTrayIconStyle.logoProgressRing },
+  ];
+  trayIconStyleOptions.push({ value: "hidden", label: copy.settings.windowsTrayIconStyle.hidden });
+  const selectedTrayIconStyle =
+    !settings.trayQuotaIconVisible ? "hidden" : settings.windowsTrayIconStyle;
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +125,14 @@ export function SettingsPanel({
       .catch(() => {
         if (!cancelled) {
           // 浏览器预览没有 Tauri 命令；仅为本地预览保留平台回退，桌面包始终以后端为准。
-          setRuntimePlatform(navigator.platform.toLowerCase().includes("mac") ? "macos" : "other");
+          const platform = navigator.platform.toLowerCase();
+          setRuntimePlatform(
+            platform.includes("mac")
+              ? "macos"
+              : platform.includes("win")
+                ? "windows"
+                : "other",
+          );
         }
       });
 
@@ -102,6 +140,103 @@ export function SettingsPanel({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void invoke<boolean>("is_debug_build")
+      .then((enabled) => {
+        if (!cancelled) {
+          setDebugBuild(enabled);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDebugBuild(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isWindows && !isMacos) {
+      return;
+    }
+
+    let cancelled = false;
+    void invoke<TrayVisualPreview[]>("get_tray_visual_previews", {
+      lightTheme: themeMode !== "dark",
+      devicePixelRatio: trayPreviewScale,
+    })
+      .then((previews) => {
+        if (!cancelled) {
+          setTrayVisualPreviews(previews);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTrayVisualPreviews([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isMacos, isWindows, themeMode, trayPreviewScale]);
+
+  useEffect(() => {
+    if (!isWindows) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshWindowsWidgetsState = () => {
+      void invoke<boolean>("get_windows_widgets_enabled")
+        .then((enabled) => {
+          if (!cancelled) {
+            setWindowsWidgetsEnabled(enabled);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWindowsWidgetsEnabled(false);
+          }
+        });
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshWindowsWidgetsState();
+      }
+    };
+
+    refreshWindowsWidgetsState();
+    window.addEventListener("focus", refreshWindowsWidgetsState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refreshWindowsWidgetsState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isWindows]);
+
+  const openWindowsTaskbarSettings = async () => {
+    if (openingWindowsTaskbarSettings) {
+      return;
+    }
+    setOpeningWindowsTaskbarSettings(true);
+    setWindowsWidgetsError(false);
+    try {
+      await invoke("open_windows_taskbar_settings");
+    } catch {
+      setWindowsWidgetsError(true);
+    } finally {
+      setOpeningWindowsTaskbarSettings(false);
+    }
+  };
 
   const pickCodexLaunchPath = async (kind: "file" | "directory") => {
     if (savingSettings || pickingCodexLaunchPathKind) {
@@ -148,7 +283,7 @@ export function SettingsPanel({
             <ThemeSwitch themeMode={themeMode} onToggle={onToggleTheme} />
           </div>
 
-          {runtimePlatform === "macos" ? (
+          {isMacos || isWindows ? (
             <div className="settingRow settingRowTrayUsage">
               <div className="settingMeta">
                 <strong>{copy.settings.trayUsageDisplay.label}</strong>
@@ -160,45 +295,47 @@ export function SettingsPanel({
                 aria-label={copy.settings.trayUsageDisplay.groupAriaLabel}
               >
                 <button
-                  className={settings.trayUsageDisplayMode === "remaining" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "remaining" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "remaining" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "remaining"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "remaining"}
                 >
                   {copy.settings.trayUsageDisplay.remaining}
                 </button>
                 <button
-                  className={settings.trayUsageDisplayMode === "used" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "used" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "used" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "used"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "used"}
                 >
                   {copy.settings.trayUsageDisplay.used}
                 </button>
                 <button
-                  className={settings.trayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "fiveHourRemaining" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "fiveHourRemaining" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "fiveHourRemaining"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "fiveHourRemaining"}
                 >
                   {copy.settings.trayUsageDisplay.fiveHourRemaining}
                 </button>
                 <button
-                  className={settings.trayUsageDisplayMode === "oneWeekRemaining" ? "primary" : "ghost"}
+                  className={selectedTrayUsageDisplayMode === "oneWeekRemaining" ? "primary" : "ghost"}
                   disabled={savingSettings}
                   onClick={() => onUpdateSettings({ trayUsageDisplayMode: "oneWeekRemaining" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "oneWeekRemaining"}
+                  aria-pressed={selectedTrayUsageDisplayMode === "oneWeekRemaining"}
                 >
                   {copy.settings.trayUsageDisplay.oneWeekRemaining}
                 </button>
-                <button
-                  className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
-                  disabled={savingSettings}
-                  onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
-                  aria-pressed={settings.trayUsageDisplayMode === "hidden"}
-                >
-                  {copy.settings.trayUsageDisplay.hidden}
-                </button>
+                {isMacos ? (
+                  <button
+                    className={settings.trayUsageDisplayMode === "hidden" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ trayUsageDisplayMode: "hidden" })}
+                    aria-pressed={settings.trayUsageDisplayMode === "hidden"}
+                  >
+                    {copy.settings.trayUsageDisplay.hidden}
+                  </button>
+                ) : null}
               </div>
               <label
                 className="themeSwitch trayUsageTitleSwitch"
@@ -226,6 +363,217 @@ export function SettingsPanel({
                   <span className="themeSwitchThumb" />
                 </span>
               </label>
+              </div>
+            </div>
+          ) : null}
+
+          {isWindows || isMacos ? (
+            <div className="settingRow settingRowTrayUsage">
+              <div className="settingMeta">
+                <strong>{copy.settings.windowsTrayIconStyle.label}</strong>
+              </div>
+              <div className="trayIconStyleControls">
+                <div
+                  className="modeGroup trayUsageModeGroup trayIconStyleGroup"
+                  role="radiogroup"
+                  aria-label={copy.settings.windowsTrayIconStyle.groupAriaLabel}
+                >
+                  {trayIconStyleOptions.map((option) => {
+                    const isHiddenOption = option.value === "hidden";
+                    const preview = isHiddenOption
+                      ? undefined
+                      : trayVisualPreviews.find((item) => item.style === option.value);
+                    if (isMacos && option.value === "logoProgressRing") {
+                      const styleSelected = selectedTrayIconStyle === option.value;
+                      return (
+                        <div
+                          key={option.value}
+                          className={`trayIconStyleOption trayIconStyleCompound ${
+                            styleSelected ? "isSelected" : ""
+                          }`}
+                          role="group"
+                          aria-label={option.label}
+                        >
+                          <span className="trayLogoRingVariantPreviews">
+                            {[false, true].map((showPercentage) => {
+                              const variantLabel = showPercentage
+                                ? copy.settings.macosTrayLogoRingVariants.withPercentage
+                                : copy.settings.macosTrayLogoRingVariants.withoutPercentage;
+                              const variantSelected =
+                                styleSelected &&
+                                settings.macosTrayLogoRingShowPercentage === showPercentage;
+                              return (
+                                <button
+                                  key={String(showPercentage)}
+                                  type="button"
+                                  className={`trayLogoRingVariant ${
+                                    variantSelected ? "isSelected" : ""
+                                  }`}
+                                  disabled={savingSettings}
+                                  onClick={() =>
+                                    onUpdateSettings({
+                                      windowsTrayIconStyle: "logoProgressRing",
+                                      trayQuotaIconVisible: true,
+                                      macosTrayLogoRingShowPercentage: showPercentage,
+                                    })
+                                  }
+                                  aria-label={`${option.label}：${variantLabel}`}
+                                  aria-pressed={variantSelected}
+                                  title={variantLabel}
+                                >
+                                  <span className="trayLogoRingVariantArtwork" aria-hidden="true">
+                                    {preview ? (
+                                      <img
+                                        src={preview.dataUrl}
+                                        alt=""
+                                        draggable={false}
+                                        style={{
+                                          width: `${preview.pixelWidth / trayPreviewScale}px`,
+                                          height: `${preview.pixelHeight / trayPreviewScale}px`,
+                                        }}
+                                      />
+                                    ) : (
+                                      <span className="trayIconPreviewPlaceholder" />
+                                    )}
+                                    {showPercentage ? (
+                                      <span className="trayLogoRingVariantNumber">97%</span>
+                                    ) : null}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </span>
+                          <span className="trayIconStyleLabel">{option.label}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        key={option.value}
+                        className={`trayIconStyleOption ${
+                          selectedTrayIconStyle === option.value ? "primary" : "ghost"
+                        }`}
+                        disabled={savingSettings}
+                        onClick={() => {
+                          if (option.value === "hidden") {
+                            onUpdateSettings({ trayQuotaIconVisible: false });
+                            return;
+                          }
+                          onUpdateSettings({
+                            windowsTrayIconStyle: option.value,
+                            trayQuotaIconVisible: true,
+                          });
+                        }}
+                        aria-label={option.label}
+                        aria-pressed={selectedTrayIconStyle === option.value}
+                        title={option.label}
+                      >
+                        <span className="trayIconPreviewFrame" aria-hidden="true">
+                          {isHiddenOption ? (
+                            <span className="trayIconHiddenPreview" />
+                          ) : preview ? (
+                            <img
+                              src={preview.dataUrl}
+                              alt=""
+                              draggable={false}
+                              style={{
+                                width: `${preview.pixelWidth / trayPreviewScale}px`,
+                                height: `${preview.pixelHeight / trayPreviewScale}px`,
+                              }}
+                            />
+                          ) : (
+                            <span className="trayIconPreviewPlaceholder" />
+                          )}
+                        </span>
+                        <span className="trayIconStyleLabel">{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {isMacos && debugBuild ? (
+            <div className="settingRow">
+              <div className="settingMeta">
+                <strong>{copy.settings.macosQuotaOnboardingPreview.label}</strong>
+                <span className="settingDescription">
+                  {copy.settings.macosQuotaOnboardingPreview.description}
+                </span>
+              </div>
+              <div className="settingActionGroup">
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={savingSettings}
+                  onClick={() =>
+                    onUpdateSettings(
+                      { macosQuotaOnboardingCompleted: false },
+                      { silent: true, throwOnError: true, keepInteractive: true },
+                    )
+                  }
+                >
+                  {copy.settings.macosQuotaOnboardingPreview.open}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {isWindows ? (
+            <div className="settingRow settingRowWindowsTaskbar">
+              <div className="settingMeta">
+                <strong>{copy.settings.windowsTaskbarWidget.label}</strong>
+              </div>
+              <div className="windowsTaskbarWidgetControls">
+                <div
+                  className="modeGroup trayUsageModeGroup"
+                  role="radiogroup"
+                  aria-label={copy.settings.windowsTaskbarWidget.groupAriaLabel}
+                >
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "left" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "left" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "left"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.left}
+                  </button>
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "embedded" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "embedded" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "embedded"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.right}
+                  </button>
+                  <button
+                    className={settings.windowsTaskbarWidgetPlacement === "hidden" ? "primary" : "ghost"}
+                    disabled={savingSettings}
+                    onClick={() => onUpdateSettings({ windowsTaskbarWidgetPlacement: "hidden" })}
+                    aria-pressed={settings.windowsTaskbarWidgetPlacement === "hidden"}
+                  >
+                    {copy.settings.windowsTaskbarWidget.hidden}
+                  </button>
+                </div>
+                {windowsWidgetsEnabled ? (
+                  <div className="windowsWidgetsActionRow">
+                    {windowsWidgetsError ? (
+                      <span className="settingDescription isError" role="alert">
+                        {copy.settings.windowsWidgets.openFailed}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="primary windowsWidgetsButton"
+                      disabled={openingWindowsTaskbarSettings}
+                      onClick={() => void openWindowsTaskbarSettings()}
+                      aria-label={copy.settings.windowsWidgets.disableAriaLabel}
+                    >
+                      {copy.settings.windowsWidgets.disable}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

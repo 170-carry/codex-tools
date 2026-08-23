@@ -5,11 +5,15 @@ use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
+use std::time::Instant;
 
+use futures_util::future::FutureExt;
 use futures_util::stream;
 use futures_util::StreamExt;
 use rfd::FileDialog;
 use tauri::AppHandle;
+use tauri::Manager;
 use zip::write::FileOptions;
 use zip::CompressionMethod;
 
@@ -21,6 +25,7 @@ use crate::auth::auth_tokens_need_keepalive_refresh;
 use crate::auth::current_auth_account_key;
 use crate::auth::current_auth_variant_key;
 use crate::auth::extract_auth;
+use crate::auth::has_newer_auth_refresh_snapshot;
 #[cfg(debug_assertions)]
 use crate::auth::log_current_auth_parse_diagnostic;
 use crate::auth::normalize_imported_auth_json;
@@ -44,6 +49,7 @@ use crate::models::TestApiAccountConnectionResult;
 use crate::models::UsageSnapshot;
 use crate::profile_files;
 use crate::state::AppState;
+use crate::state::UsageRefreshFlight;
 use crate::store::account_store_path_from_data_dir;
 use crate::store::load_store;
 use crate::store::load_store_from_path;
@@ -72,6 +78,8 @@ const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进�
 // 账号刷新主要等待外部 HTTP 响应，因此按 CPU 给 2 倍并发；同时用可用内存做下限保护。
 const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
 const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
+const USAGE_REFRESH_REUSE_WINDOW: Duration = Duration::from_secs(25);
+const PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS: i64 = 5 * 60;
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -521,6 +529,7 @@ pub(crate) async fn refresh_all_usage_internal(
     app: &AppHandle,
     state: &AppState,
     force_auth_refresh: bool,
+    defer_freshness_only_persistence: bool,
 ) -> Result<Vec<AccountSummary>, String> {
     let current_auth_override: Option<(String, serde_json::Value)> =
         read_current_codex_auth_optional()
@@ -548,6 +557,7 @@ pub(crate) async fn refresh_all_usage_internal(
         let _auth_guard = state.auth_operation_lock.lock().await;
         let _guard = state.store_lock.lock().await;
         let mut latest_store = load_store(app)?;
+        let persisted_store = latest_store.clone();
         let merge_current_auth_json = read_current_codex_auth_optional().ok().flatten();
 
         for account in &mut latest_store.accounts {
@@ -611,7 +621,19 @@ pub(crate) async fn refresh_all_usage_internal(
         }
 
         dedupe_account_variants(&mut latest_store.accounts);
-        save_store(app, &latest_store)?;
+        if should_persist_refreshed_store(
+            &persisted_store,
+            &latest_store,
+            defer_freshness_only_persistence,
+            now_unix_seconds(),
+        ) {
+            save_store(app, &latest_store)?;
+        } else {
+            log::info!(
+                "USAGE_REFRESH_PERSIST action=defer reason=freshness-only interval_secs={}",
+                PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS,
+            );
+        }
         latest_store
     };
 
@@ -671,6 +693,183 @@ pub(crate) async fn refresh_all_usage_internal(
     );
 
     Ok(summaries)
+}
+
+fn should_persist_refreshed_store(
+    persisted: &AccountsStore,
+    refreshed: &AccountsStore,
+    defer_freshness_only_persistence: bool,
+    now: i64,
+) -> bool {
+    if !defer_freshness_only_persistence {
+        return true;
+    }
+
+    let mut persisted_material = persisted.clone();
+    let mut refreshed_material = refreshed.clone();
+    clear_refresh_freshness(&mut persisted_material);
+    clear_refresh_freshness(&mut refreshed_material);
+
+    let material_changed = serde_json::to_value(&persisted_material)
+        .and_then(|persisted_value| {
+            serde_json::to_value(&refreshed_material)
+                .map(|refreshed_value| persisted_value != refreshed_value)
+        })
+        .unwrap_or(true);
+    if material_changed {
+        return true;
+    }
+
+    let last_persisted_refresh = persisted
+        .accounts
+        .iter()
+        .map(|account| {
+            account
+                .usage
+                .as_ref()
+                .map(|usage| usage.fetched_at)
+                .unwrap_or(account.updated_at)
+                .max(account.updated_at)
+        })
+        .max()
+        .unwrap_or(0);
+
+    now.saturating_sub(last_persisted_refresh) >= PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS
+}
+
+fn clear_refresh_freshness(store: &mut AccountsStore) {
+    for account in &mut store.accounts {
+        account.updated_at = 0;
+        if let Some(usage) = account.usage.as_mut() {
+            usage.fetched_at = 0;
+        }
+    }
+}
+
+/// Coordinates every full usage refresh through one in-flight future.
+///
+/// Callers requesting the same or weaker auth behavior share the current
+/// result. A forced-auth caller that arrived behind a lightweight refresh waits
+/// for it, then starts one stronger pass instead of overlapping network work.
+pub(crate) async fn refresh_all_usage_coordinated(
+    app: &AppHandle,
+    state: &AppState,
+    force_auth_refresh: bool,
+    source: &str,
+) -> Result<Vec<AccountSummary>, String> {
+    loop {
+        let (flight_id, flight_force_auth_refresh, future, joined) = {
+            let mut coordinator = state.usage_refresh.lock().await;
+            if let Some(flight) = coordinator.current.as_ref() {
+                (
+                    flight.id,
+                    flight.force_auth_refresh,
+                    flight.future.clone(),
+                    true,
+                )
+            } else if coordinator.last_successful.as_ref().is_some_and(|success| {
+                should_reuse_successful_usage_refresh(
+                    source,
+                    success.completed_at,
+                    success.force_auth_refresh,
+                    force_auth_refresh,
+                    Instant::now(),
+                )
+            }) {
+                let success = coordinator
+                    .last_successful
+                    .as_ref()
+                    .expect("recent success checked above");
+                log::info!(
+                    "USAGE_REFRESH_COORDINATOR source={} action=reuse_recent requested_force_auth={} cached_force_auth={}",
+                    source,
+                    force_auth_refresh,
+                    success.force_auth_refresh,
+                );
+                return Ok(success.summaries.clone());
+            } else {
+                coordinator.next_id = coordinator.next_id.wrapping_add(1).max(1);
+                let flight_id = coordinator.next_id;
+                let app_handle = app.clone();
+                let defer_freshness_only_persistence = source == "periodic-background";
+                let future = async move {
+                    let state = app_handle.state::<AppState>();
+                    refresh_all_usage_internal(
+                        &app_handle,
+                        state.inner(),
+                        force_auth_refresh,
+                        defer_freshness_only_persistence,
+                    )
+                    .await
+                }
+                .boxed()
+                .shared();
+                coordinator.current = Some(UsageRefreshFlight {
+                    id: flight_id,
+                    force_auth_refresh,
+                    future: future.clone(),
+                });
+                (flight_id, force_auth_refresh, future, false)
+            }
+        };
+
+        log::info!(
+            "USAGE_REFRESH_COORDINATOR source={} flight_id={} action={} requested_force_auth={} flight_force_auth={}",
+            source,
+            flight_id,
+            if joined { "join" } else { "start" },
+            force_auth_refresh,
+            flight_force_auth_refresh,
+        );
+
+        let result = future.await;
+        {
+            let mut coordinator = state.usage_refresh.lock().await;
+            if coordinator
+                .current
+                .as_ref()
+                .is_some_and(|flight| flight.id == flight_id)
+            {
+                coordinator.current = None;
+            }
+            if let Ok(summaries) = result.as_ref() {
+                coordinator.last_successful = Some(crate::state::UsageRefreshSuccess {
+                    completed_at: Instant::now(),
+                    force_auth_refresh: flight_force_auth_refresh,
+                    summaries: summaries.clone(),
+                });
+            }
+        }
+
+        if joined && force_auth_refresh && !flight_force_auth_refresh {
+            log::info!(
+                "USAGE_REFRESH_COORDINATOR source={} flight_id={} action=upgrade_after_join",
+                source,
+                flight_id,
+            );
+            continue;
+        }
+
+        log::info!(
+            "USAGE_REFRESH_COORDINATOR source={} flight_id={} action=complete result={}",
+            source,
+            flight_id,
+            if result.is_ok() { "ok" } else { "error" },
+        );
+        return result;
+    }
+}
+
+fn should_reuse_successful_usage_refresh(
+    source: &str,
+    completed_at: Instant,
+    completed_force_auth_refresh: bool,
+    requested_force_auth_refresh: bool,
+    now: Instant,
+) -> bool {
+    matches!(source, "periodic-background")
+        && (!requested_force_auth_refresh || completed_force_auth_refresh)
+        && now.saturating_duration_since(completed_at) < USAGE_REFRESH_REUSE_WINDOW
 }
 
 async fn refresh_usage_targets_with_workers(
@@ -753,6 +952,9 @@ fn build_refresh_targets(
             .filter(|(current_account_key, _)| current_account_key == &account_key);
         let auth_is_current = current_override.is_some();
         let store_auth_json = account.auth_json.clone();
+        let current_override_has_newer_auth = current_override.is_some_and(|(_, auth_json)| {
+            has_newer_auth_refresh_snapshot(auth_json, &store_auth_json)
+        });
         let auth_json = current_override
             .map(|(_, auth_json)| auth_json.clone())
             .unwrap_or(account.auth_json);
@@ -762,8 +964,12 @@ fn build_refresh_targets(
             auth_json,
             store_auth_json,
             auth_is_current,
-            auth_refresh_blocked: account.auth_refresh_blocked,
-            auth_refresh_error: account.auth_refresh_error.clone(),
+            auth_refresh_blocked: account.auth_refresh_blocked && !current_override_has_newer_auth,
+            auth_refresh_error: if current_override_has_newer_auth {
+                None
+            } else {
+                account.auth_refresh_error.clone()
+            },
             updated_at: account.updated_at,
         };
 
@@ -870,18 +1076,30 @@ async fn latest_account_auth_json(
         })
         .map(|account| account.auth_json);
 
-    // 在同一把 auth 锁内优先采用与任务输入不同的持久化快照，避免当前 auth 文件较旧时覆盖新导入的 store 快照。
+    // 在同一把 auth 锁内从当前文件和持久化记录中选择时间最新的轮换快照，
+    // 避免旧快照覆盖刚登录或刚刷新的授权。
     let reference_refresh_token = auth_json_refresh_token(reference_auth_json);
-    let store_refresh_token = store_auth_json.as_ref().and_then(auth_json_refresh_token);
-    if store_refresh_token.is_some() && store_refresh_token != reference_refresh_token {
-        return store_auth_json;
+    let mut candidates = Vec::with_capacity(2);
+    if let Some(store_auth_json) = store_auth_json {
+        candidates.push((store_auth_json, 0_u8));
     }
-    let current_refresh_token = current_auth_json.as_ref().and_then(auth_json_refresh_token);
-    if current_refresh_token.is_some() && current_refresh_token != reference_refresh_token {
-        return current_auth_json;
+    if let Some(current_auth_json) = current_auth_json {
+        candidates.push((current_auth_json, 1_u8));
     }
 
-    current_auth_json.or(store_auth_json)
+    candidates
+        .into_iter()
+        .filter(|(candidate, _)| {
+            let candidate_refresh_token = auth_json_refresh_token(candidate);
+            candidate_refresh_token.is_some() && candidate_refresh_token != reference_refresh_token
+        })
+        .max_by_key(|(candidate, current_auth_priority)| {
+            (
+                auth_last_refresh_unix_seconds(candidate).unwrap_or(i64::MIN),
+                *current_auth_priority,
+            )
+        })
+        .map(|(candidate, _)| candidate)
 }
 
 pub(crate) async fn refresh_latest_auth_json_if_newer(
@@ -894,9 +1112,7 @@ pub(crate) async fn refresh_latest_auth_json_if_newer(
         return auth_json.clone();
     };
 
-    let current_refresh_token = auth_json_refresh_token(auth_json);
-    let latest_refresh_token = auth_json_refresh_token(&latest);
-    if latest_refresh_token.is_some() && latest_refresh_token != current_refresh_token {
+    if has_newer_auth_refresh_snapshot(&latest, auth_json) {
         log::info!("刷新前检测到账号已有更新后的授权快照，改用最新快照 account_key={account_key}");
         return latest;
     }
@@ -1048,10 +1264,16 @@ async fn refresh_usage_for_target(
     let mut auth_refresh_blocked = target.auth_refresh_blocked;
     let mut auth_refresh_error = target.auth_refresh_error.clone();
 
-    if force_auth_refresh && !auth_refresh_blocked {
-        working_auth_json =
+    if force_auth_refresh {
+        let latest_auth_json =
             refresh_latest_auth_json_if_newer(app, state, &target.account_key, &working_auth_json)
                 .await;
+        if latest_auth_json != working_auth_json {
+            working_auth_json = latest_auth_json;
+            auth_refreshed = true;
+            auth_refresh_blocked = false;
+            auth_refresh_error = None;
+        }
     }
 
     if force_auth_refresh
@@ -1991,6 +2213,7 @@ fn normalize_import_source(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::build_refresh_targets;
     use super::expand_import_json_content;
     use super::is_stale_refresh_snapshot_error;
     use super::keepalive_max_last_refresh_age_secs;
@@ -1998,15 +2221,19 @@ mod tests {
     use super::normalize_usage_error_message;
     use super::refresh_usage_worker_count_from_resources;
     use super::resolve_usage_first_plan_type;
+    use super::should_persist_refreshed_store;
     use super::should_refresh_membership_auth;
     use super::should_retry_with_token_refresh;
+    use super::should_reuse_successful_usage_refresh;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
     use super::PreparedImport;
     use super::AUTH_EXPIRED_NOTICE;
     use super::KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS;
     use super::KEEPALIVE_LAST_REFRESH_JITTER_SECS;
+    use super::PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS;
     use super::USAGE_AUTH_TOKEN_EXPIRED_NOTICE;
+    use super::USAGE_REFRESH_REUSE_WINDOW;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use crate::models::TestApiAccountConnectionInput;
@@ -2015,6 +2242,69 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use serde_json::json;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    #[test]
+    fn recent_lightweight_refresh_is_reused_for_another_lightweight_request() {
+        let now = Instant::now();
+
+        assert!(should_reuse_successful_usage_refresh(
+            "periodic-background",
+            now - Duration::from_secs(5),
+            false,
+            false,
+            now,
+        ));
+    }
+
+    #[test]
+    fn forced_refresh_requires_a_recent_forced_result() {
+        let now = Instant::now();
+
+        assert!(!should_reuse_successful_usage_refresh(
+            "periodic-background",
+            now - Duration::from_secs(5),
+            false,
+            true,
+            now,
+        ));
+        assert!(should_reuse_successful_usage_refresh(
+            "periodic-background",
+            now - Duration::from_secs(5),
+            true,
+            true,
+            now,
+        ));
+    }
+
+    #[test]
+    fn completed_refresh_expires_after_the_reuse_window() {
+        let now = Instant::now();
+
+        assert!(!should_reuse_successful_usage_refresh(
+            "periodic-background",
+            now - USAGE_REFRESH_REUSE_WINDOW,
+            true,
+            false,
+            now,
+        ));
+    }
+
+    #[test]
+    fn interactive_refreshes_never_reuse_a_recent_result() {
+        let now = Instant::now();
+
+        for source in ["startup", "manual", "account-import", "frontend"] {
+            assert!(!should_reuse_successful_usage_refresh(
+                source,
+                now - Duration::from_secs(5),
+                true,
+                false,
+                now,
+            ));
+        }
+    }
 
     fn membership_auth_json(
         plan_type: &str,
@@ -2075,12 +2365,138 @@ mod tests {
         }
     }
 
+    fn store_with_usage(updated_at: i64, fetched_at: i64, used_percent: f64) -> AccountsStore {
+        let mut usage = usage_snapshot("pro");
+        usage.fetched_at = fetched_at;
+        usage
+            .five_hour
+            .as_mut()
+            .expect("five hour usage")
+            .used_percent = used_percent;
+
+        AccountsStore {
+            accounts: vec![StoredAccount {
+                id: "account-1".to_string(),
+                label: "Account 1".to_string(),
+                source_kind: Default::default(),
+                principal_id: Some("principal-1".to_string()),
+                email: Some("account@example.com".to_string()),
+                account_id: "account-1".to_string(),
+                plan_type: Some("pro".to_string()),
+                auth_json: json!({"tokens": {"access_token": "token"}}),
+                api_base_url: None,
+                api_key: None,
+                model_name: None,
+                balance_text: None,
+                profile_auth_path: None,
+                profile_config_path: None,
+                profile_auth_ready: true,
+                profile_config_ready: true,
+                profile_integrity_error: None,
+                profile_last_validated_at: None,
+                profile_last_validation_error: None,
+                added_at: 1,
+                updated_at,
+                usage: Some(usage),
+                usage_error: None,
+                auth_refresh_blocked: false,
+                auth_refresh_error: None,
+                api_proxy_enabled: true,
+            }],
+            ..AccountsStore::default()
+        }
+    }
+
+    #[test]
+    fn periodic_refresh_defers_freshness_only_persistence_inside_interval() {
+        let persisted = store_with_usage(100, 100, 10.0);
+        let refreshed = store_with_usage(120, 120, 10.0);
+
+        assert!(!should_persist_refreshed_store(
+            &persisted, &refreshed, true, 120,
+        ));
+        assert!(should_persist_refreshed_store(
+            &persisted, &refreshed, false, 120,
+        ));
+    }
+
+    #[test]
+    fn periodic_refresh_persists_material_usage_changes_immediately() {
+        let persisted = store_with_usage(100, 100, 10.0);
+        let refreshed = store_with_usage(120, 120, 11.0);
+
+        assert!(should_persist_refreshed_store(
+            &persisted, &refreshed, true, 120,
+        ));
+    }
+
+    #[test]
+    fn periodic_refresh_checkpoints_freshness_after_interval() {
+        let persisted = store_with_usage(100, 100, 10.0);
+        let now = 100 + PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS;
+        let refreshed = store_with_usage(now, now, 10.0);
+
+        assert!(should_persist_refreshed_store(
+            &persisted, &refreshed, true, now,
+        ));
+    }
+
     #[test]
     fn usage_plan_type_overrides_stale_auth_plan_type() {
         let resolved =
             resolve_usage_first_plan_type(Some(&usage_snapshot("free")), Some("pro".to_string()));
 
         assert_eq!(resolved.as_deref(), Some("free"));
+    }
+
+    #[test]
+    fn current_auth_override_clears_only_a_stale_refresh_block() {
+        let stored_auth = json!({
+            "last_refresh": 10,
+            "tokens": { "refresh_token": "refresh-old" }
+        });
+        let current_auth = json!({
+            "last_refresh": 20,
+            "tokens": { "refresh_token": "refresh-new" }
+        });
+        let account = StoredAccount {
+            id: "blocked".to_string(),
+            label: "blocked".to_string(),
+            source_kind: Default::default(),
+            principal_id: Some("shared@example.com".to_string()),
+            email: Some("shared@example.com".to_string()),
+            account_id: "account-1".to_string(),
+            plan_type: Some("plus".to_string()),
+            auth_json: stored_auth.clone(),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at: 10,
+            usage: Some(usage_snapshot("plus")),
+            usage_error: None,
+            auth_refresh_blocked: true,
+            auth_refresh_error: Some("stale refresh failure".to_string()),
+            api_proxy_enabled: true,
+        };
+        let account_key = account.account_key();
+
+        let targets =
+            build_refresh_targets(vec![account], Some(&(account_key, current_auth.clone())));
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].auth_json, current_auth);
+        assert_eq!(targets[0].store_auth_json, stored_auth);
+        assert!(!targets[0].auth_refresh_blocked);
+        assert!(targets[0].auth_refresh_error.is_none());
     }
 
     #[test]

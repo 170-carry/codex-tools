@@ -423,6 +423,14 @@ export type PendingUpdateInfo = {
 export type ThemeMode = "light" | "dark";
 
 export type TrayUsageDisplayMode = "remaining" | "used" | "fiveHourRemaining" | "oneWeekRemaining" | "hidden";
+export type MacosTrayTextIconStyle = "codexTools" | "progressRing";
+export type WindowsTrayIconStyle =
+  | "gradientNumberPlate"
+  | "gradientNumberCard"
+  | "gradientNumber"
+  | "numberProgressBar"
+  | "logoProgressRing";
+export type WindowsTaskbarWidgetPlacement = "embedded" | "left" | "hidden";
 
 export type ApiProxyLoadBalanceMode = "average" | "sequential";
 
@@ -444,6 +452,13 @@ export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
   trayUsageTitleShowWindowLabels: boolean;
+  macosTrayTextIconStyle: MacosTrayTextIconStyle;
+  windowsTrayIconStyle: WindowsTrayIconStyle;
+  trayQuotaIconVisible: boolean;
+  macosTrayLogoRingShowPercentage: boolean;
+  windowsTaskbarWidgetPlacement: WindowsTaskbarWidgetPlacement;
+  windowsQuotaOnboardingCompleted: boolean;
+  macosQuotaOnboardingCompleted: boolean;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;
@@ -466,4 +481,5 @@ export type AppSettings = {
 export type UpdateSettingsOptions = {
   silent?: boolean;
   keepInteractive?: boolean;
+  throwOnError?: boolean;
 };
