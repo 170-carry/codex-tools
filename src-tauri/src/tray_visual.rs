@@ -539,52 +539,73 @@ fn rasterize_text_mask(
 ) -> Vec<u8> {
     let mut mask = vec![0; (width * height) as usize];
     if let Some(font) = ui_font() {
-        let mut chosen_layout = None;
-        let max_px = rect.height() * 1.16;
-        for step in 0..28 {
-            let px = max_px * (1.0 - step as f32 * 0.025);
+        if let Some(px) = fitting_font_size(font, text_sizing_reference(label), rect) {
             let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
             layout.reset(&LayoutSettings::default());
             layout.append(&[font], &TextStyle::new(label, px.max(6.0), 0));
             let bounds = glyph_bounds(layout.glyphs());
             if let Some((min_x, min_y, max_x, max_y)) = bounds {
-                if max_x - min_x <= rect.width() && max_y - min_y <= rect.height() {
-                    chosen_layout = Some((layout, bounds));
-                    break;
-                }
-            }
-        }
-        if let Some((layout, Some((min_x, min_y, max_x, max_y)))) = chosen_layout {
-            let offset_x = rect.left + (rect.width() - (max_x - min_x)) / 2.0 - min_x;
-            let offset_y = rect.top + (rect.height() - (max_y - min_y)) / 2.0 - min_y;
-            for glyph in layout.glyphs() {
-                let (_, bitmap) = font.rasterize_config(glyph.key);
-                let origin_x = (glyph.x + offset_x).round() as i32;
-                let origin_y = (glyph.y + offset_y).round() as i32;
-                for glyph_y in 0..glyph.height {
-                    for glyph_x in 0..glyph.width {
-                        let x = origin_x + glyph_x as i32;
-                        let y = origin_y + glyph_y as i32;
-                        if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
-                            continue;
+                let offset_x = rect.left + (rect.width() - (max_x - min_x)) / 2.0 - min_x;
+                let offset_y = rect.top + (rect.height() - (max_y - min_y)) / 2.0 - min_y;
+                let layout_width = max_x - min_x;
+                let fitted_horizontal_scale = if layout_width > 0.0 {
+                    horizontal_scale.min(((rect.width() - 2.0) / layout_width).min(1.0))
+                } else {
+                    horizontal_scale
+                };
+                for glyph in layout.glyphs() {
+                    let (_, bitmap) = font.rasterize_config(glyph.key);
+                    let origin_x = (glyph.x + offset_x).round() as i32;
+                    let origin_y = (glyph.y + offset_y).round() as i32;
+                    for glyph_y in 0..glyph.height {
+                        for glyph_x in 0..glyph.width {
+                            let x = origin_x + glyph_x as i32;
+                            let y = origin_y + glyph_y as i32;
+                            if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+                                continue;
+                            }
+                            let source = bitmap[glyph_y * glyph.width + glyph_x];
+                            let destination = y as usize * width as usize + x as usize;
+                            mask[destination] = mask[destination].max(source);
                         }
-                        let source = bitmap[glyph_y * glyph.width + glyph_x];
-                        let destination = y as usize * width as usize + x as usize;
-                        mask[destination] = mask[destination].max(source);
                     }
                 }
+                return scale_mask_horizontally(
+                    &mask,
+                    width,
+                    height,
+                    rect.center_x(),
+                    fitted_horizontal_scale,
+                );
             }
-            return scale_mask_horizontally(
-                &mask,
-                width,
-                height,
-                rect.center_x(),
-                horizontal_scale,
-            );
         }
     }
     draw_bitmap_text_mask(&mut mask, width, height, label, rect);
     scale_mask_horizontally(&mask, width, height, rect.center_x(), horizontal_scale)
+}
+
+fn text_sizing_reference(label: &str) -> &str {
+    if label.len() <= 2 && label.bytes().all(|byte| byte.is_ascii_digit()) {
+        "70"
+    } else {
+        label
+    }
+}
+
+fn fitting_font_size(font: &Font, label: &str, rect: RectF) -> Option<f32> {
+    let max_px = rect.height() * 1.16;
+    for step in 0..28 {
+        let px = (max_px * (1.0 - step as f32 * 0.025)).max(6.0);
+        let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
+        layout.reset(&LayoutSettings::default());
+        layout.append(&[font], &TextStyle::new(label, px, 0));
+        if let Some((min_x, min_y, max_x, max_y)) = glyph_bounds(layout.glyphs()) {
+            if max_x - min_x <= rect.width() && max_y - min_y <= rect.height() {
+                return Some(px);
+            }
+        }
+    }
+    None
 }
 
 fn scale_mask_horizontally(
@@ -1348,7 +1369,7 @@ mod tests {
     #[test]
     fn number_plate_and_card_match_the_concept_proportions() {
         for (style, width_range, height_range) in [
-            (WindowsTrayIconStyle::GradientNumberPlate, 62..=70, 44..=51),
+            (WindowsTrayIconStyle::GradientNumberPlate, 57..=62, 40..=45),
             (WindowsTrayIconStyle::GradientNumberCard, 60..=68, 60..=70),
         ] {
             let image =
@@ -1369,6 +1390,79 @@ mod tests {
     }
 
     #[test]
+    fn zero_to_ninety_nine_use_seventys_font_size_without_leaving_the_digit_rect() {
+        let font = ui_font().expect("embedded tray font should load");
+        let rect = RectF::new(48.0, 48.0, 208.0, 208.0);
+        let expected_font_size = fitting_font_size(font, "70", rect).unwrap();
+
+        for value in 0..=99 {
+            let label = value.to_string();
+            assert_eq!(text_sizing_reference(&label), "70", "label={label}");
+            assert_eq!(
+                fitting_font_size(font, text_sizing_reference(&label), rect),
+                Some(expected_font_size),
+                "label={label}"
+            );
+
+            let mask = rasterize_text_mask(256, 256, &label, rect, GLYPH_HORIZONTAL_SCALE);
+            let mut min_x = 256_u32;
+            let mut min_y = 256_u32;
+            let mut max_x = 0_u32;
+            let mut max_y = 0_u32;
+            let mut found = false;
+            for (index, alpha) in mask.into_iter().enumerate() {
+                if alpha <= 16 {
+                    continue;
+                }
+                found = true;
+                let x = index as u32 % 256;
+                let y = index as u32 / 256;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+            assert!(found, "label={label}");
+            assert!(
+                min_x >= rect.left.floor() as u32
+                    && min_y >= rect.top.floor() as u32
+                    && max_x < rect.right.ceil() as u32
+                    && max_y < rect.bottom.ceil() as u32,
+                "label={label}, bounds=({min_x},{min_y})-({max_x},{max_y})"
+            );
+        }
+
+        assert_eq!(text_sizing_reference("100"), "100");
+        assert_eq!(text_sizing_reference("--"), "--");
+    }
+
+    #[test]
+    fn two_digit_number_plate_values_keep_a_consistent_visual_height() {
+        let number_size = |percent| {
+            let image = render_tray_visual(
+                WindowsTrayIconStyle::GradientNumberPlate,
+                Some(percent),
+                TrayVisualStatus::Fresh,
+                true,
+                64,
+                64,
+            );
+            bounds_size(bounds_where(&image, |pixel| {
+                pixel[0] >= 230 && pixel[1] >= 230 && pixel[2] >= 230 && pixel[3] > 16
+            }))
+        };
+
+        let seventy = number_size(70.0);
+        for percent in [71.0, 97.0] {
+            let size = number_size(percent);
+            assert!(
+                size.1.abs_diff(seventy.1) <= 1,
+                "70={seventy:?}, {percent}={size:?}"
+            );
+        }
+    }
+
+    #[test]
     fn standalone_number_is_large_beside_windows_system_icons() {
         let image = render_tray_visual(
             WindowsTrayIconStyle::GradientNumber,
@@ -1380,7 +1474,7 @@ mod tests {
         );
         let number = bounds_size(opaque_bounds(&image));
         let dimensions = format!("number={}x{}", number.0, number.1);
-        assert!(number.0 * 100 >= image.width() * 92, "{dimensions}");
+        assert!(number.0 * 100 >= image.width() * 89, "{dimensions}");
         assert!(number.1 * 100 >= image.height() * 64, "{dimensions}");
     }
 
