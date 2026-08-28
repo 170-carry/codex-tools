@@ -230,7 +230,7 @@ Tauri 命令入口在：
 - `model`
 - `system`
 - `messages`
-- `max_tokens`
+- `max_tokens`（接受但不会转发：Codex 上游会拒绝 `max_output_tokens`，而 Anthropic 规范要求客户端必填该字段）
 - `stream`
 - `temperature`
 - `top_p`

@@ -641,6 +641,7 @@ struct AnthropicStreamState {
     open_tool_index: Option<i64>,
     saw_tool_use: bool,
     has_received_tool_arguments_delta: bool,
+    has_tool_call_announced: bool,
 }
 
 impl Default for AnthropicStreamState {
@@ -654,6 +655,7 @@ impl Default for AnthropicStreamState {
             open_tool_index: None,
             saw_tool_use: false,
             has_received_tool_arguments_delta: false,
+            has_tool_call_announced: false,
         }
     }
 }
@@ -3274,15 +3276,10 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
         }),
     );
 
-    if let Some(max_tokens) = request_object
-        .get("max_tokens")
-        .and_then(integer_field_value)
-    {
-        root.insert(
-            "max_output_tokens".to_string(),
-            Value::Number(serde_json::Number::from(max_tokens)),
-        );
-    }
+    // max_tokens is accepted but intentionally not forwarded: the Codex
+    // upstream rejects requests carrying max_output_tokens with
+    // "Unsupported parameter: max_output_tokens", and Anthropic clients
+    // (e.g. Claude Code) are required to always send max_tokens.
     copy_anthropic_passthrough_field(request_object, &mut root, "temperature", "temperature");
     copy_anthropic_passthrough_field(request_object, &mut root, "top_p", "top_p");
     root.insert(
@@ -8777,6 +8774,7 @@ fn translate_sse_event_to_anthropic_event(
                 return Vec::new();
             }
             let mut events = stop_anthropic_text_block(state);
+            state.has_tool_call_announced = true;
             events.extend(start_anthropic_tool_block(state, item, None));
             events
         }
@@ -8822,6 +8820,16 @@ fn translate_sse_event_to_anthropic_event(
             }
             if state.open_tool_index.is_some() {
                 return stop_anthropic_tool_block(state);
+            }
+            if state.has_tool_call_announced {
+                // The tool block was already streamed and closed by
+                // response.function_call_arguments.done, which arrives
+                // before response.output_item.done. Re-emitting it here
+                // would send a second tool_use block with the same id and
+                // Anthropic clients reject the message ("Invalid tool
+                // parameters" in Claude Code).
+                state.has_tool_call_announced = false;
+                return Vec::new();
             }
             let mut events = stop_anthropic_text_block(state);
             let arguments = item
@@ -11566,9 +11574,9 @@ mod tests {
             payload.get("instructions").and_then(Value::as_str),
             Some("You are terse.")
         );
-        assert_eq!(
-            payload.get("max_output_tokens").and_then(Value::as_i64),
-            Some(128)
+        assert!(
+            payload.get("max_output_tokens").is_none(),
+            "max_tokens must not be forwarded: the Codex upstream rejects max_output_tokens"
         );
         assert_eq!(
             payload.get("input").and_then(Value::as_array).map(Vec::len),
@@ -12497,6 +12505,120 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 .and_then(|value| value.get("type"))
                 .and_then(Value::as_str),
             Some("message_stop")
+        );
+    }
+
+    #[test]
+    fn anthropic_streamed_tool_call_emits_single_tool_use_block() {
+        let mut state = AnthropicStreamState::default();
+        let added = SseEvent {
+            event: Some("response.output_item.added".to_string()),
+            data: json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_123",
+                    "name": "lookup_weather"
+                }
+            })
+            .to_string(),
+        };
+        let delta = SseEvent {
+            event: Some("response.function_call_arguments.delta".to_string()),
+            data: json!({
+                "type": "response.function_call_arguments.delta",
+                "delta": "{\"city\":\"Tokyo\"}"
+            })
+            .to_string(),
+        };
+        let arguments_done = SseEvent {
+            event: Some("response.function_call_arguments.done".to_string()),
+            data: json!({
+                "type": "response.function_call_arguments.done",
+                "arguments": "{\"city\":\"Tokyo\"}"
+            })
+            .to_string(),
+        };
+        let item_done = SseEvent {
+            event: Some("response.output_item.done".to_string()),
+            data: json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_123",
+                    "name": "lookup_weather",
+                    "arguments": "{\"city\":\"Tokyo\"}"
+                }
+            })
+            .to_string(),
+        };
+
+        let mut tool_block_starts = 0;
+        for event in [&added, &delta, &arguments_done, &item_done] {
+            for value in translate_sse_event_to_anthropic_event(event, &mut state) {
+                if value.get("type").and_then(Value::as_str) == Some("content_block_start")
+                    && value
+                        .get("content_block")
+                        .and_then(|block| block.get("type"))
+                        .and_then(Value::as_str)
+                        == Some("tool_use")
+                {
+                    tool_block_starts += 1;
+                }
+            }
+        }
+
+        assert_eq!(
+            tool_block_starts, 1,
+            "output_item.done must not re-emit a tool_use block that was already streamed"
+        );
+    }
+
+    #[test]
+    fn anthropic_single_shot_tool_item_emits_complete_block() {
+        let mut state = AnthropicStreamState::default();
+        let item_done = SseEvent {
+            event: Some("response.output_item.done".to_string()),
+            data: json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_456",
+                    "name": "lookup_weather",
+                    "arguments": "{\"city\":\"Osaka\"}"
+                }
+            })
+            .to_string(),
+        };
+
+        let values = translate_sse_event_to_anthropic_event(&item_done, &mut state);
+        let starts: Vec<&Value> = values
+            .iter()
+            .filter(|value| {
+                value.get("type").and_then(Value::as_str) == Some("content_block_start")
+                    && value
+                        .get("content_block")
+                        .and_then(|block| block.get("type"))
+                        .and_then(Value::as_str)
+                        == Some("tool_use")
+            })
+            .collect();
+
+        assert_eq!(starts.len(), 1);
+        assert_eq!(
+            starts[0]
+                .get("content_block")
+                .and_then(|block| block.get("id"))
+                .and_then(Value::as_str),
+            Some("call_456")
+        );
+        assert_eq!(
+            starts[0]
+                .get("content_block")
+                .and_then(|block| block.get("input"))
+                .and_then(|input| input.get("city"))
+                .and_then(Value::as_str),
+            Some("Osaka")
         );
     }
 
