@@ -1912,6 +1912,7 @@ async fn anthropic_messages_handler(
             Err(response) => return response,
         };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let headers = apply_anthropic_upstream_session_id(headers, &request_json);
 
     let (upstream_payload, downstream_stream) =
         match convert_anthropic_messages_request_to_codex(&request_json) {
@@ -2744,6 +2745,49 @@ fn normalize_session_affinity_value(value: &str) -> Option<String> {
     }
 }
 
+// Claude Code does not send `session-id`/`session_id`, which the Codex upstream
+// expects for per-conversation routing; without it each request would otherwise
+// fall back to a random UUID and land on a random prompt-cache shard. Derive a
+// stable per-conversation identifier from the client-supplied session markers.
+const ANTHROPIC_SESSION_ID_HEADERS: &[&str] = &["x-claude-code-session-id", "x-claude-session-id"];
+
+fn anthropic_upstream_session_id(headers: &HeaderMap, request_json: &Value) -> Option<String> {
+    for name in ANTHROPIC_SESSION_ID_HEADERS {
+        if let Some(value) = headers
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(normalize_session_affinity_value)
+        {
+            return Some(value);
+        }
+    }
+
+    let user_id = request_json
+        .get("metadata")
+        .and_then(|metadata| metadata.get("user_id"))
+        .and_then(Value::as_str)?;
+    let parsed = serde_json::from_str::<Value>(user_id).ok()?;
+    parsed
+        .get("session_id")
+        .and_then(Value::as_str)
+        .and_then(normalize_session_affinity_value)
+}
+
+fn apply_anthropic_upstream_session_id(headers: HeaderMap, request_json: &Value) -> HeaderMap {
+    if headers.get("session-id").is_some() || headers.get("session_id").is_some() {
+        return headers;
+    }
+    let Some(session_id) = anthropic_upstream_session_id(&headers, request_json) else {
+        return headers;
+    };
+    let Ok(value) = HeaderValue::from_str(&session_id) else {
+        return headers;
+    };
+    let mut headers = headers;
+    headers.insert("session-id", value);
+    headers
+}
+
 fn invalid_request_response(message: &str) -> Response<Body> {
     let mut response = Json(json!({
         "error": {
@@ -3333,15 +3377,37 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
     Ok((Value::Object(root), downstream_stream))
 }
 
+const ANTHROPIC_BILLING_HEADER_LINE_PREFIX: &str = "x-anthropic-billing-header:";
+
+fn strip_anthropic_billing_header_lines(text: &str) -> String {
+    if !text
+        .lines()
+        .any(|line| line.trim_start().starts_with(ANTHROPIC_BILLING_HEADER_LINE_PREFIX))
+    {
+        return text.to_string();
+    }
+
+    text.lines()
+        .filter(|line| {
+            !line
+                .trim_start()
+                .starts_with(ANTHROPIC_BILLING_HEADER_LINE_PREFIX)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn anthropic_system_to_instructions(system: Option<&Value>) -> String {
     match system {
-        Some(Value::String(text)) => text.clone(),
+        Some(Value::String(text)) => strip_anthropic_billing_header_lines(text),
         Some(Value::Array(items)) => items
             .iter()
             .filter_map(|item| {
                 item.as_object()
                     .and_then(|object| object.get("text"))
                     .and_then(Value::as_str)
+                    .map(strip_anthropic_billing_header_lines)
+                    .filter(|text| !text.is_empty())
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -9515,6 +9581,7 @@ fn parse_proxy_request_body_limit_mib(value: Option<&str>) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::account_to_proxy_candidate;
+    use super::anthropic_upstream_session_id;
     use super::api_proxy_disabled_model_set;
     use super::api_proxy_requested_models_from_payload;
     use super::api_proxy_usage_bucket_seconds;
@@ -9522,6 +9589,7 @@ mod tests {
     use super::api_proxy_visible_models;
     use super::api_proxy_visible_models_for_key;
     use super::append_api_proxy_usage_event;
+    use super::apply_anthropic_upstream_session_id;
     use super::build_api_proxy_usage_stats;
     use super::build_compact_sse_failure;
     use super::build_compact_sse_response;
@@ -12620,6 +12688,110 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 .and_then(Value::as_str),
             Some("Osaka")
         );
+    }
+
+    #[test]
+    fn anthropic_system_instructions_strip_billing_header() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "max_tokens": 128,
+            "system": [
+                {
+                    "type": "text",
+                    "text": "x-anthropic-billing-header: cc_version=2.1.116.a60; cc_entrypoint=cli; cch=2bb95;"
+                },
+                {"type": "text", "text": "You are a helpful assistant."}
+            ],
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+
+        let (upstream, _) = convert_anthropic_messages_request_to_codex(&request).unwrap();
+        let instructions = upstream
+            .get("instructions")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        assert!(
+            !instructions.contains("x-anthropic-billing-header"),
+            "billing header must not leak into upstream instructions: {instructions}"
+        );
+        assert_eq!(instructions, "You are a helpful assistant.");
+    }
+
+    #[test]
+    fn anthropic_system_instructions_strip_billing_header_inside_block() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "max_tokens": 128,
+            "system": "preamble\nx-anthropic-billing-header: cc_version=2.1.116.a60; cch=2bb95;\nafterword",
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+
+        let (upstream, _) = convert_anthropic_messages_request_to_codex(&request).unwrap();
+        let instructions = upstream
+            .get("instructions")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        assert!(!instructions.contains("x-anthropic-billing-header"));
+        assert_eq!(instructions, "preamble\nafterword");
+    }
+
+    #[test]
+    fn anthropic_upstream_session_id_prefers_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-claude-code-session-id",
+            HeaderValue::from_static("0123abcd-1111-2222-3333-444455556666"),
+        );
+
+        let request = json!({
+            "metadata": {"user_id": "{\"session_id\":\"fallback-id\"}"}
+        });
+
+        assert_eq!(
+            anthropic_upstream_session_id(&headers, &request).as_deref(),
+            Some("0123abcd-1111-2222-3333-444455556666")
+        );
+    }
+
+    #[test]
+    fn anthropic_upstream_session_id_falls_back_to_metadata_user_id() {
+        let headers = HeaderMap::new();
+        let request = json!({
+            "metadata": {
+                "user_id": "{\"device_id\":\"abc\",\"account_uuid\":\"\",\"session_id\":\"095c1c3e-52f2-48bd-aa2a-c53d1cec6736\"}"
+            }
+        });
+
+        assert_eq!(
+            anthropic_upstream_session_id(&headers, &request).as_deref(),
+            Some("095c1c3e-52f2-48bd-aa2a-c53d1cec6736")
+        );
+    }
+
+    #[test]
+    fn apply_anthropic_upstream_session_id_inserts_header_once() {
+        let request = json!({
+            "metadata": {"user_id": "{\"session_id\":\"sid-from-metadata\"}"}
+        });
+
+        let headers = apply_anthropic_upstream_session_id(HeaderMap::new(), &request);
+        assert_eq!(
+            headers.get("session-id").and_then(|value| value.to_str().ok()),
+            Some("sid-from-metadata")
+        );
+
+        let mut existing = HeaderMap::new();
+        existing.insert("session-id", HeaderValue::from_static("client-provided"));
+        let headers = apply_anthropic_upstream_session_id(existing, &request);
+        assert_eq!(
+            headers.get("session-id").and_then(|value| value.to_str().ok()),
+            Some("client-provided")
+        );
+
+        let headers = apply_anthropic_upstream_session_id(HeaderMap::new(), &json!({}));
+        assert!(headers.get("session-id").is_none());
     }
 
     #[test]
