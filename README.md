@@ -30,7 +30,7 @@ Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、
 - 多账号管理：OAuth 登录导入、JSON 批量导入、账号备份回导入。
 - 用量查看：展示 `5h`、`1week` 用量窗口和账号计划类型。
 - 快速切换：切换 `~/.codex/auth.json` 和 `config.toml`，可联动启动新版 ChatGPT App，并兼容旧 Codex App 与 `codex app` 回退。
-- CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/usage/provider/doctor/report/tui`。
+- CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/delete/usage/provider/doctor/report/tui`。
 - API 反代：本地提供 OpenAI 兼容 `/v1` 接口，支持运行中账号轮换。
 - App/CLI 绑定：可一键把 Codex App/CLI 切到本机反代地址，也可一键恢复原配置。
 - 公网访问：集成 cloudflared，支持快速隧道和命名隧道。
@@ -126,6 +126,8 @@ Windows 首次运行新版时也会显示额度展示引导。任务栏组件和
 | `ctc import --current --json` | 导入当前 `~/.codex/auth.json` |
 | `ctc export ./accounts.json --json` | 导出账号库 |
 | `ctc export --json` | 直接把账号库 JSON 输出到终端 |
+| `ctc delete 1` | 删除第 1 个账号（交互确认，`--yes` 跳过） |
+| `ctc delete <id> --yes` | 按 `ctc list --json` 中的内部 id 删除账号并跳过确认 |
 | `ctc usage --cached --json` | 查看本地缓存用量 |
 | `ctc provider status --json` | 查看当前 provider、rollout 和 `state_5.sqlite` provider 统计 |
 | `ctc provider sync` | 把本机 Codex 历史元数据同步到当前 provider |

@@ -32,7 +32,8 @@ use crate::usage;
 use crate::utils;
 
 const CLI_COMMANDS: &[&str] = &[
-    "list", "switch", "login", "import", "export", "usage", "provider", "doctor", "report", "tui",
+    "list", "switch", "login", "import", "export", "delete", "usage", "provider", "doctor",
+    "report", "tui",
 ];
 
 #[derive(Debug, Parser)]
@@ -91,6 +92,14 @@ enum CliCommand {
         output: Option<PathBuf>,
         #[arg(long, value_name = "ACCOUNT")]
         account: Option<String>,
+    },
+    /// Delete a stored account by list index, id, or label.
+    Delete {
+        #[arg(value_name = "ACCOUNT")]
+        account: String,
+        /// Skip the interactive confirmation prompt.
+        #[arg(long)]
+        yes: bool,
     },
     /// Refresh or show usage for stored accounts.
     Usage {
@@ -156,6 +165,12 @@ struct CliLoginResult {
 struct CliExportResult {
     account_count: usize,
     output_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CliDeleteResult {
+    account: AccountSummary,
 }
 
 #[derive(Debug, Serialize)]
@@ -342,6 +357,19 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
                 );
                 Ok(())
             } else {
+                Ok(())
+            }
+        }
+        CliCommand::Delete { account, yes } => {
+            let result = delete_account(&store_path, &account, yes)?;
+            if args.json {
+                print_json(&result)
+            } else {
+                println!(
+                    "deleted {} ({})",
+                    result.account.label,
+                    utils::short_account(&result.account.account_id)
+                );
                 Ok(())
             }
         }
@@ -617,6 +645,60 @@ fn launch_codex(configured_path: Option<&str>, workspace: Option<&Path>) -> Resu
         .spawn()
         .map_err(|error| format!("启动 codex app 失败: {error}"))?;
     Ok(())
+}
+
+fn delete_account(
+    store_path: &Path,
+    account_ref: &str,
+    assume_yes: bool,
+) -> Result<CliDeleteResult, String> {
+    let mut store = store::load_store_from_path(store_path)?;
+    let summaries = account_summaries(&store);
+    let selected_index =
+        resolve_single_account_index(&store, &summaries, Some(account_ref), false)?;
+    let summary = summaries
+        .get(selected_index)
+        .cloned()
+        .ok_or_else(|| "找不到要删除的账号".to_string())?;
+
+    if !assume_yes {
+        confirm_account_deletion(
+            &summary.label,
+            &summary.account_id,
+            io::stdin().is_terminal(),
+        )?;
+    }
+
+    store.delete_account_by_id(&summary.id)?;
+    store::save_store_to_path(store_path, &store)?;
+    Ok(CliDeleteResult { account: summary })
+}
+
+fn confirm_account_deletion(
+    label: &str,
+    account_id: &str,
+    interactive: bool,
+) -> Result<(), String> {
+    if !interactive {
+        return Err("非交互终端删除账号需要显式传入 --yes 确认".to_string());
+    }
+    print!(
+        "确认删除账号 {} ({})? [y/N]: ",
+        label,
+        utils::short_account(account_id)
+    );
+    io::stdout()
+        .flush()
+        .map_err(|error| format!("刷新终端输出失败: {error}"))?;
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|error| format!("读取终端输入失败: {error}"))?;
+    if matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        Ok(())
+    } else {
+        Err("已取消删除".to_string())
+    }
 }
 
 async fn login_account(
@@ -1307,8 +1389,18 @@ fn is_cli_auth_expired_error(raw_error: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::confirm_account_deletion;
+    use super::delete_account;
     use super::is_cli_invocation;
+    use crate::models::AccountsStore;
+    use crate::models::StoredAccount;
+    use crate::store;
+    use serde_json::json;
     use std::ffi::OsString;
+    use std::fs;
+    use std::path::Path;
+    use std::path::PathBuf;
+    use uuid::Uuid;
 
     #[test]
     fn detects_direct_and_prefixed_cli_invocations() {
@@ -1325,6 +1417,157 @@ mod tests {
             OsString::from("codex-tools"),
             OsString::from("provider"),
         ]));
+        assert!(is_cli_invocation(&[
+            OsString::from("codex-tools"),
+            OsString::from("delete"),
+        ]));
         assert!(!is_cli_invocation(&[OsString::from("codex-tools")]));
+    }
+
+    fn temp_store_path() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("codex-tools-cli-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir.join("accounts.json")
+    }
+
+    fn cleanup_store(path: &Path) {
+        if let Some(dir) = path.parent() {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+
+    fn sample_account(id: &str, label: &str, account_id: &str) -> StoredAccount {
+        StoredAccount {
+            id: id.to_string(),
+            label: label.to_string(),
+            source_kind: Default::default(),
+            principal_id: Some(format!("{label}@example.com")),
+            email: Some(format!("{label}@example.com")),
+            account_id: account_id.to_string(),
+            plan_type: Some("plus".to_string()),
+            auth_json: json!({ "kind": label }),
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 0,
+            updated_at: 0,
+            usage: None,
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            api_proxy_enabled: true,
+        }
+    }
+
+    fn store_with_accounts(accounts: Vec<StoredAccount>, active_id: Option<&str>) -> AccountsStore {
+        let mut store = AccountsStore {
+            accounts,
+            ..AccountsStore::default()
+        };
+        store.settings.active_account_id = active_id.map(str::to_string);
+        store
+    }
+
+    #[test]
+    fn delete_account_by_display_index_removes_entry_and_clears_active() {
+        let path = temp_store_path();
+        let store = store_with_accounts(
+            vec![
+                sample_account("id-alpha", "alpha", "acct-alpha-0001"),
+                sample_account("id-beta", "beta", "acct-beta-00002"),
+            ],
+            Some("id-alpha"),
+        );
+        store::save_store_to_path(&path, &store).expect("save store");
+
+        let result = delete_account(&path, "1", true).expect("delete first account");
+        assert_eq!(result.account.id, "id-alpha");
+
+        let store = store::load_store_from_path(&path).expect("load store");
+        assert_eq!(store.accounts.len(), 1);
+        assert_eq!(store.accounts[0].id, "id-beta");
+        assert_eq!(store.settings.active_account_id, None);
+
+        cleanup_store(&path);
+    }
+
+    #[test]
+    fn delete_account_keeps_active_when_other_account_removed() {
+        let path = temp_store_path();
+        let store = store_with_accounts(
+            vec![
+                sample_account("id-alpha", "alpha", "acct-alpha-0001"),
+                sample_account("id-beta", "beta", "acct-beta-00002"),
+            ],
+            Some("id-beta"),
+        );
+        store::save_store_to_path(&path, &store).expect("save store");
+
+        delete_account(&path, "1", true).expect("delete first account");
+
+        let store = store::load_store_from_path(&path).expect("load store");
+        assert_eq!(store.accounts.len(), 1);
+        assert_eq!(store.settings.active_account_id.as_deref(), Some("id-beta"));
+
+        cleanup_store(&path);
+    }
+
+    #[test]
+    fn delete_account_with_duplicate_account_id_requires_unique_ref() {
+        let path = temp_store_path();
+        let store = store_with_accounts(
+            vec![
+                sample_account("id-dup-a", "dup-a", "acct-duplicate-01"),
+                sample_account("id-dup-b", "dup-b", "acct-duplicate-01"),
+            ],
+            None,
+        );
+        store::save_store_to_path(&path, &store).expect("save store");
+
+        let error = delete_account(&path, "acct-duplicate-01", true)
+            .expect_err("duplicate account_id should be ambiguous");
+        assert!(error.contains("账号匹配不唯一"));
+
+        let result = delete_account(&path, "id-dup-a", true).expect("delete by internal id");
+        assert_eq!(result.account.id, "id-dup-a");
+
+        let store = store::load_store_from_path(&path).expect("load store");
+        assert_eq!(store.accounts.len(), 1);
+        assert_eq!(store.accounts[0].id, "id-dup-b");
+
+        cleanup_store(&path);
+    }
+
+    #[test]
+    fn delete_account_rejects_unknown_ref() {
+        let path = temp_store_path();
+        let store = store_with_accounts(
+            vec![sample_account("id-alpha", "alpha", "acct-alpha-0001")],
+            None,
+        );
+        store::save_store_to_path(&path, &store).expect("save store");
+
+        let error = delete_account(&path, "missing", true).expect_err("unknown ref should fail");
+        assert!(error.contains("找不到账号"));
+
+        let store = store::load_store_from_path(&path).expect("load store");
+        assert_eq!(store.accounts.len(), 1);
+
+        cleanup_store(&path);
+    }
+
+    #[test]
+    fn delete_account_requires_yes_in_non_interactive_terminal() {
+        let error = confirm_account_deletion("alpha", "acct-alpha-0001", false)
+            .expect_err("non-interactive delete should require --yes");
+        assert!(error.contains("--yes"));
     }
 }

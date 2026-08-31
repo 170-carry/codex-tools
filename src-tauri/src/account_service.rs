@@ -415,18 +415,7 @@ pub(crate) async fn delete_account_internal(
 ) -> Result<(), String> {
     let _guard = state.store_lock.lock().await;
     let mut store = load_store(app)?;
-    let removed_current = store.settings.active_account_id.as_deref() == Some(id);
-    let original_len = store.accounts.len();
-    store.accounts.retain(|account| account.id != id);
-
-    if original_len == store.accounts.len() {
-        return Err("未找到要删除的账号".to_string());
-    }
-
-    if removed_current {
-        store.settings.active_account_id = None;
-    }
-
+    store.delete_account_by_id(id)?;
     save_store(app, &store)?;
     Ok(())
 }

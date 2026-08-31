@@ -58,6 +58,21 @@ impl Default for AccountsStore {
     }
 }
 
+impl AccountsStore {
+    /// 按内部 id 删除已保存账号，返回被删除的账号。
+    /// 若删除的是当前激活账号，则同时清空 active 指针，避免引用不存在的条目。
+    pub(crate) fn delete_account_by_id(&mut self, id: &str) -> Result<StoredAccount, String> {
+        let Some(index) = self.accounts.iter().position(|account| account.id == id) else {
+            return Err("未找到要删除的账号".to_string());
+        };
+        let removed = self.accounts.remove(index);
+        if self.settings.active_account_id.as_deref() == Some(id) {
+            self.settings.active_account_id = None;
+        }
+        Ok(removed)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum AccountSourceKind {
