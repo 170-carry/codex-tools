@@ -138,6 +138,7 @@ const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
 const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "default";
+const PROXY_DEFAULT_SERVICE_TIER_ENV_VAR: &str = "CODEX_TOOLS_PROXY_SERVICE_TIER";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
 const COMPACT_SSE_KEEPALIVE: &str =
@@ -1310,12 +1311,19 @@ async fn chat_completions_handler(
             Err(response) => return response,
         };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let (upstream_payload, downstream_stream) =
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let (mut upstream_payload, downstream_stream) =
         match convert_openai_chat_request_to_codex(&request_json) {
             Ok(value) => value,
             Err(message) => return invalid_request_response(&message),
         };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -1405,12 +1413,19 @@ async fn responses_handler(
         };
 
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let (upstream_payload, downstream_stream) =
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let (mut upstream_payload, downstream_stream) =
         match normalize_openai_responses_request(request_json) {
             Ok(value) => value,
             Err(message) => return invalid_request_response(&message),
         };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -1519,11 +1534,18 @@ async fn handle_responses_compact(
     route: &'static str,
 ) -> Response<Body> {
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let upstream_payload = match normalize_openai_compact_request(request_json) {
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let mut upstream_payload = match normalize_openai_compact_request(request_json) {
         Ok(value) => value,
         Err(message) => return invalid_request_response(&message),
     };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     if client_wants_stream {
         return stream_compact_response_with_optional_keepalive(
@@ -1915,12 +1937,19 @@ async fn anthropic_messages_handler(
         };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
     let headers = apply_anthropic_upstream_session_id(headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let (upstream_payload, downstream_stream) =
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let (mut upstream_payload, downstream_stream) =
         match convert_anthropic_messages_request_to_codex(&request_json) {
             Ok(value) => value,
             Err(message) => return invalid_request_response(&message),
         };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -2271,16 +2300,23 @@ async fn handle_responses_websocket(
     headers: HeaderMap,
 ) {
     let session_affinity_key = request_session_affinity_key_from_headers(&headers);
-    let upstream_payload = match receive_responses_websocket_create(&mut socket).await {
-        Ok(value) => value,
-        Err(message) => {
-            let _ = send_responses_websocket_error(&mut socket, &message).await;
-            let _ = socket.close().await;
-            return;
-        }
-    };
+    let (mut upstream_payload, request_specifies_tier) =
+        match receive_responses_websocket_create(&mut socket).await {
+            Ok(value) => value,
+            Err(message) => {
+                let _ = send_responses_websocket_error(&mut socket, &message).await;
+                let _ = socket.close().await;
+                return;
+            }
+        };
     let session_affinity_key = session_affinity_key
         .or_else(|| request_session_affinity_key_from_payload(&upstream_payload));
+    let default_service_tier = resolve_proxy_default_service_tier();
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -2330,7 +2366,9 @@ async fn handle_responses_websocket(
     let _ = socket.close().await;
 }
 
-async fn receive_responses_websocket_create(socket: &mut AxumWebSocket) -> Result<Value, String> {
+async fn receive_responses_websocket_create(
+    socket: &mut AxumWebSocket,
+) -> Result<(Value, bool), String> {
     while let Some(message) = socket.recv().await {
         let message = message.map_err(|error| format!("读取 WebSocket 首帧失败: {error}"))?;
         match message {
@@ -2350,7 +2388,7 @@ async fn receive_responses_websocket_create(socket: &mut AxumWebSocket) -> Resul
     Err("WebSocket 未收到 response.create 首帧".to_string())
 }
 
-fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<Value, String> {
+fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<(Value, bool), String> {
     let mut request = serde_json::from_slice::<Value>(bytes)
         .map_err(|error| format!("WebSocket 首帧不是合法 JSON: {error}"))?;
     let object = request
@@ -2364,8 +2402,11 @@ fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<Value, String> {
     }
 
     object.insert("stream".to_string(), Value::Bool(true));
+    let request_specifies_tier = object.get("service_tier").is_some();
 
-    normalize_openai_responses_request(request).map(|(payload, _)| payload)
+    normalize_openai_responses_request(request)
+        .map(|(payload, _)| payload)
+        .map(|payload| (payload, request_specifies_tier))
 }
 
 async fn relay_responses_sse_to_websocket(
@@ -5549,6 +5590,37 @@ fn api_proxy_service_tier_for_upstream(
             normalize_api_proxy_service_tier_for_upstream(value)
                 .ok_or_else(|| format!("不支持的推理速度: {value}"))
         }
+    }
+}
+
+// Requests that omit service_tier fall back to a configurable default instead
+// of the compiled-in constant: the CODEX_TOOLS_PROXY_SERVICE_TIER environment
+// variable (useful for headless proxyd). Explicit per-request service_tier
+// always wins over this default.
+fn resolved_proxy_default_service_tier(env_value: Option<&str>) -> String {
+    env_value
+        .and_then(normalize_api_proxy_service_tier_for_upstream)
+        .unwrap_or_else(|| DEFAULT_UPSTREAM_SERVICE_TIER.to_string())
+}
+
+fn resolve_proxy_default_service_tier() -> String {
+    resolved_proxy_default_service_tier(
+        std::env::var(PROXY_DEFAULT_SERVICE_TIER_ENV_VAR)
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn apply_configured_default_service_tier(
+    request_specifies_tier: bool,
+    payload: &mut Value,
+    tier: &str,
+) {
+    if request_specifies_tier {
+        return;
+    }
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("service_tier".to_string(), Value::String(tier.to_string()));
     }
 }
 
@@ -9706,6 +9778,7 @@ mod tests {
     use super::api_proxy_visible_models_for_key;
     use super::append_api_proxy_usage_event;
     use super::apply_anthropic_upstream_session_id;
+    use super::apply_configured_default_service_tier;
     use super::build_api_proxy_usage_stats;
     use super::build_compact_sse_failure;
     use super::build_compact_sse_response;
@@ -9747,6 +9820,7 @@ mod tests {
     use super::regenerate_api_proxy_key_with_runtime;
     use super::request_session_affinity_key;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
+    use super::resolved_proxy_default_service_tier;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
     use super::sanitize_api_proxy_disabled_models_for_settings;
@@ -9773,9 +9847,10 @@ mod tests {
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RANGE_30D_SECONDS;
     use super::COMPACT_SSE_KEEPALIVE;
-    use super::DEFAULT_API_PROXY_REASONING_EFFORT;
     use super::COMPACT_SSE_KEEPALIVE_INTERVAL_SECS;
+    use super::DEFAULT_API_PROXY_REASONING_EFFORT;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
+    use super::DEFAULT_UPSTREAM_SERVICE_TIER;
     use crate::models::AccountSourceKind;
     use crate::models::ApiProxyKey;
     use crate::models::ApiProxyLoadBalanceMode;
@@ -11356,6 +11431,53 @@ mod tests {
     }
 
     #[test]
+    fn resolved_proxy_default_service_tier_uses_env_else_compiled_default() {
+        let cases = [
+            (Some("fast"), "priority"),
+            (Some("default"), DEFAULT_UPSTREAM_SERVICE_TIER),
+            (Some("bogus"), DEFAULT_UPSTREAM_SERVICE_TIER),
+            (None, DEFAULT_UPSTREAM_SERVICE_TIER),
+        ];
+        for (env_value, expected) in cases {
+            assert_eq!(
+                resolved_proxy_default_service_tier(env_value),
+                expected,
+                "env={env_value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_configured_default_service_tier_respects_explicit_request() {
+        let default_tier = "priority";
+
+        // Request without an explicit tier receives the configured default.
+        let (mut payload, _) = convert_anthropic_messages_request_to_codex(&json!({
+            "model": "gpt-5.4",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }))
+        .expect("Anthropic request should convert");
+        apply_configured_default_service_tier(false, &mut payload, default_tier);
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some(default_tier)
+        );
+
+        // Explicit tier (already normalized, e.g. fast -> priority) is kept.
+        let (mut payload, _) = convert_anthropic_messages_request_to_codex(&json!({
+            "model": "gpt-5.4",
+            "service_tier": "fast",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }))
+        .expect("Anthropic request should convert");
+        apply_configured_default_service_tier(true, &mut payload, default_tier);
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
     fn forwards_every_service_tier_and_alias() {
         for (requested, payload_tier, policy_tier, upstream_tier) in [
             ("", "default", "default", None),
@@ -11594,7 +11716,7 @@ mod tests {
             Some("developer")
         );
 
-        let websocket_payload = normalize_responses_websocket_create(
+        let (websocket_payload, _) = normalize_responses_websocket_create(
             br#"{"type":"response.create","model":"gpt-5.6-luna","input":"hello"}"#,
         )
         .expect("WebSocket payload should normalize");
@@ -12088,7 +12210,7 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&request).expect("serialize request");
 
-        let payload = normalize_responses_websocket_create(&bytes)
+        let (payload, request_specifies_tier) = normalize_responses_websocket_create(&bytes)
             .expect("websocket payload should normalize");
 
         assert_eq!(
@@ -12102,6 +12224,7 @@ mod tests {
         );
         assert_eq!(payload.get("stream").and_then(Value::as_bool), Some(true));
         assert_eq!(payload.get("store").and_then(Value::as_bool), Some(false));
+        assert!(!request_specifies_tier);
     }
 
     #[test]
