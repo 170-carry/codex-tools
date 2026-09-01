@@ -3422,6 +3422,19 @@ fn anthropic_reasoning_effort(request_object: &Map<String, Value>) -> Result<Str
         return normalize_api_proxy_reasoning_effort_for_upstream(effort);
     }
 
+    // Claude Code reports the session effort picker as output_config.effort
+    // (low/medium/high/xhigh/max); map it through when the request carries no
+    // explicit reasoning field. Unknown values fall through to the default.
+    if let Some(effort) = request_object
+        .get("output_config")
+        .and_then(|config| config.get("effort"))
+        .and_then(Value::as_str)
+    {
+        if let Ok(effort) = normalize_api_proxy_reasoning_effort_for_upstream(effort) {
+            return Ok(effort);
+        }
+    }
+
     if request_object
         .get("thinking")
         .and_then(Value::as_object)
@@ -9760,6 +9773,7 @@ mod tests {
     use super::API_PROXY_USAGE_RANGE_1H_SECONDS;
     use super::API_PROXY_USAGE_RANGE_30D_SECONDS;
     use super::COMPACT_SSE_KEEPALIVE;
+    use super::DEFAULT_API_PROXY_REASONING_EFFORT;
     use super::COMPACT_SSE_KEEPALIVE_INTERVAL_SECS;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
     use crate::models::AccountSourceKind;
@@ -11274,6 +11288,71 @@ mod tests {
         assert!(normalize_openai_responses_request(minimal)
             .expect_err("GPT-5.6 minimal should be rejected")
             .contains("minimal"));
+    }
+
+    #[test]
+    fn anthropic_output_config_effort_maps_to_upstream() {
+        for (requested, expected) in [
+            ("low", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            ("xhigh", "xhigh"),
+            ("max", "max"),
+        ] {
+            let request = json!({
+                "model": "gpt-5.6-terra",
+                "output_config": { "effort": requested },
+                "thinking": { "type": "adaptive" },
+                "messages": [{ "role": "user", "content": "hello" }]
+            });
+            let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+                .expect("Anthropic request should convert");
+            assert_eq!(
+                payload
+                    .get("reasoning")
+                    .and_then(|value| value.get("effort"))
+                    .and_then(Value::as_str),
+                Some(expected),
+                "output_config effort {requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_explicit_reasoning_overrides_output_config() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "output_config": { "effort": "low" },
+            "reasoning": { "effort": "high" },
+            "messages": [{ "role": "user", "content": "hello" }]
+        });
+        let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+            .expect("Anthropic request should convert");
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn anthropic_output_config_invalid_effort_falls_back_to_default() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "output_config": { "effort": "turbo" },
+            "messages": [{ "role": "user", "content": "hello" }]
+        });
+        let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+            .expect("Anthropic request should convert");
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some(DEFAULT_API_PROXY_REASONING_EFFORT)
+        );
     }
 
     #[test]
