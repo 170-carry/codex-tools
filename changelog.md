@@ -2,6 +2,26 @@
 
 ### Unreleased
 
+- v2.8.0
+
+#### English
+
+1. Add guarded account warm-up. A manual quick action and an opt-in per-account automatic mode can activate an inactive 5h window with a fixed `hello` request using no reasoning, low verbosity, standard service tier, and disabled response storage. Active windows, exhausted weekly quotas, Relay accounts, concurrent requests, and persisted success/failure cooldowns prevent unnecessary usage.
+2. Preserve the desktop client's newest rotated authorization snapshot before switching profiles, preventing a recently authorized account from reverting to an already-used refresh token and restoring reliable manual and periodic usage refreshes.
+3. Remove the Windows quota component from the `explorer.exe` child-window hierarchy and eliminate UI Automation descendant scans. It now uses an independent no-activate taskbar overlay with a lower layout polling rate, avoiding Explorer hangs while retaining placement, fullscreen, auto-hide, and Explorer-restart handling.
+4. Change the API proxy's unspecified service tier and generated Codex binding to `default`; `fast` maps to upstream `priority` only when a client explicitly requests it.
+5. Improve Anthropic Messages and Claude Code compatibility: accept but do not forward unsupported `max_tokens`, prevent duplicate streamed `tool_use` blocks per call ID, reuse stable client session IDs for prompt-cache routing, and strip dynamic Anthropic billing-header lines from instructions.
+6. Add the safe `ctc delete` CLI command with interactive confirmation, explicit `--yes` automation, ambiguity rejection, JSON output, and active-account pointer cleanup.
+
+#### 中文
+
+1. 新增受保护的账号预热。账号快捷操作和默认关闭的按账号自动模式，可用固定 `hello` 请求激活尚未启动的 5h 窗口；请求关闭推理、使用低输出和标准速度，并禁止响应存储。已有活跃窗口、周额度耗尽、Relay 账号、并发操作以及持久化的成功/失败冷却都会阻止不必要的额度消耗。
+2. 切换 profile 前保存桌面端最新轮换的授权快照，避免刚授权的账号退回已使用过的 refresh token，并恢复手动及周期用量刷新的稳定性。
+3. Windows 额度组件不再加入 `explorer.exe` 子窗口层级，同时移除 UI Automation 后代扫描；改为独立的无激活任务栏浮层并降低布局轮询频率，在保留位置、全屏、自动隐藏和 Explorer 重启恢复能力的同时避免任务栏卡死。
+4. API 反代未指定速度和生成 Codex 绑定配置时改用 `default` 标准档；只有客户端显式请求 `fast` 时才映射为上游 `priority`。
+5. 改善 Anthropic Messages 与 Claude Code 兼容性：接受但不转发上游不支持的 `max_tokens`，按 call ID 防止重复流式 `tool_use` 块，复用稳定客户端 session ID 提高 prompt cache 命中，并从 instructions 中移除动态 Anthropic billing header。
+6. 新增安全的 `ctc delete` CLI 命令，支持交互确认、脚本显式 `--yes`、歧义拒绝、JSON 输出和 active 账号指针清理。
+
 - v2.7.0
 
 #### English
