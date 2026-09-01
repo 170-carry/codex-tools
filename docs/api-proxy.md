@@ -177,7 +177,7 @@ Tauri 命令入口在：
 - 推理强度兼容值：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`
 - 推理速度：`auto`、`default`、`fast`、`flex`
 - `priority` 是 `fast` 的上游 wire 别名，`standard` 是 `default` 的兼容别名
-- 请求未指定时默认使用 `xhigh` 与 `fast`
+- 请求未指定时默认使用 `xhigh` 与 `default`；需要快速等级时由客户端显式传 `fast`
 - `ultra` 属于 Codex 客户端的多代理编排模式；反代收到该兼容值时按实际推理 wire 值 `max` 发送
 - GPT-5.6 的官方推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`max`；`minimal` 仅保留给旧模型兼容，GPT-5.6 请求会明确拒绝
 - 具体模型可用档位仍以上游能力为准；代理会拒绝未知值，不会静默降级
@@ -384,7 +384,7 @@ Tauri 命令入口在：
 - `reasoning.effort: xhigh`
 - `reasoning.summary: auto`
 - `include: ["reasoning.encrypted_content"]`
-- `service_tier: priority`（下游可写 `fast`）
+- `service_tier: default`（下游显式写 `fast` 时才映射为上游 `priority`）
 
 GPT-5.6 Sol/Terra/Luna 会额外使用 Responses Lite 契约：
 
@@ -835,7 +835,7 @@ npm run test:codex-login-proxy -- --api-key 你的sk --prompt '1+1 等于几？�
 model_provider = "codex_tools"
 model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
-service_tier = "fast"
+service_tier = "default"
 disable_response_storage = true
 
 [model_providers.codex_tools]

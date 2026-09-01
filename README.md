@@ -149,7 +149,7 @@ Codex Tools 可以启动本地 OpenAI 兼容反代：
 - 上游来源：已导入的 Codex 账号
 - 账号选择：按可用额度自动选择，支持运行中切换
 - 默认模型：`gpt-5.6-sol`
-- 默认推理：`xhigh` + `fast`
+- 默认推理：`xhigh` + `default`（标准速度；客户端仍可显式请求 `fast`）
 - GPT-5.6 模型：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`
 
 更多链路说明见 [docs/api-proxy.md](docs/api-proxy.md)。

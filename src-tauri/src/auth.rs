@@ -581,7 +581,12 @@ pub(crate) fn extract_auth(auth_json: &Value) -> Result<ExtractedAuth, String> {
 pub(crate) fn current_auth_account_key() -> Option<String> {
     read_current_codex_auth()
         .ok()
-        .and_then(|auth_json| extract_auth(&auth_json).ok())
+        .and_then(|auth_json| auth_account_key(&auth_json))
+}
+
+pub(crate) fn auth_account_key(auth_json: &Value) -> Option<String> {
+    extract_auth(auth_json)
+        .ok()
         .map(|auth| account_group_key(&auth.principal_id, &auth.account_id))
 }
 

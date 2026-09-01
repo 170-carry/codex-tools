@@ -10,7 +10,6 @@
 2. Keep quota surfaces current with one coordinated 60-second native refresh, shared cached/error states, reduced freshness-only disk writes, Explorer restart recovery, fullscreen and auto-hide handling, and rate-limited Windows UI Automation scans.
 3. Recover genuinely newer rotated authorization snapshots without reviving stale refresh failures, and keep Windows preview credentials isolated from production account data.
 4. Restore the README Star History chart through a working no-token data source while the official GitHub stargazer endpoint remains restricted.
-5. Add the `ctc delete` CLI subcommand to remove a stored account by list index, internal id, or label, with an interactive confirmation prompt, a `--yes` bypass for scripts, ambiguity reporting for duplicated accounts, and automatic clearing of the active-account pointer.
 
 #### 中文
 
@@ -18,7 +17,6 @@
 2. 使用统一的原生 60 秒调度刷新所有额度展示，共享缓存和错误状态，减少仅新鲜度变化造成的磁盘写入，并支持 Explorer 重启恢复、全屏/自动隐藏处理及限频的 Windows UI Automation 扫描。
 3. 仅恢复确实更新且已轮换的授权快照，避免重新引入过期刷新失败；Windows 预览环境不再复制生产账号与授权数据。
 4. 在官方 GitHub stargazer 接口受限期间，改用可工作的免 Token 数据源恢复 README 的 Star History 图表。
-5. 新增 `ctc delete` CLI 子命令：可按列表序号、内部 id 或别名删除已保存账号，交互终端删除前提示确认、脚本场景可用 `--yes` 跳过，重复账号匹配不唯一时会列出候选，删除当前激活账号时自动清空 active 指针。
 
 - v2.6.0
 

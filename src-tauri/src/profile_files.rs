@@ -809,7 +809,7 @@ openai_base_url = "https://api.openai.com/v1"
         assert_eq!(document["model_provider"].as_str(), Some("openai"));
         assert_eq!(document["model"].as_str(), Some("gpt-5.4"));
         assert_eq!(document["model_reasoning_effort"].as_str(), Some("xhigh"));
-        assert_eq!(document["service_tier"].as_str(), Some("fast"));
+        assert_eq!(document["service_tier"].as_str(), Some("default"));
     }
 
     #[test]
@@ -821,7 +821,7 @@ openai_base_url = "https://api.openai.com/v1"
 
         assert_eq!(document["model"].as_str(), Some("gpt-5.6-sol"));
         assert_eq!(document["model_reasoning_effort"].as_str(), Some("xhigh"));
-        assert_eq!(document["service_tier"].as_str(), Some("fast"));
+        assert_eq!(document["service_tier"].as_str(), Some("default"));
     }
 
     #[test]

@@ -13,18 +13,14 @@ use windows::Win32::Foundation::{
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateRoundRectRgn, DeleteDC,
     DeleteObject, DrawTextW, EndPaint, GetMonitorInfoW, GetTextExtentPoint32W, GetTextFaceW,
-    MonitorFromWindow, ScreenToClient, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
-    AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-    BLENDFUNCTION, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER,
-    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT, HGDIOBJ, MONITORINFO,
+    MonitorFromWindow, SelectObject, SetBkMode, SetTextColor, SetWindowRgn, AC_SRC_ALPHA,
+    AC_SRC_OVER, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
+    CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX,
+    DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, HDC, HFONT, HGDIOBJ, MONITORINFO,
     MONITOR_DEFAULTTONEAREST, OUT_TT_PRECIS, PAINTSTRUCT, TRANSPARENT,
-};
-use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
-use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, TreeScope_Descendants};
 use windows::Win32::UI::Controls::{
     TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW, TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP,
     TTS_NOPREFIX, TTTOOLINFOW,
@@ -39,14 +35,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowExW, FindWindowW, GetClientRect,
     GetForegroundWindow, GetMessageW, GetWindowLongPtrW, GetWindowRect, IsIconic, LoadCursorW,
     PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, SendMessageW,
-    SetCursor, SetParent, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-    UpdateLayeredWindow, WindowFromPoint, CREATESTRUCTW, GWLP_HWNDPARENT, GWLP_USERDATA,
-    GWL_EXSTYLE, GWL_STYLE, HTCLIENT, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_HAND, MSG,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
+    SetCursor, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
+    UpdateLayeredWindow, CREATESTRUCTW, GWLP_USERDATA, GWL_STYLE, HTCLIENT, HWND_TOPMOST,
+    IDC_ARROW, IDC_HAND, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
     SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE, WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
     WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
-    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPSIBLINGS,
-    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZE, WS_POPUP,
+    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZE, WS_POPUP,
 };
 
 use crate::models::WindowsTaskbarWidgetPlacement;
@@ -55,7 +50,7 @@ use crate::windows_tray_icon::codex_tools_icon_rgba;
 const WINDOW_CLASS_NAME: PCWSTR = w!("CodexToolsTaskbarQuotaWidget");
 const UPDATE_MESSAGE: u32 = WM_APP + 0x41;
 const LAYOUT_TIMER_ID: usize = 1;
-const LAYOUT_TIMER_MS: u32 = 1_000;
+const LAYOUT_TIMER_MS: u32 = 5_000;
 const TASKBAR_RECREATE_READY_TIMEOUT: Duration = Duration::from_secs(15);
 const TASKBAR_RECREATE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const WIDGETS_SCAN_INTERVAL: Duration = Duration::from_secs(30);
@@ -108,9 +103,6 @@ struct WindowContext {
     tooltip_text: Vec<u16>,
     light_theme: bool,
     last_layout_log: String,
-    taskbar_parent: Option<HWND>,
-    automation: Option<IUIAutomation>,
-    cached_widgets_button_rect: Option<RECT>,
     cached_widgets_enabled: Option<bool>,
     last_widgets_scan: Option<Instant>,
     surface_needs_refresh: bool,
@@ -130,7 +122,6 @@ struct TaskbarPlacement {
     tray_rect: Option<RECT>,
     task_list_rect: Option<RECT>,
     widgets_enabled: Option<bool>,
-    widgets_button_rect: Option<RECT>,
     monitor: MONITORINFO,
     edge: TaskbarEdge,
     auto_hide: bool,
@@ -157,12 +148,6 @@ pub(crate) fn setup(
     std::thread::Builder::new()
         .name("codex-taskbar-quota-widget".to_string())
         .spawn(move || {
-            let com_result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-            if com_result.is_err() {
-                log::warn!(
-                    "Windows quota widget UI Automation initialization failed: {com_result:?}"
-                );
-            }
             let mut ready_tx = Some(ready_tx);
             let mut recreating_after_destroy = false;
             loop {
@@ -224,7 +209,7 @@ fn wait_for_recreated_taskbar() {
             .get()
             .and_then(|runtime| runtime.snapshot.lock().ok().map(|value| value.clone()));
         let ready = snapshot.as_ref().is_some_and(|snapshot| unsafe {
-            let Some(taskbar) = locate_taskbar(None, true) else {
+            let Some(taskbar) = locate_taskbar(true) else {
                 return false;
             };
             let dpi = GetDpiForWindow(taskbar.hwnd).max(96);
@@ -296,13 +281,6 @@ fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
             .get()
             .and_then(|runtime| runtime.snapshot.lock().ok().map(|value| value.clone()))
             .ok_or_else(|| "Windows quota widget runtime is unavailable".to_string())?;
-        let automation = match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
-            Ok(automation) => Some(automation),
-            Err(error) => {
-                log::warn!("Windows quota widget UI Automation unavailable: {error}");
-                None
-            }
-        };
         let initial_height = base_height_for_text(&snapshot.text);
         let context = Box::new(WindowContext {
             app,
@@ -311,9 +289,6 @@ fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
             tooltip_text: Vec::new(),
             light_theme: system_uses_light_theme(),
             last_layout_log: String::new(),
-            taskbar_parent: None,
-            automation,
-            cached_widgets_button_rect: None,
             cached_widgets_enabled: None,
             last_widgets_scan: None,
             surface_needs_refresh: true,
@@ -321,7 +296,7 @@ fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
         let context_ptr = Box::into_raw(context);
 
         let hwnd = match CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             WINDOW_CLASS_NAME,
             w!("Codex Tools quota"),
             WS_POPUP,
@@ -382,7 +357,6 @@ unsafe extern "system" fn window_proc(
     if taskbar_created != 0 && message == taskbar_created {
         log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-created");
         if let Some(context) = context_mut(hwnd) {
-            context.cached_widgets_button_rect = None;
             context.cached_widgets_enabled = None;
             context.last_widgets_scan = None;
         }
@@ -425,7 +399,6 @@ unsafe extern "system" fn window_proc(
         WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => {
             if let Some(context) = context_mut(hwnd) {
                 context.light_theme = system_uses_light_theme();
-                context.cached_widgets_button_rect = None;
                 context.cached_widgets_enabled = None;
                 context.last_widgets_scan = None;
             }
@@ -1035,14 +1008,6 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
     if !context.snapshot.visible
         || context.snapshot.placement == WindowsTaskbarWidgetPlacement::Hidden
     {
-        // Keep an embedded layered window attached while the user disables it.
-        // Detaching it to a popup and parenting it back later can leave a
-        // successfully updated pixel surface absent from taskbar composition.
-        if context.taskbar_parent.is_none() {
-            if let Some(taskbar) = locate_taskbar(None, false) {
-                let _ = embed_in_taskbar(hwnd, context, taskbar.hwnd);
-            }
-        }
         context.surface_needs_refresh = true;
         log_layout_change(context, "visible=false reason=setting-hidden".to_string());
         let _ = ShowWindow(hwnd, SW_HIDE);
@@ -1052,11 +1017,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
     let scan_widgets = context.last_widgets_scan.map_or(true, |last_scan| {
         last_scan.elapsed() >= WIDGETS_SCAN_INTERVAL
     });
-    let automation = scan_widgets
-        .then_some(context.automation.as_ref())
-        .flatten();
-    let Some(mut taskbar) = locate_taskbar(automation, scan_widgets) else {
-        detach_from_taskbar(hwnd, context);
+    let Some(mut taskbar) = locate_taskbar(scan_widgets) else {
         context.surface_needs_refresh = true;
         log_layout_change(
             context,
@@ -1071,14 +1032,6 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
     } else {
         taskbar.widgets_enabled = context.cached_widgets_enabled;
     }
-    let widgets_button_rect = resolve_widgets_button_rect(
-        taskbar.widgets_button_rect,
-        context.cached_widgets_button_rect,
-        taskbar.rect,
-        taskbar.widgets_enabled,
-    );
-    taskbar.widgets_button_rect = widgets_button_rect;
-    context.cached_widgets_button_rect = widgets_button_rect;
     if taskbar.auto_hide && !taskbar.revealed {
         context.surface_needs_refresh = true;
         log_layout_change(
@@ -1095,6 +1048,23 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
 
     let dpi = GetDpiForWindow(hwnd).max(96);
     let (width, height) = desired_size(&context.snapshot.text, dpi);
+    if foreground_window_covers_monitor(taskbar.monitor.rcMonitor) {
+        context.surface_needs_refresh = true;
+        log_layout_change(
+            context,
+            format!(
+                "visible=false reason=foreground-fullscreen edge={:?} monitor=({},{},{},{})",
+                taskbar.edge,
+                taskbar.monitor.rcMonitor.left,
+                taskbar.monitor.rcMonitor.top,
+                taskbar.monitor.rcMonitor.right,
+                taskbar.monitor.rcMonitor.bottom,
+            ),
+        );
+        let _ = ShowWindow(hwnd, SW_HIDE);
+        return false;
+    }
+
     if matches!(
         context.snapshot.placement,
         WindowsTaskbarWidgetPlacement::Embedded | WindowsTaskbarWidgetPlacement::Left
@@ -1110,64 +1080,23 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
             _ => unreachable!("filtered to taskbar-owned placements"),
         };
         if let Some((screen_x, screen_y)) = screen_position {
-            if embed_in_taskbar(hwnd, context, taskbar.hwnd) {
-                let Some((client_x, client_y)) =
-                    screen_to_taskbar_client(taskbar.hwnd, screen_x, screen_y)
-                else {
-                    detach_from_taskbar(hwnd, context);
-                    log_layout_change(
-                        context,
-                        format!(
-                            "placement={} action=fallback-floating reason=taskbar-coordinate-conversion-failed",
-                            placement_name
-                        ),
-                    );
-                    position_floating_widget(hwnd, context, &taskbar, width, height, dpi);
-                    let needs_refresh = context.surface_needs_refresh;
-                    context.surface_needs_refresh = false;
-                    return needs_refresh;
-                };
-                apply_widget_region(hwnd, width, height, dpi);
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOP),
-                    client_x,
-                    client_y,
-                    width,
-                    height,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                let center_hit = WindowFromPoint(POINT {
-                    x: screen_x + width / 2,
-                    y: screen_y + height / 2,
-                });
-                log_layout_change(
-                    context,
-                    format!(
-                        "visible=true placement={} surface=taskbar-child background=per-pixel-transparent edge={:?} dpi={} parent={:?} taskbar=({},{},{},{}) screen_bounds=({},{},{},{}) client_origin=({},{}) center_hit={:?} owns_center={}",
-                        placement_name,
-                        taskbar.edge,
-                        dpi,
-                        taskbar.hwnd,
-                        taskbar.rect.left,
-                        taskbar.rect.top,
-                        taskbar.rect.right,
-                        taskbar.rect.bottom,
-                        screen_x,
-                        screen_y,
-                        width,
-                        height,
-                        client_x,
-                        client_y,
-                        center_hit,
-                        center_hit == hwnd,
-                    ),
-                );
-                let needs_refresh = context.surface_needs_refresh;
-                context.surface_needs_refresh = false;
-                return needs_refresh;
-            }
+            // Keep the quota surface as an independent no-activate popup. A child
+            // window parented into explorer.exe can create cross-process input and
+            // composition waits that hang the entire Windows shell.
+            position_taskbar_overlay_widget(
+                hwnd,
+                context,
+                &taskbar,
+                placement_name,
+                screen_x,
+                screen_y,
+                width,
+                height,
+                dpi,
+            );
+            let needs_refresh = context.surface_needs_refresh;
+            context.surface_needs_refresh = false;
+            return needs_refresh;
         }
         log_layout_change(
             context,
@@ -1178,29 +1107,52 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
         );
     }
 
-    if foreground_window_covers_monitor(taskbar.monitor.rcMonitor) {
-        detach_from_taskbar(hwnd, context);
-        context.surface_needs_refresh = true;
-        log_layout_change(
-            context,
-            format!(
-                "visible=false reason=foreground-fullscreen-fallback edge={:?} monitor=({},{},{},{})",
-                taskbar.edge,
-                taskbar.monitor.rcMonitor.left,
-                taskbar.monitor.rcMonitor.top,
-                taskbar.monitor.rcMonitor.right,
-                taskbar.monitor.rcMonitor.bottom,
-            ),
-        );
-        let _ = ShowWindow(hwnd, SW_HIDE);
-        return false;
-    }
-
-    detach_from_taskbar(hwnd, context);
     position_floating_widget(hwnd, context, &taskbar, width, height, dpi);
     let needs_refresh = context.surface_needs_refresh;
     context.surface_needs_refresh = false;
     needs_refresh
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn position_taskbar_overlay_widget(
+    hwnd: HWND,
+    context: &mut WindowContext,
+    taskbar: &TaskbarPlacement,
+    placement_name: &str,
+    screen_x: i32,
+    screen_y: i32,
+    width: i32,
+    height: i32,
+    dpi: u32,
+) {
+    apply_widget_region(hwnd, width, height, dpi);
+    let _ = SetWindowPos(
+        hwnd,
+        Some(HWND_TOPMOST),
+        screen_x,
+        screen_y,
+        width,
+        height,
+        SWP_NOACTIVATE | SWP_SHOWWINDOW,
+    );
+    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    log_layout_change(
+        context,
+        format!(
+            "visible=true placement={} surface=top-level-overlay background=per-pixel-transparent edge={:?} dpi={} taskbar=({},{},{},{}) bounds=({},{},{},{})",
+            placement_name,
+            taskbar.edge,
+            dpi,
+            taskbar.rect.left,
+            taskbar.rect.top,
+            taskbar.rect.right,
+            taskbar.rect.bottom,
+            screen_x,
+            screen_y,
+            width,
+            height,
+        ),
+    );
 }
 
 unsafe fn position_floating_widget(
@@ -1322,111 +1274,21 @@ fn left_screen_position(
     let left_edge = taskbar.rect.left + margin;
     let task_list_left = taskbar.task_list_rect.map(|rect| rect.left);
     let right_limit = task_list_left.unwrap_or(taskbar.rect.right - margin);
-    let x = taskbar
-        .widgets_button_rect
-        .filter(|rect| rect.right > taskbar.rect.left && rect.left < right_limit)
-        .map(|rect| rect.right + margin)
-        .unwrap_or_else(|| {
-            if taskbar.widgets_enabled != Some(false)
-                && task_list_left.is_some()
-                && right_limit - left_edge >= width + margin * 2
-            {
-                right_limit - margin - width
-            } else {
-                left_edge
-            }
-        });
+    // When Widgets is enabled, reserve the area before the centered task list
+    // without querying Explorer through UI Automation. The registry flag and
+    // task-list rectangle are sufficient and cannot synchronously block Explorer.
+    let x = if taskbar.widgets_enabled != Some(false)
+        && task_list_left.is_some()
+        && right_limit - left_edge >= width + margin * 2
+    {
+        right_limit - margin - width
+    } else {
+        left_edge
+    };
     if x < left_edge || x + width + margin > right_limit {
         return None;
     }
     Some((x, taskbar.rect.top + (taskbar_height - height) / 2))
-}
-
-fn taskbar_child_style(style: u32) -> u32 {
-    (style & !WS_POPUP.0) | WS_CHILD.0 | WS_CLIPSIBLINGS.0
-}
-
-fn popup_style(style: u32) -> u32 {
-    (style & !(WS_CHILD.0 | WS_CLIPSIBLINGS.0)) | WS_POPUP.0
-}
-
-unsafe fn embed_in_taskbar(hwnd: HWND, context: &mut WindowContext, parent: HWND) -> bool {
-    let parent_raw = parent.0 as isize;
-    let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-    if context.taskbar_parent == Some(parent)
-        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == parent_raw
-        && style & WS_CHILD.0 != 0
-    {
-        return true;
-    }
-
-    let _ = ShowWindow(hwnd, SW_HIDE);
-    context.surface_needs_refresh = true;
-    SetWindowLongPtrW(hwnd, GWL_STYLE, taskbar_child_style(style) as isize);
-    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style & !WS_EX_TOPMOST.0) as isize);
-    if SetParent(hwnd, Some(parent)).is_ok()
-        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == parent_raw
-    {
-        context.taskbar_parent = Some(parent);
-        let _ = SetWindowPos(
-            hwnd,
-            Some(HWND_TOP),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
-        return true;
-    }
-
-    let _ = SetParent(hwnd, None);
-    SetWindowLongPtrW(hwnd, GWL_STYLE, popup_style(style) as isize);
-    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOPMOST.0) as isize);
-    context.taskbar_parent = None;
-    false
-}
-
-unsafe fn detach_from_taskbar(hwnd: HWND, context: &mut WindowContext) {
-    let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-    if context.taskbar_parent.is_none()
-        && GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT) == 0
-        && style & WS_CHILD.0 == 0
-    {
-        return;
-    }
-
-    let _ = ShowWindow(hwnd, SW_HIDE);
-    context.surface_needs_refresh = true;
-    let _ = SetParent(hwnd, None);
-    SetWindowLongPtrW(hwnd, GWL_STYLE, popup_style(style) as isize);
-    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_TOPMOST.0) as isize);
-    context.taskbar_parent = None;
-    let _ = SetWindowPos(
-        hwnd,
-        Some(HWND_TOPMOST),
-        0,
-        0,
-        0,
-        0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-    );
-}
-
-unsafe fn screen_to_taskbar_client(
-    taskbar: HWND,
-    screen_x: i32,
-    screen_y: i32,
-) -> Option<(i32, i32)> {
-    let mut point = POINT {
-        x: screen_x,
-        y: screen_y,
-    };
-    ScreenToClient(taskbar, &mut point)
-        .as_bool()
-        .then_some((point.x, point.y))
 }
 
 fn rect_covers_monitor(window: RECT, monitor: RECT, tolerance: i32) -> bool {
@@ -1493,10 +1355,7 @@ fn desired_size(text: &str, dpi: u32) -> (i32, i32) {
     )
 }
 
-unsafe fn locate_taskbar(
-    automation: Option<&IUIAutomation>,
-    inspect_widgets: bool,
-) -> Option<TaskbarPlacement> {
+unsafe fn locate_taskbar(inspect_widgets: bool) -> Option<TaskbarPlacement> {
     // Keep the quota component on the system's primary taskbar. Secondary
     // taskbars do not expose the same stable child hierarchy as Shell_TrayWnd,
     // so following the app window across monitors can make right-side
@@ -1518,16 +1377,10 @@ unsafe fn locate_taskbar(
     let revealed = visible_taskbar_thickness(rect, monitor.rcMonitor, edge) > 2;
     let tray_rect = child_window_rect(taskbar, w!("TrayNotifyWnd"));
     let task_list_rect = child_window_rect(taskbar, w!("ReBarWindow32"));
-    let (widgets_enabled, widgets_button_rect) = if inspect_widgets {
-        let widgets_enabled = windows_widgets_enabled().ok();
-        let widgets_button_rect = if widgets_enabled == Some(false) {
-            None
-        } else {
-            taskbar_widgets_button_rect(automation, taskbar)
-        };
-        (widgets_enabled, widgets_button_rect)
+    let widgets_enabled = if inspect_widgets {
+        windows_widgets_enabled().ok()
     } else {
-        (None, None)
+        None
     };
     Some(TaskbarPlacement {
         hwnd: taskbar,
@@ -1535,60 +1388,11 @@ unsafe fn locate_taskbar(
         tray_rect,
         task_list_rect,
         widgets_enabled,
-        widgets_button_rect,
         monitor,
         edge,
         auto_hide,
         revealed,
     })
-}
-
-unsafe fn taskbar_widgets_button_rect(
-    automation: Option<&IUIAutomation>,
-    taskbar: HWND,
-) -> Option<RECT> {
-    let automation = automation?;
-    let taskbar_element = automation.ElementFromHandle(taskbar).ok()?;
-    let condition = automation.CreateTrueCondition().ok()?;
-    let descendants = taskbar_element
-        .FindAll(TreeScope_Descendants, &condition)
-        .ok()?;
-    let count = descendants.Length().ok()?;
-    for index in 0..count {
-        let Ok(element) = descendants.GetElement(index) else {
-            continue;
-        };
-        let Ok(automation_id) = element.CurrentAutomationId() else {
-            continue;
-        };
-        if automation_id != "WidgetsButton" {
-            continue;
-        }
-        let rect = element.CurrentBoundingRectangle().ok()?;
-        if rect.right > rect.left && rect.bottom > rect.top {
-            return Some(rect);
-        }
-    }
-    None
-}
-
-fn rect_overlaps_taskbar(rect: RECT, taskbar: RECT) -> bool {
-    rect.right > taskbar.left
-        && rect.left < taskbar.right
-        && rect.bottom > taskbar.top
-        && rect.top < taskbar.bottom
-}
-
-fn resolve_widgets_button_rect(
-    detected: Option<RECT>,
-    cached: Option<RECT>,
-    taskbar: RECT,
-    widgets_enabled: Option<bool>,
-) -> Option<RECT> {
-    if widgets_enabled == Some(false) {
-        return None;
-    }
-    detected.or_else(|| cached.filter(|rect| rect_overlaps_taskbar(*rect, taskbar)))
 }
 
 unsafe fn child_window_rect(parent: HWND, class_name: PCWSTR) -> Option<RECT> {
@@ -1697,30 +1501,23 @@ mod tests {
     use super::{
         base_height_for_text, blend_text_mask, desired_size, embedded_screen_position,
         left_screen_position, measure_system_title_text, pixels_are_premultiplied_bgra,
-        popup_style, rasterize_system_title_text_mask, rect_covers_monitor, render_widget_pixels,
-        resolve_widgets_button_rect, resolved_system_title_font_face, scale,
-        should_hide_for_fullscreen, taskbar_child_style, taskbar_edge, visible_taskbar_thickness,
-        widget_foreground, widget_text_lines, TaskbarEdge, TaskbarPlacement, WindowsWidgetStatus,
-        BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING, BASE_SINGLE_LINE_HEIGHT,
-        SYSTEM_TITLE_FONT_FALLBACK, SYSTEM_TITLE_FONT_PRIMARY,
+        rasterize_system_title_text_mask, rect_covers_monitor, render_widget_pixels,
+        resolved_system_title_font_face, scale, should_hide_for_fullscreen, taskbar_edge,
+        visible_taskbar_thickness, widget_foreground, widget_text_lines, TaskbarEdge,
+        TaskbarPlacement, WindowsWidgetStatus, BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING,
+        BASE_SINGLE_LINE_HEIGHT, SYSTEM_TITLE_FONT_FALLBACK, SYSTEM_TITLE_FONT_PRIMARY,
     };
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Gdi::MONITORINFO;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        WS_CHILD, WS_CLIPSIBLINGS, WS_MAXIMIZE, WS_POPUP,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::WS_MAXIMIZE;
 
     #[test]
-    fn taskbar_embedding_switches_between_popup_and_child_styles() {
-        let child = taskbar_child_style(WS_POPUP.0);
-        assert_eq!(child & WS_POPUP.0, 0);
-        assert_ne!(child & WS_CHILD.0, 0);
-        assert_ne!(child & WS_CLIPSIBLINGS.0, 0);
-
-        let popup = popup_style(child);
-        assert_ne!(popup & WS_POPUP.0, 0);
-        assert_eq!(popup & WS_CHILD.0, 0);
-        assert_eq!(popup & WS_CLIPSIBLINGS.0, 0);
+    fn quota_widget_never_parents_itself_into_explorer() {
+        let source = include_str!("windows_taskbar_widget.rs");
+        let cross_process_parent_call = ["Set", "Parent("].concat();
+        let descendant_automation_scope = ["TreeScope", "_Descendants"].concat();
+        assert!(!source.contains(&cross_process_parent_call));
+        assert!(!source.contains(&descendant_automation_scope));
     }
 
     #[test]
@@ -1861,7 +1658,6 @@ mod tests {
                 bottom: 1080,
             }),
             widgets_enabled: None,
-            widgets_button_rect: None,
             monitor: MONITORINFO::default(),
             edge: TaskbarEdge::Bottom,
             auto_hide: false,
@@ -1889,7 +1685,6 @@ mod tests {
             tray_rect: None,
             task_list_rect: None,
             widgets_enabled: Some(false),
-            widgets_button_rect: None,
             monitor: MONITORINFO::default(),
             edge: TaskbarEdge::Bottom,
             auto_hide: false,
@@ -1931,7 +1726,6 @@ mod tests {
                 bottom: 1080,
             }),
             widgets_enabled: None,
-            widgets_button_rect: None,
             monitor: MONITORINFO::default(),
             edge: TaskbarEdge::Bottom,
             auto_hide: false,
@@ -1945,8 +1739,8 @@ mod tests {
     }
 
     #[test]
-    fn left_widget_moves_after_the_windows_widgets_button() {
-        let mut placement = TaskbarPlacement {
+    fn left_widget_reserves_space_before_centered_tasks_when_widgets_are_enabled() {
+        let placement = TaskbarPlacement {
             hwnd: HWND::default(),
             rect: RECT {
                 left: 0,
@@ -1962,12 +1756,6 @@ mod tests {
                 bottom: 1080,
             }),
             widgets_enabled: Some(true),
-            widgets_button_rect: Some(RECT {
-                left: 6,
-                top: 1040,
-                right: 220,
-                bottom: 1080,
-            }),
             monitor: MONITORINFO::default(),
             edge: TaskbarEdge::Bottom,
             auto_hide: false,
@@ -1976,50 +1764,7 @@ mod tests {
 
         assert_eq!(
             left_screen_position(&placement, 100, 26, 96),
-            Some((226, 1047))
-        );
-
-        placement
-            .widgets_button_rect
-            .as_mut()
-            .expect("widgets")
-            .right = 450;
-        assert_eq!(left_screen_position(&placement, 100, 26, 96), None);
-    }
-
-    #[test]
-    fn transient_widgets_button_detection_failure_keeps_the_last_valid_bounds() {
-        let taskbar = RECT {
-            left: 0,
-            top: 1040,
-            right: 1920,
-            bottom: 1080,
-        };
-        let cached = RECT {
-            left: 6,
-            top: 1040,
-            right: 220,
-            bottom: 1080,
-        };
-        assert_eq!(
-            resolve_widgets_button_rect(None, Some(cached), taskbar, Some(true)),
-            Some(cached)
-        );
-
-        assert_eq!(
-            resolve_widgets_button_rect(None, Some(cached), taskbar, Some(false)),
-            None
-        );
-
-        let moved_taskbar = RECT {
-            left: 1920,
-            top: 1040,
-            right: 3840,
-            bottom: 1080,
-        };
-        assert_eq!(
-            resolve_widgets_button_rect(None, Some(cached), moved_taskbar, Some(true)),
-            None
+            Some((394, 1047))
         );
     }
 

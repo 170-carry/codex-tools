@@ -1393,6 +1393,7 @@ mod tests {
     use super::delete_codex_session_from_roots;
     #[cfg(target_os = "macos")]
     use super::macos_codex_main_app_bundle_for_executable;
+    use super::should_capture_current_auth_for_active_profile;
     use super::should_noop_switch_account;
     use super::PERIODIC_USAGE_REFRESH_INTERVAL_SECS;
     use crate::models::AccountsStore;
@@ -1659,6 +1660,46 @@ mod tests {
     }
 
     #[test]
+    fn switch_capture_requires_matching_identity_and_a_newer_rotated_token() {
+        let mut account = test_chatgpt_account("account-row-1", "team");
+        account.auth_json = json!({
+            "last_refresh": "2026-08-20T10:48:37Z",
+            "tokens": {"refresh_token": "old"}
+        });
+        let current = json!({
+            "last_refresh": "2026-08-20T10:52:06Z",
+            "tokens": {"refresh_token": "rotated"}
+        });
+        let stale = json!({
+            "last_refresh": "2026-08-20T10:40:00Z",
+            "tokens": {"refresh_token": "older"}
+        });
+
+        assert!(should_capture_current_auth_for_active_profile(
+            &account,
+            &account.account_key(),
+            &current,
+        ));
+        assert!(!should_capture_current_auth_for_active_profile(
+            &account,
+            "other@example.com|account-2",
+            &current,
+        ));
+        assert!(!should_capture_current_auth_for_active_profile(
+            &account,
+            &account.account_key(),
+            &stale,
+        ));
+
+        account.source_kind = crate::models::AccountSourceKind::Relay;
+        assert!(!should_capture_current_auth_for_active_profile(
+            &account,
+            &account.account_key(),
+            &current,
+        ));
+    }
+
+    #[test]
     fn delete_codex_session_rejects_paths_outside_session_roots() {
         let sandbox = unique_test_dir("outside-session-root");
         let sessions = sandbox.join("codex").join("sessions");
@@ -1732,6 +1773,7 @@ async fn switch_account_and_launch(
     restart_editors_on_switch: Option<bool>,
     restart_editor_targets: Option<Vec<EditorAppId>>,
 ) -> Result<SwitchAccountResult, String> {
+    let should_launch_codex = launch_codex.unwrap_or(true);
     let (
         account,
         should_sync_opencode,
@@ -1852,15 +1894,21 @@ async fn switch_account_and_launch(
             restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
         let configured_codex_launch_path = store.settings.codex_launch_path.clone();
         let launch_codex_as_admin = store.settings.launch_codex_as_admin;
+        if should_launch_codex {
+            // Stop the desktop client before capturing its final rotated token and
+            // replacing auth.json. Otherwise a late refresh can be lost on switch.
+            force_stop_running_codex()?;
+        }
         {
             let _guard = state.store_lock.lock().await;
             let mut latest_store = store::load_store(&app)?;
             let store_path =
                 store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?);
-            if let Some(active_id) = latest_store.settings.active_account_id.as_deref() {
+            if let Some(active_id) = latest_store.settings.active_account_id.clone() {
                 if active_id != id {
+                    capture_current_auth_for_active_profile(&store_path, &mut latest_store)?;
                     // 先保存当前账号在 Codex 内产生的配置改动，再应用目标 profile。
-                    profile_files::capture_current_config_for_profile(&store_path, active_id)?;
+                    profile_files::capture_current_config_for_profile(&store_path, &active_id)?;
                 }
             }
             let stored_account = latest_store
@@ -1893,10 +1941,6 @@ async fn switch_account_and_launch(
         )
     };
 
-    let should_launch_codex = launch_codex.unwrap_or(true);
-    if should_launch_codex {
-        force_stop_running_codex()?;
-    }
     let provider_sync_error = provider_sync::sync_current_provider(None)
         .err()
         .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
@@ -2092,6 +2136,59 @@ async fn switch_account_and_launch(
         editor_restart_error,
         provider_sync_error,
     })
+}
+
+fn should_capture_current_auth_for_active_profile(
+    active_account: &StoredAccount,
+    current_account_key: &str,
+    current_auth: &serde_json::Value,
+) -> bool {
+    !matches!(active_account.source_kind, models::AccountSourceKind::Relay)
+        && active_account.account_key() == current_account_key
+        && auth::has_newer_auth_refresh_snapshot(current_auth, &active_account.auth_json)
+}
+
+fn capture_current_auth_for_active_profile(
+    store_path: &std::path::Path,
+    store: &mut AccountsStore,
+) -> Result<bool, String> {
+    let Some(active_id) = store.settings.active_account_id.clone() else {
+        return Ok(false);
+    };
+    let Some(current_auth) = auth::read_current_codex_auth_optional()? else {
+        return Ok(false);
+    };
+    let Some(current_account_key) = auth::auth_account_key(&current_auth) else {
+        return Ok(false);
+    };
+    let Some(active_account) = store
+        .accounts
+        .iter_mut()
+        .find(|account| account.id == active_id)
+    else {
+        return Ok(false);
+    };
+    if !should_capture_current_auth_for_active_profile(
+        active_account,
+        &current_account_key,
+        &current_auth,
+    ) {
+        return Ok(false);
+    }
+
+    // Persist the running client's rotated refresh token before another profile
+    // overwrites auth.json. Identity and monotonic timestamp checks above prevent
+    // a stale or different account snapshot from contaminating this profile.
+    active_account.auth_json = current_auth;
+    active_account.updated_at = utils::now_unix_seconds();
+    active_account.auth_refresh_blocked = false;
+    active_account.auth_refresh_error = None;
+    profile_files::sync_account_profile_in_store_path(store_path, active_account)?;
+    log::info!(
+        "切换前已保存当前账号由 ChatGPT/Codex 轮换后的授权快照 account_id={}",
+        active_account.id
+    );
+    Ok(true)
 }
 
 fn should_noop_switch_account(

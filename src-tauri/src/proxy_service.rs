@@ -137,7 +137,7 @@ const ANTHROPIC_MESSAGES_REQUIRED_VERSION: &str = "2023-06-01";
 const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
-const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "priority";
+const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "default";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
 const COMPACT_SSE_KEEPALIVE: &str =
@@ -641,7 +641,7 @@ struct AnthropicStreamState {
     open_tool_index: Option<i64>,
     saw_tool_use: bool,
     has_received_tool_arguments_delta: bool,
-    has_tool_call_announced: bool,
+    announced_tool_call_ids: HashSet<String>,
 }
 
 impl Default for AnthropicStreamState {
@@ -655,7 +655,7 @@ impl Default for AnthropicStreamState {
             open_tool_index: None,
             saw_tool_use: false,
             has_received_tool_arguments_delta: false,
-            has_tool_call_announced: false,
+            announced_tool_call_ids: HashSet::new(),
         }
     }
 }
@@ -3380,10 +3380,10 @@ fn convert_anthropic_messages_request_to_codex(request: &Value) -> Result<(Value
 const ANTHROPIC_BILLING_HEADER_LINE_PREFIX: &str = "x-anthropic-billing-header:";
 
 fn strip_anthropic_billing_header_lines(text: &str) -> String {
-    if !text
-        .lines()
-        .any(|line| line.trim_start().starts_with(ANTHROPIC_BILLING_HEADER_LINE_PREFIX))
-    {
+    if !text.lines().any(|line| {
+        line.trim_start()
+            .starts_with(ANTHROPIC_BILLING_HEADER_LINE_PREFIX)
+    }) {
         return text.to_string();
     }
 
@@ -8840,7 +8840,13 @@ fn translate_sse_event_to_anthropic_event(
                 return Vec::new();
             }
             let mut events = stop_anthropic_text_block(state);
-            state.has_tool_call_announced = true;
+            if let Some(call_id) = item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            {
+                state.announced_tool_call_ids.insert(call_id.to_string());
+            }
             events.extend(start_anthropic_tool_block(state, item, None));
             events
         }
@@ -8884,17 +8890,21 @@ fn translate_sse_event_to_anthropic_event(
             if item.get("type").and_then(Value::as_str) != Some("function_call") {
                 return Vec::new();
             }
+            let call_id = item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             if state.open_tool_index.is_some() {
+                state.announced_tool_call_ids.remove(call_id);
                 return stop_anthropic_tool_block(state);
             }
-            if state.has_tool_call_announced {
+            if state.announced_tool_call_ids.remove(call_id) {
                 // The tool block was already streamed and closed by
                 // response.function_call_arguments.done, which arrives
                 // before response.output_item.done. Re-emitting it here
                 // would send a second tool_use block with the same id and
                 // Anthropic clients reject the message ("Invalid tool
                 // parameters" in Claude Code).
-                state.has_tool_call_announced = false;
                 return Vec::new();
             }
             let mut events = stop_anthropic_text_block(state);
@@ -9954,7 +9964,7 @@ mod tests {
         .expect("compact request should apply the configured default tier");
         assert_eq!(
             default_tier.get("service_tier").and_then(Value::as_str),
-            Some("priority")
+            Some("default")
         );
         assert!(normalize_openai_compact_request(json!({
             "model": "gpt-5.4",
@@ -10996,7 +11006,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_openai_requests_to_gpt_5_6_sol_xhigh_fast_responses_lite() {
+    fn defaults_openai_requests_to_gpt_5_6_sol_xhigh_standard_responses_lite() {
         let request = json!({
             "messages": [{ "role": "user", "content": "hello" }],
             "tools": [{
@@ -11024,7 +11034,7 @@ mod tests {
         );
         assert_eq!(
             payload.get("service_tier").and_then(Value::as_str),
-            Some("priority")
+            Some("default")
         );
         assert_eq!(
             payload.get("parallel_tool_calls").and_then(Value::as_bool),
@@ -11072,7 +11082,7 @@ mod tests {
             responses_payload
                 .get("service_tier")
                 .and_then(Value::as_str),
-            Some("priority")
+            Some("default")
         );
     }
 
@@ -11152,7 +11162,7 @@ mod tests {
     #[test]
     fn forwards_every_service_tier_and_alias() {
         for (requested, payload_tier, policy_tier, upstream_tier) in [
-            ("", "priority", "fast", Some("priority")),
+            ("", "default", "default", None),
             ("auto", "auto", "auto", Some("auto")),
             ("default", "default", "default", None),
             ("standard", "default", "default", None),
@@ -11366,7 +11376,7 @@ mod tests {
             anthropic_payload
                 .get("service_tier")
                 .and_then(Value::as_str),
-            Some("priority")
+            Some("default")
         );
         assert_eq!(
             anthropic_payload
@@ -12691,6 +12701,54 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
     }
 
     #[test]
+    fn anthropic_tool_dedup_is_scoped_to_each_call_id() {
+        let mut state = AnthropicStreamState::default();
+        let first_added = SseEvent {
+            event: Some("response.output_item.added".to_string()),
+            data: json!({
+                "type": "response.output_item.added",
+                "item": {"type": "function_call", "call_id": "call_first", "name": "first"}
+            })
+            .to_string(),
+        };
+        let first_done = SseEvent {
+            event: Some("response.output_item.done".to_string()),
+            data: json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_first",
+                    "name": "first",
+                    "arguments": "{}"
+                }
+            })
+            .to_string(),
+        };
+        let second_done = SseEvent {
+            event: Some("response.output_item.done".to_string()),
+            data: json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_second",
+                    "name": "second",
+                    "arguments": "{\"ok\":true}"
+                }
+            })
+            .to_string(),
+        };
+
+        translate_sse_event_to_anthropic_event(&first_added, &mut state);
+        translate_sse_event_to_anthropic_event(&first_done, &mut state);
+        let second_values = translate_sse_event_to_anthropic_event(&second_done, &mut state);
+
+        assert!(second_values.iter().any(|value| {
+            value.get("type").and_then(Value::as_str) == Some("content_block_start")
+                && value.pointer("/content_block/id").and_then(Value::as_str) == Some("call_second")
+        }));
+    }
+
+    #[test]
     fn anthropic_system_instructions_strip_billing_header() {
         let request = json!({
             "model": "gpt-5.4",
@@ -12778,7 +12836,9 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
 
         let headers = apply_anthropic_upstream_session_id(HeaderMap::new(), &request);
         assert_eq!(
-            headers.get("session-id").and_then(|value| value.to_str().ok()),
+            headers
+                .get("session-id")
+                .and_then(|value| value.to_str().ok()),
             Some("sid-from-metadata")
         );
 
@@ -12786,7 +12846,9 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
         existing.insert("session-id", HeaderValue::from_static("client-provided"));
         let headers = apply_anthropic_upstream_session_id(existing, &request);
         assert_eq!(
-            headers.get("session-id").and_then(|value| value.to_str().ok()),
+            headers
+                .get("session-id")
+                .and_then(|value| value.to_str().ok()),
             Some("client-provided")
         );
 

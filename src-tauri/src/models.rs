@@ -12,7 +12,7 @@ use crate::utils::now_unix_seconds;
 
 pub(crate) const DEFAULT_API_PROXY_MODEL: &str = "gpt-5.6-sol";
 pub(crate) const DEFAULT_API_PROXY_REASONING_EFFORT: &str = "xhigh";
-pub(crate) const DEFAULT_API_PROXY_SERVICE_TIER: &str = "fast";
+pub(crate) const DEFAULT_API_PROXY_SERVICE_TIER: &str = "default";
 
 fn default_api_proxy_port() -> u16 {
     8787
