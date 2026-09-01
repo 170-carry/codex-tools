@@ -1378,6 +1378,42 @@
   color: var(--danger);
 }
 
+.warmupSettingsRow {
+  align-items: flex-start;
+}
+
+.warmupAccountChoices {
+  width: min(100%, 520px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.warmupAccountChoice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--subtle);
+  background: var(--card);
+  cursor: pointer;
+  font: 600 0.72rem/1.2 var(--font-ui);
+}
+
+.warmupAccountChoice:has(input:checked) {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line) 52%);
+  color: var(--brand-strong);
+  background: color-mix(in srgb, var(--brand-soft) 36%, var(--card) 64%);
+}
+
+.warmupAccountChoice input {
+  margin: 0;
+  accent-color: var(--brand);
+}
+
 .settingRowWindowsTaskbar {
   align-items: start;
   min-height: 96px;

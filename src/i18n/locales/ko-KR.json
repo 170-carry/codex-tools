@@ -532,6 +532,14 @@
       "checkedText": "켜짐",
       "uncheckedText": "꺼짐"
     },
+    "accountWarmup": {
+      "label": "5시간 창 자동 예열",
+      "checkedText": "켜짐",
+      "uncheckedText": "꺼짐",
+      "description": "선택한 계정에 고정된 hello 요청만 보냅니다. 이미 활성화됨, 한도 소진 또는 쿨다운 중인 계정은 건너뜁니다.",
+      "accountsLabel": "예열 계정",
+      "noAccounts": "ChatGPT 계정 없음"
+    },
     "launchCodexAfterSwitch": {
       "label": "전환 후 Codex 실행",
       "description": "기본값은 켜짐. 끄면 계정만 전환하고 Codex는 실행하지 않습니다.",
@@ -671,6 +679,11 @@
     "updateSettingsFailed": "설정 업데이트 실패: {{error}}",
     "usageRefreshed": "사용량이 갱신되었습니다",
     "refreshFailed": "새로고침 실패: {{error}}",
+    "accountWarmupActivated": "hello 요청으로 예열을 완료하고 사용량을 갱신했습니다",
+    "accountWarmupAlreadyActive": "5시간 창이 이미 활성화되어 요청을 보내지 않았습니다",
+    "accountWarmupRecentlyAttempted": "중복 사용을 막기 위해 최근 예열 후 건너뛰었습니다",
+    "accountWarmupExhausted": "주간 한도가 소진되어 예열 요청을 보내지 않았습니다",
+    "accountWarmupFailed": "계정 예열 실패: {{error}}",
     "reloginRequired": "계정 {{label}} 의 저장된 인증 스냅샷이 유효하지 않습니다. 로그인 토큰 자동 갱신을 중지했습니다.",
     "restoreAuthFailed": "이전 계정 복원 실패: {{error}}",
     "preparingUpdateDownload": "업데이트 다운로드 준비 중...",

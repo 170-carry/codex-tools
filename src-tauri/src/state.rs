@@ -87,6 +87,7 @@ pub(crate) struct OauthCallbackListenerHandle {
 /// 全局运行态：
 /// - `store_lock` 保证账号存储读写的串行化。
 /// - `auth_operation_lock` 串行化 login/import/switch/token-refresh 等会改写 auth 的操作。
+/// - `account_warmup_lock` 防止手动和自动预热对同一批账号重复发起真实请求。
 /// - `pending_oauth_login` 维护当前 OAuth 授权会话。
 /// - `oauth_listener` 维护本地 OAuth 回调监听线程。
 /// - `api_proxy` 维护本地 API 反代服务的生命周期与状态。
@@ -94,6 +95,7 @@ pub(crate) struct OauthCallbackListenerHandle {
 pub(crate) struct AppState {
     pub(crate) store_lock: Arc<Mutex<()>>,
     pub(crate) auth_operation_lock: Arc<Mutex<()>>,
+    pub(crate) account_warmup_lock: Mutex<()>,
     pub(crate) usage_refresh: Mutex<UsageRefreshCoordinator>,
     pub(crate) usage_surface_error: std::sync::Mutex<Option<String>>,
     pub(crate) pending_oauth_login: Mutex<Option<PendingOauthLogin>>,
@@ -108,6 +110,7 @@ impl Default for AppState {
         Self {
             store_lock: Arc::new(Mutex::new(())),
             auth_operation_lock: Arc::new(Mutex::new(())),
+            account_warmup_lock: Mutex::new(()),
             usage_refresh: Mutex::new(UsageRefreshCoordinator::default()),
             usage_surface_error: std::sync::Mutex::new(None),
             pending_oauth_login: Mutex::new(None),

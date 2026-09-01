@@ -59,6 +59,7 @@ function App() {
     exportingAccounts,
     authBusy,
     switchingId,
+    warmingAccountId,
     renamingAccountId,
     pendingDeleteId,
     deleteCandidate,
@@ -124,6 +125,7 @@ function App() {
     updateSettings,
     onOpenAddDialog,
     onReauthorizeAccount,
+    onWarmupAccount,
     onPrepareOauthLogin,
     onOpenOauthAuthorizationPage,
     onCloseAddDialog,
@@ -375,11 +377,13 @@ function App() {
                 exportingAccounts={exportingAccounts}
                 authBusy={authBusy}
                 switchingId={switchingId}
+                warmingAccountId={warmingAccountId}
                 renamingAccountId={renamingAccountId}
                 pendingDeleteId={pendingDeleteId}
                 onExportAll={() => void onExportAccounts()}
                 onExport={(account) => void onExportAccounts(account)}
                 onReauthorize={(account) => void onReauthorizeAccount(account)}
+                onWarmup={(account) => onWarmupAccount(account)}
                 onRename={(account, label) =>
                   onRenameAccountLabel(account, label)
                 }
@@ -521,6 +525,7 @@ function App() {
               onCheckUpdate={() => void checkForAppUpdate(false)}
               onOpenExternalUrl={(url) => void openExternalUrl(url)}
               settings={settings}
+              accounts={accounts}
               installedEditorApps={installedEditorApps}
               hasOpencodeDesktopApp={hasOpencodeDesktopApp}
               savingSettings={savingSettings}

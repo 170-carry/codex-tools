@@ -3,8 +3,10 @@ use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::cli;
 use crate::models::normalize_api_proxy_sequential_five_hour_limit_percent;
+use crate::models::AccountSourceKind;
 use crate::models::AppSettings;
 use crate::models::AppSettingsPatch;
+use crate::models::StoredAccount;
 use crate::proxy_service::sanitize_api_proxy_disabled_models_for_settings;
 use crate::state::AppState;
 use crate::store::load_store;
@@ -24,6 +26,14 @@ pub(crate) async fn get_app_settings_internal(
         .is_some_and(should_discard_codex_launch_path)
     {
         store.settings.codex_launch_path = None;
+        save_store(app, &store)?;
+    }
+    let warmup_ids = sanitize_auto_warmup_account_ids(
+        store.settings.auto_account_warmup_account_ids.clone(),
+        &store.accounts,
+    );
+    if warmup_ids != store.settings.auto_account_warmup_account_ids {
+        store.settings.auto_account_warmup_account_ids = warmup_ids;
         save_store(app, &store)?;
     }
     Ok(store.settings)
@@ -116,6 +126,13 @@ pub(crate) async fn update_app_settings_internal(
             store.settings.api_proxy_disabled_models =
                 sanitize_api_proxy_disabled_models_for_settings(value);
         }
+        if let Some(value) = patch.auto_account_warmup_enabled {
+            store.settings.auto_account_warmup_enabled = value;
+        }
+        if let Some(value) = patch.auto_account_warmup_account_ids {
+            store.settings.auto_account_warmup_account_ids =
+                sanitize_auto_warmup_account_ids(value, &store.accounts);
+        }
         if let Some(value) = patch.codex_analytics_weekly_budget_usd {
             store.settings.codex_analytics_weekly_budget_usd = normalize_weekly_budget(value);
         }
@@ -145,6 +162,30 @@ pub(crate) async fn update_app_settings_internal(
     }
 
     Ok(settings)
+}
+
+fn sanitize_auto_warmup_account_ids(
+    account_ids: Vec<String>,
+    accounts: &[StoredAccount],
+) -> Vec<String> {
+    let mut sanitized = Vec::new();
+    for account_id in account_ids {
+        let Some(account) = accounts.iter().find(|account| {
+            account.id == account_id && matches!(account.source_kind, AccountSourceKind::Chatgpt)
+        }) else {
+            continue;
+        };
+        if sanitized.iter().any(|existing_id| {
+            accounts
+                .iter()
+                .find(|existing| existing.id == *existing_id)
+                .is_some_and(|existing| existing.account_key() == account.account_key())
+        }) {
+            continue;
+        }
+        sanitized.push(account_id);
+    }
+    sanitized
 }
 
 pub(crate) async fn replace_app_settings_internal(

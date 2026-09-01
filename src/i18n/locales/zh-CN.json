@@ -532,6 +532,14 @@
       "checkedText": "开启",
       "uncheckedText": "关闭"
     },
+    "accountWarmup": {
+      "label": "自动预热 5h 窗口",
+      "checkedText": "已开启",
+      "uncheckedText": "已关闭",
+      "description": "仅为选中的账号发送固定 hello 请求；已激活、额度耗尽或冷却中的账号会跳过。",
+      "accountsLabel": "自动预热账号",
+      "noAccounts": "暂无 ChatGPT 账号"
+    },
     "launchCodexAfterSwitch": {
       "label": "切换后启动 Codex",
       "description": "默认开启。关闭时仅切换账号，不自动拉起 Codex。",
@@ -671,6 +679,11 @@
     "updateSettingsFailed": "更新设置失败：{{error}}",
     "usageRefreshed": "用量已刷新",
     "refreshFailed": "刷新失败：{{error}}",
+    "accountWarmupActivated": "已发送 hello 并完成预热，用量已刷新",
+    "accountWarmupAlreadyActive": "5h 窗口已经激活，没有发送请求",
+    "accountWarmupRecentlyAttempted": "该账号近期已尝试预热，为避免重复消耗已跳过",
+    "accountWarmupExhausted": "周额度已耗尽，没有发送预热请求",
+    "accountWarmupFailed": "账号预热失败：{{error}}",
     "reloginRequired": "账号 {{label}} 的工具授权快照已失效，已停止自动刷新登录令牌。",
     "restoreAuthFailed": "恢复原账号失败：{{error}}",
     "preparingUpdateDownload": "准备下载更新...",

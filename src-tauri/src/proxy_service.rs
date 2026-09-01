@@ -145,6 +145,8 @@ const COMPACT_SSE_KEEPALIVE: &str =
 const COMPACT_SSE_KEEPALIVE_INTERVAL_SECS: u64 = 10;
 const MAX_COMPACT_ERROR_BODY_BYTES: usize = 1024 * 1024;
 const MAX_COMPACT_RESPONSE_BODY_BYTES: usize = 32 * 1024 * 1024;
+const MAX_ACCOUNT_WARMUP_RESPONSE_BYTES: usize = 1024 * 1024;
+const ACCOUNT_WARMUP_TIMEOUT_SECS: u64 = 90;
 const CODEX_TURN_STATE_HEADER: &str = "x-codex-turn-state";
 const CODEX_CONTEXT_REQUEST_HEADERS: &[&str] = &[
     CODEX_TURN_STATE_HEADER,
@@ -9522,6 +9524,97 @@ fn resolve_codex_upstream_base_url() -> String {
     )
 }
 
+fn minimal_account_warmup_payload() -> Result<Value, String> {
+    normalize_openai_responses_request(json!({
+        "model": DEFAULT_API_PROXY_MODEL,
+        "input": "hello",
+        "stream": true,
+        "store": false,
+        "reasoning": {"effort": "none", "summary": "auto"},
+        "text": {"verbosity": "low"},
+        "service_tier": "default"
+    }))
+    .map(|(payload, _)| payload)
+}
+
+/// Sends the smallest supported real inference request for intentionally
+/// activating an account's short usage window. The fixed prompt contains no
+/// user data, disables storage and reasoning, and never retries by itself.
+pub(crate) async fn send_minimal_account_warmup_request(auth_json: &Value) -> Result<(), String> {
+    let auth = extract_auth(auth_json)?;
+    let payload = payload_for_upstream(&minimal_account_warmup_payload()?);
+    let body =
+        serde_json::to_vec(&payload).map_err(|error| format!("序列化账号预热请求失败: {error}"))?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(ACCOUNT_WARMUP_TIMEOUT_SECS))
+        .build()
+        .map_err(|error| format!("创建账号预热客户端失败: {error}"))?;
+    let url = format!(
+        "{}/responses",
+        resolve_codex_upstream_base_url().trim_end_matches('/')
+    );
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", auth.access_token))
+        .header("ChatGPT-Account-Id", auth.account_id)
+        .header("Accept", "text/event-stream")
+        .header("Content-Type", "application/json")
+        .header("User-Agent", CODEX_USER_AGENT)
+        .header("Originator", "codex_cli_rs")
+        .header("Version", CODEX_CLIENT_VERSION)
+        .header("session-id", uuid::Uuid::new_v4().to_string())
+        .header(RESPONSES_LITE_HEADER, "true")
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| format!("发送账号预热请求失败: {error}"))?;
+    let status = response.status();
+    let response_body = read_account_warmup_response_limited(response).await?;
+    let response_text = String::from_utf8_lossy(&response_body);
+
+    if !status.is_success() {
+        return Err(format!(
+            "账号预热请求被上游拒绝 HTTP {}: {}",
+            status.as_u16(),
+            truncate_for_error(response_text.trim(), 240)
+        ));
+    }
+    if response_text.contains("response.completed") {
+        return Ok(());
+    }
+    if response_text.contains("response.failed") {
+        return Err(format!(
+            "账号预热推理失败: {}",
+            truncate_for_error(response_text.trim(), 240)
+        ));
+    }
+    Err("账号预热响应未包含完成事件".to_string())
+}
+
+async fn read_account_warmup_response_limited(
+    response: reqwest::Response,
+) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("读取账号预热响应失败: {error}"))?;
+        if body.len().saturating_add(chunk.len()) > MAX_ACCOUNT_WARMUP_RESPONSE_BYTES {
+            return Err("账号预热响应超过 1 MiB 安全上限".to_string());
+        }
+        body.extend_from_slice(&chunk);
+        if body
+            .windows(b"response.completed".len())
+            .any(|window| window == b"response.completed")
+            || body
+                .windows(b"response.failed".len())
+                .any(|window| window == b"response.failed")
+        {
+            break;
+        }
+    }
+    Ok(body)
+}
+
 fn proxy_base_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/v1")
 }
@@ -9626,6 +9719,7 @@ mod tests {
     use super::host_matches_no_proxy;
     use super::is_responses_terminal_event;
     use super::list_api_proxy_keys_with_storage;
+    use super::minimal_account_warmup_payload;
     use super::normalize_codex_compact_reasoning_effort;
     use super::normalize_openai_compact_request;
     use super::normalize_openai_responses_request;
@@ -9690,6 +9784,29 @@ mod tests {
     use std::sync::RwLock;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn minimal_account_warmup_uses_fixed_low_cost_payload() {
+        let payload = minimal_account_warmup_payload().expect("warmup payload should normalize");
+        assert_eq!(
+            payload.get("model").and_then(Value::as_str),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(payload.get("store").and_then(Value::as_bool), Some(false));
+        assert_eq!(payload.get("stream").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            payload.pointer("/reasoning/effort").and_then(Value::as_str),
+            Some("none")
+        );
+        assert_eq!(
+            payload.pointer("/text/verbosity").and_then(Value::as_str),
+            Some("low")
+        );
+        assert!(serde_json::to_string(&payload)
+            .expect("serialize warmup payload")
+            .contains("hello"));
+        assert!(payload.get("max_output_tokens").is_none());
+    }
 
     fn proxy_candidate(
         label: &str,

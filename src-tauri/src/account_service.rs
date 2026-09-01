@@ -22,6 +22,7 @@ use crate::auth::account_group_key;
 use crate::auth::account_variant_key;
 use crate::auth::auth_last_refresh_unix_seconds;
 use crate::auth::auth_tokens_need_keepalive_refresh;
+use crate::auth::auth_tokens_need_refresh;
 use crate::auth::current_auth_account_key;
 use crate::auth::current_auth_variant_key;
 use crate::auth::extract_auth;
@@ -38,6 +39,9 @@ use crate::models::dedupe_account_variants;
 use crate::models::mark_current_account_summary;
 use crate::models::AccountSourceKind;
 use crate::models::AccountSummary;
+use crate::models::AccountWarmupAttempt;
+use crate::models::AccountWarmupResult;
+use crate::models::AccountWarmupStatus;
 use crate::models::AccountsStore;
 use crate::models::AuthJsonImportInput;
 use crate::models::CreateApiAccountInput;
@@ -48,6 +52,7 @@ use crate::models::TestApiAccountConnectionInput;
 use crate::models::TestApiAccountConnectionResult;
 use crate::models::UsageSnapshot;
 use crate::profile_files;
+use crate::proxy_service;
 use crate::state::AppState;
 use crate::state::UsageRefreshFlight;
 use crate::store::account_store_path_from_data_dir;
@@ -80,6 +85,11 @@ const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
 const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
 const USAGE_REFRESH_REUSE_WINDOW: Duration = Duration::from_secs(25);
 const PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS: i64 = 5 * 60;
+const WARMUP_SUCCESS_COOLDOWN_SECS: i64 = 5 * 60 * 60;
+const WARMUP_FAILURE_COOLDOWN_SECS: i64 = 10 * 60;
+const WARMUP_FOLLOW_UP_DELAY_MS: u64 = 750;
+const FIVE_HOUR_WINDOW_MIN_SECS: i64 = 4 * 60 * 60;
+const FIVE_HOUR_WINDOW_MAX_SECS: i64 = 6 * 60 * 60;
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -135,6 +145,226 @@ pub(crate) async fn list_accounts_internal(
     );
 
     Ok(summaries)
+}
+
+pub(crate) async fn warmup_account_internal(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+) -> Result<AccountWarmupResult, String> {
+    let _warmup_guard = state.account_warmup_lock.lock().await;
+    // Manual activation first refreshes cached window state, preventing a paid
+    // request when another client has already started the 5h window.
+    let _ = refresh_all_usage_coordinated(app, state, false, "warmup-preflight").await?;
+    let status = attempt_account_warmup(app, state, id).await?;
+    let accounts = if status == AccountWarmupStatus::Activated {
+        tokio::time::sleep(Duration::from_millis(WARMUP_FOLLOW_UP_DELAY_MS)).await;
+        refresh_all_usage_coordinated(app, state, false, "warmup-follow-up").await?
+    } else {
+        list_accounts_internal(app, state).await?
+    };
+    Ok(AccountWarmupResult {
+        id: id.to_string(),
+        status,
+        accounts,
+    })
+}
+
+pub(crate) async fn run_auto_account_warmups_internal(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<Option<Vec<AccountSummary>>, String> {
+    let _warmup_guard = state.account_warmup_lock.lock().await;
+    let account_ids = {
+        let _store_guard = state.store_lock.lock().await;
+        let store = load_store(app)?;
+        if !store.settings.auto_account_warmup_enabled {
+            return Ok(None);
+        }
+        store.settings.auto_account_warmup_account_ids.clone()
+    };
+
+    let mut activated = false;
+    for account_id in account_ids {
+        match attempt_account_warmup(app, state, &account_id).await {
+            Ok(AccountWarmupStatus::Activated) => activated = true,
+            Ok(status) => log::info!(
+                "ACCOUNT_WARMUP trigger=auto account_id={} action=skip status={:?}",
+                account_id,
+                status
+            ),
+            Err(error) => log::warn!(
+                "ACCOUNT_WARMUP trigger=auto account_id={} action=failed error={}",
+                account_id,
+                error
+            ),
+        }
+    }
+
+    if !activated {
+        return Ok(None);
+    }
+    tokio::time::sleep(Duration::from_millis(WARMUP_FOLLOW_UP_DELAY_MS)).await;
+    refresh_all_usage_coordinated(app, state, false, "warmup-follow-up")
+        .await
+        .map(Some)
+}
+
+async fn attempt_account_warmup(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+) -> Result<AccountWarmupStatus, String> {
+    let now = now_unix_seconds();
+    let account = {
+        let _store_guard = state.store_lock.lock().await;
+        let store = load_store(app)?;
+        let account = store
+            .accounts
+            .iter()
+            .find(|account| account.id == id)
+            .cloned()
+            .ok_or_else(|| "找不到要预热的账号".to_string())?;
+        if matches!(account.source_kind, AccountSourceKind::Relay) {
+            return Err("API 中转站账号不支持 ChatGPT 5h 窗口预热".to_string());
+        }
+        if account_has_active_five_hour_window(&account, now) {
+            return Ok(AccountWarmupStatus::AlreadyActive);
+        }
+        if account_weekly_quota_exhausted(&account) {
+            return Ok(AccountWarmupStatus::Exhausted);
+        }
+        if store
+            .settings
+            .account_warmup_attempts
+            .get(id)
+            .is_some_and(|attempt| warmup_attempt_is_recent(attempt, now))
+        {
+            return Ok(AccountWarmupStatus::RecentlyAttempted);
+        }
+        if account.auth_refresh_blocked {
+            return Err(account
+                .auth_refresh_error
+                .clone()
+                .unwrap_or_else(|| AUTH_EXPIRED_NOTICE.to_string()));
+        }
+        account
+    };
+
+    let account_key = account.account_key();
+    let mut auth_json =
+        refresh_latest_auth_json_if_newer(app, state, &account_key, &account.auth_json).await;
+    if auth_tokens_need_refresh(&auth_json) {
+        auth_json = refresh_account_auth_with_operation_guard(app, state, &account_key, &auth_json)
+            .await
+            .map_err(|failure| {
+                failure
+                    .refresh_error
+                    .or(failure.auth_refresh_error)
+                    .unwrap_or_else(|| "账号预热前刷新授权失败".to_string())
+            })?
+            .auth_json;
+    }
+
+    persist_warmup_attempt(
+        app,
+        state,
+        id,
+        now,
+        false,
+        Some("请求进行中".to_string()),
+        Some(&auth_json),
+    )
+    .await?;
+    let request_result = proxy_service::send_minimal_account_warmup_request(&auth_json).await;
+    match request_result {
+        Ok(()) => {
+            persist_warmup_attempt(app, state, id, now, true, None, Some(&auth_json)).await?;
+            log::info!(
+                "ACCOUNT_WARMUP account_id={} action=activated prompt=hello",
+                id
+            );
+            Ok(AccountWarmupStatus::Activated)
+        }
+        Err(error) => {
+            persist_warmup_attempt(
+                app,
+                state,
+                id,
+                now,
+                false,
+                Some(error.clone()),
+                Some(&auth_json),
+            )
+            .await?;
+            Err(error)
+        }
+    }
+}
+
+async fn persist_warmup_attempt(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+    attempted_at: i64,
+    succeeded: bool,
+    error: Option<String>,
+    auth_json: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    let _store_guard = state.store_lock.lock().await;
+    let mut store = load_store(app)?;
+    let Some(account) = store.accounts.iter_mut().find(|account| account.id == id) else {
+        store.settings.account_warmup_attempts.remove(id);
+        save_store(app, &store)?;
+        return Err("预热期间账号已被删除".to_string());
+    };
+    if let Some(auth_json) =
+        auth_json.filter(|candidate| has_newer_auth_refresh_snapshot(candidate, &account.auth_json))
+    {
+        account.auth_json = auth_json.clone();
+        account.updated_at = attempted_at;
+        account.auth_refresh_blocked = false;
+        account.auth_refresh_error = None;
+        let store_path = account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
+        profile_files::sync_account_profile_in_store_path(&store_path, account)?;
+    }
+    store.settings.account_warmup_attempts.insert(
+        id.to_string(),
+        AccountWarmupAttempt {
+            attempted_at,
+            succeeded,
+            error,
+        },
+    );
+    save_store(app, &store)
+}
+
+fn account_has_active_five_hour_window(account: &StoredAccount, now: i64) -> bool {
+    account
+        .usage
+        .as_ref()
+        .and_then(|usage| usage.five_hour.as_ref())
+        .is_some_and(|window| {
+            (FIVE_HOUR_WINDOW_MIN_SECS..=FIVE_HOUR_WINDOW_MAX_SECS).contains(&window.window_seconds)
+                && window.reset_at.is_some_and(|reset_at| reset_at > now)
+        })
+}
+
+fn account_weekly_quota_exhausted(account: &StoredAccount) -> bool {
+    account
+        .usage
+        .as_ref()
+        .and_then(|usage| usage.one_week.as_ref())
+        .is_some_and(|window| window.used_percent >= 100.0)
+}
+
+fn warmup_attempt_is_recent(attempt: &AccountWarmupAttempt, now: i64) -> bool {
+    let cooldown = if attempt.succeeded {
+        WARMUP_SUCCESS_COOLDOWN_SECS
+    } else {
+        WARMUP_FAILURE_COOLDOWN_SECS
+    };
+    now.saturating_sub(attempt.attempted_at) < cooldown
 }
 
 pub(crate) async fn import_current_auth_account_internal(
@@ -2202,6 +2432,8 @@ fn normalize_import_source(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::account_has_active_five_hour_window;
+    use super::account_weekly_quota_exhausted;
     use super::build_refresh_targets;
     use super::expand_import_json_content;
     use super::is_stale_refresh_snapshot_error;
@@ -2216,6 +2448,7 @@ mod tests {
     use super::should_reuse_successful_usage_refresh;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
+    use super::warmup_attempt_is_recent;
     use super::PreparedImport;
     use super::AUTH_EXPIRED_NOTICE;
     use super::KEEPALIVE_LAST_REFRESH_BASE_AGE_SECS;
@@ -2223,6 +2456,7 @@ mod tests {
     use super::PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS;
     use super::USAGE_AUTH_TOKEN_EXPIRED_NOTICE;
     use super::USAGE_REFRESH_REUSE_WINDOW;
+    use crate::models::AccountWarmupAttempt;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
     use crate::models::TestApiAccountConnectionInput;
@@ -2233,6 +2467,73 @@ mod tests {
     use serde_json::json;
     use std::time::Duration;
     use std::time::Instant;
+
+    #[test]
+    fn warmup_skips_only_a_live_five_hour_window() {
+        let now = 2_000_000_000;
+        let mut account = store_with_usage(now, now, 1.0).accounts.remove(0);
+        {
+            let five_hour = account
+                .usage
+                .as_mut()
+                .and_then(|usage| usage.five_hour.as_mut())
+                .expect("five hour window");
+            five_hour.window_seconds = 5 * 60 * 60;
+            five_hour.reset_at = Some(now + 60);
+        }
+        assert!(account_has_active_five_hour_window(&account, now));
+
+        account
+            .usage
+            .as_mut()
+            .and_then(|usage| usage.five_hour.as_mut())
+            .expect("five hour window")
+            .reset_at = Some(now - 1);
+        assert!(!account_has_active_five_hour_window(&account, now));
+        {
+            let five_hour = account
+                .usage
+                .as_mut()
+                .and_then(|usage| usage.five_hour.as_mut())
+                .expect("five hour window");
+            five_hour.reset_at = Some(now + 60);
+            five_hour.window_seconds = 7 * 24 * 60 * 60;
+        }
+        assert!(!account_has_active_five_hour_window(&account, now));
+    }
+
+    #[test]
+    fn warmup_cooldown_is_longer_after_success() {
+        let now = 2_000_000_000;
+        assert!(warmup_attempt_is_recent(
+            &AccountWarmupAttempt {
+                attempted_at: now - 4 * 60 * 60,
+                succeeded: true,
+                error: None,
+            },
+            now,
+        ));
+        assert!(!warmup_attempt_is_recent(
+            &AccountWarmupAttempt {
+                attempted_at: now - 11 * 60,
+                succeeded: false,
+                error: Some("network".to_string()),
+            },
+            now,
+        ));
+    }
+
+    #[test]
+    fn warmup_skips_exhausted_weekly_quota() {
+        let mut account = store_with_usage(20, 20, 1.0).accounts.remove(0);
+        account
+            .usage
+            .as_mut()
+            .and_then(|usage| usage.one_week.as_mut())
+            .expect("weekly window")
+            .used_percent = 100.0;
+        assert!(account_weekly_quota_exhausted(&account));
+    }
 
     #[test]
     fn recent_lightweight_refresh_is_reused_for_another_lightweight_request() {

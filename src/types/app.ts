@@ -472,10 +472,24 @@ export type AppSettings = {
   apiProxyLoadBalanceMode: ApiProxyLoadBalanceMode;
   apiProxySequentialFiveHourLimitPercent: number;
   apiProxyDisabledModels: string[];
+  autoAccountWarmupEnabled: boolean;
+  autoAccountWarmupAccountIds: string[];
   codexAnalyticsWeeklyBudgetUsd: number | null;
   remoteServers: RemoteServerConfig[];
   locale: AppLocale;
   skippedUpdateVersion: string | null;
+};
+
+export type AccountWarmupStatus =
+  | "activated"
+  | "alreadyActive"
+  | "recentlyAttempted"
+  | "exhausted";
+
+export type AccountWarmupResult = {
+  id: string;
+  status: AccountWarmupStatus;
+  accounts: AccountSummary[];
 };
 
 export type UpdateSettingsOptions = {

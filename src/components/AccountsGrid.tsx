@@ -46,7 +46,7 @@ type RowActionMenuPosition = {
 };
 
 const ROW_ACTION_MENU_WIDTH = 138;
-const ROW_ACTION_MENU_ESTIMATED_HEIGHT = 128;
+const ROW_ACTION_MENU_ESTIMATED_HEIGHT = 164;
 const ROW_ACTION_MENU_GAP = 6;
 const ROW_ACTION_MENU_VIEWPORT_MARGIN = 8;
 
@@ -82,6 +82,8 @@ type UiCopy = {
   fromPrefix: string;
   quickActions: string;
   reauthorize: string;
+  warmup: string;
+  warming: string;
   exportAccount: string;
   exportAll: string;
   deleteAccount: string;
@@ -107,11 +109,13 @@ type AccountsGridProps = {
   exportingAccounts: boolean;
   authBusy: boolean;
   switchingId: string | null;
+  warmingAccountId: string | null;
   renamingAccountId: string | null;
   pendingDeleteId: string | null;
   onExportAll: () => void;
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
+  onWarmup: (account: AccountSummary) => Promise<boolean>;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onToggleApiProxy: (account: AccountSummary, enabled: boolean) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => Promise<boolean>;
@@ -242,6 +246,8 @@ function getUiCopy(locale: string): UiCopy {
       fromPrefix: "从",
       quickActions: "快捷操作",
       reauthorize: "重新登录",
+      warmup: "激活 5h 窗口",
+      warming: "预热中",
       exportAccount: "导出账号",
       exportAll: "全部导出",
       deleteAccount: "删除账号",
@@ -287,6 +293,8 @@ function getUiCopy(locale: string): UiCopy {
     fromPrefix: "from",
     quickActions: "Quick actions",
     reauthorize: "Re-login",
+    warmup: "Activate 5h window",
+    warming: "Warming up",
     exportAccount: "Export account",
     exportAll: "Export all",
     deleteAccount: "Delete",
@@ -645,7 +653,7 @@ function MoreIcon() {
   );
 }
 
-function ActionIcon({ type }: { type: "login" | "export" | "delete" | "switch" | "edit" }) {
+function ActionIcon({ type }: { type: "login" | "warmup" | "export" | "delete" | "switch" | "edit" }) {
   if (type === "delete") {
     return (
       <svg className="actionIconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -671,6 +679,14 @@ function ActionIcon({ type }: { type: "login" | "export" | "delete" | "switch" |
     return (
       <svg className="actionIconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M20 6 9 17l-5-5" />
+      </svg>
+    );
+  }
+
+  if (type === "warmup") {
+    return (
+      <svg className="actionIconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M13 2c1 4-2 5-2 8 0 1.7 1.3 3 3 3 2.5 0 4-2.1 3.5-4.5C20 10.5 21 13 21 16a9 9 0 0 1-18 0c0-4 2.2-7.1 5.5-9-.5 3 1 4.5 2.5 5.5" />
       </svg>
     );
   }
@@ -705,11 +721,13 @@ export function AccountsGrid({
   exportingAccounts,
   authBusy,
   switchingId,
+  warmingAccountId,
   renamingAccountId,
   pendingDeleteId,
   onExportAll,
   onExport,
   onReauthorize,
+  onWarmup,
   onRename,
   onToggleApiProxy,
   onSwitch,
@@ -1040,6 +1058,7 @@ export function AccountsGrid({
                 const normalizedPlan = account.planType || account.usage?.planType;
                 const isSelected = selectedRow?.account.id === account.id;
                 const isSwitching = switchingId === account.id;
+                const isWarming = warmingAccountId === account.id;
                 // 统一锁住切换入口，避免登录/导入/切换流程互相并发。
                 const switchDisabled = authBusy;
                 const isDeletePending = pendingDeleteId === account.id;
@@ -1206,6 +1225,20 @@ export function AccountsGrid({
                                 <ActionIcon type="login" />
                                 {text.reauthorize}
                               </button>
+                              {account.sourceKind !== "relay" ? (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={warmingAccountId !== null || authBusy}
+                                  onClick={() => {
+                                    setOpenMenuAccountId(null);
+                                    void onWarmup(account);
+                                  }}
+                                >
+                                  <ActionIcon type="warmup" />
+                                  {isWarming ? text.warming : text.warmup}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 role="menuitem"
@@ -1399,6 +1432,18 @@ export function AccountsGrid({
                   <ActionIcon type="login" />
                   <span>{text.reauthorize}</span>
                 </button>
+                {selectedRow.account.sourceKind !== "relay" ? (
+                  <button
+                    type="button"
+                    onClick={() => void onWarmup(selectedRow.account)}
+                    disabled={warmingAccountId !== null || authBusy}
+                  >
+                    <ActionIcon type="warmup" />
+                    <span>
+                      {warmingAccountId === selectedRow.account.id ? text.warming : text.warmup}
+                    </span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={(event) => {

@@ -29,6 +29,7 @@ Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、
 
 - 多账号管理：OAuth 登录导入、JSON 批量导入、账号备份回导入。
 - 用量查看：展示 `5h`、`1week` 用量窗口和账号计划类型。
+- 账号预热：可手动发送固定 `hello` 最小请求激活 5h 窗口，也可在设置中为选中账号开启自动预热；该功能会真实消耗少量额度，默认关闭并带持久化防重复冷却。
 - 快速切换：切换 `~/.codex/auth.json` 和 `config.toml`，可联动启动新版 ChatGPT App，并兼容旧 Codex App 与 `codex app` 回退。
 - CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/delete/usage/provider/doctor/report/tui`。
 - API 反代：本地提供 OpenAI 兼容 `/v1` 接口，支持运行中账号轮换。

@@ -532,6 +532,14 @@
       "checkedText": "On",
       "uncheckedText": "Off"
     },
+    "accountWarmup": {
+      "label": "Automatically warm up 5h windows",
+      "checkedText": "On",
+      "uncheckedText": "Off",
+      "description": "Sends a fixed hello request only for selected accounts; active, exhausted, or cooling-down accounts are skipped.",
+      "accountsLabel": "Warm-up accounts",
+      "noAccounts": "No ChatGPT accounts"
+    },
     "launchCodexAfterSwitch": {
       "label": "Launch Codex after switch",
       "description": "Enabled by default. When disabled, only switch account without launching Codex.",
@@ -671,6 +679,11 @@
     "updateSettingsFailed": "Failed to update settings: {{error}}",
     "usageRefreshed": "Usage refreshed",
     "refreshFailed": "Refresh failed: {{error}}",
+    "accountWarmupActivated": "Sent hello and completed warm-up; usage was refreshed",
+    "accountWarmupAlreadyActive": "The 5h window is already active; no request was sent",
+    "accountWarmupRecentlyAttempted": "Warm-up was attempted recently, so it was skipped to avoid duplicate usage",
+    "accountWarmupExhausted": "Weekly quota is exhausted; no warm-up request was sent",
+    "accountWarmupFailed": "Account warm-up failed: {{error}}",
     "reloginRequired": "Account {{label}} has a stale saved authorization snapshot. Automatic token refresh has been paused.",
     "restoreAuthFailed": "Failed to restore previous account: {{error}}",
     "preparingUpdateDownload": "Preparing update download...",

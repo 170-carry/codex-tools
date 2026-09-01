@@ -772,6 +772,17 @@ async fn refresh_all_usage(
 }
 
 #[tauri::command]
+async fn warmup_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<models::AccountWarmupResult, String> {
+    let result = account_service::warmup_account_internal(&app, state.inner(), &id).await?;
+    let _ = tray::update_usage_surfaces_snapshot(&app, &result.accounts);
+    Ok(result)
+}
+
+#[tauri::command]
 async fn get_codex_token_usage() -> Result<token_usage::CodexTokenUsageSnapshot, String> {
     tauri::async_runtime::spawn_blocking(token_usage::collect_codex_token_usage_snapshot)
         .await
@@ -2804,7 +2815,16 @@ fn start_periodic_usage_refresh_loop(app: AppHandle) {
             )
             .await
             {
-                Ok(summaries) => {
+                Ok(mut summaries) => {
+                    match account_service::run_auto_account_warmups_internal(&app, state.inner())
+                        .await
+                    {
+                        Ok(Some(warmed_summaries)) => summaries = warmed_summaries,
+                        Ok(None) => {}
+                        Err(error) => log::warn!(
+                            "ACCOUNT_WARMUP trigger=auto action=cycle-failed error={error}"
+                        ),
+                    }
                     if let Err(error) = tray::update_usage_surfaces_snapshot(&app, &summaries) {
                         log::warn!("更新周期额度展示失败: {error}");
                     }
@@ -3065,6 +3085,7 @@ pub fn run() {
             update_account_label,
             update_account_api_proxy_enabled,
             refresh_all_usage,
+            warmup_account,
             get_codex_token_usage,
             get_codex_cost_analytics,
             get_cached_codex_cost_analytics,

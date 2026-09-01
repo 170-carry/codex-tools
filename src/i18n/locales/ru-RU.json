@@ -532,6 +532,14 @@
       "checkedText": "Вкл",
       "uncheckedText": "Выкл"
     },
+    "accountWarmup": {
+      "label": "Автопрогрев 5-часовых окон",
+      "checkedText": "Включено",
+      "uncheckedText": "Выключено",
+      "description": "Отправляет фиксированный запрос hello только для выбранных аккаунтов; активные, исчерпанные и ожидающие аккаунты пропускаются.",
+      "accountsLabel": "Аккаунты для прогрева",
+      "noAccounts": "Нет аккаунтов ChatGPT"
+    },
     "launchCodexAfterSwitch": {
       "label": "Запускать Codex после переключения",
       "description": "Включено по умолчанию. Если выключить, будет только переключение аккаунта.",
@@ -671,6 +679,11 @@
     "updateSettingsFailed": "Не удалось обновить настройки: {{error}}",
     "usageRefreshed": "Данные использования обновлены",
     "refreshFailed": "Ошибка обновления: {{error}}",
+    "accountWarmupActivated": "Запрос hello отправлен, прогрев завершён, данные обновлены",
+    "accountWarmupAlreadyActive": "5-часовое окно уже активно; запрос не отправлен",
+    "accountWarmupRecentlyAttempted": "Недавний прогрев пропущен, чтобы избежать повторного расхода",
+    "accountWarmupExhausted": "Недельная квота исчерпана; запрос прогрева не отправлен",
+    "accountWarmupFailed": "Ошибка прогрева аккаунта: {{error}}",
     "reloginRequired": "У аккаунта {{label}} устарел сохраненный снимок авторизации. Автоматическое обновление токена остановлено.",
     "restoreAuthFailed": "Не удалось восстановить предыдущий аккаунт: {{error}}",
     "preparingUpdateDownload": "Подготовка к загрузке обновления...",

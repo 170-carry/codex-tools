@@ -69,6 +69,10 @@ impl AccountsStore {
         if self.settings.active_account_id.as_deref() == Some(id) {
             self.settings.active_account_id = None;
         }
+        self.settings
+            .auto_account_warmup_account_ids
+            .retain(|account_id| account_id != id);
+        self.settings.account_warmup_attempts.remove(id);
         Ok(removed)
     }
 }
@@ -749,6 +753,12 @@ pub(crate) struct AppSettings {
     #[serde(default)]
     pub(crate) api_proxy_disabled_models: Vec<String>,
     #[serde(default)]
+    pub(crate) auto_account_warmup_enabled: bool,
+    #[serde(default)]
+    pub(crate) auto_account_warmup_account_ids: Vec<String>,
+    #[serde(default)]
+    pub(crate) account_warmup_attempts: HashMap<String, AccountWarmupAttempt>,
+    #[serde(default)]
     pub(crate) codex_analytics_weekly_budget_usd: Option<f64>,
     #[serde(default)]
     pub(crate) api_proxy_sequential_account_key: Option<String>,
@@ -786,6 +796,9 @@ impl Default for AppSettings {
             api_proxy_sequential_five_hour_limit_percent:
                 default_api_proxy_sequential_five_hour_limit_percent(),
             api_proxy_disabled_models: Vec::new(),
+            auto_account_warmup_enabled: false,
+            auto_account_warmup_account_ids: Vec::new(),
+            account_warmup_attempts: HashMap::new(),
             codex_analytics_weekly_budget_usd: None,
             api_proxy_sequential_account_key: None,
             remote_servers: Vec::new(),
@@ -823,10 +836,37 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) api_proxy_load_balance_mode: Option<ApiProxyLoadBalanceMode>,
     pub(crate) api_proxy_sequential_five_hour_limit_percent: Option<f64>,
     pub(crate) api_proxy_disabled_models: Option<Vec<String>>,
+    pub(crate) auto_account_warmup_enabled: Option<bool>,
+    pub(crate) auto_account_warmup_account_ids: Option<Vec<String>>,
     pub(crate) codex_analytics_weekly_budget_usd: Option<Option<f64>>,
     pub(crate) remote_servers: Option<Vec<RemoteServerConfig>>,
     pub(crate) locale: Option<AppLocale>,
     pub(crate) skipped_update_version: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountWarmupAttempt {
+    pub(crate) attempted_at: i64,
+    pub(crate) succeeded: bool,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AccountWarmupStatus {
+    Activated,
+    AlreadyActive,
+    RecentlyAttempted,
+    Exhausted,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountWarmupResult {
+    pub(crate) id: String,
+    pub(crate) status: AccountWarmupStatus,
+    pub(crate) accounts: Vec<AccountSummary>,
 }
 
 impl StoredAccount {

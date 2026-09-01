@@ -532,6 +532,14 @@
       "checkedText": "オン",
       "uncheckedText": "オフ"
     },
+    "accountWarmup": {
+      "label": "5時間枠を自動ウォームアップ",
+      "checkedText": "オン",
+      "uncheckedText": "オフ",
+      "description": "選択したアカウントに固定の hello リクエストを送信します。既に有効、上限到達、クールダウン中の場合はスキップします。",
+      "accountsLabel": "対象アカウント",
+      "noAccounts": "ChatGPT アカウントがありません"
+    },
     "launchCodexAfterSwitch": {
       "label": "切替後に Codex を起動",
       "description": "既定で有効。無効時はアカウント切替のみ行います。",
@@ -671,6 +679,11 @@
     "updateSettingsFailed": "設定の更新に失敗しました: {{error}}",
     "usageRefreshed": "使用量を更新しました",
     "refreshFailed": "更新に失敗しました: {{error}}",
+    "accountWarmupActivated": "hello を送信してウォームアップを完了し、使用量を更新しました",
+    "accountWarmupAlreadyActive": "5時間枠は既に有効です。リクエストは送信していません",
+    "accountWarmupRecentlyAttempted": "重複消費を避けるため、最近のウォームアップ後はスキップしました",
+    "accountWarmupExhausted": "週間上限に達しているため、リクエストは送信していません",
+    "accountWarmupFailed": "アカウントのウォームアップに失敗しました: {{error}}",
     "reloginRequired": "アカウント {{label}} の保存済み認証スナップショットが無効です。ログイントークンの自動更新を停止しました。",
     "restoreAuthFailed": "前のアカウントの復元に失敗しました: {{error}}",
     "preparingUpdateDownload": "アップデートのダウンロード準備中...",

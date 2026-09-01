@@ -551,6 +551,14 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    accountWarmup: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+      description: string;
+      accountsLabel: string;
+      noAccounts: string;
+    };
     launchCodexAfterSwitch: {
       label: string;
       description: string;
@@ -682,6 +690,11 @@ export type MessageCatalog = {
     updateSettingsFailed: (error: string) => string;
     usageRefreshed: string;
     refreshFailed: (error: string) => string;
+    accountWarmupActivated: string;
+    accountWarmupAlreadyActive: string;
+    accountWarmupRecentlyAttempted: string;
+    accountWarmupExhausted: string;
+    accountWarmupFailed: (error: string) => string;
     reloginRequired: (label: string) => string;
     preparingUpdateDownload: string;
     alreadyLatest: string;
@@ -882,6 +895,8 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.notices.updateSettingsFailed, { error }),
       refreshFailed: (error) =>
         fillTemplate(raw.notices.refreshFailed, { error }),
+      accountWarmupFailed: (error) =>
+        fillTemplate(raw.notices.accountWarmupFailed, { error }),
       reloginRequired: (label) =>
         fillTemplate(raw.notices.reloginRequired, { label }),
       updateDownloadingPercent: (percent) =>

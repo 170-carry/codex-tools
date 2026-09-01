@@ -15,6 +15,7 @@ import { ThemeSwitch } from "./ThemeSwitch";
 import { SwitchField } from "./SwitchField";
 import type {
   AppSettings,
+  AccountSummary,
   InstalledEditorApp,
   ThemeMode,
   UpdateSettingsOptions,
@@ -39,6 +40,7 @@ type SettingsPanelProps = {
   onCheckUpdate: () => void;
   onOpenExternalUrl: (url: string) => void;
   settings: AppSettings;
+  accounts: AccountSummary[];
   installedEditorApps: InstalledEditorApp[];
   hasOpencodeDesktopApp: boolean;
   savingSettings: boolean;
@@ -59,6 +61,7 @@ export function SettingsPanel({
   onCheckUpdate,
   onOpenExternalUrl,
   settings,
+  accounts,
   installedEditorApps,
   hasOpencodeDesktopApp,
   savingSettings,
@@ -96,6 +99,23 @@ export function SettingsPanel({
   trayIconStyleOptions.push({ value: "hidden", label: copy.settings.windowsTrayIconStyle.hidden });
   const selectedTrayIconStyle =
     !settings.trayQuotaIconVisible ? "hidden" : settings.windowsTrayIconStyle;
+  const warmupAccounts = Array.from(
+    new Map(
+      accounts
+        .filter((account) => account.sourceKind !== "relay")
+        .map((account) => [account.accountKey, account]),
+    ).values(),
+  );
+
+  const toggleWarmupAccount = (accountId: string, enabled: boolean) => {
+    const selected = new Set(settings.autoAccountWarmupAccountIds);
+    if (enabled) {
+      selected.add(accountId);
+    } else {
+      selected.delete(accountId);
+    }
+    onUpdateSettings({ autoAccountWarmupAccountIds: Array.from(selected) });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -577,6 +597,46 @@ export function SettingsPanel({
               </div>
             </div>
           ) : null}
+        </div>
+
+        <div className="settingsGroup">
+          <SwitchField
+            checked={settings.autoAccountWarmupEnabled}
+            onChange={(checked) => onUpdateSettings({ autoAccountWarmupEnabled: checked })}
+            label={copy.settings.accountWarmup.label}
+            checkedText={copy.settings.accountWarmup.checkedText}
+            uncheckedText={copy.settings.accountWarmup.uncheckedText}
+            disabled={savingSettings}
+          />
+          <div className="settingRow settingRowCompact settingRowNested warmupSettingsRow">
+            <div className="settingMeta">
+              <strong>{copy.settings.accountWarmup.accountsLabel}</strong>
+              <span className="settingDescription">
+                {copy.settings.accountWarmup.description}
+              </span>
+            </div>
+            {warmupAccounts.length > 0 ? (
+              <div className="warmupAccountChoices">
+                {warmupAccounts.map((account) => (
+                  <label key={account.id} className="warmupAccountChoice">
+                    <input
+                      type="checkbox"
+                      checked={settings.autoAccountWarmupAccountIds.includes(account.id)}
+                      disabled={savingSettings}
+                      onChange={(event) =>
+                        toggleWarmupAccount(account.id, event.currentTarget.checked)
+                      }
+                    />
+                    <span>{account.label}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <span className="settingValueMuted">
+                {copy.settings.accountWarmup.noAccounts}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="settingsGroup">

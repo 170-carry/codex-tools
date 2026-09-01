@@ -11,6 +11,7 @@ import { DEFAULT_LOCALE } from "../i18n/catalog";
 import type { MessageCatalog } from "../i18n/catalog";
 import type {
   AccountSummary,
+  AccountWarmupResult,
   ApiProxyKey,
   ApiProxyKeyUsageLogEntry,
   ApiProxyStatus,
@@ -91,6 +92,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   apiProxyLoadBalanceMode: "average",
   apiProxySequentialFiveHourLimitPercent: 80,
   apiProxyDisabledModels: [],
+  autoAccountWarmupEnabled: false,
+  autoAccountWarmupAccountIds: [],
   codexAnalyticsWeeklyBudgetUsd: null,
   remoteServers: [],
   locale: DEFAULT_LOCALE,
@@ -301,6 +304,7 @@ export function useCodexController(
   const [startingCloudflared, setStartingCloudflared] = useState(false);
   const [stoppingCloudflared, setStoppingCloudflared] = useState(false);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [warmingAccountId, setWarmingAccountId] = useState<string | null>(null);
   const [renamingAccountId, setRenamingAccountId] = useState<string | null>(
     null,
   );
@@ -347,7 +351,7 @@ export function useCodexController(
     [accounts],
   );
   const authBusy =
-    importingAccounts || oauthWaitingForCallback || switchingId !== null;
+    importingAccounts || oauthWaitingForCallback || switchingId !== null || warmingAccountId !== null;
 
   const localizeError = useCallback(
     (error: string) => localizeBackendError(error, locale),
@@ -2807,6 +2811,43 @@ export function useCodexController(
     [copy.notices],
   );
 
+  const onWarmupAccount = useCallback(
+    async (account: AccountSummary) => {
+      if (warmingAccountId !== null || account.sourceKind === "relay") {
+        return false;
+      }
+      setWarmingAccountId(account.id);
+      try {
+        const result = await invoke<AccountWarmupResult>("warmup_account", {
+          id: account.id,
+        });
+        applyAccounts(result.accounts);
+        const message =
+          result.status === "activated"
+            ? copy.notices.accountWarmupActivated
+            : result.status === "alreadyActive"
+              ? copy.notices.accountWarmupAlreadyActive
+              : result.status === "exhausted"
+                ? copy.notices.accountWarmupExhausted
+                : copy.notices.accountWarmupRecentlyAttempted;
+        setNotice({
+          type: result.status === "activated" ? "ok" : "info",
+          message,
+        });
+        return result.status === "activated";
+      } catch (error) {
+        setNotice({
+          type: "error",
+          message: copy.notices.accountWarmupFailed(localizeError(String(error))),
+        });
+        return false;
+      } finally {
+        setWarmingAccountId(null);
+      }
+    },
+    [applyAccounts, copy.notices, localizeError, warmingAccountId],
+  );
+
   const onCancelDelete = useCallback(() => {
     if (deletingAccountId !== null) {
       return;
@@ -3101,6 +3142,7 @@ export function useCodexController(
     startingCloudflared,
     stoppingCloudflared,
     switchingId,
+    warmingAccountId,
     renamingAccountId,
     pendingDeleteId: deleteCandidate?.id ?? null,
     deleteCandidate,
@@ -3172,6 +3214,7 @@ export function useCodexController(
     onRenameAccountLabel,
     onToggleAccountApiProxy,
     onDelete,
+    onWarmupAccount,
     onCancelDelete,
     onConfirmDelete,
     onSwitch,
