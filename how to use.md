@@ -121,6 +121,8 @@ npx @170-carry/ctc list --json
 | `ctc import --current --json` | 导入当前 `~/.codex/auth.json` |
 | `ctc export ./accounts.json --json` | 导出账号库 |
 | `ctc export --json` | 直接把账号库 JSON 输出到终端 |
+| `ctc delete 1` | 删除第 1 个账号（交互确认，`--yes` 跳过） |
+| `ctc delete <id> --yes` | 按 `ctc list --json` 中的内部 id 删除账号并跳过确认 |
 | `ctc usage --cached --json` | 查看本地缓存用量 |
 | `ctc doctor --json` | 检查本地环境和账号库 |
 | `ctc report --json` | 输出完整诊断报告 |
