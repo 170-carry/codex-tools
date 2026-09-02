@@ -227,8 +227,28 @@ const API_PROXY_REASONING_EFFORTS: &[&str] =
 const API_PROXY_SERVICE_TIERS: &[&str] = &["auto", "default", "fast", "flex"];
 const MAX_PROXY_SESSION_AFFINITY_ENTRIES: usize = 512;
 // Idle session bindings expire so long-gone conversations stop pinning
-// accounts; active sessions refresh their binding on every success.
-const PROXY_SESSION_AFFINITY_TTL_SECS: i64 = 3_600;
+// accounts; active sessions refresh their binding on every success. The
+// default matches the upstream prompt-cache retention (24h): resuming an
+// idle session within the TTL lands on the same account with its cache
+// intact, and past it the cache is gone regardless of account choice.
+// Override with CODEX_TOOLS_PROXY_SESSION_AFFINITY_TTL_SECS (seconds).
+const DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS: i64 = 86_400;
+const PROXY_SESSION_AFFINITY_TTL_ENV_VAR: &str = "CODEX_TOOLS_PROXY_SESSION_AFFINITY_TTL_SECS";
+
+fn resolved_proxy_session_affinity_ttl_secs(env_value: Option<&str>) -> i64 {
+    env_value
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|ttl| *ttl > 0)
+        .unwrap_or(DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS)
+}
+
+fn resolve_proxy_session_affinity_ttl_secs() -> i64 {
+    resolved_proxy_session_affinity_ttl_secs(
+        std::env::var(PROXY_SESSION_AFFINITY_TTL_ENV_VAR)
+            .ok()
+            .as_deref(),
+    )
+}
 const SESSION_AFFINITY_HEADERS: &[&str] = &[
     "x-claude-code-session-id",
     "x-claude-session-id",
@@ -9536,10 +9556,11 @@ fn sequential_runtime_account_key(
     match session_affinity_key {
         Some(key) => {
             let now = now_unix_seconds();
+            let ttl = resolve_proxy_session_affinity_ttl_secs();
             snapshot
                 .sequential_session_affinity
                 .get(key)
-                .filter(|entry| now - entry.updated_at <= PROXY_SESSION_AFFINITY_TTL_SECS)
+                .filter(|entry| now - entry.updated_at <= ttl)
                 .map(|entry| entry.account_key.clone())
         }
         None => snapshot.sequential_account_key.clone(),
@@ -9907,6 +9928,7 @@ mod tests {
     use super::request_session_affinity_key;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::resolved_proxy_default_service_tier;
+    use super::resolved_proxy_session_affinity_ttl_secs;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
     use super::sanitize_api_proxy_disabled_models_for_settings;
@@ -11174,7 +11196,9 @@ mod tests {
             "header:x-codex-tools-session:stale".to_string(),
             ApiProxySessionAffinity {
                 account_key: "account-stale".to_string(),
-                updated_at: super::now_unix_seconds() - super::PROXY_SESSION_AFFINITY_TTL_SECS - 1,
+                updated_at: super::now_unix_seconds()
+                    - super::resolve_proxy_session_affinity_ttl_secs()
+                    - 1,
             },
         );
         snapshot.sequential_session_affinity.insert(
@@ -11194,6 +11218,25 @@ mod tests {
                 .as_deref(),
             Some("account-fresh")
         );
+    }
+
+    #[test]
+    fn resolved_proxy_session_affinity_ttl_prefers_env_else_default() {
+        let cases = [
+            (Some("18000"), 18_000),
+            (Some(" 7200 "), 7_200),
+            (Some("0"), super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+            (Some("-5"), super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+            (Some("abc"), super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+            (None, super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+        ];
+        for (env_value, expected) in cases {
+            assert_eq!(
+                super::resolved_proxy_session_affinity_ttl_secs(env_value),
+                expected,
+                "env={env_value:?}"
+            );
+        }
     }
 
     #[test]
