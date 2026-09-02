@@ -138,6 +138,7 @@ const SSE_DONE: &str = "data: [DONE]\n\n";
 const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
 const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "default";
+const PROXY_DEFAULT_SERVICE_TIER_ENV_VAR: &str = "CODEX_TOOLS_PROXY_SERVICE_TIER";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 const IMAGE_VARIATION_PROMPT: &str = "Create a faithful variation of the provided image.";
 const COMPACT_SSE_KEEPALIVE: &str =
@@ -225,7 +226,32 @@ const API_PROXY_REASONING_EFFORTS: &[&str] =
     &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 const API_PROXY_SERVICE_TIERS: &[&str] = &["auto", "default", "fast", "flex"];
 const MAX_PROXY_SESSION_AFFINITY_ENTRIES: usize = 512;
+// Idle session bindings expire so long-gone conversations stop pinning
+// accounts; active sessions refresh their binding on every success. The
+// default matches the upstream prompt-cache retention (24h): resuming an
+// idle session within the TTL lands on the same account with its cache
+// intact, and past it the cache is gone regardless of account choice.
+// Override with CODEX_TOOLS_PROXY_SESSION_AFFINITY_TTL_SECS (seconds).
+const DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS: i64 = 86_400;
+const PROXY_SESSION_AFFINITY_TTL_ENV_VAR: &str = "CODEX_TOOLS_PROXY_SESSION_AFFINITY_TTL_SECS";
+
+fn resolved_proxy_session_affinity_ttl_secs(env_value: Option<&str>) -> i64 {
+    env_value
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|ttl| *ttl > 0)
+        .unwrap_or(DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS)
+}
+
+fn resolve_proxy_session_affinity_ttl_secs() -> i64 {
+    resolved_proxy_session_affinity_ttl_secs(
+        std::env::var(PROXY_SESSION_AFFINITY_TTL_ENV_VAR)
+            .ok()
+            .as_deref(),
+    )
+}
 const SESSION_AFFINITY_HEADERS: &[&str] = &[
+    "x-claude-code-session-id",
+    "x-claude-session-id",
     "x-codex-tools-session",
     "x-codex-session-id",
     "session_id",
@@ -1310,12 +1336,19 @@ async fn chat_completions_handler(
             Err(response) => return response,
         };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let (upstream_payload, downstream_stream) =
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let (mut upstream_payload, downstream_stream) =
         match convert_openai_chat_request_to_codex(&request_json) {
             Ok(value) => value,
             Err(message) => return invalid_request_response(&message),
         };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -1405,12 +1438,19 @@ async fn responses_handler(
         };
 
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let (upstream_payload, downstream_stream) =
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let (mut upstream_payload, downstream_stream) =
         match normalize_openai_responses_request(request_json) {
             Ok(value) => value,
             Err(message) => return invalid_request_response(&message),
         };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -1519,11 +1559,18 @@ async fn handle_responses_compact(
     route: &'static str,
 ) -> Response<Body> {
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let upstream_payload = match normalize_openai_compact_request(request_json) {
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let mut upstream_payload = match normalize_openai_compact_request(request_json) {
         Ok(value) => value,
         Err(message) => return invalid_request_response(&message),
     };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     if client_wants_stream {
         return stream_compact_response_with_optional_keepalive(
@@ -1915,12 +1962,19 @@ async fn anthropic_messages_handler(
         };
     let session_affinity_key = request_session_affinity_key(&headers, &request_json);
     let headers = apply_anthropic_upstream_session_id(headers, &request_json);
+    let request_specifies_tier = request_json.get("service_tier").is_some();
 
-    let (upstream_payload, downstream_stream) =
+    let default_service_tier = resolve_proxy_default_service_tier();
+    let (mut upstream_payload, downstream_stream) =
         match convert_anthropic_messages_request_to_codex(&request_json) {
             Ok(value) => value,
             Err(message) => return invalid_request_response(&message),
         };
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -2271,16 +2325,23 @@ async fn handle_responses_websocket(
     headers: HeaderMap,
 ) {
     let session_affinity_key = request_session_affinity_key_from_headers(&headers);
-    let upstream_payload = match receive_responses_websocket_create(&mut socket).await {
-        Ok(value) => value,
-        Err(message) => {
-            let _ = send_responses_websocket_error(&mut socket, &message).await;
-            let _ = socket.close().await;
-            return;
-        }
-    };
+    let (mut upstream_payload, request_specifies_tier) =
+        match receive_responses_websocket_create(&mut socket).await {
+            Ok(value) => value,
+            Err(message) => {
+                let _ = send_responses_websocket_error(&mut socket, &message).await;
+                let _ = socket.close().await;
+                return;
+            }
+        };
     let session_affinity_key = session_affinity_key
         .or_else(|| request_session_affinity_key_from_payload(&upstream_payload));
+    let default_service_tier = resolve_proxy_default_service_tier();
+    apply_configured_default_service_tier(
+        request_specifies_tier,
+        &mut upstream_payload,
+        &default_service_tier,
+    );
 
     let upstream = match send_codex_request_over_candidates(
         &context,
@@ -2330,7 +2391,9 @@ async fn handle_responses_websocket(
     let _ = socket.close().await;
 }
 
-async fn receive_responses_websocket_create(socket: &mut AxumWebSocket) -> Result<Value, String> {
+async fn receive_responses_websocket_create(
+    socket: &mut AxumWebSocket,
+) -> Result<(Value, bool), String> {
     while let Some(message) = socket.recv().await {
         let message = message.map_err(|error| format!("读取 WebSocket 首帧失败: {error}"))?;
         match message {
@@ -2350,7 +2413,7 @@ async fn receive_responses_websocket_create(socket: &mut AxumWebSocket) -> Resul
     Err("WebSocket 未收到 response.create 首帧".to_string())
 }
 
-fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<Value, String> {
+fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<(Value, bool), String> {
     let mut request = serde_json::from_slice::<Value>(bytes)
         .map_err(|error| format!("WebSocket 首帧不是合法 JSON: {error}"))?;
     let object = request
@@ -2364,8 +2427,11 @@ fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<Value, String> {
     }
 
     object.insert("stream".to_string(), Value::Bool(true));
+    let request_specifies_tier = object.get("service_tier").is_some();
 
-    normalize_openai_responses_request(request).map(|(payload, _)| payload)
+    normalize_openai_responses_request(request)
+        .map(|(payload, _)| payload)
+        .map(|payload| (payload, request_specifies_tier))
 }
 
 async fn relay_responses_sse_to_websocket(
@@ -2721,13 +2787,31 @@ fn request_session_affinity_key_from_headers(headers: &HeaderMap) -> Option<Stri
 
 fn request_session_affinity_key_from_payload(payload: &Value) -> Option<String> {
     let object = payload.as_object()?;
-    SESSION_AFFINITY_PAYLOAD_KEYS.iter().find_map(|name| {
-        object
-            .get(*name)
-            .and_then(Value::as_str)
-            .and_then(normalize_session_affinity_value)
-            .map(|value| format!("payload:{name}:{value}"))
-    })
+    SESSION_AFFINITY_PAYLOAD_KEYS
+        .iter()
+        .find_map(|name| {
+            object
+                .get(*name)
+                .and_then(Value::as_str)
+                .and_then(normalize_session_affinity_value)
+                .map(|value| format!("payload:{name}:{value}"))
+        })
+        .or_else(|| claude_metadata_session_affinity_key(object))
+}
+
+// Claude Code embeds a JSON blob in metadata.user_id whose session_id is the
+// most reliable per-conversation identity; reuse it for account affinity.
+fn claude_metadata_session_affinity_key(object: &Map<String, Value>) -> Option<String> {
+    let user_id = object
+        .get("metadata")
+        .and_then(|metadata| metadata.get("user_id"))
+        .and_then(Value::as_str)?;
+    let parsed = serde_json::from_str::<Value>(user_id).ok()?;
+    parsed
+        .get("session_id")
+        .and_then(Value::as_str)
+        .and_then(normalize_session_affinity_value)
+        .map(|value| format!("metadata:user_id:{value}"))
 }
 
 fn request_session_affinity_key_from_map(
@@ -3420,6 +3504,19 @@ fn anthropic_system_to_instructions(system: Option<&Value>) -> String {
 fn anthropic_reasoning_effort(request_object: &Map<String, Value>) -> Result<String, String> {
     if let Some(effort) = request_reasoning_effort(request_object)? {
         return normalize_api_proxy_reasoning_effort_for_upstream(effort);
+    }
+
+    // Claude Code reports the session effort picker as output_config.effort
+    // (low/medium/high/xhigh/max); map it through when the request carries no
+    // explicit reasoning field. Unknown values fall through to the default.
+    if let Some(effort) = request_object
+        .get("output_config")
+        .and_then(|config| config.get("effort"))
+        .and_then(Value::as_str)
+    {
+        if let Ok(effort) = normalize_api_proxy_reasoning_effort_for_upstream(effort) {
+            return Ok(effort);
+        }
     }
 
     if request_object
@@ -4895,14 +4992,17 @@ async fn send_codex_request_over_candidates(
         ));
     }
     let load_balance = selection.load_balance;
+    let session_bound_account_key =
+        current_sequential_proxy_account_key(context, session_affinity_key).await;
     let current_sequential_account_key = sequential_account_key_for_request(
-        current_sequential_proxy_account_key(context, session_affinity_key).await,
+        session_bound_account_key.clone(),
         selection.persisted_sequential_account_key,
     );
     let candidates = order_proxy_candidates_for_request(
         selection.candidates,
         load_balance,
         current_sequential_account_key.as_deref(),
+        session_bound_account_key.as_deref(),
     );
 
     let mut attempt_errors = Vec::new();
@@ -4929,14 +5029,12 @@ async fn send_codex_request_over_candidates(
             log_proxy_response_route(route, status);
             if status.is_success() {
                 record_api_proxy_call_success(context, proxy_key, &candidate, route, payload).await;
-                if matches!(load_balance.mode, ApiProxyLoadBalanceMode::Sequential) {
-                    bind_sequential_session_proxy_account(
-                        context,
-                        session_affinity_key,
-                        &candidate.account_key,
-                    )
-                    .await;
-                }
+                bind_sequential_session_proxy_account(
+                    context,
+                    session_affinity_key,
+                    &candidate.account_key,
+                )
+                .await;
                 return Ok((candidate, upstream));
             }
 
@@ -4980,6 +5078,12 @@ async fn send_codex_request_over_candidates(
                 && should_retry_with_token_refresh(status, &upstream_body)
             {
                 if candidate.auth_refresh_blocked {
+                    unbind_session_proxy_account(
+                        context,
+                        session_affinity_key,
+                        &candidate.account_key,
+                    )
+                    .await;
                     attempt_errors.push(format!(
                         "{}: {}",
                         candidate.label,
@@ -4996,6 +5100,12 @@ async fn send_codex_request_over_candidates(
                         continue;
                     }
                     Err(error) => {
+                        unbind_session_proxy_account(
+                            context,
+                            session_affinity_key,
+                            &candidate.account_key,
+                        )
+                        .await;
                         attempt_errors
                             .push(format!("{}: 刷新登录态失败: {}", candidate.label, error));
                         break;
@@ -5004,6 +5114,11 @@ async fn send_codex_request_over_candidates(
             }
 
             if let Some(failure) = classify_retriable_failure(status, &upstream_body) {
+                // Quota/auth/rate-limit failures are attributed to this
+                // account; release the session binding so the next request
+                // re-picks instead of retrying the degraded account first.
+                unbind_session_proxy_account(context, session_affinity_key, &candidate.account_key)
+                    .await;
                 retriable_failures.push(failure);
                 break;
             }
@@ -5539,6 +5654,37 @@ fn api_proxy_service_tier_for_upstream(
     }
 }
 
+// Requests that omit service_tier fall back to a configurable default instead
+// of the compiled-in constant: the CODEX_TOOLS_PROXY_SERVICE_TIER environment
+// variable (useful for headless proxyd). Explicit per-request service_tier
+// always wins over this default.
+fn resolved_proxy_default_service_tier(env_value: Option<&str>) -> String {
+    env_value
+        .and_then(normalize_api_proxy_service_tier_for_upstream)
+        .unwrap_or_else(|| DEFAULT_UPSTREAM_SERVICE_TIER.to_string())
+}
+
+fn resolve_proxy_default_service_tier() -> String {
+    resolved_proxy_default_service_tier(
+        std::env::var(PROXY_DEFAULT_SERVICE_TIER_ENV_VAR)
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn apply_configured_default_service_tier(
+    request_specifies_tier: bool,
+    payload: &mut Value,
+    tier: &str,
+) {
+    if request_specifies_tier {
+        return;
+    }
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("service_tier".to_string(), Value::String(tier.to_string()));
+    }
+}
+
 fn normalize_api_proxy_reasoning_effort_for_upstream(value: &str) -> Result<String, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "" => Ok(DEFAULT_API_PROXY_REASONING_EFFORT.to_string()),
@@ -5681,10 +5827,28 @@ fn order_proxy_candidates_for_request(
     mut candidates: Vec<ProxyCandidate>,
     load_balance: ProxyLoadBalanceConfig,
     current_sequential_account_key: Option<&str>,
+    session_bound_account_key: Option<&str>,
 ) -> Vec<ProxyCandidate> {
     candidates.sort_by(compare_proxy_candidates);
 
     if !matches!(load_balance.mode, ApiProxyLoadBalanceMode::Sequential) {
+        // Usage-based ordering otherwise re-shuffles accounts mid-conversation;
+        // keep a healthy session binding pinned to protect the upstream
+        // prompt-cache shard, and fall back to usage order once it degrades.
+        if let Some(key) = session_bound_account_key {
+            if let Some(index) = candidates
+                .iter()
+                .position(|candidate| candidate.account_key == key)
+            {
+                if can_reuse_sequential_candidate(
+                    &candidates[index],
+                    load_balance.sequential_five_hour_limit_percent,
+                ) {
+                    let bound = candidates.remove(index);
+                    candidates.insert(0, bound);
+                }
+            }
+        }
         return candidates;
     }
 
@@ -9390,11 +9554,39 @@ fn sequential_runtime_account_key(
     session_affinity_key: Option<&str>,
 ) -> Option<String> {
     match session_affinity_key {
-        Some(key) => snapshot
-            .sequential_session_affinity
-            .get(key)
-            .map(|entry| entry.account_key.clone()),
+        Some(key) => {
+            let now = now_unix_seconds();
+            let ttl = resolve_proxy_session_affinity_ttl_secs();
+            snapshot
+                .sequential_session_affinity
+                .get(key)
+                .filter(|entry| now - entry.updated_at <= ttl)
+                .map(|entry| entry.account_key.clone())
+        }
         None => snapshot.sequential_account_key.clone(),
+    }
+}
+
+// Release a session binding only when it still points at the account that
+// just failed (compare-and-delete semantics), so a request-scoped error
+// cannot drop another account's binding.
+async fn unbind_session_proxy_account(
+    context: &ProxyContext,
+    session_affinity_key: Option<&str>,
+    account_key: &str,
+) {
+    let Some(session_key) = session_affinity_key else {
+        return;
+    };
+
+    let mut snapshot = context.shared.lock().await;
+    if snapshot
+        .sequential_session_affinity
+        .get(session_key)
+        .map(|entry| entry.account_key.as_str())
+        == Some(account_key)
+    {
+        snapshot.sequential_session_affinity.remove(session_key);
     }
 }
 
@@ -9693,6 +9885,7 @@ mod tests {
     use super::api_proxy_visible_models_for_key;
     use super::append_api_proxy_usage_event;
     use super::apply_anthropic_upstream_session_id;
+    use super::apply_configured_default_service_tier;
     use super::build_api_proxy_usage_stats;
     use super::build_compact_sse_failure;
     use super::build_compact_sse_response;
@@ -9734,6 +9927,8 @@ mod tests {
     use super::regenerate_api_proxy_key_with_runtime;
     use super::request_session_affinity_key;
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
+    use super::resolved_proxy_default_service_tier;
+    use super::resolved_proxy_session_affinity_ttl_secs;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
     use super::sanitize_api_proxy_disabled_models_for_settings;
@@ -9761,7 +9956,9 @@ mod tests {
     use super::API_PROXY_USAGE_RANGE_30D_SECONDS;
     use super::COMPACT_SSE_KEEPALIVE;
     use super::COMPACT_SSE_KEEPALIVE_INTERVAL_SECS;
+    use super::DEFAULT_API_PROXY_REASONING_EFFORT;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
+    use super::DEFAULT_UPSTREAM_SERVICE_TIER;
     use crate::models::AccountSourceKind;
     use crate::models::ApiProxyKey;
     use crate::models::ApiProxyLoadBalanceMode;
@@ -10036,6 +10233,7 @@ mod tests {
         let ordered = order_proxy_candidates_for_request(
             vec![chatgpt_candidate, candidate],
             load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
             None,
         );
         assert_eq!(candidate_labels(&ordered), vec!["relay", "chatgpt"]);
@@ -10881,6 +11079,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
             None,
+            None,
         );
 
         assert_eq!(
@@ -10906,6 +11105,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("b"),
+            None,
         );
 
         assert_eq!(candidate_labels(&ordered), vec!["current", "smart best"]);
@@ -10923,6 +11123,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             current_key.as_deref(),
+            None,
         );
 
         assert_eq!(
@@ -10951,14 +11152,14 @@ mod tests {
             "header:x-codex-tools-session:session-a".to_string(),
             ApiProxySessionAffinity {
                 account_key: "account-a".to_string(),
-                updated_at: 10,
+                updated_at: super::now_unix_seconds(),
             },
         );
         snapshot.sequential_session_affinity.insert(
             "header:x-codex-tools-session:session-b".to_string(),
             ApiProxySessionAffinity {
                 account_key: "account-b".to_string(),
-                updated_at: 11,
+                updated_at: super::now_unix_seconds(),
             },
         );
 
@@ -10985,6 +11186,144 @@ mod tests {
         assert_eq!(
             sequential_runtime_account_key(&snapshot, None).as_deref(),
             Some("global")
+        );
+    }
+
+    #[test]
+    fn sequential_runtime_account_key_expires_stale_bindings() {
+        let mut snapshot = ApiProxyRuntimeSnapshot::default();
+        snapshot.sequential_session_affinity.insert(
+            "header:x-codex-tools-session:stale".to_string(),
+            ApiProxySessionAffinity {
+                account_key: "account-stale".to_string(),
+                updated_at: super::now_unix_seconds()
+                    - super::resolve_proxy_session_affinity_ttl_secs()
+                    - 1,
+            },
+        );
+        snapshot.sequential_session_affinity.insert(
+            "header:x-codex-tools-session:fresh".to_string(),
+            ApiProxySessionAffinity {
+                account_key: "account-fresh".to_string(),
+                updated_at: super::now_unix_seconds(),
+            },
+        );
+
+        assert_eq!(
+            sequential_runtime_account_key(&snapshot, Some("header:x-codex-tools-session:stale")),
+            None
+        );
+        assert_eq!(
+            sequential_runtime_account_key(&snapshot, Some("header:x-codex-tools-session:fresh"))
+                .as_deref(),
+            Some("account-fresh")
+        );
+    }
+
+    #[test]
+    fn resolved_proxy_session_affinity_ttl_prefers_env_else_default() {
+        let cases = [
+            (Some("18000"), 18_000),
+            (Some(" 7200 "), 7_200),
+            (Some("0"), super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+            (Some("-5"), super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+            (Some("abc"), super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+            (None, super::DEFAULT_PROXY_SESSION_AFFINITY_TTL_SECS),
+        ];
+        for (env_value, expected) in cases {
+            assert_eq!(
+                super::resolved_proxy_session_affinity_ttl_secs(env_value),
+                expected,
+                "env={env_value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn average_mode_prefers_healthy_session_binding_over_usage_order() {
+        let candidates = vec![
+            proxy_candidate("least used", "a", Some(5.0), Some(5.0), false),
+            proxy_candidate("bound", "b", Some(50.0), Some(60.0), false),
+            proxy_candidate("most used", "c", Some(90.0), Some(90.0), false),
+        ];
+
+        let ordered = order_proxy_candidates_for_request(
+            candidates,
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+            Some("b"),
+        );
+
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["bound", "least used", "most used"]
+        );
+    }
+
+    #[test]
+    fn average_mode_falls_back_to_usage_order_when_binding_degrades() {
+        let candidates = vec![
+            proxy_candidate("least used", "a", Some(5.0), Some(5.0), false),
+            proxy_candidate("bound blocked", "b", Some(10.0), Some(10.0), true),
+        ];
+
+        let ordered = order_proxy_candidates_for_request(
+            candidates,
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+            Some("b"),
+        );
+
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["least used", "bound blocked"]
+        );
+    }
+
+    #[test]
+    fn average_mode_without_binding_keeps_usage_order() {
+        let candidates = vec![
+            proxy_candidate("least used", "a", Some(5.0), Some(5.0), false),
+            proxy_candidate("more used", "b", Some(50.0), Some(60.0), false),
+        ];
+
+        let ordered = order_proxy_candidates_for_request(
+            candidates,
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+            None,
+        );
+
+        assert_eq!(candidate_labels(&ordered), vec!["least used", "more used"]);
+    }
+
+    #[test]
+    fn request_session_affinity_key_reads_claude_code_identity() {
+        let headers = HeaderMap::new();
+        let from_header = {
+            let mut headers = headers.clone();
+            headers.insert(
+                "x-claude-code-session-id",
+                HeaderValue::from_static(" cc-session-1 "),
+            );
+            request_session_affinity_key(&headers, &json!({}))
+        };
+        assert_eq!(
+            from_header.as_deref(),
+            Some("header:x-claude-code-session-id:cc-session-1")
+        );
+
+        let from_metadata = request_session_affinity_key(
+            &headers,
+            &json!({
+                "metadata": {
+                    "user_id": "{\"session_id\":\"cc-session-2\"}"
+                }
+            }),
+        );
+        assert_eq!(
+            from_metadata.as_deref(),
+            Some("metadata:user_id:cc-session-2")
         );
     }
 
@@ -11033,6 +11372,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("b"),
+            None,
         );
 
         assert_eq!(
@@ -11053,6 +11393,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("b"),
+            None,
         );
 
         assert_eq!(candidate_labels(&ordered)[0], "current missing");
@@ -11070,6 +11411,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("a"),
+            None,
         );
 
         assert_eq!(
@@ -11274,6 +11616,118 @@ mod tests {
         assert!(normalize_openai_responses_request(minimal)
             .expect_err("GPT-5.6 minimal should be rejected")
             .contains("minimal"));
+    }
+
+    #[test]
+    fn anthropic_output_config_effort_maps_to_upstream() {
+        for (requested, expected) in [
+            ("low", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            ("xhigh", "xhigh"),
+            ("max", "max"),
+        ] {
+            let request = json!({
+                "model": "gpt-5.6-terra",
+                "output_config": { "effort": requested },
+                "thinking": { "type": "adaptive" },
+                "messages": [{ "role": "user", "content": "hello" }]
+            });
+            let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+                .expect("Anthropic request should convert");
+            assert_eq!(
+                payload
+                    .get("reasoning")
+                    .and_then(|value| value.get("effort"))
+                    .and_then(Value::as_str),
+                Some(expected),
+                "output_config effort {requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_explicit_reasoning_overrides_output_config() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "output_config": { "effort": "low" },
+            "reasoning": { "effort": "high" },
+            "messages": [{ "role": "user", "content": "hello" }]
+        });
+        let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+            .expect("Anthropic request should convert");
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn anthropic_output_config_invalid_effort_falls_back_to_default() {
+        let request = json!({
+            "model": "gpt-5.4",
+            "output_config": { "effort": "turbo" },
+            "messages": [{ "role": "user", "content": "hello" }]
+        });
+        let (payload, _) = convert_anthropic_messages_request_to_codex(&request)
+            .expect("Anthropic request should convert");
+        assert_eq!(
+            payload
+                .get("reasoning")
+                .and_then(|value| value.get("effort"))
+                .and_then(Value::as_str),
+            Some(DEFAULT_API_PROXY_REASONING_EFFORT)
+        );
+    }
+
+    #[test]
+    fn resolved_proxy_default_service_tier_uses_env_else_compiled_default() {
+        let cases = [
+            (Some("fast"), "priority"),
+            (Some("default"), DEFAULT_UPSTREAM_SERVICE_TIER),
+            (Some("bogus"), DEFAULT_UPSTREAM_SERVICE_TIER),
+            (None, DEFAULT_UPSTREAM_SERVICE_TIER),
+        ];
+        for (env_value, expected) in cases {
+            assert_eq!(
+                resolved_proxy_default_service_tier(env_value),
+                expected,
+                "env={env_value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_configured_default_service_tier_respects_explicit_request() {
+        let default_tier = "priority";
+
+        // Request without an explicit tier receives the configured default.
+        let (mut payload, _) = convert_anthropic_messages_request_to_codex(&json!({
+            "model": "gpt-5.4",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }))
+        .expect("Anthropic request should convert");
+        apply_configured_default_service_tier(false, &mut payload, default_tier);
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some(default_tier)
+        );
+
+        // Explicit tier (already normalized, e.g. fast -> priority) is kept.
+        let (mut payload, _) = convert_anthropic_messages_request_to_codex(&json!({
+            "model": "gpt-5.4",
+            "service_tier": "fast",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }))
+        .expect("Anthropic request should convert");
+        apply_configured_default_service_tier(true, &mut payload, default_tier);
+        assert_eq!(
+            payload.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
     }
 
     #[test]
@@ -11515,7 +11969,7 @@ mod tests {
             Some("developer")
         );
 
-        let websocket_payload = normalize_responses_websocket_create(
+        let (websocket_payload, _) = normalize_responses_websocket_create(
             br#"{"type":"response.create","model":"gpt-5.6-luna","input":"hello"}"#,
         )
         .expect("WebSocket payload should normalize");
@@ -12009,7 +12463,7 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&request).expect("serialize request");
 
-        let payload = normalize_responses_websocket_create(&bytes)
+        let (payload, request_specifies_tier) = normalize_responses_websocket_create(&bytes)
             .expect("websocket payload should normalize");
 
         assert_eq!(
@@ -12023,6 +12477,7 @@ mod tests {
         );
         assert_eq!(payload.get("stream").and_then(Value::as_bool), Some(true));
         assert_eq!(payload.get("store").and_then(Value::as_bool), Some(false));
+        assert!(!request_specifies_tier);
     }
 
     #[test]
