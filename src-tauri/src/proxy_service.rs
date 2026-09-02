@@ -226,7 +226,12 @@ const API_PROXY_REASONING_EFFORTS: &[&str] =
     &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 const API_PROXY_SERVICE_TIERS: &[&str] = &["auto", "default", "fast", "flex"];
 const MAX_PROXY_SESSION_AFFINITY_ENTRIES: usize = 512;
+// Idle session bindings expire so long-gone conversations stop pinning
+// accounts; active sessions refresh their binding on every success.
+const PROXY_SESSION_AFFINITY_TTL_SECS: i64 = 3_600;
 const SESSION_AFFINITY_HEADERS: &[&str] = &[
+    "x-claude-code-session-id",
+    "x-claude-session-id",
     "x-codex-tools-session",
     "x-codex-session-id",
     "session_id",
@@ -2762,13 +2767,31 @@ fn request_session_affinity_key_from_headers(headers: &HeaderMap) -> Option<Stri
 
 fn request_session_affinity_key_from_payload(payload: &Value) -> Option<String> {
     let object = payload.as_object()?;
-    SESSION_AFFINITY_PAYLOAD_KEYS.iter().find_map(|name| {
-        object
-            .get(*name)
-            .and_then(Value::as_str)
-            .and_then(normalize_session_affinity_value)
-            .map(|value| format!("payload:{name}:{value}"))
-    })
+    SESSION_AFFINITY_PAYLOAD_KEYS
+        .iter()
+        .find_map(|name| {
+            object
+                .get(*name)
+                .and_then(Value::as_str)
+                .and_then(normalize_session_affinity_value)
+                .map(|value| format!("payload:{name}:{value}"))
+        })
+        .or_else(|| claude_metadata_session_affinity_key(object))
+}
+
+// Claude Code embeds a JSON blob in metadata.user_id whose session_id is the
+// most reliable per-conversation identity; reuse it for account affinity.
+fn claude_metadata_session_affinity_key(object: &Map<String, Value>) -> Option<String> {
+    let user_id = object
+        .get("metadata")
+        .and_then(|metadata| metadata.get("user_id"))
+        .and_then(Value::as_str)?;
+    let parsed = serde_json::from_str::<Value>(user_id).ok()?;
+    parsed
+        .get("session_id")
+        .and_then(Value::as_str)
+        .and_then(normalize_session_affinity_value)
+        .map(|value| format!("metadata:user_id:{value}"))
 }
 
 fn request_session_affinity_key_from_map(
@@ -4949,14 +4972,17 @@ async fn send_codex_request_over_candidates(
         ));
     }
     let load_balance = selection.load_balance;
+    let session_bound_account_key =
+        current_sequential_proxy_account_key(context, session_affinity_key).await;
     let current_sequential_account_key = sequential_account_key_for_request(
-        current_sequential_proxy_account_key(context, session_affinity_key).await,
+        session_bound_account_key.clone(),
         selection.persisted_sequential_account_key,
     );
     let candidates = order_proxy_candidates_for_request(
         selection.candidates,
         load_balance,
         current_sequential_account_key.as_deref(),
+        session_bound_account_key.as_deref(),
     );
 
     let mut attempt_errors = Vec::new();
@@ -4983,14 +5009,12 @@ async fn send_codex_request_over_candidates(
             log_proxy_response_route(route, status);
             if status.is_success() {
                 record_api_proxy_call_success(context, proxy_key, &candidate, route, payload).await;
-                if matches!(load_balance.mode, ApiProxyLoadBalanceMode::Sequential) {
-                    bind_sequential_session_proxy_account(
-                        context,
-                        session_affinity_key,
-                        &candidate.account_key,
-                    )
-                    .await;
-                }
+                bind_sequential_session_proxy_account(
+                    context,
+                    session_affinity_key,
+                    &candidate.account_key,
+                )
+                .await;
                 return Ok((candidate, upstream));
             }
 
@@ -5034,6 +5058,12 @@ async fn send_codex_request_over_candidates(
                 && should_retry_with_token_refresh(status, &upstream_body)
             {
                 if candidate.auth_refresh_blocked {
+                    unbind_session_proxy_account(
+                        context,
+                        session_affinity_key,
+                        &candidate.account_key,
+                    )
+                    .await;
                     attempt_errors.push(format!(
                         "{}: {}",
                         candidate.label,
@@ -5050,6 +5080,12 @@ async fn send_codex_request_over_candidates(
                         continue;
                     }
                     Err(error) => {
+                        unbind_session_proxy_account(
+                            context,
+                            session_affinity_key,
+                            &candidate.account_key,
+                        )
+                        .await;
                         attempt_errors
                             .push(format!("{}: 刷新登录态失败: {}", candidate.label, error));
                         break;
@@ -5058,6 +5094,11 @@ async fn send_codex_request_over_candidates(
             }
 
             if let Some(failure) = classify_retriable_failure(status, &upstream_body) {
+                // Quota/auth/rate-limit failures are attributed to this
+                // account; release the session binding so the next request
+                // re-picks instead of retrying the degraded account first.
+                unbind_session_proxy_account(context, session_affinity_key, &candidate.account_key)
+                    .await;
                 retriable_failures.push(failure);
                 break;
             }
@@ -5766,10 +5807,28 @@ fn order_proxy_candidates_for_request(
     mut candidates: Vec<ProxyCandidate>,
     load_balance: ProxyLoadBalanceConfig,
     current_sequential_account_key: Option<&str>,
+    session_bound_account_key: Option<&str>,
 ) -> Vec<ProxyCandidate> {
     candidates.sort_by(compare_proxy_candidates);
 
     if !matches!(load_balance.mode, ApiProxyLoadBalanceMode::Sequential) {
+        // Usage-based ordering otherwise re-shuffles accounts mid-conversation;
+        // keep a healthy session binding pinned to protect the upstream
+        // prompt-cache shard, and fall back to usage order once it degrades.
+        if let Some(key) = session_bound_account_key {
+            if let Some(index) = candidates
+                .iter()
+                .position(|candidate| candidate.account_key == key)
+            {
+                if can_reuse_sequential_candidate(
+                    &candidates[index],
+                    load_balance.sequential_five_hour_limit_percent,
+                ) {
+                    let bound = candidates.remove(index);
+                    candidates.insert(0, bound);
+                }
+            }
+        }
         return candidates;
     }
 
@@ -9475,11 +9534,38 @@ fn sequential_runtime_account_key(
     session_affinity_key: Option<&str>,
 ) -> Option<String> {
     match session_affinity_key {
-        Some(key) => snapshot
-            .sequential_session_affinity
-            .get(key)
-            .map(|entry| entry.account_key.clone()),
+        Some(key) => {
+            let now = now_unix_seconds();
+            snapshot
+                .sequential_session_affinity
+                .get(key)
+                .filter(|entry| now - entry.updated_at <= PROXY_SESSION_AFFINITY_TTL_SECS)
+                .map(|entry| entry.account_key.clone())
+        }
         None => snapshot.sequential_account_key.clone(),
+    }
+}
+
+// Release a session binding only when it still points at the account that
+// just failed (compare-and-delete semantics), so a request-scoped error
+// cannot drop another account's binding.
+async fn unbind_session_proxy_account(
+    context: &ProxyContext,
+    session_affinity_key: Option<&str>,
+    account_key: &str,
+) {
+    let Some(session_key) = session_affinity_key else {
+        return;
+    };
+
+    let mut snapshot = context.shared.lock().await;
+    if snapshot
+        .sequential_session_affinity
+        .get(session_key)
+        .map(|entry| entry.account_key.as_str())
+        == Some(account_key)
+    {
+        snapshot.sequential_session_affinity.remove(session_key);
     }
 }
 
@@ -10125,6 +10211,7 @@ mod tests {
         let ordered = order_proxy_candidates_for_request(
             vec![chatgpt_candidate, candidate],
             load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
             None,
         );
         assert_eq!(candidate_labels(&ordered), vec!["relay", "chatgpt"]);
@@ -10970,6 +11057,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
             None,
+            None,
         );
 
         assert_eq!(
@@ -10995,6 +11083,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("b"),
+            None,
         );
 
         assert_eq!(candidate_labels(&ordered), vec!["current", "smart best"]);
@@ -11012,6 +11101,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             current_key.as_deref(),
+            None,
         );
 
         assert_eq!(
@@ -11040,14 +11130,14 @@ mod tests {
             "header:x-codex-tools-session:session-a".to_string(),
             ApiProxySessionAffinity {
                 account_key: "account-a".to_string(),
-                updated_at: 10,
+                updated_at: super::now_unix_seconds(),
             },
         );
         snapshot.sequential_session_affinity.insert(
             "header:x-codex-tools-session:session-b".to_string(),
             ApiProxySessionAffinity {
                 account_key: "account-b".to_string(),
-                updated_at: 11,
+                updated_at: super::now_unix_seconds(),
             },
         );
 
@@ -11074,6 +11164,123 @@ mod tests {
         assert_eq!(
             sequential_runtime_account_key(&snapshot, None).as_deref(),
             Some("global")
+        );
+    }
+
+    #[test]
+    fn sequential_runtime_account_key_expires_stale_bindings() {
+        let mut snapshot = ApiProxyRuntimeSnapshot::default();
+        snapshot.sequential_session_affinity.insert(
+            "header:x-codex-tools-session:stale".to_string(),
+            ApiProxySessionAffinity {
+                account_key: "account-stale".to_string(),
+                updated_at: super::now_unix_seconds() - super::PROXY_SESSION_AFFINITY_TTL_SECS - 1,
+            },
+        );
+        snapshot.sequential_session_affinity.insert(
+            "header:x-codex-tools-session:fresh".to_string(),
+            ApiProxySessionAffinity {
+                account_key: "account-fresh".to_string(),
+                updated_at: super::now_unix_seconds(),
+            },
+        );
+
+        assert_eq!(
+            sequential_runtime_account_key(&snapshot, Some("header:x-codex-tools-session:stale")),
+            None
+        );
+        assert_eq!(
+            sequential_runtime_account_key(&snapshot, Some("header:x-codex-tools-session:fresh"))
+                .as_deref(),
+            Some("account-fresh")
+        );
+    }
+
+    #[test]
+    fn average_mode_prefers_healthy_session_binding_over_usage_order() {
+        let candidates = vec![
+            proxy_candidate("least used", "a", Some(5.0), Some(5.0), false),
+            proxy_candidate("bound", "b", Some(50.0), Some(60.0), false),
+            proxy_candidate("most used", "c", Some(90.0), Some(90.0), false),
+        ];
+
+        let ordered = order_proxy_candidates_for_request(
+            candidates,
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+            Some("b"),
+        );
+
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["bound", "least used", "most used"]
+        );
+    }
+
+    #[test]
+    fn average_mode_falls_back_to_usage_order_when_binding_degrades() {
+        let candidates = vec![
+            proxy_candidate("least used", "a", Some(5.0), Some(5.0), false),
+            proxy_candidate("bound blocked", "b", Some(10.0), Some(10.0), true),
+        ];
+
+        let ordered = order_proxy_candidates_for_request(
+            candidates,
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+            Some("b"),
+        );
+
+        assert_eq!(
+            candidate_labels(&ordered),
+            vec!["least used", "bound blocked"]
+        );
+    }
+
+    #[test]
+    fn average_mode_without_binding_keeps_usage_order() {
+        let candidates = vec![
+            proxy_candidate("least used", "a", Some(5.0), Some(5.0), false),
+            proxy_candidate("more used", "b", Some(50.0), Some(60.0), false),
+        ];
+
+        let ordered = order_proxy_candidates_for_request(
+            candidates,
+            load_balance_config(ApiProxyLoadBalanceMode::Average, 80.0),
+            None,
+            None,
+        );
+
+        assert_eq!(candidate_labels(&ordered), vec!["least used", "more used"]);
+    }
+
+    #[test]
+    fn request_session_affinity_key_reads_claude_code_identity() {
+        let headers = HeaderMap::new();
+        let from_header = {
+            let mut headers = headers.clone();
+            headers.insert(
+                "x-claude-code-session-id",
+                HeaderValue::from_static(" cc-session-1 "),
+            );
+            request_session_affinity_key(&headers, &json!({}))
+        };
+        assert_eq!(
+            from_header.as_deref(),
+            Some("header:x-claude-code-session-id:cc-session-1")
+        );
+
+        let from_metadata = request_session_affinity_key(
+            &headers,
+            &json!({
+                "metadata": {
+                    "user_id": "{\"session_id\":\"cc-session-2\"}"
+                }
+            }),
+        );
+        assert_eq!(
+            from_metadata.as_deref(),
+            Some("metadata:user_id:cc-session-2")
         );
     }
 
@@ -11122,6 +11329,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("b"),
+            None,
         );
 
         assert_eq!(
@@ -11142,6 +11350,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("b"),
+            None,
         );
 
         assert_eq!(candidate_labels(&ordered)[0], "current missing");
@@ -11159,6 +11368,7 @@ mod tests {
             candidates,
             load_balance_config(ApiProxyLoadBalanceMode::Sequential, 80.0),
             Some("a"),
+            None,
         );
 
         assert_eq!(
