@@ -35,8 +35,16 @@ const TOKEN_USAGE_TAIL_SIGNATURE_BYTES: u64 = 128;
 const FORK_MATCH_RESYNC_WINDOW: usize = 32;
 const FORK_MATCH_ANCHOR_RECORDS: usize = 4;
 const PRICING_SOURCE: &str =
-    "OpenAI API standard short-context pricing, text tokens per 1M, checked 2026-07-10";
-const COST_ANALYTICS_CACHE_VERSION: u8 = 8;
+    "OpenAI API standard short-context pricing, historical rates by event time, checked 2026-09-05";
+// OpenAI announced lower GPT-5.6 Terra and Luna prices effective 2026-07-30.
+// The announcement only specifies the date, so analytics use the UTC day boundary.
+// Source: https://openai.com/index/advancing-the-price-performance-frontier-with-gpt-5-6/
+const GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT: i64 = 1_785_369_600;
+// Sol price reduction announced 2026-08-21; use the UTC day boundary because
+// the official changelog does not specify an intraday effective time.
+// https://developers.openai.com/api/docs/changelog
+const GPT_5_6_SOL_PRICE_REDUCTION_EFFECTIVE_AT: i64 = 1_787_270_400;
+const COST_ANALYTICS_CACHE_VERSION: u8 = 10;
 const COST_SOURCE_LOCAL: &str = "local_estimate";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -1460,7 +1468,8 @@ fn parse_cost_analytics_lines<R: BufRead>(
         // This provisional value keeps the append-only parser state coherent.
         // The scan derives confirmed usage from cumulative deltas only after
         // direct-parent ownership is known.
-        let event_cost_usd = estimate_token_cost_usd(&state.current_model, &provisional_usage);
+        let event_cost_usd =
+            estimate_token_cost_usd(&state.current_model, timestamp, &provisional_usage);
         let session_id = state.parsed.session.session_id.clone();
         let project_path = state.parsed.session.project_path.clone();
         let project_name = project_name_from_path(&project_path);
@@ -1573,7 +1582,7 @@ fn apply_cumulative_deltas_to_analytics(
         file.events
             .retain(|event| event.record_index >= inherited_record_end);
         for event in &mut file.events {
-            event.cost_usd = estimate_token_cost_usd(&event.model, &event.total);
+            event.cost_usd = estimate_token_cost_usd(&event.model, event.timestamp, &event.total);
         }
         return 0;
     }
@@ -1621,7 +1630,7 @@ fn apply_cumulative_deltas_to_analytics(
             continue;
         }
         event.total = delta;
-        event.cost_usd = estimate_token_cost_usd(&event.model, &event.total);
+        event.cost_usd = estimate_token_cost_usd(&event.model, event.timestamp, &event.total);
         confirmed_events.push(event);
     }
     file.events = confirmed_events;
@@ -2296,8 +2305,8 @@ fn round_percent(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
 }
 
-fn estimate_token_cost_usd(model: &str, usage: &CodexTokenTotals) -> f64 {
-    let rate = pricing_rate_for_model(model);
+fn estimate_token_cost_usd(model: &str, event_timestamp: i64, usage: &CodexTokenTotals) -> f64 {
+    let rate = pricing_rate_for_model_at(model, event_timestamp);
     let cached_input = usage.cached_input_tokens.min(usage.input_tokens);
     let uncached_input = usage.input_tokens.saturating_sub(cached_input);
     let cost = (uncached_input as f64 * rate.input_per_million
@@ -2307,8 +2316,17 @@ fn estimate_token_cost_usd(model: &str, usage: &CodexTokenTotals) -> f64 {
     round_cost(cost)
 }
 
-fn pricing_rate_for_model(model: &str) -> PricingRate {
+fn pricing_rate_for_model_at(model: &str, event_timestamp: i64) -> PricingRate {
     let normalized = model.to_ascii_lowercase();
+    // Standard short-context rates, not subscription billing or fast-tier rates.
+    // https://developers.openai.com/api/docs/models/gpt-6-astra
+    if normalized == "gpt-6-astra" || normalized.starts_with("gpt-6-astra-") {
+        return PricingRate {
+            input_per_million: 10.0,
+            cached_input_per_million: 1.0,
+            output_per_million: 50.0,
+        };
+    }
     if normalized == "gpt-5.6"
         || normalized == "gpt5.6"
         || normalized == "gpt-5-6"
@@ -2316,6 +2334,14 @@ fn pricing_rate_for_model(model: &str) -> PricingRate {
         || normalized.starts_with("gpt5.6-sol")
         || normalized.starts_with("gpt-5-6-sol")
     {
+        // https://developers.openai.com/api/docs/models/gpt-5.6-sol
+        if event_timestamp >= GPT_5_6_SOL_PRICE_REDUCTION_EFFECTIVE_AT {
+            return PricingRate {
+                input_per_million: 4.0,
+                cached_input_per_million: 0.4,
+                output_per_million: 20.0,
+            };
+        }
         return PricingRate {
             input_per_million: 5.0,
             cached_input_per_million: 0.5,
@@ -2326,6 +2352,13 @@ fn pricing_rate_for_model(model: &str) -> PricingRate {
         || normalized.starts_with("gpt5.6-terra")
         || normalized.starts_with("gpt-5-6-terra")
     {
+        if event_timestamp >= GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT {
+            return PricingRate {
+                input_per_million: 2.0,
+                cached_input_per_million: 0.2,
+                output_per_million: 12.0,
+            };
+        }
         return PricingRate {
             input_per_million: 2.5,
             cached_input_per_million: 0.25,
@@ -2336,6 +2369,13 @@ fn pricing_rate_for_model(model: &str) -> PricingRate {
         || normalized.starts_with("gpt5.6-luna")
         || normalized.starts_with("gpt-5-6-luna")
     {
+        if event_timestamp >= GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT {
+            return PricingRate {
+                input_per_million: 0.2,
+                cached_input_per_million: 0.02,
+                output_per_million: 1.2,
+            };
+        }
         return PricingRate {
             input_per_million: 1.0,
             cached_input_per_million: 0.1,
@@ -2896,17 +2936,18 @@ mod tests {
     }
 
     #[test]
-    fn uses_official_gpt_5_6_variant_pricing() {
+    fn uses_july_gpt_5_6_variant_pricing() {
         for (model, input, cached, output) in [
             ("gpt-5.6-sol", 5.0, 0.5, 30.0),
-            ("gpt-5.6-terra", 2.5, 0.25, 15.0),
-            ("gpt-5.6-luna", 1.0, 0.1, 6.0),
+            ("gpt-5.6-terra", 2.0, 0.2, 12.0),
+            ("gpt-5.6-luna", 0.2, 0.02, 1.2),
             ("gpt-5.6", 5.0, 0.5, 30.0),
-            ("gpt5.6-terra", 2.5, 0.25, 15.0),
-            ("gpt-5-6-luna", 1.0, 0.1, 6.0),
+            ("gpt5.6-terra", 2.0, 0.2, 12.0),
+            ("gpt-5-6-luna", 0.2, 0.02, 1.2),
             ("gpt-5.6-sol-2026-07-01", 5.0, 0.5, 30.0),
         ] {
-            let rate = pricing_rate_for_model(model);
+            let rate =
+                pricing_rate_for_model_at(model, GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT);
             assert_eq!(rate.input_per_million, input, "input price for {model}");
             assert_eq!(
                 rate.cached_input_per_million, cached,
@@ -2914,6 +2955,112 @@ mod tests {
             );
             assert_eq!(rate.output_per_million, output, "output price for {model}");
         }
+    }
+
+    #[test]
+    fn prices_sol_cutover_and_astra_without_fallback_rates() {
+        let usage = CodexTokenTotals {
+            input_tokens: 1_000_000,
+            cached_input_tokens: 500_000,
+            output_tokens: 1_000_000,
+            ..Default::default()
+        };
+        let cutoff = GPT_5_6_SOL_PRICE_REDUCTION_EFFECTIVE_AT;
+        for model in [
+            "gpt-5.6-sol",
+            "gpt-5.6",
+            "gpt5.6",
+            "gpt-5-6",
+            "gpt-5.6-sol-2026-07-01",
+        ] {
+            assert_eq!(estimate_token_cost_usd(model, cutoff - 1, &usage), 32.75);
+            assert_eq!(estimate_token_cost_usd(model, cutoff, &usage), 22.2);
+        }
+        for model in ["gpt-6-astra", "GPT-6-ASTRA", "gpt-6-astra-2026-09-03"] {
+            assert_eq!(estimate_token_cost_usd(model, cutoff, &usage), 55.5);
+        }
+    }
+
+    #[test]
+    fn preserves_pre_reduction_gpt_5_6_terra_and_luna_pricing() {
+        for (model, input, cached, output) in [
+            ("gpt-5.6-terra", 2.5, 0.25, 15.0),
+            ("gpt5.6-terra", 2.5, 0.25, 15.0),
+            ("gpt-5.6-luna", 1.0, 0.1, 6.0),
+            ("gpt-5-6-luna", 1.0, 0.1, 6.0),
+        ] {
+            let rate = pricing_rate_for_model_at(
+                model,
+                GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT - 1,
+            );
+            assert_eq!(rate.input_per_million, input, "input price for {model}");
+            assert_eq!(
+                rate.cached_input_per_million, cached,
+                "cached input price for {model}"
+            );
+            assert_eq!(rate.output_per_million, output, "output price for {model}");
+        }
+    }
+
+    #[test]
+    fn prices_mixed_gpt_5_6_history_by_event_timestamp() {
+        let usage = CodexTokenTotals {
+            input_tokens: 1_000_000,
+            cached_input_tokens: 0,
+            output_tokens: 1_000_000,
+            reasoning_output_tokens: 0,
+            total_tokens: 2_000_000,
+        };
+        let before = GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT - 1;
+        let after = GPT_5_6_TERRA_LUNA_PRICE_REDUCTION_EFFECTIVE_AT;
+
+        assert_eq!(
+            estimate_token_cost_usd("gpt-5.6-terra", before, &usage),
+            17.5
+        );
+        assert_eq!(
+            estimate_token_cost_usd("gpt-5.6-terra", after, &usage),
+            14.0
+        );
+        assert_eq!(estimate_token_cost_usd("gpt-5.6-luna", before, &usage), 7.0);
+        assert_eq!(estimate_token_cost_usd("gpt-5.6-luna", after, &usage), 1.4);
+    }
+
+    #[test]
+    fn cost_analytics_applies_historical_price_to_each_event() {
+        let root = unique_temp_dir();
+        let sessions = root.join("sessions").join("2026").join("07").join("30");
+        fs::create_dir_all(&sessions).expect("create sessions dir");
+        fs::write(
+            sessions.join("rollout-price-cutover.jsonl"),
+            [
+                session_meta_line(
+                    "2026-07-29T23:59:58Z",
+                    "price-cutover-session",
+                    None,
+                    "/tmp/price-cutover-project",
+                    "gpt-5.6-terra",
+                ),
+                analytics_token_line("2026-07-29T23:59:59Z", 1_000_000, 0, 1_000_000),
+                analytics_token_line("2026-07-30T00:00:00Z", 1_000_000, 0, 1_000_000),
+            ]
+            .join("\n"),
+        )
+        .expect("write price cutover log");
+
+        let now = parse_timestamp("2026-08-01T00:00:00Z").expect("parse now");
+        let snapshot = scan_codex_cost_analytics_roots_with_progress(
+            &[root.join("sessions")],
+            now,
+            None,
+            |_| {},
+        );
+
+        assert_eq!(snapshot.event_count, 2);
+        assert!((snapshot.total_cost_usd - 31.5).abs() < 0.000001);
+        assert!((snapshot.sessions[0].cost_usd - 31.5).abs() < 0.000001);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -3807,6 +3954,15 @@ mod tests {
             serialize_codex_cost_analytics_cache(&snapshot).expect("cache export"),
         )
         .expect("utf8 cache");
+        let mut stale_cache = serde_json::from_str::<Value>(&cache).expect("parse cache json");
+        for version in [8, 9] {
+            stale_cache["version"] = Value::from(version);
+            assert!(
+                parse_codex_cost_analytics_cache(&stale_cache.to_string(), Some(1.0))
+                    .expect("stale cache parse")
+                    .is_none()
+            );
+        }
         let cached = parse_codex_cost_analytics_cache(&cache, Some(1.0))
             .expect("cache parse")
             .expect("cache snapshot");
