@@ -11,7 +11,10 @@ import { createPortal } from "react-dom";
 import type { AccountSummary, CodexTokenUsageSnapshot, UsageWindow } from "../types/app";
 import { useI18n } from "../i18n/I18nProvider";
 import { compareAccountsByRemaining } from "../utils/accountRanking";
-import { classifyUsageRefreshError } from "../utils/usageRefreshError";
+import {
+  classifyUsageRefreshError,
+  extractUsageRefreshStatusCode,
+} from "../utils/usageRefreshError";
 import {
   formatPlan,
   formatTokenCount,
@@ -70,6 +73,8 @@ type UiCopy = {
   remainingSuffix: (value: string) => string;
   resetTime: string;
   membershipPeriodEnds: string;
+  membershipPeriodHelp: string;
+  membershipUnavailable: string;
   resetCreditsTitle: string;
   resetCreditsAvailable: (count: number | null) => string;
   resetCreditsExpiresAt: string;
@@ -234,6 +239,9 @@ function getUiCopy(locale: string): UiCopy {
       remainingSuffix: (value) => `剩余 ${value}`,
       resetTime: "重置时间",
       membershipPeriodEnds: "会员到期时间（仅供参考）",
+      membershipPeriodHelp:
+        "该时间来自登录令牌，可能缺失或延迟更新；若显示为空，可尝试重新登录。",
+      membershipUnavailable: "未提供",
       resetCreditsTitle: "重置卡",
       resetCreditsAvailable: (count) => (count === null ? "可用数量未知" : `可用 ${count} 张`),
       resetCreditsExpiresAt: "过期时间（系统本地时间）",
@@ -281,6 +289,9 @@ function getUiCopy(locale: string): UiCopy {
     remainingSuffix: (value) => `${value} remaining`,
     resetTime: "Reset time",
     membershipPeriodEnds: "Membership expiry (for reference only)",
+    membershipPeriodHelp:
+      "This date comes from the sign-in token and may be unavailable or delayed. If it is empty, try signing in again.",
+    membershipUnavailable: "Not provided",
     resetCreditsTitle: "Reset cards",
     resetCreditsAvailable: (count) => (count === null ? "Available count unknown" : `${count} available`),
     resetCreditsExpiresAt: "Expires (system local time)",
@@ -374,22 +385,34 @@ function summarizeUsageRefreshError(
   error: string,
   copy: UsageFreshnessCopy,
 ): string {
-  switch (classifyUsageRefreshError(error)) {
+  const kind = classifyUsageRefreshError(error);
+  let summary: string;
+  switch (kind) {
     case "timeout":
-      return copy.usageFailureTimeout;
+      summary = copy.usageFailureTimeout;
+      break;
     case "network":
-      return copy.usageFailureNetwork;
+      summary = copy.usageFailureNetwork;
+      break;
     case "authorization":
-      return copy.usageFailureAuthorization;
+      summary = copy.usageFailureAuthorization;
+      break;
     case "rateLimited":
-      return copy.usageFailureRateLimited;
+      summary = copy.usageFailureRateLimited;
+      break;
     case "server":
-      return copy.usageFailureServer;
+      summary = copy.usageFailureServer;
+      break;
     case "invalidResponse":
-      return copy.usageFailureInvalidResponse;
+      summary = copy.usageFailureInvalidResponse;
+      break;
     case "unknown":
-      return copy.usageFailureUnknown;
+      summary = copy.usageFailureUnknown;
+      break;
   }
+
+  const statusCode = extractUsageRefreshStatusCode(error, kind);
+  return statusCode === null ? summary : `${summary} (${statusCode})`;
 }
 
 function formatUsageFetchedAt(epochSec: number | null | undefined, locale: string): string | null {
@@ -432,10 +455,14 @@ function UsageFreshnessBadge({
       : copy.usageRefreshing;
   } else if (error) {
     tone = "error";
-    const reason = summarizeUsageRefreshError(error, copy);
-    label = fetchedAt
-      ? copy.usageRefreshFailedCached(reason, fetchedAt)
-      : copy.usageRefreshFailed(reason);
+    if (account.authRefreshBlocked) {
+      label = error;
+    } else {
+      const reason = summarizeUsageRefreshError(error, copy);
+      label = fetchedAt
+        ? copy.usageRefreshFailedCached(reason, fetchedAt)
+        : copy.usageRefreshFailed(reason);
+    }
   } else if (fetchedAt) {
     return null;
   }
@@ -1376,15 +1403,46 @@ export function AccountsGrid({
             </section>
 
             <section className="detailMetaGrid">
-              <div>
-                <span>{text.membershipPeriodEnds}</span>
+              <div className="membershipExpiryMeta">
+                <span className="membershipExpiryLabel">
+                  {text.membershipPeriodEnds}
+                  <span className="membershipHelpTip">
+                    <button
+                      type="button"
+                      className="membershipHelpButton"
+                      aria-label={text.membershipPeriodHelp}
+                      aria-describedby={`membership-help-${selectedRow.account.id}`}
+                    >
+                      i
+                    </button>
+                    <span
+                      id={`membership-help-${selectedRow.account.id}`}
+                      className="membershipHelpBubble"
+                      role="tooltip"
+                    >
+                      {text.membershipPeriodHelp}
+                    </span>
+                  </span>
+                </span>
                 <strong>
-                  {formatFullDate(
-                    selectedRow.account.subscriptionActiveUntil,
-                    locale,
-                    text.emptyValue,
-                  )}
+                  {selectedRow.account.subscriptionActiveUntil
+                    ? formatFullDate(
+                        selectedRow.account.subscriptionActiveUntil,
+                        locale,
+                        text.membershipUnavailable,
+                      )
+                    : text.membershipUnavailable}
                 </strong>
+                {!selectedRow.account.subscriptionActiveUntil ? (
+                  <button
+                    type="button"
+                    className="membershipReauthorizeAction"
+                    onClick={() => onReauthorize(selectedRow.account)}
+                    disabled={authBusy}
+                  >
+                    {text.reauthorize}
+                  </button>
+                ) : null}
               </div>
               <div>
                 <span>{text.planType}</span>

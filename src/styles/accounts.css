@@ -989,7 +989,7 @@ button.accountTokenExportButton {
 .detailMetaGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  overflow: hidden;
+  overflow: visible;
 }
 
 .detailMetaGrid div {
@@ -1022,6 +1022,90 @@ button.accountTokenExportButton {
   color: var(--ink);
   font: 750 0.76rem/1.25 var(--font-ui);
   overflow-wrap: anywhere;
+}
+
+.membershipExpiryMeta {
+  position: relative;
+}
+
+.detailMetaGrid .membershipExpiryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detailMetaGrid .membershipHelpTip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.membershipHelpButton {
+  width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--brand-cool) 38%, var(--line) 62%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--control-bg) 88%, var(--brand-cool) 12%);
+  color: var(--brand-cool);
+  font: 850 0.65rem/1 var(--font-ui);
+  cursor: help;
+}
+
+.membershipHelpButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-cool) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.detailMetaGrid .membershipHelpBubble {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: min(280px, calc(100vw - 64px));
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  color: var(--ink);
+  font: 650 0.72rem/1.45 var(--font-ui);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 130ms ease,
+    transform 130ms ease,
+    visibility 130ms ease;
+  visibility: hidden;
+}
+
+.membershipHelpTip:hover .membershipHelpBubble,
+.membershipHelpTip:focus-within .membershipHelpBubble {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.membershipReauthorizeAction {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand-cool);
+  font: 750 0.7rem/1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.membershipReauthorizeAction:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.membershipReauthorizeAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .detailSectionTitle {

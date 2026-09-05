@@ -24,10 +24,10 @@ function phrases(
 }
 
 const AUTH_EXPIRED_MESSAGE = phrases(
-  "工具保存的授权快照已失效，请重新登录授权。",
+  "保存的授权快照已失效，请重新登录",
   "The saved authorization snapshot is no longer valid. Please sign in again.",
-  "保存された認証スナップショットが無効になりました。再度ログインして認可してください。",
-  "저장된 인증 스냅샷이 더 이상 유효하지 않습니다. 다시 로그인하여 인증하세요.",
+  "保存された認証スナップショットが無効になりました。再度ログインしてください。",
+  "저장된 인증 스냅샷이 더 이상 유효하지 않습니다. 다시 로그인하세요.",
   "Сохраненный снимок авторизации больше недействителен. Войдите снова."
 );
 
@@ -56,13 +56,11 @@ const REPLACEMENTS: PhraseReplacement[] = [
   },
   {
     source: "工具保存的授权快照已失效，请重新登录授权。",
-    target: phrases(
-      "工具保存的授权快照已失效，请重新登录授权。",
-      "The saved authorization snapshot is no longer valid. Please sign in again.",
-      "保存された認証スナップショットが無効になりました。再度ログインして認可してください。",
-      "저장된 인증 스냅샷이 더 이상 유효하지 않습니다. 다시 로그인하여 인증하세요.",
-      "Сохраненный снимок авторизации больше недействителен. Войдите снова."
-    ),
+    target: AUTH_EXPIRED_MESSAGE,
+  },
+  {
+    source: "保存的授权快照已失效，请重新登录",
+    target: AUTH_EXPIRED_MESSAGE,
   },
   {
     source: "用量刷新失败：登录令牌已过期，请刷新用量或切换账号重新校验。",
