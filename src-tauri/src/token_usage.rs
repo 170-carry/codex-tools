@@ -618,14 +618,21 @@ fn matching_record_boundary(child: &[u64], parent: &[u64], resync_window: usize)
         // envelope records. Re-synchronise only after a run of normalized,
         // high-entropy records confirms the alignment, so a genuine branch
         // point remains a conservative stop boundary.
-        let child_search_end = child
-            .len()
-            .saturating_sub(FORK_MATCH_ANCHOR_RECORDS)
-            .min(child_index.saturating_add(resync_window));
-        let parent_search_end = parent
-            .len()
-            .saturating_sub(FORK_MATCH_ANCHOR_RECORDS)
-            .min(parent_index.saturating_add(resync_window));
+        let Some(child_last_anchor_start) = child.len().checked_sub(FORK_MATCH_ANCHOR_RECORDS)
+        else {
+            break;
+        };
+        let Some(parent_last_anchor_start) = parent.len().checked_sub(FORK_MATCH_ANCHOR_RECORDS)
+        else {
+            break;
+        };
+        if child_index > child_last_anchor_start || parent_index > parent_last_anchor_start {
+            break;
+        }
+        let child_search_end =
+            child_last_anchor_start.min(child_index.saturating_add(resync_window));
+        let parent_search_end =
+            parent_last_anchor_start.min(parent_index.saturating_add(resync_window));
         let mut best_alignment = None::<(usize, usize, usize)>;
         for next_child in child_index..=child_search_end {
             for next_parent in parent_index..=parent_search_end {
@@ -3415,6 +3422,22 @@ mod tests {
         assert_eq!(
             matching_record_prefix(&child, &parent, FORK_MATCH_RESYNC_WINDOW),
             3
+        );
+    }
+
+    #[test]
+    fn fork_record_matching_short_mismatch_stops_without_panicking() {
+        assert_eq!(
+            matching_record_prefix(&[1], &[2], FORK_MATCH_RESYNC_WINDOW),
+            0
+        );
+        assert_eq!(
+            matching_record_prefix(&[1], &[2, 3, 4, 5, 6], FORK_MATCH_RESYNC_WINDOW),
+            0
+        );
+        assert_eq!(
+            matching_record_prefix(&[1, 2, 3, 4, 5], &[6], FORK_MATCH_RESYNC_WINDOW),
+            0
         );
     }
 

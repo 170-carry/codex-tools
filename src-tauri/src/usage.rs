@@ -2,7 +2,6 @@ use serde::Deserialize;
 use std::error::Error as StdError;
 
 use crate::app_paths;
-use crate::models::align_zero_five_hour_usage_with_weekly;
 use crate::models::CreditSnapshot;
 use crate::models::ResetCredit;
 use crate::models::ResetCreditsSnapshot;
@@ -303,7 +302,9 @@ fn map_usage_payload(
     let five_hour = pick_nearest_window(&windows, 5 * 60 * 60).map(to_usage_window);
     let one_week = pick_nearest_window(&windows, 7 * 24 * 60 * 60).map(to_usage_window);
 
-    let mut snapshot = UsageSnapshot {
+    // A zero percentage is a valid freshly reset window. Keep each API window
+    // independent instead of inferring one window's value from another.
+    UsageSnapshot {
         fetched_at: now_unix_seconds(),
         plan_type: payload.plan_type,
         five_hour,
@@ -314,9 +315,7 @@ fn map_usage_payload(
             balance: credit.balance,
         }),
         reset_credits,
-    };
-    align_zero_five_hour_usage_with_weekly(&mut snapshot);
-    snapshot
+    }
 }
 
 fn map_reset_credits_payload(payload: serde_json::Value) -> ResetCreditsSnapshot {
@@ -426,7 +425,65 @@ fn to_usage_window(window: UsageWindowRaw) -> UsageWindow {
 #[cfg(test)]
 mod tests {
     use super::map_reset_credits_payload;
+    use super::map_usage_payload;
+    use super::RateLimitDetails;
+    use super::UsageApiResponse;
+    use super::UsageWindowRaw;
     use serde_json::json;
+
+    #[test]
+    fn zero_five_hour_window_remains_independent_from_weekly_usage() {
+        let snapshot = map_usage_payload(
+            UsageApiResponse {
+                plan_type: Some("plus".to_string()),
+                rate_limit: Some(RateLimitDetails {
+                    primary_window: Some(UsageWindowRaw {
+                        used_percent: 0.0,
+                        limit_window_seconds: 5 * 60 * 60,
+                        reset_at: 1_800,
+                    }),
+                    secondary_window: Some(UsageWindowRaw {
+                        used_percent: 37.0,
+                        limit_window_seconds: 7 * 24 * 60 * 60,
+                        reset_at: 604_800,
+                    }),
+                }),
+                additional_rate_limits: None,
+                credits: None,
+            },
+            None,
+        );
+
+        assert_eq!(snapshot.five_hour.unwrap().used_percent, 0.0);
+        assert_eq!(snapshot.one_week.unwrap().used_percent, 37.0);
+    }
+
+    #[test]
+    fn nonzero_five_hour_window_remains_independent_from_weekly_usage() {
+        let snapshot = map_usage_payload(
+            UsageApiResponse {
+                plan_type: Some("plus".to_string()),
+                rate_limit: Some(RateLimitDetails {
+                    primary_window: Some(UsageWindowRaw {
+                        used_percent: 12.0,
+                        limit_window_seconds: 5 * 60 * 60,
+                        reset_at: 1_800,
+                    }),
+                    secondary_window: Some(UsageWindowRaw {
+                        used_percent: 37.0,
+                        limit_window_seconds: 7 * 24 * 60 * 60,
+                        reset_at: 604_800,
+                    }),
+                }),
+                additional_rate_limits: None,
+                credits: None,
+            },
+            None,
+        );
+
+        assert_eq!(snapshot.five_hour.unwrap().used_percent, 12.0);
+        assert_eq!(snapshot.one_week.unwrap().used_percent, 37.0);
+    }
 
     #[test]
     fn reset_credits_payload_accepts_common_timestamp_shapes() {

@@ -16,7 +16,6 @@ use crate::auth::extract_auth;
 use crate::auth::has_newer_auth_refresh_snapshot;
 use crate::auth::read_current_codex_auth_optional;
 use crate::auth::write_active_codex_auth;
-use crate::models::align_zero_five_hour_usage_with_weekly;
 use crate::models::dedupe_account_variants;
 use crate::models::AccountSourceKind;
 use crate::models::AccountsStore;
@@ -371,14 +370,6 @@ fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStor
     }
 
     for account in &mut store.accounts {
-        if account
-            .usage
-            .as_mut()
-            .is_some_and(align_zero_five_hour_usage_with_weekly)
-        {
-            changed = true;
-        }
-
         if account
             .principal_id
             .as_deref()
@@ -901,32 +892,32 @@ mod tests {
     }
 
     #[test]
-    fn loading_store_persists_zero_five_hour_placeholder_alignment() {
+    fn loading_store_preserves_zero_five_hour_usage() {
         let dir = temp_dir();
         let store_path = dir.join("accounts.json");
-        let mut store = sample_store("usage-placeholder", "workspace-usage", 10);
-        let mut usage = usage_snapshot("pro");
+        let mut store = sample_store("zero-five-hour", "workspace-usage", 10);
+        let mut usage = usage_snapshot("plus");
         usage.five_hour.as_mut().unwrap().used_percent = 0.0;
         usage.one_week.as_mut().unwrap().used_percent = 31.0;
         store.accounts[0].usage = Some(usage);
-        save_store_to_path(&store_path, &store).expect("save placeholder store");
+        save_store_to_path(&store_path, &store).expect("save usage store");
 
-        let loaded = load_store_from_path(&store_path).expect("load normalized store");
+        let loaded = load_store_from_path(&store_path).expect("load usage store");
         assert_eq!(
             loaded.accounts[0]
                 .usage
                 .as_ref()
                 .and_then(|usage| usage.five_hour.as_ref())
                 .map(|window| window.used_percent),
-            Some(31.0)
+            Some(0.0)
         );
 
         let persisted: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&store_path).expect("read normalized store"))
-                .expect("parse normalized store");
+            serde_json::from_str(&fs::read_to_string(&store_path).expect("read usage store"))
+                .expect("parse usage store");
         assert_eq!(
             persisted["accounts"][0]["usage"]["fiveHour"]["usedPercent"],
-            31.0
+            0.0
         );
     }
 
