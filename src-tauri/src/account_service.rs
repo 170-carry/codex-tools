@@ -69,7 +69,7 @@ use crate::utils::short_account;
 
 const DEACTIVATED_WORKSPACE_NOTICE: &str = "该账号已被踢出 team 组织，请重新授权后再刷新。";
 const DEACTIVATED_ACCOUNT_NOTICE: &str = "账号被封禁，请检查邮箱";
-const AUTH_EXPIRED_NOTICE: &str = "工具保存的授权快照已失效，请重新登录授权。";
+const AUTH_EXPIRED_NOTICE: &str = "保存的授权快照已失效，请重新登录";
 const USAGE_AUTH_TOKEN_EXPIRED_NOTICE: &str =
     "用量刷新失败：登录令牌已过期，请刷新用量或切换账号重新校验。";
 const EXPORT_ARCHIVE_ENTRY_NAME: &str = "accounts.json";
@@ -1777,7 +1777,10 @@ fn normalize_usage_error_message(raw_error: &str) -> String {
         return DEACTIVATED_ACCOUNT_NOTICE.to_string();
     }
     if is_refresh_token_invalidation_error(&normalized) {
-        return AUTH_EXPIRED_NOTICE.to_string();
+        return match last_http_status_code(raw_error) {
+            Some(status_code) => format!("{status_code}：{AUTH_EXPIRED_NOTICE}"),
+            None => AUTH_EXPIRED_NOTICE.to_string(),
+        };
     }
     if normalized.contains("provided authentication token is expired")
         || normalized.contains("token is expired")
@@ -1785,6 +1788,15 @@ fn normalize_usage_error_message(raw_error: &str) -> String {
         return USAGE_AUTH_TOKEN_EXPIRED_NOTICE.to_string();
     }
     raw_error.to_string()
+}
+
+fn last_http_status_code(raw_error: &str) -> Option<u16> {
+    raw_error
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|part| part.len() == 3)
+        .filter_map(|part| part.parse::<u16>().ok())
+        .filter(|status_code| (400..=599).contains(status_code))
+        .last()
 }
 
 fn is_invalid_refresh_grant(normalized_error: &str) -> bool {
@@ -2434,10 +2446,12 @@ fn normalize_import_source(source: &str) -> String {
 mod tests {
     use super::account_has_active_five_hour_window;
     use super::account_weekly_quota_exhausted;
+    use super::apply_reauthorized_account;
     use super::build_refresh_targets;
     use super::expand_import_json_content;
     use super::is_stale_refresh_snapshot_error;
     use super::keepalive_max_last_refresh_age_secs;
+    use super::last_http_status_code;
     use super::normalize_api_account_connection_input;
     use super::normalize_usage_error_message;
     use super::refresh_usage_worker_count_from_resources;
@@ -2448,6 +2462,7 @@ mod tests {
     use super::should_reuse_successful_usage_refresh;
     use super::should_suspend_auth_keepalive;
     use super::upsert_prepared_import;
+    use super::validate_reauthorization_target;
     use super::warmup_attempt_is_recent;
     use super::PreparedImport;
     use super::AUTH_EXPIRED_NOTICE;
@@ -2456,6 +2471,8 @@ mod tests {
     use super::PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS;
     use super::USAGE_AUTH_TOKEN_EXPIRED_NOTICE;
     use super::USAGE_REFRESH_REUSE_WINDOW;
+    use crate::auth::chatgpt_subscription_active_until;
+    use crate::models::dedupe_account_variants;
     use crate::models::AccountWarmupAttempt;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
@@ -2652,6 +2669,45 @@ mod tests {
             }),
             credits: None,
             reset_credits: None,
+        }
+    }
+
+    fn stored_chatgpt_account(
+        id: &str,
+        principal_id: &str,
+        account_id: &str,
+        email: &str,
+        plan_type: &str,
+        auth_json: serde_json::Value,
+        updated_at: i64,
+    ) -> StoredAccount {
+        StoredAccount {
+            id: id.to_string(),
+            label: email.to_string(),
+            source_kind: Default::default(),
+            principal_id: Some(principal_id.to_string()),
+            email: Some(email.to_string()),
+            account_id: account_id.to_string(),
+            plan_type: Some(plan_type.to_string()),
+            auth_json,
+            api_base_url: None,
+            api_key: None,
+            model_name: None,
+            balance_text: None,
+            profile_auth_path: None,
+            profile_config_path: None,
+            profile_auth_ready: false,
+            profile_config_ready: false,
+            profile_integrity_error: None,
+            profile_last_validated_at: None,
+            profile_last_validation_error: None,
+            added_at: 1,
+            updated_at,
+            usage: Some(usage_snapshot(plan_type)),
+            usage_error: None,
+            auth_refresh_blocked: false,
+            auth_refresh_error: None,
+            api_proxy_enabled: true,
         }
     }
 
@@ -3138,6 +3194,83 @@ mod tests {
     }
 
     #[test]
+    fn reauthorizing_non_current_account_preserves_both_membership_snapshots() {
+        let now = 2_000_000_000;
+        let current_membership_until = now + 4 * 24 * 60 * 60;
+        let target_old_membership_until = now + 2 * 24 * 60 * 60;
+        let target_new_membership_until = now + 30 * 24 * 60 * 60;
+        let current_auth = membership_auth_json("pro", current_membership_until, now - 120);
+        let target_old_auth = membership_auth_json("plus", target_old_membership_until, now - 120);
+        let target_new_auth = membership_auth_json("plus", target_new_membership_until, now);
+
+        let current_account = stored_chatgpt_account(
+            "current-account",
+            "current-user",
+            "workspace-current",
+            "current@example.com",
+            "pro",
+            current_auth.clone(),
+            now - 120,
+        );
+        let target_account = stored_chatgpt_account(
+            "target-account",
+            "target-user",
+            "workspace-target",
+            "target@example.com",
+            "plus",
+            target_old_auth,
+            now - 120,
+        );
+        let current_account_key = current_account.account_key();
+        let target_account_key = target_account.account_key();
+        let current_auth_override = (current_account_key.clone(), current_auth.clone());
+        let mut accounts = vec![current_account, target_account];
+
+        let prepared = PreparedImport {
+            principal_id: "target-user".to_string(),
+            auth_json: target_new_auth.clone(),
+            account_id: "workspace-target".to_string(),
+            email: Some("target@example.com".to_string()),
+            plan_type: Some("plus".to_string()),
+            usage: Some(usage_snapshot("plus")),
+            label: Some("target@example.com".to_string()),
+        };
+        let target = accounts
+            .iter_mut()
+            .find(|account| account.id == "target-account")
+            .expect("target account should exist");
+
+        assert_ne!(target.account_key(), current_account_key);
+        validate_reauthorization_target(target, &prepared)
+            .expect("reauthorization should match the non-current target");
+        apply_reauthorized_account(target, prepared);
+        dedupe_account_variants(&mut accounts);
+
+        let refresh_targets = build_refresh_targets(accounts, Some(&current_auth_override));
+        let current_refresh_target = refresh_targets
+            .iter()
+            .find(|target| target.account_key == current_account_key)
+            .expect("current refresh target should exist");
+        let reauthorized_refresh_target = refresh_targets
+            .iter()
+            .find(|target| target.account_key == target_account_key)
+            .expect("reauthorized refresh target should exist");
+
+        assert!(current_refresh_target.auth_is_current);
+        assert!(!reauthorized_refresh_target.auth_is_current);
+        assert_eq!(current_refresh_target.auth_json, current_auth);
+        assert_eq!(reauthorized_refresh_target.auth_json, target_new_auth);
+        assert_eq!(
+            chatgpt_subscription_active_until(&current_refresh_target.auth_json),
+            Some(current_membership_until)
+        );
+        assert_eq!(
+            chatgpt_subscription_active_until(&reauthorized_refresh_target.auth_json),
+            Some(target_new_membership_until)
+        );
+    }
+
+    #[test]
     fn keepalive_refresh_age_is_stable_and_staggered() {
         let first = keepalive_max_last_refresh_age_secs("account-a");
         let second = keepalive_max_last_refresh_age_secs("account-b");
@@ -3198,7 +3331,10 @@ mod tests {
         let error = r#"刷新登录令牌失败 https://auth.openai.com/oauth/token -> 400 Bad Request: {"error":"invalid_grant","error_description":"Refresh token expired"}"#;
 
         assert!(should_suspend_auth_keepalive(error));
-        assert_eq!(normalize_usage_error_message(error), AUTH_EXPIRED_NOTICE);
+        assert_eq!(
+            normalize_usage_error_message(error),
+            format!("400：{AUTH_EXPIRED_NOTICE}")
+        );
     }
 
     #[test]
@@ -3207,6 +3343,17 @@ mod tests {
 
         assert!(should_suspend_auth_keepalive(error));
         assert_eq!(normalize_usage_error_message(error), AUTH_EXPIRED_NOTICE);
+    }
+
+    #[test]
+    fn refresh_failure_notice_uses_the_refresh_endpoint_status() {
+        let error = r#"请求用量接口失败: 401 Unauthorized | 令牌刷新失败: 400 Bad Request: {"error":"invalid_grant"}"#;
+
+        assert_eq!(last_http_status_code(error), Some(400));
+        assert_eq!(
+            normalize_usage_error_message(error),
+            format!("400：{AUTH_EXPIRED_NOTICE}")
+        );
     }
 
     #[test]

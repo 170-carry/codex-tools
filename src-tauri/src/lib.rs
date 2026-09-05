@@ -1785,6 +1785,8 @@ async fn switch_account_and_launch(
     restart_editor_targets: Option<Vec<EditorAppId>>,
 ) -> Result<SwitchAccountResult, String> {
     let should_launch_codex = launch_codex.unwrap_or(true);
+    #[cfg(target_os = "windows")]
+    let windows_launch_plan;
     let (
         account,
         should_sync_opencode,
@@ -1905,9 +1907,25 @@ async fn switch_account_and_launch(
             restart_editor_targets.unwrap_or_else(|| store.settings.restart_editor_targets.clone());
         let configured_codex_launch_path = store.settings.codex_launch_path.clone();
         let launch_codex_as_admin = store.settings.launch_codex_as_admin;
+        #[cfg(target_os = "windows")]
+        {
+            windows_launch_plan = if should_launch_codex {
+                Some(cli::prepare_windows_codex_launch(
+                    configured_codex_launch_path.as_deref(),
+                    launch_codex_as_admin,
+                )?)
+            } else {
+                None
+            };
+        }
         if should_launch_codex {
             // Stop the desktop client before capturing its final rotated token and
             // replacing auth.json. Otherwise a late refresh can be lost on switch.
+            #[cfg(target_os = "windows")]
+            if let Some(plan) = &windows_launch_plan {
+                plan.stop_desktop()?;
+            }
+            #[cfg(not(target_os = "windows"))]
             force_stop_running_codex()?;
         }
         {
@@ -2010,135 +2028,52 @@ async fn switch_account_and_launch(
         });
     }
 
-    let mut app_launch_error = None;
-    if let Some(path) = cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
-        .or_else(cli::find_codex_app_path)
-    {
-        match launch_codex_app(&path, workspace_path.as_deref(), launch_codex_as_admin) {
-            Ok(()) => {
-                return Ok(SwitchAccountResult {
-                    account_id: account.account_id,
-                    no_op: false,
-                    launched_app_path: Some(path.to_string_lossy().to_string()),
-                    used_fallback_cli: false,
-                    opencode_synced,
-                    opencode_sync_error,
-                    opencode_desktop_restarted,
-                    opencode_desktop_restart_error,
-                    restarted_editor_apps,
-                    editor_restart_error,
-                    provider_sync_error: provider_sync_error.clone(),
-                });
-            }
-            Err(error) => {
-                log::warn!("通过 Codex 应用路径启动失败 {}: {}", path.display(), error);
-                app_launch_error = Some(error);
-            }
-        }
-    }
-
     #[cfg(target_os = "windows")]
-    if cli::has_windows_store_codex_app() {
-        if launch_codex_as_admin {
-            let error =
-                "微软商店版 Codex 不支持以管理员身份启动，请在设置里指定桌面版 Codex.exe 或安装 Codex CLI。"
-                    .to_string();
-            log::warn!("{error}");
-            app_launch_error = Some(match app_launch_error {
-                Some(previous_error) => format!("{previous_error}；且{error}"),
-                None => error,
-            });
-        } else {
-            match cli::launch_windows_store_codex() {
-                Ok(()) => {
-                    return Ok(SwitchAccountResult {
-                        account_id: account.account_id,
-                        no_op: false,
-                        launched_app_path: None,
-                        used_fallback_cli: false,
-                        opencode_synced,
-                        opencode_sync_error,
-                        opencode_desktop_restarted,
-                        opencode_desktop_restart_error,
-                        restarted_editor_apps,
-                        editor_restart_error,
-                        provider_sync_error: provider_sync_error.clone(),
-                    });
-                }
-                Err(error) => {
-                    log::warn!("通过 Windows Store AUMID 启动 Codex 失败: {error}");
-                    app_launch_error = Some(match app_launch_error {
-                        Some(previous_error) => {
-                            format!(
-                                "{previous_error}；且通过 Windows Store AUMID 启动失败: {error}"
-                            )
-                        }
-                        None => format!("通过 Windows Store AUMID 启动失败: {error}"),
-                    });
-                }
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if launch_codex_as_admin {
-            let mut args = vec!["app".to_string()];
-            if let Some(workspace) = workspace_path.as_deref() {
-                args.push(workspace.to_string());
-            }
-            cli::launch_codex_command_elevated(configured_codex_launch_path.as_deref(), &args)
-                .map_err(|e| {
-                    if let Some(app_launch_error) = app_launch_error.as_ref() {
-                        format!(
-                            "通过 Codex 应用路径启动失败: {app_launch_error}；且通过管理员 codex app 启动失败: {e}"
-                        )
-                    } else {
-                        format!("未检测到本地 Codex 应用，且通过管理员 codex app 启动失败: {e}")
-                    }
-                })?;
-        } else {
-            let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
-            cmd.arg("app");
-            if let Some(workspace) = workspace_path.as_deref() {
-                cmd.arg(workspace);
-            }
-            cmd.spawn().map_err(|e| {
-                if let Some(app_launch_error) = app_launch_error.as_ref() {
-                    format!(
-                        "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
-                    )
-                } else {
-                    format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
-                }
-            })?;
-        }
-    }
+    let (launched_app_path, used_fallback_cli) = {
+        let _ = (configured_codex_launch_path, launch_codex_as_admin);
+        windows_launch_plan
+            .ok_or_else(|| "缺少切换前已验证的 Windows 启动目标。".to_string())?
+            .launch(workspace_path.as_deref())
+            .map_err(|error| format!("当前账号已切换，但桌面未能启动：{error}"))?
+    };
 
     #[cfg(not(target_os = "windows"))]
-    {
-        let _ = launch_codex_as_admin;
-        let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())?;
+    let (launched_app_path, used_fallback_cli) = (|| -> Result<(Option<String>, bool), String> {
+        let mut app_launch_error = None;
+        if let Some(path) =
+            cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
+                .or_else(cli::find_codex_app_path)
+        {
+            match launch_codex_app(&path, workspace_path.as_deref(), launch_codex_as_admin) {
+                Ok(()) => return Ok((Some(path.to_string_lossy().to_string()), false)),
+                Err(error) => {
+                    log::warn!("通过 Codex 应用路径启动失败 {}: {}", path.display(), error);
+                    app_launch_error = Some(error);
+                }
+            }
+        }
+        let format_error = |error: String| match &app_launch_error {
+            Some(previous) => format!(
+                "通过 Codex 应用路径启动失败: {previous}；且通过 codex app 启动失败: {error}"
+            ),
+            None => format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {error}"),
+        };
+        let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())
+            .map_err(&format_error)?;
         cmd.arg("app");
         if let Some(workspace) = workspace_path.as_deref() {
             cmd.arg(workspace);
         }
-        cmd.spawn().map_err(|e| {
-            if let Some(app_launch_error) = app_launch_error.as_ref() {
-                format!(
-                    "通过 Codex 应用路径启动失败: {app_launch_error}；且通过 codex app 启动失败: {e}"
-                )
-            } else {
-                format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {e}")
-            }
-        })?;
-    }
+        cmd.spawn()
+            .map_err(|error| format_error(error.to_string()))?;
+        Ok((None, true))
+    })()?;
 
     Ok(SwitchAccountResult {
         account_id: account.account_id,
         no_op: false,
-        launched_app_path: None,
-        used_fallback_cli: true,
+        launched_app_path,
+        used_fallback_cli,
         opencode_synced,
         opencode_sync_error,
         opencode_desktop_restarted,
@@ -2716,17 +2651,11 @@ fn stop_running_macos_codex_processes() -> Result<(), String> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn force_stop_running_codex() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         stop_running_macos_codex_processes()?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let _ = new_background_command("taskkill")
-            .args(["/F", "/IM", "Codex.exe", "/T"])
-            .status();
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

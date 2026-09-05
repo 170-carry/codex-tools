@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   classifyUsageRefreshError,
+  extractUsageRefreshStatusCode,
   type UsageRefreshFailureKind,
 } from "../src/utils/usageRefreshError.ts";
 
@@ -73,6 +74,13 @@ const fixtures: Array<{
     expectedLabel: "更新失败：服务暂不可用 · 显示缓存 07/22 09:54",
   },
   {
+    name: "主接口 503 且备用接口返回 403 HTML",
+    error:
+      "请求用量接口失败: https://chatgpt.com/backend-api/wham/usage -> 503 Service Unavailable: biscuit_baker_service_me_circuit_open | https://chatgpt.com/wham/usage -> 403 Forbidden: <html>",
+    expectedKind: "server",
+    expectedLabel: "更新失败：服务暂不可用 · 显示缓存 07/22 09:54",
+  },
+  {
     name: "返回数据无效",
     error:
       "请求用量接口失败: https://chatgpt.com/backend-api/wham/usage -> 解析返回失败: expected value at line 1 column 1",
@@ -94,6 +102,17 @@ function fillTemplate(template: string, values: Record<string, string>): string 
     template,
   );
 }
+
+test("组合错误优先展示主服务的 503", () => {
+  const error =
+    "primary -> 503 Service Unavailable: biscuit_baker_service_me_circuit_open | fallback -> 403 Forbidden: <html>";
+  assert.equal(extractUsageRefreshStatusCode(error), 503);
+});
+
+test("授权错误优先展示 401 或 403", () => {
+  assert.equal(extractUsageRefreshStatusCode("fallback 403 | primary 401 Unauthorized"), 401);
+  assert.equal(extractUsageRefreshStatusCode("request failed with 403 Forbidden"), 403);
+});
 
 for (const fixture of fixtures) {
   test(`${fixture.name} -> ${fixture.expectedLabel}`, () => {

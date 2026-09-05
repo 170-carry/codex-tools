@@ -28,6 +28,16 @@ export function classifyUsageRefreshError(error: string): UsageRefreshFailureKin
     return "rateLimited";
   }
   if (
+    /\b5\d\d\b/.test(normalized) ||
+    normalized.includes("service unavailable") ||
+    normalized.includes("bad gateway") ||
+    normalized.includes("internal server error") ||
+    normalized.includes("circuit_open") ||
+    normalized.includes("服务不可用")
+  ) {
+    return "server";
+  }
+  if (
     /\b(?:401|403)\b/.test(normalized) ||
     normalized.includes("unauthorized") ||
     normalized.includes("forbidden") ||
@@ -44,15 +54,6 @@ export function classifyUsageRefreshError(error: string): UsageRefreshFailureKin
     normalized.includes("account blocked")
   ) {
     return "authorization";
-  }
-  if (
-    /\b5\d\d\b/.test(normalized) ||
-    normalized.includes("service unavailable") ||
-    normalized.includes("bad gateway") ||
-    normalized.includes("internal server error") ||
-    normalized.includes("服务不可用")
-  ) {
-    return "server";
   }
   if (
     normalized.includes("parse") ||
@@ -80,4 +81,30 @@ export function classifyUsageRefreshError(error: string): UsageRefreshFailureKin
   }
 
   return "unknown";
+}
+
+export function extractUsageRefreshStatusCode(
+  error: string,
+  kind: UsageRefreshFailureKind = classifyUsageRefreshError(error),
+): number | null {
+  const codes = Array.from(error.matchAll(/\b([45]\d{2})\b/g), (match) =>
+    Number(match[1]),
+  );
+  if (codes.length === 0) {
+    return null;
+  }
+
+  if (kind === "server") {
+    return codes.find((code) => code >= 500) ?? codes[0];
+  }
+  if (kind === "rateLimited") {
+    return codes.find((code) => code === 429) ?? codes[0];
+  }
+  if (kind === "authorization") {
+    return codes.find((code) => code === 401) ??
+      codes.find((code) => code === 403) ??
+      codes[0];
+  }
+
+  return codes[0];
 }
