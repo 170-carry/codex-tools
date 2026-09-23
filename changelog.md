@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- Add GPT-6 Sol and Luna to the Codex-account proxy using the official Codex catalog's Responses Lite setting and minimum client version. Upgrade the proxy client identity to Codex CLI 0.155.1, retain upstream rejection details, and estimate Sol/Luna token costs.
+
 - v2.9.0
 
 #### English
@@ -16,11 +18,12 @@
 #### 中文
 
 1. API 反代新增 GPT-6 Astra，覆盖模型列表、模型权限、别名与各 API 入口。Responses、Chat Completions、Anthropic Messages、WebSocket 请求采用其 Responses Lite 格式和 Codex CLI 0.153.4 标识。支持 low 至 max 推理，ultra 映射 max，并拒绝不支持的 none/minimal；已有默认模型保持 GPT-5.6 Sol。
-2. 修复接口返回有效五小时 0% 时被周用量覆盖的问题，同时修复账号存储重新加载路径（#193）；防止短分叉历史导致 Token 和成本扫描越界崩溃（#194）。
-3. 增加 Astra 成本估算，并按每条用量事件的时间选择 GPT-5.6 Sol/Terra/Luna 历史费率；旧成本缓存自动重建。费用按标准短上下文 API 费率估算，只提供日期的调价公告采用 UTC 日界线。
-4. 为会员到期时间缺失提供说明和重新登录入口，保留原始服务端刷新错误，重新授权其他账号时保留当前账号快照。改进 Windows Store ChatGPT/Codex 识别、原生进程退出及私有文件 ACL 性能；切换账号前停止已核实的旧版本桌面进程。
-5. Claude Code 的 output_config.effort 在显式 reasoning 字段之后生效。允许 CODEX_TOOLS_PROXY_SERVICE_TIER 配置默认速度，显式请求优先且继续受 Key 权限限制；保留既有 Average 负载均衡。
-6. 将模型目录、请求配置、Responses Lite 转换、历史计价、会员界面与桌面生命周期拆分为独立模块；桌面和 npm 发布前必须通过 macOS / Windows 回归测试与独立代理编译检查。
+2. 对照官方 Codex 模型目录接入 GPT-6 Sol/Luna：启用 Responses Lite，将上游客户端标识更新到 0.155.1，保留上游拒绝详情，并加入模型费用估算。模型是否可用仍取决于账号的上游响应。
+3. 修复接口返回有效五小时 0% 时被周用量覆盖的问题，同时修复账号存储重新加载路径（#193）；防止短分叉历史导致 Token 和成本扫描越界崩溃（#194）。
+4. 增加 Astra 成本估算，并按每条用量事件的时间选择 GPT-5.6 Sol/Terra/Luna 历史费率；旧成本缓存自动重建。费用按标准短上下文 API 费率估算，只提供日期的调价公告采用 UTC 日界线。
+5. 为会员到期时间缺失提供说明和重新登录入口，保留原始服务端刷新错误，重新授权其他账号时保留当前账号快照。改进 Windows Store ChatGPT/Codex 识别、原生进程退出及私有文件 ACL 性能；切换账号前停止已核实的旧版本桌面进程。
+6. Claude Code 的 output_config.effort 在显式 reasoning 字段之后生效。允许 CODEX_TOOLS_PROXY_SERVICE_TIER 配置默认速度，显式请求优先且继续受 Key 权限限制；保留既有 Average 负载均衡。
+7. 将模型目录、请求配置、Responses Lite 转换、历史计价、会员界面与桌面生命周期拆分为独立模块；桌面和 npm 发布前必须通过 macOS / Windows 回归测试与独立代理编译检查。
 
 - v2.8.0
 

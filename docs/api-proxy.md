@@ -168,7 +168,9 @@ Tauri 命令入口在：
 特点：
 
 - 这里不是实时问上游拿模型
-- 目前返回本地静态模型列表：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`、`gpt-5.5`、`gpt-5.4`、`gpt-image-2`
+- 目前返回本地静态模型列表，包含 GPT-6 Astra、Sol、Luna、GPT-5.6、GPT-5.5、GPT-5.4 和 GPT Image 2
+- GPT-6 Sol/Luna 在 Codex 官方模型目录中要求客户端至少为 `0.155.0` 并启用 Responses Lite；本代理使用 `0.155.1` 标识。静态列表表示代理支持请求格式，实际可用性仍以上游账号返回为准
+- 如果代理 Key 显式限制了模型，升级后需在该 Key 的允许模型中勾选 Sol/Luna；代理不会自动扩大已有 Key 的权限
 - `gpt-5.6`、`gpt5.6`、`gpt-5-6` 会映射到 `gpt-5.6-sol`
 - 目的是让大多数依赖 `/v1/models` 的客户端能正常初始化
 
@@ -180,6 +182,7 @@ Tauri 命令入口在：
 - 请求未指定时默认使用 `xhigh` 与 `default`；需要快速等级时由客户端显式传 `fast`
 - `ultra` 属于 Codex 客户端的多代理编排模式；反代收到该兼容值时按实际推理 wire 值 `max` 发送
 - GPT-5.6 的官方推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`max`；`minimal` 仅保留给旧模型兼容，GPT-5.6 请求会明确拒绝
+- GPT-6 Sol/Luna 的 Codex 模型目录列出 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`；代理把 `ultra` 映射到 `max`，拒绝 `none` / `minimal`
 - 具体模型可用档位仍以上游能力为准；代理会拒绝未知值，不会静默降级
 
 ### 6.3 `POST /v1/chat/completions`
@@ -204,7 +207,7 @@ Tauri 命令入口在：
 
 行为：
 
-- 非 GPT-5.6 请求体只做必要归一化；GPT-5.6 会转换为 Responses Lite 结构
+- GPT-6 Astra、Sol、Luna 与 GPT-5.6 请求会转换为 Responses Lite 结构；其他模型请求体只做必要归一化
 - 上游仍然统一发到 Codex `responses`
 - `stream: true` 时近似透传 SSE
 - `stream: false` 时从 SSE 中提取 `response.completed`，返回标准 JSON

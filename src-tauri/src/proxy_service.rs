@@ -567,6 +567,7 @@ enum RetryFailureCategory {
     ModelRestricted,
     Authentication,
     Permission,
+    UpstreamRejected,
 }
 
 struct RetryFailureInfo {
@@ -5745,6 +5746,13 @@ fn classify_retriable_failure(status: StatusCode, body: &Bytes) -> Option<RetryF
         });
     }
 
+    if status.is_client_error() || status.is_server_error() {
+        return Some(RetryFailureInfo {
+            category: RetryFailureCategory::UpstreamRejected,
+            detail: format!("上游 HTTP {}：{}", status.as_u16(), signals.brief),
+        });
+    }
+
     None
 }
 
@@ -5861,6 +5869,7 @@ fn build_retriable_failure_summary(failures: &[RetryFailureInfo]) -> String {
     let mut model = 0usize;
     let mut auth = 0usize;
     let mut permission = 0usize;
+    let mut upstream_rejected = 0usize;
 
     for failure in failures {
         match failure.category {
@@ -5869,6 +5878,7 @@ fn build_retriable_failure_summary(failures: &[RetryFailureInfo]) -> String {
             RetryFailureCategory::ModelRestricted => model += 1,
             RetryFailureCategory::Authentication => auth += 1,
             RetryFailureCategory::Permission => permission += 1,
+            RetryFailureCategory::UpstreamRejected => upstream_rejected += 1,
         }
     }
 
@@ -5887,6 +5897,9 @@ fn build_retriable_failure_summary(failures: &[RetryFailureInfo]) -> String {
     }
     if permission > 0 {
         parts.push(format!("权限不足 {permission} 个"));
+    }
+    if upstream_rejected > 0 {
+        parts.push(format!("上游拒绝 {upstream_rejected} 个"));
     }
     let sample = failures
         .iter()
@@ -9346,6 +9359,8 @@ mod tests {
     use super::build_compact_sse_failure;
     use super::build_compact_sse_response;
     use super::candidate_upstream_url;
+    use super::build_retriable_failure_summary;
+    use super::classify_retriable_failure;
     use super::clear_api_proxy_usage_stats_with_storage;
     use super::convert_anthropic_messages_request_to_codex;
     use super::convert_completed_response_to_anthropic_message;
@@ -9433,6 +9448,19 @@ mod tests {
     use std::sync::RwLock;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn summarizes_unclassified_upstream_502_with_original_reason() {
+        let body = Bytes::from_static(
+            br#"{"error":{"message":"model gpt-6-luna is not enabled for this Codex account","code":"model_not_enabled"}}"#,
+        );
+        let failure = classify_retriable_failure(StatusCode::BAD_GATEWAY, &body)
+            .expect("upstream 502 should be classified for account failover");
+        let summary = build_retriable_failure_summary(&[failure]);
+
+        assert!(summary.contains("上游 HTTP 502"));
+        assert!(summary.contains("model gpt-6-luna is not enabled"));
+    }
 
     #[test]
     fn minimal_account_warmup_uses_fixed_low_cost_payload() {
@@ -10013,10 +10041,13 @@ mod tests {
 
     #[test]
     fn api_proxy_supported_models_only_exposes_current_allowlist() {
+        let models = super::get_api_proxy_supported_models_internal();
         assert_eq!(
-            super::get_api_proxy_supported_models_internal(),
+            models,
             vec![
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
@@ -11211,7 +11242,7 @@ mod tests {
 
         assert_eq!(
             super::upstream_codex_client_identity(&headers, true),
-            ("0.153.4", "codex_cli_rs/0.153.4")
+            ("0.155.1", "codex_cli_rs/0.155.1")
         );
         assert_eq!(
             super::upstream_codex_client_identity(&headers, false),
