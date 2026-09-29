@@ -320,13 +320,6 @@ fn push_command_candidates_from_dir(candidates: &mut Vec<PathBuf>, dir: &Path, c
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
     fn unique_test_dir(name: &str) -> PathBuf {
         let unique = format!(
             "codex-tools-utils-test-{name}-{}-{}",
@@ -334,14 +327,6 @@ mod tests {
             now_unix_seconds()
         );
         env::temp_dir().join(unique)
-    }
-
-    fn restore_env_var(name: &str, original: Option<OsString>) {
-        if let Some(value) = original {
-            env::set_var(name, value);
-        } else {
-            env::remove_var(name);
-        }
     }
 
     #[cfg(windows)]
@@ -406,27 +391,44 @@ mod tests {
 
     #[test]
     fn find_command_path_uses_cargo_home_when_path_is_missing() {
-        let _guard = env_lock().lock().expect("lock env");
+        const PROBE_ENV: &str = "CODEX_TOOLS_TEST_CARGO_HOME_PROBE";
+        const COMMAND: &str = "codex-tools-test-probe";
+        if env::var_os(PROBE_ENV).is_some() {
+            let bin_dir = PathBuf::from(env::var_os("CARGO_HOME").unwrap()).join("bin");
+            let expected = bin_dir.join(if cfg!(windows) {
+                "codex-tools-test-probe.cmd"
+            } else {
+                COMMAND
+            });
+            assert_eq!(find_command_path(COMMAND), Some(expected));
+            return;
+        }
+
         let sandbox = unique_test_dir("cargo-home");
         let cargo_home = sandbox.join("cargo-home");
         let bin_dir = cargo_home.join("bin");
-        let command_name = "codex-tools-test-probe";
         fs::create_dir_all(&bin_dir).expect("create cargo bin dir");
-        let cargo_path = write_test_command(&bin_dir, command_name);
-
-        let original_path = env::var_os("PATH");
-        let original_cargo_home = env::var_os("CARGO_HOME");
-
-        env::set_var("PATH", "");
-        env::set_var("CARGO_HOME", &cargo_home);
-
-        let resolved = find_command_path(command_name);
-
-        restore_env_var("PATH", original_path);
-        restore_env_var("CARGO_HOME", original_cargo_home);
+        write_test_command(&bin_dir, COMMAND);
+        // Environment is process-wide: changing PATH in a parallel test can
+        // break Windows process/ACL tests that launch powershell.exe.
+        let output = std::process::Command::new(env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "utils::tests::find_command_path_uses_cargo_home_when_path_is_missing",
+                "--nocapture",
+            ])
+            .env(PROBE_ENV, "1")
+            .env("PATH", "")
+            .env("CARGO_HOME", &cargo_home)
+            .output()
+            .expect("run isolated command discovery test");
         let _ = fs::remove_dir_all(&sandbox);
-
-        assert_eq!(resolved, Some(cargo_path));
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
