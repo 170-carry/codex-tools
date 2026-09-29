@@ -25,6 +25,7 @@ mod profile_files;
 mod provider_sync;
 pub mod proxy_daemon;
 mod proxy_service;
+mod remote_build_manifest;
 mod remote_service;
 mod settings_service;
 mod state;

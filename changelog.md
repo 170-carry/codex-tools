@@ -12,7 +12,8 @@
 4. Add editing of saved API accounts: URL, model, label and optional key replacement (#201). A blank key preserves the stored key. Switch to the account again to apply edited desktop settings.
 5. Keep account rows in stable import order across quota refreshes and account switches (#203), and make quota icons follow the selected five-hour or weekly window (#204).
 6. Preserve Chat Completions stream termination and upstream errors for response.done, incomplete, failed, cancelled and truncated streams (#205). Client validation errors do not trigger retries across every account.
-7. Parse complete structured warm-up events, stop treating unused zero-percent windows as active, and distinguish a completed request from quota-confirmed activation (#199). Warm-up stays opt-in, bounded and protected by persisted cooldowns.
+7. Bundle every standalone-proxy module through a shared installer/deployment manifest and compile that packaged source in CI, fixing missing-module failures during remote deployment.
+8. Parse complete structured warm-up events, stop treating unused zero-percent windows as active, and distinguish a completed request from quota-confirmed activation (#199). Warm-up stays opt-in, bounded and protected by persisted cooldowns.
 
 #### 中文
 
@@ -22,7 +23,8 @@
 4. 支持编辑已保存 API 账号的地址、模型、名称及 Key（#201）；Key 留空保留原值，保存后再次切换到该账号即可应用桌面配置。
 5. 账号列表按导入顺序稳定展示，刷新额度和切换账号不再重排（#203）；额度图标跟随所选 5h 或 1 周窗口（#204）。
 6. 补全 Chat Completions 对 response.done、未完成、失败、取消和截断流的处理，返回结束原因或原始上游错误（#205）；普通请求参数错误不再遍历所有账号重试。
-7. 预热改为解析完整结构化完成事件，不把未使用的 0% 窗口误判为已激活，并区分“请求完成”和“额度已确认激活”（#199）；保留默认关闭、请求上限及持久化冷却。
+7. 安装资源与远程部署共用完整源码清单，并在 CI 中直接编译打包后的独立代理，修复远程构建缺少子模块的问题。
+8. 预热改为解析完整结构化完成事件，不把未使用的 0% 窗口误判为已激活，并区分“请求完成”和“额度已确认激活”（#199）；保留默认关闭、请求上限及持久化冷却。
 
 - v2.9.0
 

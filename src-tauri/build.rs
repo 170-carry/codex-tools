@@ -4,31 +4,14 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
-const REMOTE_BUILD_FILES: &[&str] = &[
-    "proxyd/Cargo.toml",
-    "proxyd/Cargo.lock",
-    "proxyd/src/main.rs",
-    "src/app_paths.rs",
-    "src/auth.rs",
-    "src/models.rs",
-    "src/profile_files.rs",
-    "src/proxy_daemon.rs",
-    "src/proxy_service.rs",
-    "src/proxy_service/model_catalog.rs",
-    "src/proxy_service/responses_lite.rs",
-    "src/proxy_service/request_policy.rs",
-    "src/proxy_service/astra_tests.rs",
-    "src/state.rs",
-    "src/store.rs",
-    "src/usage.rs",
-    "src/utils.rs",
-    "src/windows_private_acl.rs",
-    "src/switch_timing.rs",
-];
+#[path = "src/remote_build_manifest.rs"]
+mod remote_build_manifest;
+use remote_build_manifest::PROXYD_BUILD_SOURCE_FILES;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    for path in REMOTE_BUILD_FILES {
+    println!("cargo:rerun-if-changed=src/remote_build_manifest.rs");
+    for path in PROXYD_BUILD_SOURCE_FILES {
         println!("cargo:rerun-if-changed={path}");
     }
 
@@ -44,7 +27,7 @@ fn sync_remote_build_resources() -> io::Result<()> {
         fs::remove_dir_all(&resource_root)?;
     }
 
-    for relative_path in REMOTE_BUILD_FILES {
+    for relative_path in PROXYD_BUILD_SOURCE_FILES {
         copy_file_into_dir(&manifest_dir, &resource_root, relative_path)?;
     }
 

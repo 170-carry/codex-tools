@@ -19,7 +19,7 @@ All nine open issues and both open pull requests were reviewed against `main` at
 - Rust library: 308 tests passed, including macOS discovery/process matching, shared profile configuration, stream translation, warm-up eligibility and Relay editing.
 - Frontend: 26 tests passed with a TypeScript-capable Node runtime; production build passed.
 - ESLint: zero errors, four existing unused-disable warnings.
-- Standalone proxyd: locked dependency compilation passed.
+- Standalone proxyd: locked dependency compilation passed from the actual `gen/remote-build` installer resources. Installer bundling and deployment copying now use one complete module manifest.
 - Browser smoke: five locales, OpenCode enable/restart/disable, and Relay URL editing with blank-key retention; zero page errors. Native Tauri commands were mocked for this UI check.
 - Model prices checked against [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) and [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna). Credential-store and provider flags checked against the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
