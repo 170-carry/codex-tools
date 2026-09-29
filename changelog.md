@@ -2,7 +2,27 @@
 
 ### Unreleased
 
-- Add GPT-6 Sol and Luna to the Codex-account proxy using the official Codex catalog's Responses Lite setting and minimum client version. Upgrade the proxy client identity to Codex CLI 0.155.1, retain upstream rejection details, and estimate Sol/Luna token costs.
+- v2.10.0
+
+#### English
+
+1. Restore macOS account switching for current Codex app bundles, use the managed file credential store, stop the verified desktop before replacing credentials, preserve shared settings, and verify the relaunched CODEX_HOME. Disabling launch-after-switch leaves the desktop closed. Merge #211 and fix #209.
+2. Support GPT-6 Sol and Luna across the proxy model catalog, aliases, permissions and Responses Lite transports with the required Codex client identity. Add standard token cost estimates and rebuild cached costs. Merge #207 and fix #208. Existing API-key model allowlists remain unchanged.
+3. Use an HTTP-only custom provider for Relay profiles to avoid first-message WebSocket handshake delays (#202). Preserve the legacy openai_base_url route for existing sessions and remove Relay routing when returning to ChatGPT.
+4. Add editing of saved API accounts: URL, model, label and optional key replacement (#201). A blank key preserves the stored key. Switch to the account again to apply edited desktop settings.
+5. Keep account rows in stable import order across quota refreshes and account switches (#203), and make quota icons follow the selected five-hour or weekly window (#204).
+6. Preserve Chat Completions stream termination and upstream errors for response.done, incomplete, failed, cancelled and truncated streams (#205). Client validation errors do not trigger retries across every account.
+7. Parse complete structured warm-up events, stop treating unused zero-percent windows as active, and distinguish a completed request from quota-confirmed activation (#199). Warm-up stays opt-in, bounded and protected by persisted cooldowns.
+
+#### 中文
+
+1. 修复新版 macOS Codex 账号切换：识别当前应用包内的 CLI，使用托管文件凭据，替换授权前关闭经过验证的桌面进程，保留共享设置，并验证重启进程的 CODEX_HOME。关闭“切换后启动”时，切换后桌面保持关闭。合并 #211，修复 #209。
+2. 反代支持 GPT-6 Sol 和 Luna，覆盖模型目录、别名、权限和 Responses Lite 协议，使用所需客户端标识；增加标准 Token 费用估算并重建旧成本缓存。合并 #207，修复 #208；已有 API Key 的模型白名单不自动扩大。
+3. Relay profile 改用仅 HTTP 的自定义 provider，避免新会话首条消息等待 WebSocket 握手失败（#202）；保留旧会话的 openai_base_url 路由，切回 ChatGPT 时清理 Relay 路由。
+4. 支持编辑已保存 API 账号的地址、模型、名称及 Key（#201）；Key 留空保留原值，保存后再次切换到该账号即可应用桌面配置。
+5. 账号列表按导入顺序稳定展示，刷新额度和切换账号不再重排（#203）；额度图标跟随所选 5h 或 1 周窗口（#204）。
+6. 补全 Chat Completions 对 response.done、未完成、失败、取消和截断流的处理，返回结束原因或原始上游错误（#205）；普通请求参数错误不再遍历所有账号重试。
+7. 预热改为解析完整结构化完成事件，不把未使用的 0% 窗口误判为已激活，并区分“请求完成”和“额度已确认激活”（#199）；保留默认关闭、请求上限及持久化冷却。
 
 - v2.9.0
 
@@ -18,12 +38,11 @@
 #### 中文
 
 1. API 反代新增 GPT-6 Astra，覆盖模型列表、模型权限、别名与各 API 入口。Responses、Chat Completions、Anthropic Messages、WebSocket 请求采用其 Responses Lite 格式和 Codex CLI 0.153.4 标识。支持 low 至 max 推理，ultra 映射 max，并拒绝不支持的 none/minimal；已有默认模型保持 GPT-5.6 Sol。
-2. 对照官方 Codex 模型目录接入 GPT-6 Sol/Luna：启用 Responses Lite，将上游客户端标识更新到 0.155.1，保留上游拒绝详情，并加入模型费用估算。模型是否可用仍取决于账号的上游响应。
-3. 修复接口返回有效五小时 0% 时被周用量覆盖的问题，同时修复账号存储重新加载路径（#193）；防止短分叉历史导致 Token 和成本扫描越界崩溃（#194）。
-4. 增加 Astra 成本估算，并按每条用量事件的时间选择 GPT-5.6 Sol/Terra/Luna 历史费率；旧成本缓存自动重建。费用按标准短上下文 API 费率估算，只提供日期的调价公告采用 UTC 日界线。
-5. 为会员到期时间缺失提供说明和重新登录入口，保留原始服务端刷新错误，重新授权其他账号时保留当前账号快照。改进 Windows Store ChatGPT/Codex 识别、原生进程退出及私有文件 ACL 性能；切换账号前停止已核实的旧版本桌面进程。
-6. Claude Code 的 output_config.effort 在显式 reasoning 字段之后生效。允许 CODEX_TOOLS_PROXY_SERVICE_TIER 配置默认速度，显式请求优先且继续受 Key 权限限制；保留既有 Average 负载均衡。
-7. 将模型目录、请求配置、Responses Lite 转换、历史计价、会员界面与桌面生命周期拆分为独立模块；桌面和 npm 发布前必须通过 macOS / Windows 回归测试与独立代理编译检查。
+2. 修复接口返回有效五小时 0% 时被周用量覆盖的问题，同时修复账号存储重新加载路径（#193）；防止短分叉历史导致 Token 和成本扫描越界崩溃（#194）。
+3. 增加 Astra 成本估算，并按每条用量事件的时间选择 GPT-5.6 Sol/Terra/Luna 历史费率；旧成本缓存自动重建。费用按标准短上下文 API 费率估算，只提供日期的调价公告采用 UTC 日界线。
+4. 为会员到期时间缺失提供说明和重新登录入口，保留原始服务端刷新错误，重新授权其他账号时保留当前账号快照。改进 Windows Store ChatGPT/Codex 识别、原生进程退出及私有文件 ACL 性能；切换账号前停止已核实的旧版本桌面进程。
+5. Claude Code 的 output_config.effort 在显式 reasoning 字段之后生效。允许 CODEX_TOOLS_PROXY_SERVICE_TIER 配置默认速度，显式请求优先且继续受 Key 权限限制；保留既有 Average 负载均衡。
+6. 将模型目录、请求配置、Responses Lite 转换、历史计价、会员界面与桌面生命周期拆分为独立模块；桌面和 npm 发布前必须通过 macOS / Windows 回归测试与独立代理编译检查。
 
 - v2.8.0
 

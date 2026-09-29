@@ -1,3 +1,4 @@
+import { useApiAccountEditor } from "./useApiAccountEditor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -2823,7 +2824,9 @@ export function useCodexController(
         });
         applyAccounts(result.accounts);
         const message =
-          result.status === "activated"
+          result.status === "requestSent"
+            ? copy.notices.accountWarmupRequestSent
+            : result.status === "activated"
             ? copy.notices.accountWarmupActivated
             : result.status === "alreadyActive"
               ? copy.notices.accountWarmupAlreadyActive
@@ -3089,8 +3092,14 @@ export function useCodexController(
     [updateSettings],
   );
 
+  const apiAccountEditor = useApiAccountEditor(async () => {
+    await loadAccounts();
+    void remoteProxyAutoRedeployRef.current();
+  });
+
   return {
     accounts: sortedAccounts,
+    apiAccountEditor,
     tokenUsage,
     tokenUsageError,
     costAnalytics,

@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import type { AccountSummary, CodexTokenUsageSnapshot, UsageWindow } from "../types/app";
 import { useI18n } from "../i18n/I18nProvider";
+import { sortAccountsForDisplay } from "../utils/accountDisplayOrder";
 import { compareAccountsByRemaining } from "../utils/accountRanking";
 import { formatFullDate } from "../utils/dateFormatting";
 import { MembershipExpiry } from "./accounts/MembershipExpiry";
@@ -117,6 +118,7 @@ type AccountsGridProps = {
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
   onWarmup: (account: AccountSummary) => Promise<boolean>;
+  onEditApiAccount: (account: AccountSummary) => void;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onToggleApiProxy: (account: AccountSummary, enabled: boolean) => Promise<boolean>;
   onSwitch: (account: AccountSummary) => Promise<boolean>;
@@ -615,6 +617,7 @@ export function AccountsGrid({
   onReauthorize,
   onWarmup,
   onRename,
+  onEditApiAccount,
   onToggleApiProxy,
   onSwitch,
   onDelete,
@@ -722,7 +725,7 @@ export function AccountsGrid({
   const groupedAccounts = useMemo<AccountGroup[]>(() => {
     const groups = new Map<string, AccountSummary[]>();
 
-    for (const account of accounts) {
+    for (const account of sortAccountsForDisplay(accounts)) {
       const existing = groups.get(account.accountKey);
       if (existing) {
         existing.push(account);
@@ -760,12 +763,7 @@ export function AccountsGrid({
       };
     });
 
-    return mapped.sort((left, right) => {
-      if (left.account.isCurrent !== right.account.isCurrent) {
-        return left.account.isCurrent ? -1 : 1;
-      }
-      return compareAccountsByRemaining(left.account, right.account);
-    });
+    return mapped;
   }, [groupedAccounts, preferredVariantByGroup, switchingId]);
 
   const filteredRows = useMemo(() => {
@@ -1227,7 +1225,7 @@ export function AccountsGrid({
               <button
                 type="button"
                 className="detailEditButton"
-                onClick={() => startAliasEdit(selectedRow.account)}
+                onClick={() => selectedRow.account.sourceKind === "relay" ? onEditApiAccount(selectedRow.account) : startAliasEdit(selectedRow.account)}
                 disabled={editingAliasId === selectedRow.account.id || renamingAccountId === selectedRow.account.accountKey}
               >
                 <ActionIcon type="edit" />

@@ -1,3 +1,10 @@
+#[path = "profile_files/config.rs"]
+mod config;
+pub(crate) use config::current_config_matches_account;
+use config::{
+    build_chatgpt_profile_config, build_codex_proxy_config, build_relay_profile_config,
+    merge_shared_config,
+};
 use std::fs;
 use std::io::ErrorKind;
 use std::io::Write;
@@ -455,72 +462,6 @@ fn compute_profile_integrity_error(
     } else {
         Some(PROFILE_INCOMPLETE_MESSAGE.to_string())
     }
-}
-
-fn build_chatgpt_profile_config(current_config: Option<&str>) -> String {
-    let mut document = parse_config_or_default(current_config);
-    let had_base_url = document.get("openai_base_url").is_some();
-    document.remove("openai_base_url");
-    if had_base_url {
-        document.remove("model");
-    }
-    // Codex filters local history by model_provider; account switching should
-    // keep official login history on the built-in provider key.
-    document["model_provider"] = value("openai");
-    // Codex Tools switches accounts by atomically replacing CODEX_HOME/auth.json.
-    // `auto` may prefer a stale macOS Keychain entry in newer desktop builds,
-    // so managed profiles must explicitly read the file that was just applied.
-    document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
-    document.to_string()
-}
-
-fn build_relay_profile_config(
-    current_config: Option<&str>,
-    base_url: &str,
-    model_name: &str,
-) -> String {
-    let mut document = parse_config_or_default(current_config);
-    document["openai_base_url"] = value(base_url);
-    document["model"] = value(model_name);
-    // Relay/API accounts still use the built-in OpenAI-compatible provider so
-    // existing Codex history remains visible after switching account types.
-    document["model_provider"] = value("openai");
-    document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
-    document.to_string()
-}
-
-fn build_codex_proxy_config(current_config: Option<&str>, base_url: &str) -> String {
-    let mut document = parse_config_or_default(current_config);
-    document["openai_base_url"] = value(base_url);
-    document["model_provider"] = value("openai");
-    document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
-    set_missing_string_default(&mut document, "model", DEFAULT_API_PROXY_MODEL);
-    set_missing_string_default(
-        &mut document,
-        "model_reasoning_effort",
-        DEFAULT_API_PROXY_REASONING_EFFORT,
-    );
-    set_missing_string_default(
-        &mut document,
-        "service_tier",
-        DEFAULT_API_PROXY_SERVICE_TIER,
-    );
-    document.to_string()
-}
-
-fn merge_shared_config(
-    profile_config: Option<&str>,
-    current_config: Option<&str>,
-) -> Option<String> {
-    // Codex configuration is machine-local shared state. Use the current
-    // configuration as the whole source of truth so changed and deleted
-    // settings (including approval/sandbox preferences) survive a switch.
-    // The target account builder reapplies only its required provider route
-    // and the managed credential-store setting afterwards.
-    current_config
-        .and_then(|raw| raw.parse::<DocumentMut>().ok())
-        .map(|document| document.to_string())
-        .or_else(|| profile_config.map(str::to_string))
 }
 
 fn set_missing_string_default(document: &mut DocumentMut, key: &str, default_value: &str) {

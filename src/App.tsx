@@ -1,3 +1,4 @@
+import { EditApiAccountDialog } from "./components/accounts/EditApiAccountDialog";
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import "./App.css";
@@ -60,6 +61,7 @@ function App() {
     authBusy,
     switchingId,
     warmingAccountId,
+    apiAccountEditor,
     renamingAccountId,
     pendingDeleteId,
     deleteCandidate,
@@ -306,6 +308,7 @@ function App() {
           onImportFiles={onImportAuthFiles}
           onClose={onCloseAddDialog}
         />
+        {apiAccountEditor.account && <EditApiAccountDialog key={apiAccountEditor.account.id} account={apiAccountEditor.account} saving={apiAccountEditor.saving} error={apiAccountEditor.error} onSave={apiAccountEditor.save} onClose={apiAccountEditor.close} />}
         <DeleteAccountDialog
           account={deleteCandidate}
           deleting={deletingAccountId === deleteCandidate?.id}
@@ -384,6 +387,7 @@ function App() {
                 onExport={(account) => void onExportAccounts(account)}
                 onReauthorize={(account) => void onReauthorizeAccount(account)}
                 onWarmup={(account) => onWarmupAccount(account)}
+                onEditApiAccount={apiAccountEditor.open}
                 onRename={(account, label) =>
                   onRenameAccountLabel(account, label)
                 }

@@ -53,9 +53,15 @@ fn prices_sol_cutover_and_astra_without_fallback_rates() {
         assert_eq!(estimate_token_cost_usd(model, cutoff, &usage), 55.5);
     }
     assert_eq!(estimate_token_cost_usd("gpt-6-sol", cutoff, &usage), 11.1);
-    assert_eq!(estimate_token_cost_usd("gpt6-sol-2026-09-22", cutoff, &usage), 11.1);
+    assert_eq!(
+        estimate_token_cost_usd("gpt6-sol-2026-09-22", cutoff, &usage),
+        11.1
+    );
     assert_eq!(estimate_token_cost_usd("gpt-6-luna", cutoff, &usage), 0.555);
-    assert_eq!(estimate_token_cost_usd("gpt6-luna-2026-09-22", cutoff, &usage), 0.555);
+    assert_eq!(
+        estimate_token_cost_usd("gpt6-luna-2026-09-22", cutoff, &usage),
+        0.555
+    );
 }
 
 #[test]

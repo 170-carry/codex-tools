@@ -1,3 +1,11 @@
+#[path = "proxy_service/warmup.rs"]
+mod warmup;
+#[cfg(test)]
+use warmup::minimal_account_warmup_payload;
+pub(crate) use warmup::send_minimal_account_warmup_request;
+#[path = "proxy_service/chat_stream.rs"]
+mod chat_stream;
+use chat_stream::{translate_sse_event_to_chat_chunk, unterminated_stream_error};
 #[path = "proxy_service/request_policy.rs"]
 mod request_policy;
 
@@ -593,6 +601,7 @@ struct ChatStreamState {
     function_call_index: i64,
     has_received_arguments_delta: bool,
     has_tool_call_announced: bool,
+    terminal_received: bool,
 }
 
 impl Default for ChatStreamState {
@@ -605,6 +614,7 @@ impl Default for ChatStreamState {
             function_call_index: -1,
             has_received_arguments_delta: false,
             has_tool_call_announced: false,
+            terminal_received: false,
         }
     }
 }
@@ -3101,9 +3111,13 @@ fn normalize_openai_compact_request(request: Value) -> Result<Value, String> {
     }
 
     let model = map_client_model_to_upstream(&request_model_or_default(&normalized)?)?;
-    model_catalog::validate_reasoning(&model, normalized.get("reasoning")
-        .and_then(|reasoning| reasoning.get("effort"))
-        .and_then(Value::as_str))?;
+    model_catalog::validate_reasoning(
+        &model,
+        normalized
+            .get("reasoning")
+            .and_then(|reasoning| reasoning.get("effort"))
+            .and_then(Value::as_str),
+    )?;
     normalized.insert("model".to_string(), Value::String(model));
     normalized.insert(
         "service_tier".to_string(),
@@ -3914,7 +3928,6 @@ fn collect_images_from_response_value(value: &Value, data: &mut Vec<Value>) {
     }
 }
 
-
 fn request_model_or_default(object: &Map<String, Value>) -> Result<String, String> {
     match object.get("model") {
         None | Some(Value::Null) => Ok(DEFAULT_API_PROXY_MODEL.to_string()),
@@ -3949,14 +3962,12 @@ fn request_reasoning_effort(object: &Map<String, Value>) -> Result<Option<&str>,
     }
 }
 
-
 fn payload_uses_responses_lite(payload: &Value) -> bool {
     payload
         .get("model")
         .and_then(Value::as_str)
         .is_some_and(is_responses_lite_model)
 }
-
 
 fn payload_for_upstream(payload: &Value) -> Value {
     let mut payload = payload.clone();
@@ -4325,8 +4336,6 @@ fn websocket_event_is_terminal(data: &str) -> bool {
         Some("response.completed" | "response.done" | "response.failed")
     )
 }
-
-
 
 fn rewrite_response_models_for_client(mut value: Value) -> Value {
     remap_model_fields_to_client(&mut value);
@@ -4828,7 +4837,6 @@ async fn forward_codex_request_with_candidate(
         .map(CodexUpstreamResponse::Http)
         .map_err(|error| format!("请求上游失败 {upstream_url}: {error}"))
 }
-
 
 async fn forward_codex_websocket_request_with_candidate(
     context: &ProxyContext,
@@ -5746,7 +5754,7 @@ fn classify_retriable_failure(status: StatusCode, body: &Bytes) -> Option<RetryF
         });
     }
 
-    if status.is_client_error() || status.is_server_error() {
+    if status.is_server_error() {
         return Some(RetryFailureInfo {
             category: RetryFailureCategory::UpstreamRejected,
             detail: format!("上游 HTTP {}：{}", status.as_u16(), signals.brief),
@@ -7731,6 +7739,9 @@ fn build_chat_streaming_response(
             }
         }
 
+        if let Some(error) = unterminated_stream_error(&state) {
+            yield Ok::<Bytes, Infallible>(sse_data_chunk(&error));
+        }
         yield Ok::<Bytes, Infallible>(Bytes::from_static(SSE_DONE.as_bytes()));
     };
 
@@ -8688,190 +8699,6 @@ fn stop_anthropic_tool_block(state: &mut AnthropicStreamState) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-fn translate_sse_event_to_chat_chunk(event: &SseEvent, state: &mut ChatStreamState) -> Vec<Value> {
-    let Ok(parsed) = serde_json::from_str::<Value>(&event.data) else {
-        return Vec::new();
-    };
-    let Some(kind) = parsed.get("type").and_then(Value::as_str) else {
-        return Vec::new();
-    };
-
-    match kind {
-        "response.created" => {
-            state.response_id = parsed
-                .get("response")
-                .and_then(|value| value.get("id"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            state.created_at = parsed
-                .get("response")
-                .and_then(|value| value.get("created_at"))
-                .and_then(Value::as_i64)
-                .unwrap_or(0);
-            state.model = parsed
-                .get("response")
-                .and_then(|value| value.get("model"))
-                .and_then(Value::as_str)
-                .map(normalize_model_for_client)
-                .unwrap_or_default();
-            Vec::new()
-        }
-        "response.reasoning_summary_text.delta" => parsed
-            .get("delta")
-            .and_then(Value::as_str)
-            .map(|delta| {
-                vec![build_chat_chunk(
-                    state,
-                    json!({
-                        "role": "assistant",
-                        "reasoning_content": delta,
-                    }),
-                    None,
-                    parsed.get("response").and_then(|value| value.get("usage")),
-                )]
-            })
-            .unwrap_or_default(),
-        "response.reasoning_summary_text.done" => vec![build_chat_chunk(
-            state,
-            json!({
-                "role": "assistant",
-                "reasoning_content": "\n\n",
-            }),
-            None,
-            parsed.get("response").and_then(|value| value.get("usage")),
-        )],
-        "response.output_text.delta" => parsed
-            .get("delta")
-            .and_then(Value::as_str)
-            .map(|delta| {
-                vec![build_chat_chunk(
-                    state,
-                    json!({
-                        "role": "assistant",
-                        "content": delta,
-                    }),
-                    None,
-                    parsed.get("response").and_then(|value| value.get("usage")),
-                )]
-            })
-            .unwrap_or_default(),
-        "response.output_item.added" => {
-            let Some(item) = parsed.get("item").and_then(Value::as_object) else {
-                return Vec::new();
-            };
-            if item.get("type").and_then(Value::as_str) != Some("function_call") {
-                return Vec::new();
-            }
-
-            state.function_call_index += 1;
-            state.has_received_arguments_delta = false;
-            state.has_tool_call_announced = true;
-
-            vec![build_chat_chunk(
-                state,
-                json!({
-                    "role": "assistant",
-                    "tool_calls": [{
-                        "index": state.function_call_index,
-                        "id": item.get("call_id").and_then(Value::as_str).unwrap_or_default(),
-                        "type": "function",
-                        "function": {
-                            "name": item.get("name").and_then(Value::as_str).unwrap_or_default(),
-                            "arguments": "",
-                        }
-                    }]
-                }),
-                None,
-                parsed.get("response").and_then(|value| value.get("usage")),
-            )]
-        }
-        "response.function_call_arguments.delta" => {
-            state.has_received_arguments_delta = true;
-            vec![build_chat_chunk(
-                state,
-                json!({
-                    "tool_calls": [{
-                        "index": state.function_call_index,
-                        "function": {
-                            "arguments": parsed.get("delta").and_then(Value::as_str).unwrap_or_default(),
-                        }
-                    }]
-                }),
-                None,
-                parsed.get("response").and_then(|value| value.get("usage")),
-            )]
-        }
-        "response.function_call_arguments.done" => {
-            if state.has_received_arguments_delta {
-                return Vec::new();
-            }
-
-            vec![build_chat_chunk(
-                state,
-                json!({
-                    "tool_calls": [{
-                        "index": state.function_call_index,
-                        "function": {
-                            "arguments": parsed.get("arguments").and_then(Value::as_str).unwrap_or_default(),
-                        }
-                    }]
-                }),
-                None,
-                parsed.get("response").and_then(|value| value.get("usage")),
-            )]
-        }
-        "response.output_item.done" => {
-            let Some(item) = parsed.get("item").and_then(Value::as_object) else {
-                return Vec::new();
-            };
-            if item.get("type").and_then(Value::as_str) != Some("function_call") {
-                return Vec::new();
-            }
-            if state.has_tool_call_announced {
-                state.has_tool_call_announced = false;
-                return Vec::new();
-            }
-
-            state.function_call_index += 1;
-            vec![build_chat_chunk(
-                state,
-                json!({
-                    "role": "assistant",
-                    "tool_calls": [{
-                        "index": state.function_call_index,
-                        "id": item.get("call_id").and_then(Value::as_str).unwrap_or_default(),
-                        "type": "function",
-                        "function": {
-                            "name": item.get("name").and_then(Value::as_str).unwrap_or_default(),
-                            "arguments": item.get("arguments").and_then(Value::as_str).unwrap_or_default(),
-                        }
-                    }]
-                }),
-                None,
-                parsed.get("response").and_then(|value| value.get("usage")),
-            )]
-        }
-        "response.completed" => {
-            let finish_reason = if state.function_call_index >= 0 {
-                "tool_calls"
-            } else {
-                "stop"
-            };
-            vec![build_chat_chunk(
-                state,
-                json!({}),
-                Some(finish_reason),
-                parsed.get("response").and_then(|value| value.get("usage")),
-            )]
-        }
-        _ => {
-            let _ = &event.event;
-            Vec::new()
-        }
-    }
-}
-
 fn build_chat_chunk(
     state: &ChatStreamState,
     delta: Value,
@@ -9186,97 +9013,6 @@ fn resolve_codex_upstream_base_url() -> String {
     )
 }
 
-fn minimal_account_warmup_payload() -> Result<Value, String> {
-    normalize_openai_responses_request(json!({
-        "model": DEFAULT_API_PROXY_MODEL,
-        "input": "hello",
-        "stream": true,
-        "store": false,
-        "reasoning": {"effort": "none", "summary": "auto"},
-        "text": {"verbosity": "low"},
-        "service_tier": "default"
-    }))
-    .map(|(payload, _)| payload)
-}
-
-/// Sends the smallest supported real inference request for intentionally
-/// activating an account's short usage window. The fixed prompt contains no
-/// user data, disables storage and reasoning, and never retries by itself.
-pub(crate) async fn send_minimal_account_warmup_request(auth_json: &Value) -> Result<(), String> {
-    let auth = extract_auth(auth_json)?;
-    let payload = payload_for_upstream(&minimal_account_warmup_payload()?);
-    let body =
-        serde_json::to_vec(&payload).map_err(|error| format!("序列化账号预热请求失败: {error}"))?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(ACCOUNT_WARMUP_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| format!("创建账号预热客户端失败: {error}"))?;
-    let url = format!(
-        "{}/responses",
-        resolve_codex_upstream_base_url().trim_end_matches('/')
-    );
-    let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", auth.access_token))
-        .header("ChatGPT-Account-Id", auth.account_id)
-        .header("Accept", "text/event-stream")
-        .header("Content-Type", "application/json")
-        .header("User-Agent", CODEX_USER_AGENT)
-        .header("Originator", "codex_cli_rs")
-        .header("Version", CODEX_CLIENT_VERSION)
-        .header("session-id", uuid::Uuid::new_v4().to_string())
-        .header(RESPONSES_LITE_HEADER, "true")
-        .body(body)
-        .send()
-        .await
-        .map_err(|error| format!("发送账号预热请求失败: {error}"))?;
-    let status = response.status();
-    let response_body = read_account_warmup_response_limited(response).await?;
-    let response_text = String::from_utf8_lossy(&response_body);
-
-    if !status.is_success() {
-        return Err(format!(
-            "账号预热请求被上游拒绝 HTTP {}: {}",
-            status.as_u16(),
-            truncate_for_error(response_text.trim(), 240)
-        ));
-    }
-    if response_text.contains("response.completed") {
-        return Ok(());
-    }
-    if response_text.contains("response.failed") {
-        return Err(format!(
-            "账号预热推理失败: {}",
-            truncate_for_error(response_text.trim(), 240)
-        ));
-    }
-    Err("账号预热响应未包含完成事件".to_string())
-}
-
-async fn read_account_warmup_response_limited(
-    response: reqwest::Response,
-) -> Result<Vec<u8>, String> {
-    let mut body = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("读取账号预热响应失败: {error}"))?;
-        if body.len().saturating_add(chunk.len()) > MAX_ACCOUNT_WARMUP_RESPONSE_BYTES {
-            return Err("账号预热响应超过 1 MiB 安全上限".to_string());
-        }
-        body.extend_from_slice(&chunk);
-        if body
-            .windows(b"response.completed".len())
-            .any(|window| window == b"response.completed")
-            || body
-                .windows(b"response.failed".len())
-                .any(|window| window == b"response.failed")
-        {
-            break;
-        }
-    }
-    Ok(body)
-}
-
 fn proxy_base_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/v1")
 }
@@ -9358,8 +9094,8 @@ mod tests {
     use super::build_api_proxy_usage_stats;
     use super::build_compact_sse_failure;
     use super::build_compact_sse_response;
-    use super::candidate_upstream_url;
     use super::build_retriable_failure_summary;
+    use super::candidate_upstream_url;
     use super::classify_retriable_failure;
     use super::clear_api_proxy_usage_stats_with_storage;
     use super::convert_anthropic_messages_request_to_codex;

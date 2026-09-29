@@ -40,7 +40,7 @@ const SESSION_EXPORT_LIMIT: usize = 500;
 const TOKEN_USAGE_TAIL_SIGNATURE_BYTES: u64 = 128;
 const FORK_MATCH_RESYNC_WINDOW: usize = 32;
 const FORK_MATCH_ANCHOR_RECORDS: usize = 4;
-const COST_ANALYTICS_CACHE_VERSION: u8 = 10;
+const COST_ANALYTICS_CACHE_VERSION: u8 = 11;
 const COST_SOURCE_LOCAL: &str = "local_estimate";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]

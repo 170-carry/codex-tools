@@ -34,8 +34,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run lint
-      - run: npm run test:usage-errors
-      - run: npm run test:quota-onboarding
+      - run: npm test
       - run: npm run build
       - name: Rust regression tests
         run: cargo test --locked --lib

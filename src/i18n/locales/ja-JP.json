@@ -132,7 +132,10 @@
     "uploadQueueTitle": "Queued files",
     "uploadQueueEmpty": "No JSON files or folders selected yet.",
     "uploadImporting": "取り込み中...",
-    "uploadStartImport": "取り込み開始"
+    "uploadStartImport": "取り込み開始",
+    "apiEditTitle": "API アカウントを編集",
+    "apiEditHint": "API Key が空欄の場合は現在の値を保持します。保存後に再度切り替えて新しい URL やモデルを適用してください。",
+    "apiEditSave": "保存"
   },
   "accountCard": {
     "currentStamp": "現在",
@@ -781,6 +784,7 @@
     "cloudflaredStarted": "公開トンネルを開始しました: {{target}}",
     "cloudflaredStartFailed": "cloudflared 公開アクセスの開始に失敗しました: {{error}}",
     "cloudflaredStopped": "cloudflared 公開アクセスを停止しました",
-    "cloudflaredStopFailed": "cloudflared 公開アクセスの停止に失敗しました: {{error}}"
+    "cloudflaredStopFailed": "cloudflared 公開アクセスの停止に失敗しました: {{error}}",
+    "accountWarmupRequestSent": "ウォームアップ要求は完了しましたが、5h 枠の有効化は未確認です。しばらくして使用量を更新してください。"
   }
 }

@@ -3,7 +3,7 @@
 use super::CodexTokenTotals;
 
 pub(super) const PRICING_SOURCE: &str =
-    "OpenAI API standard short-context pricing, historical rates by event time; GPT-6/GPT-5.6 checked 2026-09-08";
+    "OpenAI API standard short-context pricing, historical rates by event time; GPT-6/GPT-5.6 checked 2026-09-29";
 // OpenAI announced lower GPT-5.6 Terra and Luna prices effective 2026-07-30.
 // The announcement only specifies the date, so analytics use the UTC day boundary.
 // Source: https://developers.openai.com/api/docs/changelog
