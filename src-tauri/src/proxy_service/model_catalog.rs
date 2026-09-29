@@ -1,11 +1,13 @@
 use axum::http::HeaderMap;
 
-// Codex CLI 0.153.4 bundles the visible Astra catalog. Keep the two headers aligned.
-pub(super) const CODEX_CLIENT_VERSION: &str = "0.153.4";
-pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.153.4";
+// GPT-6 Sol and Luna require Codex CLI 0.155.0 or newer. Keep both headers aligned.
+pub(super) const CODEX_CLIENT_VERSION: &str = "0.155.1";
+pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.155.1";
 
 pub(super) const MODELS: &[&str] = &[
     "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -16,6 +18,10 @@ pub(super) const MODELS: &[&str] = &[
 const MODEL_MAPPINGS: &[(&str, &str)] = &[
     ("gpt-6-astra", "gpt-6-astra"),
     ("gpt6-astra", "gpt-6-astra"),
+    ("gpt-6-sol", "gpt-6-sol"),
+    ("gpt6-sol", "gpt-6-sol"),
+    ("gpt-6-luna", "gpt-6-luna"),
+    ("gpt6-luna", "gpt-6-luna"),
     ("gpt6", "gpt-6-astra"),
     ("gpt-6", "gpt-6-astra"),
     ("gpt-5.6-sol", "gpt-5.6-sol"),
@@ -90,6 +96,8 @@ fn remap_model_name(model: &str, mappings: &[(&str, &str)]) -> Option<String> {
 pub(super) fn is_responses_lite_model(model: &str) -> bool {
     [
         "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -123,12 +131,23 @@ pub(super) fn is_astra_model(model: &str) -> bool {
     model == "gpt-6-astra" || model.starts_with("gpt-6-astra-")
 }
 
+pub(super) fn is_gpt6_sol_or_luna_model(model: &str) -> bool {
+    ["gpt-6-sol", "gpt-6-luna"]
+        .iter()
+        .any(|prefix| model == *prefix || model.starts_with(&format!("{prefix}-")))
+}
+
 pub(super) fn validate_reasoning(model: &str, effort: Option<&str>) -> Result<(), String> {
     let normalized = effort.map(|value| value.trim().to_ascii_lowercase());
     let effort = normalized.as_deref();
     if is_astra_model(model) && matches!(effort, Some("none" | "minimal")) {
         return Err(
             "GPT-6 Astra 支持 low、medium、high、xhigh、max 推理强度；ultra 映射为 max".to_string(),
+        );
+    }
+    if is_gpt6_sol_or_luna_model(model) && matches!(effort, Some("none" | "minimal")) {
+        return Err(
+            "GPT-6 Sol/Luna 的 Codex 模型目录支持 low、medium、high、xhigh、max 推理强度；ultra 映射为 max".to_string(),
         );
     }
     if is_responses_lite_model(model) && effort == Some("minimal") {

@@ -41,6 +41,7 @@ pub(super) fn estimate_token_cost_usd(
 fn pricing_rate_for_model_at(model: &str, event_timestamp: i64) -> PricingRate {
     let normalized = model.to_ascii_lowercase();
     // Standard short-context rates, not subscription billing or fast-tier rates.
+    // GPT-6 standard short-context rates from the official model pages.
     // https://developers.openai.com/api/docs/models/gpt-6-astra
     if matches!(
         normalized.as_str(),
@@ -52,6 +53,22 @@ fn pricing_rate_for_model_at(model: &str, event_timestamp: i64) -> PricingRate {
             input_per_million: 10.0,
             cached_input_per_million: 1.0,
             output_per_million: 50.0,
+        };
+    }
+    if normalized.starts_with("gpt-6-sol") || normalized.starts_with("gpt6-sol") {
+        // https://developers.openai.com/api/docs/models/gpt-6-sol
+        return PricingRate {
+            input_per_million: 2.0,
+            cached_input_per_million: 0.2,
+            output_per_million: 10.0,
+        };
+    }
+    if normalized.starts_with("gpt-6-luna") || normalized.starts_with("gpt6-luna") {
+        // https://developers.openai.com/api/docs/models/gpt-6-luna
+        return PricingRate {
+            input_per_million: 0.1,
+            cached_input_per_million: 0.01,
+            output_per_million: 0.5,
         };
     }
     if normalized == "gpt-5.6"
