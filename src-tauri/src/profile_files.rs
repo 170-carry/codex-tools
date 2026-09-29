@@ -31,6 +31,7 @@ const PROFILE_INCOMPLETE_MESSAGE: &str = "配置不完整";
 const RELAY_INCOMPLETE_MESSAGE: &str = "API 条目资料不完整";
 const CODEX_PROXY_BACKUP_DIR_NAME: &str = "codex-tools-api-proxy-backup";
 const CODEX_PROXY_BACKUP_METADATA_FILE_NAME: &str = "metadata.json";
+const MANAGED_AUTH_CREDENTIALS_STORE: &str = "file";
 const VALIDATE_TIMEOUT_SECS: u64 = 18;
 
 #[derive(Debug, Clone)]
@@ -466,6 +467,10 @@ fn build_chatgpt_profile_config(current_config: Option<&str>) -> String {
     // Codex filters local history by model_provider; account switching should
     // keep official login history on the built-in provider key.
     document["model_provider"] = value("openai");
+    // Codex Tools switches accounts by atomically replacing CODEX_HOME/auth.json.
+    // `auto` may prefer a stale macOS Keychain entry in newer desktop builds,
+    // so managed profiles must explicitly read the file that was just applied.
+    document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
     document.to_string()
 }
 
@@ -480,6 +485,7 @@ fn build_relay_profile_config(
     // Relay/API accounts still use the built-in OpenAI-compatible provider so
     // existing Codex history remains visible after switching account types.
     document["model_provider"] = value("openai");
+    document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
     document.to_string()
 }
 
@@ -487,6 +493,7 @@ fn build_codex_proxy_config(current_config: Option<&str>, base_url: &str) -> Str
     let mut document = parse_config_or_default(current_config);
     document["openai_base_url"] = value(base_url);
     document["model_provider"] = value("openai");
+    document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
     set_missing_string_default(&mut document, "model", DEFAULT_API_PROXY_MODEL);
     set_missing_string_default(
         &mut document,
@@ -505,19 +512,15 @@ fn merge_shared_config(
     profile_config: Option<&str>,
     current_config: Option<&str>,
 ) -> Option<String> {
-    let mut target = parse_config_or_default(profile_config.or(current_config));
-    let Some(current) = current_config.and_then(|raw| raw.parse::<DocumentMut>().ok()) else {
-        return profile_config.map(str::to_string);
-    };
-
-    for (key, item) in current.iter() {
-        // 这些字段由账号 profile 管理，其余顶层表和设置都应跨账号保留。
-        if matches!(key, "openai_base_url" | "model" | "model_provider") {
-            continue;
-        }
-        target[key] = item.clone();
-    }
-    Some(target.to_string())
+    // Codex configuration is machine-local shared state. Use the current
+    // configuration as the whole source of truth so changed and deleted
+    // settings (including approval/sandbox preferences) survive a switch.
+    // The target account builder reapplies only its required provider route
+    // and the managed credential-store setting afterwards.
+    current_config
+        .and_then(|raw| raw.parse::<DocumentMut>().ok())
+        .map(|document| document.to_string())
+        .or_else(|| profile_config.map(str::to_string))
 }
 
 fn set_missing_string_default(document: &mut DocumentMut, key: &str, default_value: &str) {
@@ -767,8 +770,11 @@ fn write_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use super::build_chatgpt_profile_config;
     use super::build_codex_proxy_config;
+    use super::build_relay_profile_config;
     use super::ensure_codex_proxy_backup_in_dir;
+    use super::merge_shared_config;
     use super::normalize_codex_proxy_base_url;
     use super::CODEX_PROXY_BACKUP_METADATA_FILE_NAME;
     use super::PROFILE_AUTH_FILE_NAME;
@@ -807,9 +813,126 @@ openai_base_url = "https://api.openai.com/v1"
             Some("http://127.0.0.1:8787/v1")
         );
         assert_eq!(document["model_provider"].as_str(), Some("openai"));
+        assert_eq!(
+            document["cli_auth_credentials_store"].as_str(),
+            Some("file")
+        );
         assert_eq!(document["model"].as_str(), Some("gpt-5.4"));
         assert_eq!(document["model_reasoning_effort"].as_str(), Some("xhigh"));
         assert_eq!(document["service_tier"].as_str(), Some("default"));
+    }
+
+    #[test]
+    fn build_chatgpt_profile_config_forces_managed_auth_file() {
+        let config = build_chatgpt_profile_config(Some(
+            r#"
+model_provider = "other"
+openai_base_url = "https://example.invalid/v1"
+cli_auth_credentials_store = "keyring"
+"#,
+        ));
+        let document = config
+            .parse::<DocumentMut>()
+            .expect("ChatGPT profile config should parse");
+
+        assert_eq!(document["model_provider"].as_str(), Some("openai"));
+        assert_eq!(
+            document["cli_auth_credentials_store"].as_str(),
+            Some("file")
+        );
+        assert!(document.get("openai_base_url").is_none());
+        assert!(document.get("model").is_none());
+    }
+
+    #[test]
+    fn merge_shared_config_uses_current_settings_and_permissions() {
+        let merged = merge_shared_config(
+            Some(
+                r#"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+model = "gpt-target"
+old_only_setting = "remove-me"
+"#,
+            ),
+            Some(
+                r#"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model = "gpt-current"
+shared_setting = "keep-me"
+"#,
+            ),
+        )
+        .expect("merged config");
+        let document = merged
+            .parse::<DocumentMut>()
+            .expect("merged config should parse");
+
+        assert_eq!(document["approval_policy"].as_str(), Some("on-request"));
+        assert_eq!(document["sandbox_mode"].as_str(), Some("workspace-write"));
+        assert_eq!(document["model"].as_str(), Some("gpt-current"));
+        assert_eq!(document["shared_setting"].as_str(), Some("keep-me"));
+        assert!(document.get("old_only_setting").is_none());
+
+        let new_profile = merge_shared_config(
+            None,
+            Some(
+                r#"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+shared_setting = "keep-me"
+"#,
+            ),
+        )
+        .expect("new profile config");
+        let new_document = new_profile
+            .parse::<DocumentMut>()
+            .expect("new profile config should parse");
+        assert_eq!(new_document["approval_policy"].as_str(), Some("never"));
+        assert_eq!(
+            new_document["sandbox_mode"].as_str(),
+            Some("danger-full-access")
+        );
+        assert_eq!(new_document["shared_setting"].as_str(), Some("keep-me"));
+    }
+
+    #[test]
+    fn relay_builder_overrides_only_route_on_shared_config() {
+        let shared = merge_shared_config(
+            Some(
+                r#"
+openai_base_url = "https://old-target.invalid/v1"
+model = "old-target-model"
+"#,
+            ),
+            Some(
+                r#"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model = "gpt-6-astra"
+shared_setting = "keep-me"
+"#,
+            ),
+        )
+        .expect("shared config");
+        let relay = build_relay_profile_config(
+            Some(&shared),
+            "https://target-relay.invalid/v1",
+            "target-relay-model",
+        );
+        let document = relay
+            .parse::<DocumentMut>()
+            .expect("relay config should parse");
+
+        assert_eq!(
+            document["openai_base_url"].as_str(),
+            Some("https://target-relay.invalid/v1")
+        );
+        assert_eq!(document["model"].as_str(), Some("target-relay-model"));
+        assert_eq!(document["approval_policy"].as_str(), Some("on-request"));
+        assert_eq!(document["sandbox_mode"].as_str(), Some("workspace-write"));
+        assert_eq!(document["shared_setting"].as_str(), Some("keep-me"));
     }
 
     #[test]
