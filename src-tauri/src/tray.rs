@@ -1873,6 +1873,9 @@ mod tests {
             tray_icon_percent(std::slice::from_ref(&account), TrayUsageDisplayMode::Hidden,),
             None
         );
-        assert_eq!(quota_icon_percent(&[account]), Some(40.0));
+        assert_eq!(
+            quota_icon_percent(&[account], TrayUsageDisplayMode::Remaining),
+            Some(40.0)
+        );
     }
 }
