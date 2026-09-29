@@ -23,7 +23,7 @@ pub(crate) use macos::is_macos_codex_app_bundle;
 #[cfg(target_os = "macos")]
 use macos::{
     append_macos_app_bundle_codex_candidates, first_spotlight_codex_app_match,
-    macos_codex_app_candidates,
+    macos_codex_app_candidates, macos_codex_cli_candidates_for_bundle,
 };
 #[cfg(target_os = "windows")]
 mod windows_elevated;

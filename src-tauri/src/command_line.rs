@@ -637,6 +637,7 @@ async fn switch_account(
 
 fn launch_codex(configured_path: Option<&str>, workspace: Option<&Path>) -> Result<(), String> {
     let mut command = cli::new_codex_command(configured_path)?;
+    command.env("CODEX_HOME", app_paths::codex_dir()?);
     command.arg("app");
     if let Some(workspace) = workspace {
         command.arg(workspace);
