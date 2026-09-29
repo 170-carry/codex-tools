@@ -132,7 +132,10 @@
     "uploadQueueTitle": "Queued files",
     "uploadQueueEmpty": "No JSON files or folders selected yet.",
     "uploadImporting": "Importing...",
-    "uploadStartImport": "Start import"
+    "uploadStartImport": "Start import",
+    "apiEditTitle": "Edit API account",
+    "apiEditHint": "Leave API Key blank to keep it. Switch to this account again after saving to apply its new URL or model.",
+    "apiEditSave": "Save"
   },
   "accountCard": {
     "currentStamp": "Current",
@@ -781,6 +784,7 @@
     "cloudflaredStarted": "Public tunnel started: {{target}}",
     "cloudflaredStartFailed": "Failed to start cloudflared public access: {{error}}",
     "cloudflaredStopped": "cloudflared public access stopped",
-    "cloudflaredStopFailed": "Failed to stop cloudflared public access: {{error}}"
+    "cloudflaredStopFailed": "Failed to stop cloudflared public access: {{error}}",
+    "accountWarmupRequestSent": "Warm-up request completed; 5h activation is not yet confirmed. Quota may update later; refresh shortly."
   }
 }

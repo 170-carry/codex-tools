@@ -132,7 +132,10 @@
     "uploadQueueTitle": "Queued files",
     "uploadQueueEmpty": "No JSON files or folders selected yet.",
     "uploadImporting": "Импорт...",
-    "uploadStartImport": "Начать импорт"
+    "uploadStartImport": "Начать импорт",
+    "apiEditTitle": "Изменить API аккаунт",
+    "apiEditHint": "Оставьте API Key пустым, чтобы сохранить ключ. После сохранения переключитесь на этот аккаунт для применения URL или модели.",
+    "apiEditSave": "Сохранить"
   },
   "accountCard": {
     "currentStamp": "Текущий",
@@ -781,6 +784,7 @@
     "cloudflaredStarted": "Публичный туннель запущен: {{target}}",
     "cloudflaredStartFailed": "Не удалось запустить публичный доступ cloudflared: {{error}}",
     "cloudflaredStopped": "Публичный доступ cloudflared остановлен",
-    "cloudflaredStopFailed": "Не удалось остановить публичный доступ cloudflared: {{error}}"
+    "cloudflaredStopFailed": "Не удалось остановить публичный доступ cloudflared: {{error}}",
+    "accountWarmupRequestSent": "Запрос прогрева завершён, но активация окна 5 ч ещё не подтверждена. Обновите квоту позже."
   }
 }

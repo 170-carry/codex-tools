@@ -829,6 +829,7 @@ pub(crate) struct AccountWarmupAttempt {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum AccountWarmupStatus {
     Activated,
+    RequestSent,
     AlreadyActive,
     RecentlyAttempted,
     Exhausted,

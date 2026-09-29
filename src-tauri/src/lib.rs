@@ -1,3 +1,16 @@
+mod account_switch;
+#[cfg(target_os = "macos")]
+mod macos_desktop;
+#[cfg(target_os = "macos")]
+use macos_desktop::process::{is_macos_app_running_with_home, stop_running_macos_codex_processes};
+#[cfg(all(test, target_os = "macos"))]
+use macos_desktop::{
+    launch::{macos_codex_open_args, wait_for_macos_codex_launch_with_probe},
+    process::{
+        collect_descendant_process_ids, effective_codex_home_from_environment,
+        macos_app_bundle_for_main_executable, macos_codex_main_app_bundle_for_executable,
+    },
+};
 mod account_service;
 mod app_paths;
 mod auth;
@@ -30,8 +43,6 @@ mod windows_taskbar_widget;
 #[cfg(target_os = "windows")]
 mod windows_tray_icon;
 
-#[cfg(target_os = "macos")]
-use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
@@ -630,6 +641,22 @@ async fn create_api_account(
     input: CreateApiAccountInput,
 ) -> Result<AccountSummary, String> {
     let summary = account_service::create_api_account_internal(&app, state.inner(), input).await?;
+    let _ = tray::refresh_usage_surfaces_snapshot(&app);
+    Ok(summary)
+}
+
+#[tauri::command]
+async fn update_api_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    input: account_service::relay_edit::UpdateApiAccountInput,
+) -> Result<AccountSummary, String> {
+    let _auth_guard = state.auth_operation_lock.lock().await;
+    ensure_no_pending_auth_operation(state.inner()).await?;
+    let summary =
+        account_service::relay_edit::update_api_account_internal(&app, state.inner(), &id, input)
+            .await?;
     let _ = tray::refresh_usage_surfaces_snapshot(&app);
     Ok(summary)
 }
@@ -1407,9 +1434,17 @@ mod tests {
     use super::collect_descendant_process_ids;
     use super::delete_codex_session_from_roots;
     #[cfg(target_os = "macos")]
+    use super::effective_codex_home_from_environment;
+    #[cfg(target_os = "macos")]
+    use super::macos_app_bundle_for_main_executable;
+    #[cfg(target_os = "macos")]
     use super::macos_codex_main_app_bundle_for_executable;
+    #[cfg(target_os = "macos")]
+    use super::macos_codex_open_args;
     use super::should_capture_current_auth_for_active_profile;
     use super::should_noop_switch_account;
+    #[cfg(target_os = "macos")]
+    use super::wait_for_macos_codex_launch_with_probe;
     use super::PERIODIC_USAGE_REFRESH_INTERVAL_SECS;
     use crate::models::AccountsStore;
     use crate::models::StoredAccount;
@@ -1422,6 +1457,8 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::path::PathBuf;
+    #[cfg(target_os = "macos")]
+    use std::time::Duration;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
@@ -1506,7 +1543,12 @@ mod tests {
         let chatgpt_app = sandbox.join("ChatGPT.app");
         let chatgpt_resources = chatgpt_app.join("Contents").join("Resources");
         fs::create_dir_all(&chatgpt_resources).expect("create ChatGPT resources");
-        let embedded_codex = chatgpt_resources.join("codex");
+        let embedded_codex = chatgpt_resources
+            .join("codex-cli")
+            .join("bin")
+            .join("codex");
+        fs::create_dir_all(embedded_codex.parent().expect("embedded CLI parent"))
+            .expect("create embedded CLI directory");
         fs::write(&embedded_codex, b"test").expect("write embedded codex marker");
         let mut permissions = fs::metadata(&embedded_codex)
             .expect("read embedded codex metadata")
@@ -1531,7 +1573,7 @@ mod tests {
             macos_codex_main_app_bundle_for_executable(&chatgpt_renderer_executable),
             None
         );
-        let independent_codex_cli = chatgpt_resources.join("codex");
+        let independent_codex_cli = embedded_codex;
         assert_eq!(
             macos_codex_main_app_bundle_for_executable(&independent_codex_cli),
             None
@@ -1543,6 +1585,16 @@ mod tests {
         assert_eq!(
             macos_codex_main_app_bundle_for_executable(&legacy_executable),
             Some(legacy_app.as_path())
+        );
+
+        let custom_app = sandbox.join("Custom Launcher.app");
+        let custom_executable = custom_app
+            .join("Contents")
+            .join("MacOS")
+            .join("custom-launcher");
+        assert_eq!(
+            macos_app_bundle_for_main_executable(&custom_executable),
+            Some(custom_app.as_path())
         );
 
         let unrelated_app = sandbox.join("Codex Tools.app");
@@ -1571,6 +1623,62 @@ mod tests {
 
         assert_eq!(targets, HashSet::from([desktop, renderer, app_server]));
         assert!(!targets.contains(&independent_cli));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_launch_passes_effective_codex_home_without_a_workspace() {
+        let args = macos_codex_open_args(
+            Path::new("/Applications/ChatGPT.app"),
+            None,
+            Path::new("/tmp/Codex Tools Test/codex"),
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                std::ffi::OsString::from("-n"),
+                std::ffi::OsString::from("--env"),
+                std::ffi::OsString::from("CODEX_HOME=/tmp/Codex Tools Test/codex"),
+                std::ffi::OsString::from("-a"),
+                std::ffi::OsString::from("/Applications/ChatGPT.app"),
+            ]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_launch_probe_requires_a_stable_process() {
+        let mut observations =
+            std::collections::VecDeque::from([false, true, false, true, true, true]);
+
+        assert!(wait_for_macos_codex_launch_with_probe(
+            Duration::from_secs(1),
+            Duration::ZERO,
+            || observations.pop_front().unwrap_or(false),
+        ));
+        assert!(!wait_for_macos_codex_launch_with_probe(
+            Duration::ZERO,
+            Duration::ZERO,
+            || true,
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_running_app_home_uses_environment_or_default() {
+        let default_home = Path::new("/Users/tester/.codex");
+        assert_eq!(
+            effective_codex_home_from_environment(&[], default_home),
+            default_home
+        );
+        assert_eq!(
+            effective_codex_home_from_environment(
+                &["CODEX_HOME=/tmp/Codex Tools Test/codex".to_string()],
+                default_home,
+            ),
+            Path::new("/tmp/Codex Tools Test/codex")
+        );
     }
 
     #[test]
@@ -1819,17 +1927,38 @@ async fn switch_account_and_launch(
 
         let current_account_key = auth::current_auth_account_key();
         let current_variant_key = auth::current_auth_variant_key();
-        if should_noop_switch_account(
-            &store,
-            &account,
-            current_account_key.as_deref(),
-            current_variant_key.as_deref(),
-        ) {
+        let is_noop_switch = profile_files::current_config_matches_account(&account)
+            && should_noop_switch_account(
+                &store,
+                &account,
+                current_account_key.as_deref(),
+                current_variant_key.as_deref(),
+            );
+        #[cfg(target_os = "macos")]
+        let should_relaunch_noop = if is_noop_switch && should_launch_codex {
+            let launch_target =
+                cli::find_configured_codex_app_path(store.settings.codex_launch_path.as_deref())
+                    .or_else(cli::find_codex_app_path);
+            match launch_target {
+                Some(path) => !is_macos_app_running_with_home(&path, &app_paths::codex_dir()?),
+                None => true,
+            }
+        } else {
+            false
+        };
+        #[cfg(not(target_os = "macos"))]
+        let should_relaunch_noop = false;
+        if is_noop_switch && !should_relaunch_noop {
             let mut result = noop_switch_account_result(&account);
             result.provider_sync_error = provider_sync::sync_current_provider(None)
                 .err()
                 .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
             return Ok(result);
+        }
+        if should_relaunch_noop {
+            log::info!(
+                "MACOS_CODEX_SWITCH action=relaunch-noop reason=codex-home-mismatch-or-not-running"
+            );
         }
 
         if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
@@ -1924,45 +2053,30 @@ async fn switch_account_and_launch(
                 None
             };
         }
+        // Stop the desktop client before capturing its final rotated token and
+        // replacing auth.json/config.toml. On macOS this is also required for
+        // "switch only" because the desktop otherwise rewrites the old token.
+        // Project and global desktop state remain shared and untouched.
+        #[cfg(target_os = "windows")]
         if should_launch_codex {
-            // Stop the desktop client before capturing its final rotated token and
-            // replacing auth.json. Otherwise a late refresh can be lost on switch.
-            #[cfg(target_os = "windows")]
             if let Some(plan) = &windows_launch_plan {
                 plan.stop_desktop()?;
             }
-            #[cfg(not(target_os = "windows"))]
+        }
+        #[cfg(target_os = "macos")]
+        force_stop_running_codex()?;
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if should_launch_codex {
             force_stop_running_codex()?;
         }
-        {
-            let _guard = state.store_lock.lock().await;
-            let mut latest_store = store::load_store(&app)?;
-            let store_path =
-                store::account_store_path_from_data_dir(&app_paths::app_data_dir(&app)?);
-            if let Some(active_id) = latest_store.settings.active_account_id.clone() {
-                if active_id != id {
-                    capture_current_auth_for_active_profile(&store_path, &mut latest_store)?;
-                    // 先保存当前账号在 Codex 内产生的配置改动，再应用目标 profile。
-                    profile_files::capture_current_config_for_profile(&store_path, &active_id)?;
-                }
-            }
-            let stored_account = latest_store
-                .accounts
-                .iter_mut()
-                .find(|stored| stored.id == id)
-                .ok_or_else(|| "找不到要切换的账号".to_string())?;
-            if let Some(refreshed_at) = refreshed_auth_updated_at {
-                stored_account.auth_json = account.auth_json.clone();
-                stored_account.updated_at = refreshed_at;
-                stored_account.auth_refresh_blocked = false;
-                stored_account.auth_refresh_error = None;
-            }
-            profile_files::sync_account_profile_in_store_path(&store_path, stored_account)?;
-            profile_files::apply_account_profile(stored_account)?;
-            latest_store.settings.active_account_id = Some(stored_account.id.clone());
-            account = stored_account.clone();
-            store::save_store(&app, &latest_store)?;
-        }
+        account = account_switch::apply_target_profile(
+            &app,
+            state.inner(),
+            &id,
+            account,
+            refreshed_auth_updated_at,
+        )
+        .await?;
         let _ = tray::refresh_usage_surfaces_snapshot(&app);
 
         (
@@ -2045,27 +2159,35 @@ async fn switch_account_and_launch(
 
     #[cfg(not(target_os = "windows"))]
     let (launched_app_path, used_fallback_cli) = (|| -> Result<(Option<String>, bool), String> {
-        let mut app_launch_error = None;
         if let Some(path) =
             cli::find_configured_codex_app_path(configured_codex_launch_path.as_deref())
                 .or_else(cli::find_codex_app_path)
         {
-            match launch_codex_app(&path, workspace_path.as_deref(), launch_codex_as_admin) {
-                Ok(()) => return Ok((Some(path.to_string_lossy().to_string()), false)),
-                Err(error) => {
-                    log::warn!("通过 Codex 应用路径启动失败 {}: {}", path.display(), error);
-                    app_launch_error = Some(error);
-                }
-            }
+            launch_codex_app(&path, workspace_path.as_deref(), launch_codex_as_admin).map_err(
+                |error| {
+                    format!(
+                        "当前账号已切换，但桌面未能启动（{}）：{error}",
+                        path.display()
+                    )
+                },
+            )?;
+            return Ok((Some(path.to_string_lossy().to_string()), false));
         }
-        let format_error = |error: String| match &app_launch_error {
-            Some(previous) => format!(
-                "通过 Codex 应用路径启动失败: {previous}；且通过 codex app 启动失败: {error}"
-            ),
-            None => format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {error}"),
-        };
+
+        #[cfg(target_os = "macos")]
+        if workspace_path.is_none() {
+            return Err(
+                "当前账号已切换，但未检测到本地 Codex 应用；为避免再次创建名为 / 的项目，未执行 codex app 回退启动。"
+                    .to_string(),
+            );
+        }
+
+        let format_error =
+            |error: String| format!("未检测到本地 Codex 应用，且通过 codex app 启动失败: {error}");
         let mut cmd = cli::new_codex_command(configured_codex_launch_path.as_deref())
             .map_err(&format_error)?;
+        let codex_home = app_paths::codex_dir().map_err(&format_error)?;
+        cmd.env("CODEX_HOME", codex_home);
         cmd.arg("app");
         if let Some(workspace) = workspace_path.as_deref() {
             cmd.arg(workspace);
@@ -2209,18 +2331,7 @@ fn launch_codex_app(
     #[cfg(target_os = "macos")]
     {
         let _ = launch_as_admin;
-        let mut cmd = Command::new("open");
-        cmd.arg("-na").arg(path);
-        if let Some(workspace) = workspace_path {
-            cmd.arg(workspace);
-        }
-        let status = cmd
-            .status()
-            .map_err(|e| format!("启动 Codex 应用失败: {e}"))?;
-        if !status.success() {
-            return Err("启动 Codex 应用失败".to_string());
-        }
-        return Ok(());
+        macos_desktop::launch::launch(path, workspace_path)
     }
 
     #[cfg(target_os = "windows")]
@@ -2534,130 +2645,6 @@ async fn install_sshpass() -> Result<(), String> {
     remote_service::install_sshpass_internal().await
 }
 
-#[cfg(target_os = "macos")]
-fn macos_codex_main_app_bundle_for_executable(
-    executable: &std::path::Path,
-) -> Option<&std::path::Path> {
-    let macos_dir = executable.parent()?;
-    if !macos_dir
-        .file_name()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("MacOS"))
-    {
-        return None;
-    }
-
-    let contents_dir = macos_dir.parent()?;
-    if !contents_dir
-        .file_name()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("Contents"))
-    {
-        return None;
-    }
-
-    let app_bundle = contents_dir.parent()?;
-    if !cli::is_macos_codex_app_bundle(app_bundle) {
-        return None;
-    }
-
-    let expected_executable_name = app_bundle.file_stem()?.to_str()?;
-    let executable_name = executable.file_name()?.to_str()?;
-    executable_name
-        .eq_ignore_ascii_case(expected_executable_name)
-        .then_some(app_bundle)
-}
-
-#[cfg(target_os = "macos")]
-fn collect_descendant_process_ids(
-    mut targets: HashSet<sysinfo::Pid>,
-    process_parents: &[(sysinfo::Pid, Option<sysinfo::Pid>)],
-) -> HashSet<sysinfo::Pid> {
-    loop {
-        let previous_count = targets.len();
-        for (pid, parent) in process_parents {
-            if parent.is_some_and(|parent| targets.contains(&parent)) {
-                targets.insert(*pid);
-            }
-        }
-        if targets.len() == previous_count {
-            return targets;
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn running_macos_codex_desktop_process_ids(
-    system: &sysinfo::System,
-    current_user_id: &sysinfo::Uid,
-) -> HashSet<sysinfo::Pid> {
-    let same_user_processes = system
-        .processes()
-        .iter()
-        .filter(|(_, process)| process.user_id() == Some(current_user_id))
-        .map(|(pid, process)| (*pid, process))
-        .collect::<Vec<_>>();
-    let desktop_roots = same_user_processes
-        .iter()
-        .filter_map(|(pid, process)| {
-            process.exe().and_then(|executable| {
-                macos_codex_main_app_bundle_for_executable(executable).map(|_| *pid)
-            })
-        })
-        .collect::<HashSet<_>>();
-    let process_parents = same_user_processes
-        .into_iter()
-        .map(|(pid, process)| (pid, process.parent()))
-        .collect::<Vec<_>>();
-
-    collect_descendant_process_ids(desktop_roots, &process_parents)
-}
-
-#[cfg(target_os = "macos")]
-fn stop_running_macos_codex_processes() -> Result<(), String> {
-    let mut system = sysinfo::System::new_all();
-    let current_pid = sysinfo::get_current_pid().map_err(|error| error.to_string())?;
-    let current_user_id = system
-        .process(current_pid)
-        .and_then(|process| process.user_id())
-        .cloned()
-        .ok_or_else(|| "无法识别当前用户，未结束 ChatGPT/Codex 应用进程".to_string())?;
-    let mut remaining = running_macos_codex_desktop_process_ids(&system, &current_user_id);
-    if remaining.is_empty() {
-        return Ok(());
-    }
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    loop {
-        // 按已验证 App bundle 的可执行路径结束整个进程树，避免裸进程名误杀普通 ChatGPT。
-        for pid in &remaining {
-            if let Some(process) = system.process(*pid) {
-                let _ = process.kill();
-            }
-        }
-
-        thread::sleep(Duration::from_millis(50));
-        system.refresh_processes();
-        remaining.retain(|pid| system.process(*pid).is_some());
-        remaining.extend(running_macos_codex_desktop_process_ids(
-            &system,
-            &current_user_id,
-        ));
-        if remaining.is_empty() {
-            return Ok(());
-        }
-        if std::time::Instant::now() >= deadline {
-            let pids = remaining
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(format!("无法结束正在运行的 ChatGPT/Codex 应用进程: {pids}"));
-        }
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
 fn force_stop_running_codex() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -2669,8 +2656,6 @@ fn force_stop_running_codex() -> Result<(), String> {
         let _ = Command::new("pkill").args(["-9", "-x", "Codex"]).status();
     }
 
-    // 等待进程树收敛，避免新实例拉起时与旧实例短暂重叠。
-    thread::sleep(Duration::from_millis(220));
     Ok(())
 }
 
@@ -3013,6 +2998,7 @@ pub fn run() {
             list_accounts,
             import_current_auth_account,
             create_api_account,
+            update_api_account,
             test_api_account_connection,
             import_auth_json_accounts,
             export_accounts_zip,

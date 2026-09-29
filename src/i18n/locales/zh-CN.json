@@ -132,7 +132,10 @@
     "uploadQueueTitle": "待处理文件",
     "uploadQueueEmpty": "还没有选择任何 JSON 文件或目录。",
     "uploadImporting": "导入中...",
-    "uploadStartImport": "开始导入"
+    "uploadStartImport": "开始导入",
+    "apiEditTitle": "编辑 API 账号",
+    "apiEditHint": "API Key 留空保留原值。保存后再次切换到此账号以应用新地址或模型。",
+    "apiEditSave": "保存"
   },
   "accountCard": {
     "currentStamp": "当前",
@@ -781,6 +784,7 @@
     "cloudflaredStarted": "公网隧道已启动：{{target}}",
     "cloudflaredStartFailed": "启动 cloudflared 公网访问失败：{{error}}",
     "cloudflaredStopped": "cloudflared 公网访问已停止",
-    "cloudflaredStopFailed": "停止 cloudflared 公网访问失败：{{error}}"
+    "cloudflaredStopFailed": "停止 cloudflared 公网访问失败：{{error}}",
+    "accountWarmupRequestSent": "预热请求已完成，尚未确认 5h 窗口激活；额度可能延迟更新，请稍后刷新。"
   }
 }
