@@ -1,11 +1,13 @@
 use axum::http::HeaderMap;
 
-// GPT-6 Sol and Luna require Codex CLI 0.155.0 or newer. Keep both headers aligned.
-pub(super) const CODEX_CLIENT_VERSION: &str = "0.155.1";
-pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.155.1";
+// Use the client identity verified with the GPT-6.1 Sol Codex model catalog.
+// Keep the HTTP and WebSocket version/user-agent headers aligned.
+pub(super) const CODEX_CLIENT_VERSION: &str = "0.159.0";
+pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.159.0";
 
 pub(super) const MODELS: &[&str] = &[
     "gpt-6-astra",
+    "gpt-6.1-sol",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-5.6-sol",
@@ -16,6 +18,12 @@ pub(super) const MODELS: &[&str] = &[
     "gpt-image-2",
 ];
 const MODEL_MAPPINGS: &[(&str, &str)] = &[
+    ("gpt-6.1-sol", "gpt-6.1-sol"),
+    ("gpt6.1-sol", "gpt-6.1-sol"),
+    ("gpt-6-1-sol", "gpt-6.1-sol"),
+    ("gpt-6.1", "gpt-6.1-sol"),
+    ("gpt6.1", "gpt-6.1-sol"),
+    ("gpt-6-1", "gpt-6.1-sol"),
     ("gpt-6-astra", "gpt-6-astra"),
     ("gpt6-astra", "gpt-6-astra"),
     ("gpt-6-sol", "gpt-6-sol"),
@@ -96,6 +104,7 @@ fn remap_model_name(model: &str, mappings: &[(&str, &str)]) -> Option<String> {
 pub(super) fn is_responses_lite_model(model: &str) -> bool {
     [
         "gpt-6-astra",
+        "gpt-6.1-sol",
         "gpt-6-sol",
         "gpt-6-luna",
         "gpt-5.6-sol",
@@ -140,6 +149,13 @@ pub(super) fn is_gpt6_sol_or_luna_model(model: &str) -> bool {
 pub(super) fn validate_reasoning(model: &str, effort: Option<&str>) -> Result<(), String> {
     let normalized = effort.map(|value| value.trim().to_ascii_lowercase());
     let effort = normalized.as_deref();
+    if (model == "gpt-6.1-sol" || model.starts_with("gpt-6.1-sol-"))
+        && matches!(effort, Some("none" | "minimal"))
+    {
+        return Err(
+            "GPT-6.1 Sol 支持 low、medium、high、xhigh、max 推理强度；ultra 映射为 max".to_string(),
+        );
+    }
     if is_astra_model(model) && matches!(effort, Some("none" | "minimal")) {
         return Err(
             "GPT-6 Astra 支持 low、medium、high、xhigh、max 推理强度；ultra 映射为 max".to_string(),

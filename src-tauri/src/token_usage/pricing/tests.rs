@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn sol_6_1_prices_cached_input_without_changing_sol_6_history() {
+    let usage = CodexTokenTotals {
+        input_tokens: 1_000_000,
+        cached_input_tokens: 500_000,
+        output_tokens: 1_000_000,
+        ..Default::default()
+    };
+    for model in [
+        "gpt-6.1-sol",
+        "GPT-6.1-SOL",
+        "gpt6.1-sol",
+        "gpt-6-1-sol",
+        "gpt-6.1",
+        "gpt6.1",
+        "gpt-6-1",
+        "gpt-6.1-sol-2026-09-29",
+        "gpt6.1-sol-2026-09-29",
+        "gpt-6-1-sol-2026-09-29",
+    ] {
+        let rate = pricing_rate_for_model_at(model, GPT_5_6_SOL_PRICE_REDUCTION_EFFECTIVE_AT);
+        assert_eq!(rate.input_per_million, 2.0, "{model}");
+        assert_eq!(rate.cached_input_per_million, 0.1, "{model}");
+        assert_eq!(rate.output_per_million, 10.0, "{model}");
+        assert_eq!(
+            estimate_token_cost_usd(model, GPT_5_6_SOL_PRICE_REDUCTION_EFFECTIVE_AT, &usage),
+            11.05,
+            "{model}"
+        );
+    }
+    assert_eq!(
+        estimate_token_cost_usd(
+            "gpt-6-sol",
+            GPT_5_6_SOL_PRICE_REDUCTION_EFFECTIVE_AT,
+            &usage
+        ),
+        11.1
+    );
+}
+
+#[test]
 fn uses_july_gpt_5_6_variant_pricing() {
     for (model, input, cached, output) in [
         ("gpt-5.6-sol", 5.0, 0.5, 30.0),

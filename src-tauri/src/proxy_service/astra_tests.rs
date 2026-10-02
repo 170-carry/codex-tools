@@ -42,7 +42,7 @@ fn sol_and_luna_use_codex_0155_responses_lite() {
     }
     assert_eq!(
         upstream_codex_client_identity(&HeaderMap::new(), true),
-        ("0.155.1", "codex_cli_rs/0.155.1")
+        ("0.159.0", "codex_cli_rs/0.159.0")
     );
 }
 
@@ -124,11 +124,11 @@ fn astra_uses_supported_client_version_even_for_old_downstream_clients() {
     headers.insert("user-agent", HeaderValue::from_static("old-client"));
     assert_eq!(
         upstream_codex_client_identity(&headers, true),
-        ("0.155.1", "codex_cli_rs/0.155.1")
+        ("0.159.0", "codex_cli_rs/0.159.0")
     );
     assert_eq!(
         upstream_codex_client_identity(&HeaderMap::new(), false),
-        ("0.155.1", "codex_cli_rs/0.155.1")
+        ("0.159.0", "codex_cli_rs/0.159.0")
     );
 }
 
