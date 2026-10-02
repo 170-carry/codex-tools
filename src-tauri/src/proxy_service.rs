@@ -24,6 +24,9 @@ use responses_lite::normalize_responses_lite_payload;
 #[cfg(test)]
 #[path = "proxy_service/astra_tests.rs"]
 mod astra_tests;
+#[cfg(test)]
+#[path = "proxy_service/sol_6_1_tests.rs"]
+mod sol_6_1_tests;
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -9782,6 +9785,7 @@ mod tests {
             models,
             vec![
                 "gpt-6-astra",
+                "gpt-6.1-sol",
                 "gpt-6-sol",
                 "gpt-6-luna",
                 "gpt-5.6-sol",
@@ -10968,7 +10972,7 @@ mod tests {
     }
 
     #[test]
-    fn responses_lite_forces_codex_0153_identity_while_classic_preserves_client_identity() {
+    fn responses_lite_forces_supported_codex_identity_while_classic_preserves_client_identity() {
         let mut headers = HeaderMap::new();
         headers.insert("version", HeaderValue::from_static("0.125.0"));
         headers.insert(
@@ -10978,7 +10982,7 @@ mod tests {
 
         assert_eq!(
             super::upstream_codex_client_identity(&headers, true),
-            ("0.155.1", "codex_cli_rs/0.155.1")
+            ("0.159.0", "codex_cli_rs/0.159.0")
         );
         assert_eq!(
             super::upstream_codex_client_identity(&headers, false),

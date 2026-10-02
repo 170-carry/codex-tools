@@ -2,6 +2,16 @@
 
 ### Unreleased
 
+#### English
+
+- Support GPT-6.1 Sol in the model catalog, aliases, model restrictions, Responses Lite transports and compact requests (#214). Use Codex CLI 0.159.0 identity, reject unsupported reasoning efforts, estimate its distinct cached-input rate and rebuild old cost caches. Existing defaults and explicit API-key allowlists are preserved.
+
+#### 中文
+
+- 新增 GPT-6.1 Sol 支持，覆盖模型目录、别名、模型权限、Responses Lite 协议和 compact 请求（#214）。使用 Codex CLI 0.159.0 标识，拒绝不支持的推理强度，按其独立缓存输入费率估算费用并重建旧成本缓存；保留既有默认模型和 API Key 显式白名单。
+
+### Released
+
 - v2.10.0
 
 #### English

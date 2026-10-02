@@ -168,9 +168,10 @@ Tauri 命令入口在：
 特点：
 
 - 这里不是实时问上游拿模型
-- 目前返回本地静态模型列表，包含 GPT-6 Astra、Sol、Luna、GPT-5.6、GPT-5.5、GPT-5.4 和 GPT Image 2
-- GPT-6 Sol/Luna 在 Codex 官方模型目录中要求客户端至少为 `0.155.0` 并启用 Responses Lite；本代理使用 `0.155.1` 标识。静态列表表示代理支持请求格式，实际可用性仍以上游账号返回为准
+- 目前返回本地静态模型列表，包含 GPT-6 Astra、GPT-6.1 Sol、GPT-6 Sol/Luna、GPT-5.6、GPT-5.5、GPT-5.4 和 GPT Image 2
+- GPT-6 系列启用 Responses Lite；本代理使用与 GPT-6.1 Sol 本机 Codex 模型目录核对的 `0.159.0` 客户端标识。静态列表表示代理支持请求格式，实际可用性仍以上游账号返回为准
 - 如果代理 Key 显式限制了模型，升级后需在该 Key 的允许模型中勾选 Sol/Luna；代理不会自动扩大已有 Key 的权限
+- `gpt-6.1-sol` 兼容 `gpt6.1-sol`、`gpt-6-1-sol`、`gpt-6.1`、`gpt6.1`、`gpt-6-1` 及日期后缀；别名和日期版本受同一模型开关及 Key 权限控制，`gpt-6-sol` 不会自动映射为新版本
 - `gpt-5.6`、`gpt5.6`、`gpt-5-6` 会映射到 `gpt-5.6-sol`
 - 目的是让大多数依赖 `/v1/models` 的客户端能正常初始化
 
@@ -183,6 +184,7 @@ Tauri 命令入口在：
 - `ultra` 属于 Codex 客户端的多代理编排模式；反代收到该兼容值时按实际推理 wire 值 `max` 发送
 - GPT-5.6 的官方推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`max`；`minimal` 仅保留给旧模型兼容，GPT-5.6 请求会明确拒绝
 - GPT-6 Sol/Luna 的 Codex 模型目录列出 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`；代理把 `ultra` 映射到 `max`，拒绝 `none` / `minimal`
+- GPT-6.1 Sol 支持 `low`、`medium`、`high`、`xhigh`、`max`，代理兼容 `ultra` → `max`，在发送上游前拒绝 `none` / `minimal`。其标准短上下文 API 费用估算为输入 $2、缓存输入 $0.10、输出 $10 / 百万 Token，并重建旧费用缓存；不会改变 GPT-6 Sol 的历史费率。参见 [官方 GPT-6.1 Sol 说明](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
 - 具体模型可用档位仍以上游能力为准；代理会拒绝未知值，不会静默降级
 
 ### 6.3 `POST /v1/chat/completions`

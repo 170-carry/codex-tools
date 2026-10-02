@@ -3,7 +3,7 @@
 use super::CodexTokenTotals;
 
 pub(super) const PRICING_SOURCE: &str =
-    "OpenAI API standard short-context pricing, historical rates by event time; GPT-6/GPT-5.6 checked 2026-09-29";
+    "OpenAI API standard short-context pricing, historical rates by event time; GPT-6.1 Sol checked 2026-10-02; GPT-6/GPT-5.6 checked 2026-09-29";
 // OpenAI announced lower GPT-5.6 Terra and Luna prices effective 2026-07-30.
 // The announcement only specifies the date, so analytics use the UTC day boundary.
 // Source: https://developers.openai.com/api/docs/changelog
@@ -41,6 +41,25 @@ pub(super) fn estimate_token_cost_usd(
 fn pricing_rate_for_model_at(model: &str, event_timestamp: i64) -> PricingRate {
     let normalized = model.to_ascii_lowercase();
     // Standard short-context rates, not subscription billing or fast-tier rates.
+    // GPT-6.1 Sol has its own cached-input rate; preserve GPT-6 Sol history.
+    // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    if [
+        "gpt-6.1-sol",
+        "gpt6.1-sol",
+        "gpt-6-1-sol",
+        "gpt-6.1",
+        "gpt6.1",
+        "gpt-6-1",
+    ]
+    .iter()
+    .any(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix}-")))
+    {
+        return PricingRate {
+            input_per_million: 2.0,
+            cached_input_per_million: 0.1,
+            output_per_million: 10.0,
+        };
+    }
     // GPT-6 standard short-context rates from the official model pages.
     // https://developers.openai.com/api/docs/models/gpt-6-astra
     if matches!(
