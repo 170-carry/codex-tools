@@ -1,0 +1,101 @@
+/* Shared page rhythm: one title, one section selector, one content surface. */
+.nativeApp .workspacePage {
+  width: min(1020px, 100%);
+  min-width: 0;
+  margin: 0 auto;
+  padding: 0 20px 24px;
+}
+.nativeApp .pageToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0 14px;
+}
+.nativeApp .pageToolbar > div:first-child {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+}
+.nativeApp .pageToolbar h2 {
+  margin: 0;
+  font: 500 15px/1.4 var(--font-ui);
+}
+.nativeApp .pageToolbar > div:first-child > span {
+  color: var(--subtle);
+  font-size: 11px;
+}
+.pageToolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nativeApp .pageActionMenuButton {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  min-height: 28px;
+  font-size: 12px;
+  background: var(--button-bg);
+}
+.pageActionMenuButton svg {
+  width: 10px;
+  height: 10px;
+  transform: rotate(90deg);
+}
+.pageSections {
+  min-width: 0;
+}
+.nativeApp .pageSectionTabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 0 11px;
+  border-bottom: 1px solid var(--line);
+}
+.nativeApp .pageSectionTabs button {
+  min-height: 29px;
+  padding: 5px 11px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.nativeApp .pageSectionTabs button:hover {
+  background: var(--surface-hover-bg);
+}
+.nativeApp .pageSectionTabs button[aria-selected="true"] {
+  background: var(--bg-2);
+  color: var(--ink);
+  font-weight: 500;
+}
+.nativeApp .pageSectionPanel {
+  min-width: 0;
+  padding: 16px 0 22px;
+}
+.nativeApp .pageSectionPanel[hidden] {
+  display: none;
+}
+.pageSectionDescription {
+  margin: 0 0 14px;
+  color: var(--subtle);
+  font-size: 11px;
+  line-height: 1.5;
+}
+@media (max-width: 680px) {
+  .nativeApp .pageToolbar {
+    align-items: flex-start;
+  }
+  .nativeApp .pageSectionTabs {
+    gap: 2px;
+  }
+  .nativeApp .pageSectionTabs button {
+    padding-inline: 8px;
+  }
+}

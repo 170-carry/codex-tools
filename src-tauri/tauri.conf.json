@@ -13,12 +13,15 @@
     "windows": [
       {
         "title": "Codex Tools",
-        "width": 1586,
-        "height": 992,
+        "width": 920,
+        "height": 700,
+        "minWidth": 640,
+        "minHeight": 500,
         "resizable": true,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "trafficLightPosition": { "x": 16, "y": 18 },
         "acceptFirstMouse": true
       }
     ],

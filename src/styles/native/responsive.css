@@ -1,0 +1,37 @@
+@media (max-width: 780px) {
+  .nativeApp .analyticsPage, .nativeApp .proxyPage { padding: 16px 18px 10px; }
+  .nativeApp .accountsPage { padding: 0 16px 6px; }
+  .quotaMeterHead strong { font-size: 16px; }
+  .accountTable th, .accountTable td { padding-inline: 10px; }
+  .accountTable th:first-child, .accountTable td:first-child { padding-left: 0; }
+  .accountTable .accountQuotaColumn { width: 22%; }
+  .accountTable .accountCreditsColumn { width: 60px; }
+  .accountTable .accountActionsColumn { width: 94px; }
+  .nativeApp .settingsPage { padding: 16px 18px; }
+  .accountListFoot { gap: 7px 10px; }
+  .accountLastUpdated { font-size: 10px; }
+  .tokenUsageDisclosure summary > span { display: none; }
+}
+@media (max-width: 580px) {
+  .nativeApp .analyticsPage, .nativeApp .proxyPage { padding: 12px; }
+  .nativeApp .accountsPage { padding: 0 10px 6px; }
+  .accountToolbar { flex-wrap: wrap; }
+  .accountSearch { max-width: none; }
+  .nativeApp .toolbarAddAccount > span { display: none; }
+  .accountTable { min-width: 530px; }
+  .quotaMeter.isCompact .quotaMeterHead small { display: none; }
+  .quotaReset { font-size: 11px; }
+  .accountTimeZone { order: 3; flex-basis: 100%; margin: 0; }
+  .accountListFoot .accountsMoreButton { margin-left: auto; }
+  .accountSummaryCounts { gap: 6px; }
+  .accountSummary { flex-wrap: wrap; gap: 6px; }
+  .nativeApp .analyticsHeader { grid-template-columns: 1fr; }
+  .nativeApp .analyticsStats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; }
+  .nativeApp .analyticsStatCard:nth-child(3) { padding-left: 0; }
+  .nativeApp .analyticsStatCard:nth-child(2) { border-right: 0; }
+  .nativeApp .settingRow { grid-template-columns: 1fr; gap: 8px; }
+  .nativeApp .settingRow > :last-child { justify-self: start; }
+  .nativeApp .addAccountWorkspace { grid-template-columns: 1fr; }
+  .nativeApp .addAccountTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nativeApp .addAuthDialog { width: calc(100vw - 24px); }
+}

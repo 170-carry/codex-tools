@@ -1,0 +1,10 @@
+{
+  "checks": [
+    "No duplicate current-account summary",
+    "Exactly one current row is highlighted",
+    "Current row retains both quota values",
+    "Highlight follows an explicit account switch",
+    "Account details remain accessible",
+    "List footer fits the default window"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "checks": [
+    "PRO is rendered as a tag",
+    "PLUS is rendered as a tag",
+    "FREE is rendered as a tag",
+    "Known reset credits are displayed",
+    "Zero reset credits are displayed explicitly",
+    "Unknown credit counts are not shown as zero",
+    "Credit count follows the selected plan variant",
+    "API accounts do not show unsupported reset credits"
+  ]
+}

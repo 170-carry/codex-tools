@@ -1,0 +1,234 @@
+.nativeApp .analyticsSummaryRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 4px 0 18px;
+  gap: 18px;
+}
+.analyticsSummaryRow > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.analyticsSummaryRow span {
+  color: var(--subtle);
+  font-size: 11px;
+}
+.analyticsSummaryRow strong {
+  font-size: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.4px;
+}
+.nativeApp .analyticsTokenStrip {
+  padding: 0 0 12px;
+  font-size: 11px;
+}
+.nativeApp .analyticsTokenStrip .accountTokenUsageItems {
+  gap: 8px;
+  padding: 8px 0 0;
+}
+.nativeApp .analyticsBudgetControl {
+  margin: 0 0 16px;
+  border-block: 1px solid var(--line);
+  font-size: 11px;
+}
+.analyticsBudgetControl > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  cursor: pointer;
+  list-style: none;
+}
+.analyticsBudgetControl > summary::-webkit-details-marker {
+  display: none;
+}
+.analyticsBudgetControl > summary::before {
+  content: "›";
+  font-size: 16px;
+  color: var(--subtle);
+  transition: transform 120ms;
+}
+.analyticsBudgetControl[open] > summary::before {
+  transform: rotate(90deg);
+}
+.analyticsBudgetControl > summary > span:first-of-type {
+  flex: 1;
+}
+.analyticsBudgetControl > summary strong {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--subtle);
+}
+.analyticsBudgetMiniTrack {
+  width: 96px;
+  height: 3px;
+  overflow: hidden;
+  background: var(--bar-track);
+  border-radius: 2px;
+}
+.analyticsBudgetMiniTrack i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+.analyticsBudgetControl.tone-warning .analyticsBudgetMiniTrack i {
+  background: var(--warning);
+}
+.analyticsBudgetControl.tone-danger .analyticsBudgetMiniTrack i {
+  background: var(--danger);
+}
+.analyticsBudgetEditor {
+  padding: 0 0 12px 18px;
+}
+.analyticsBudgetEditor p {
+  margin: 0 0 10px;
+  color: var(--subtle);
+  font-size: 11px;
+}
+.analyticsBudgetEditor > div {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.analyticsBudgetEditor label {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  max-width: 240px;
+  min-width: 160px;
+  color: var(--subtle);
+}
+.nativeApp .analyticsBudgetEditor input {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  font: 12px var(--font-ui);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--bg-0);
+}
+.nativeApp .pageSectionPanel .analyticsBlock {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+.nativeApp .analyticsSessionTools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+.analyticsSessionTools > span {
+  font-size: 11px;
+  color: var(--subtle);
+  white-space: nowrap;
+}
+.nativeApp .analyticsSessionTools .analyticsSearch {
+  width: min(320px, 75%);
+}
+.nativeApp .analyticsTableWrap {
+  border: 0;
+  border-radius: 0;
+  overflow: auto;
+}
+.nativeApp .analyticsTable {
+  width: 100%;
+}
+.nativeApp .analyticsTable thead th {
+  background: transparent;
+  color: var(--subtle);
+  font-weight: 500;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.nativeApp .analyticsTable tr {
+  background: transparent;
+}
+.nativeApp .analyticsTable th:first-child,
+.nativeApp .analyticsTable td:first-child {
+  padding-left: 0;
+}
+.nativeApp .analyticsTable th:last-child,
+.nativeApp .analyticsTable td:last-child {
+  padding-right: 0;
+}
+.nativeApp .analyticsTable td {
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.nativeApp .analyticsTable small {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--subtle);
+  font-size: 10px;
+}
+.nativeApp .analyticsTable tbody tr:hover {
+  background: var(--row-current-surface);
+}
+.nativeApp .analyticsDeleteButton {
+  min-height: 25px;
+  padding: 3px 7px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--subtle);
+  font-size: 11px;
+}
+.nativeApp .analyticsDeleteButton:hover {
+  color: var(--danger);
+  background: var(--bg-1);
+}
+.nativeApp .analyticsFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  color: var(--subtle);
+}
+.analyticsNoResults {
+  padding: 20px 0;
+  color: var(--subtle);
+  font-size: 12px;
+  text-align: center;
+}
+.nativeApp .analyticsProgress {
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  font-size: 11px;
+}
+.nativeApp .analyticsProgress > div strong,
+.nativeApp .analyticsProgress b {
+  font-size: 12px;
+  font-weight: 500;
+}
+.nativeApp .analyticsProgress > div span {
+  font-size: 11px;
+}
+.nativeApp .analyticsNotice {
+  padding: 10px 0;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+@media (max-width: 680px) {
+  .nativeApp .analyticsSummaryRow {
+    gap: 12px;
+  }
+  .analyticsSummaryRow strong {
+    font-size: 18px;
+  }
+  .nativeApp .analyticsBudgetEditor {
+    padding-left: 0;
+  }
+}
+@media (max-width: 480px) {
+  .nativeApp .analyticsSummaryRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

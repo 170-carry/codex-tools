@@ -1,0 +1,46 @@
+.nativeApp.shell, body.nativeApp {
+  background: var(--body-bg);
+  font: 13px/1.45 var(--font-ui);
+}
+.nativeApp .panel { display: flex; background: var(--panel-bg); box-shadow: none; }
+.workspaceMain { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.nativeApp .topbar {
+  display: flex;
+  flex: 0 0 54px;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px;
+  background: var(--toolbar-surface);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.isMacos .topbar { padding-left: 92px; }
+.nativeApp .topDragRegion { display: block; cursor: default; }
+.windowNavigation { position: relative; z-index: 1; }
+.viewTabs { display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg-1); }
+.nativeApp .viewTab { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 25px; padding: 4px 10px; border: 0; border-radius: 5px; color: var(--subtle); background: transparent; box-shadow: none; font-size: 11px; font-weight: 400; white-space: nowrap; }
+.nativeApp .viewTab:hover { background: var(--surface-hover-bg); box-shadow: none; }
+.nativeApp .viewTab.isActive { color: var(--ink); background: var(--button-bg); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+.viewTab .workspaceIcon { width: 13px; height: 13px; }
+.viewTab.isActive .workspaceIcon { color: var(--brand); }
+.nativeApp .settingsButton.isSelected, .nativeApp .accountSearchButton.isSelected { color: var(--brand); background: var(--brand-soft); }
+.nativeApp .toolbarAddAccount { display: inline-flex; align-items: center; gap: 5px; min-height: 29px; padding: 5px 10px; box-shadow: none; }
+.toolbarAddAccount .workspaceIcon { width: 14px; height: 14px; }
+.nativeApp .topActions { gap: 6px; flex-wrap: nowrap; }
+.workspaceIcon { width: 17px; height: 17px; flex-shrink: 0; }
+.workspaceIcon.isSpinning { animation: iconSpin 900ms linear infinite; }
+.nativeApp.isUiInactive .workspaceIcon.isSpinning { animation-play-state: paused; }
+.nativeApp .viewStage { --page-shell-width: 1020px; }
+.nativeApp .viewStage > * { scrollbar-width: thin; }
+.workspaceLoading { display: grid; place-items: center; font-size: 16px; color: var(--subtle); }
+.nativeApp .accountsPage { width: 100%; margin: 0; padding: 0 20px 8px; overflow: hidden; }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .nativeApp .topbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg-1); }
+}

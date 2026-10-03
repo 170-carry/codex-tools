@@ -1,0 +1,12 @@
+{
+  "checks": [
+    "Three directly visible view tabs",
+    "Current row remains highlighted without a duplicate summary",
+    "Analytics opens with one click",
+    "Proxy opens with one click",
+    "Settings opens from the toolbar button",
+    "Arrow keys switch the segmented control",
+    "Home returns to the first view",
+    "Tabs and actions fit the minimum window"
+  ]
+}

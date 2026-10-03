@@ -1,0 +1,23 @@
+{
+  "checks": [
+    "All five import methods remain available",
+    "Dialog owns keyboard focus on open",
+    "Tab stays inside the dialog",
+    "Shift+Tab wraps inside the dialog",
+    "Manual OAuth callback is still available",
+    "Session form is retained",
+    "File and folder pickers are retained",
+    "Empty file queue has only one message",
+    "API key is masked by default",
+    "API key can be revealed without changing its value",
+    "Manual callback is reachable by keyboard",
+    "Manual callback remains keyboard reachable",
+    "Closed fallback does not leak keyboard focus",
+    "Device sync action is retained",
+    "API actions use compact inline buttons",
+    "Dialog fits the minimum desktop viewport",
+    "Close button stays in its header",
+    "Fresh keyboard opening restores its trigger focus",
+    "Fresh mouse opening restores its trigger focus"
+  ]
+}

@@ -1,540 +1,122 @@
-import { useEffect, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { lazy, Suspense, useCallback, useState } from "react";
 import "./App.css";
-import { AnalyticsPanel } from "./components/AnalyticsPanel";
-import { ApiProxyPanel } from "./components/ApiProxyPanel";
-import { AddAccountSection } from "./components/AddAccountSection";
-import { AddAccountDialog } from "./components/AddAccountDialog";
-import { AccountsGrid } from "./components/AccountsGrid";
 import { AppTopBar } from "./components/AppTopBar";
-import { DebugFloatingTool } from "./components/DebugFloatingTool";
-import { DeleteAccountDialog } from "./components/DeleteAccountDialog";
-import { MetaStrip } from "./components/MetaStrip";
-import { NoticeBanner } from "./components/NoticeBanner";
-import { QuotaDisplayOnboardingDialog } from "./components/QuotaDisplayOnboardingDialog";
-import { RemoteDeployProgressToast } from "./components/RemoteDeployProgressToast";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { UpdateBanner } from "./components/UpdateBanner";
+import { AppDialogs } from "./components/workspace/AppDialogs";
+import { AccountsView } from "./components/workspace/AccountsView";
 import { useCodexController } from "./hooks/useCodexController";
 import { useThemeMode } from "./hooks/useThemeMode";
-import {
-  shouldOpenQuotaOnboarding,
-  type QuotaOnboardingPlatform,
-} from "./utils/quotaDisplayOnboarding";
+import { useAppNavigation } from "./hooks/useAppNavigation";
+import type { AppTab } from "./types/workspace";
 
-type AppTab = "accounts" | "analytics" | "proxy" | "settings";
-const APP_MENU_OPEN_SETTINGS_EVENT = "app-menu-open-settings";
-const APP_MENU_CHECK_UPDATE_EVENT = "app-menu-check-update";
-const APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT = "app-menu-open-quota-onboarding";
-const TOKEN_USAGE_FRESHNESS_MS = 5 * 60 * 1000;
+const AnalyticsView = lazy(() =>
+  import("./components/workspace/AnalyticsView").then((module) => ({
+    default: module.AnalyticsView,
+  })),
+);
+const ProxyView = lazy(() =>
+  import("./components/workspace/ProxyView").then((module) => ({
+    default: module.ProxyView,
+  })),
+);
+const SettingsView = lazy(() =>
+  import("./components/workspace/SettingsView").then((module) => ({
+    default: module.SettingsView,
+  })),
+);
 
 function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
+  const [accountSearchOpen, setAccountSearchOpen] = useState(false);
+  const openAccountSearch = useCallback(() => {
+    setAccountSearchOpen(true);
+    window.requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLInputElement>("[data-account-search]")
+        ?.focus(),
+    );
+  }, []);
+  const closeAccountSearch = () => {
+    setAccountSearchOpen(false);
+    document.querySelector<HTMLButtonElement>(".accountSearchButton")?.focus();
+  };
   const { themeMode, toggleTheme } = useThemeMode();
-  const isWindows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
-  const isMacos =
-    typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent);
-  const quotaOnboardingPlatform: QuotaOnboardingPlatform = isWindows
+  const c = useCodexController(activeTab);
+  useAppNavigation(activeTab, setActiveTab, c, openAccountSearch);
+  const isMacos = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const quotaOnboardingPlatform = /Windows/i.test(navigator.userAgent)
     ? "windows"
     : isMacos
       ? "macos"
       : null;
-  const {
-    accounts,
-    tokenUsage,
-    tokenUsageError,
-    costAnalytics,
-    costAnalyticsError,
-    mainWindowVisible,
-    loading,
-    refreshing,
-    usageRefreshInFlight,
-    initialUsageRefreshPending,
-    usageRefreshError,
-    refreshingTokenUsage,
-    addDialogOpen,
-    reauthorizeAccount,
-    importingAccounts,
-    oauthWaitingForCallback,
-    exportingAccounts,
-    authBusy,
-    switchingId,
-    warmingAccountId,
-    renamingAccountId,
-    pendingDeleteId,
-    deleteCandidate,
-    deletingAccountId,
-    checkingUpdate,
-    installingUpdate,
-    updateProgress,
-    pendingUpdate,
-    updateDialogOpen,
-    skipPendingUpdateVersion,
-    notice,
-    openExternalUrl,
-    settings,
-    settingsLoaded,
-    installedEditorApps,
-    hasOpencodeDesktopApp,
-    savingSettings,
-    apiProxySupportedModels,
-    apiProxyStatus,
-    apiProxyKeys,
-    apiProxyKeyLogs,
-    apiProxyKeysLoading,
-    apiProxyUsageStats,
-    apiProxyUsageRange,
-    apiProxyUsageMetric,
-    apiProxyUsageLoading,
-    apiProxyUsageClearing,
-    apiProxyUsageExporting,
-    costAnalyticsLoading,
-    costAnalyticsExporting,
-    costAnalyticsProgress,
-    cloudflaredStatus,
-    remoteProxyStatuses,
-    remoteProxyLogs,
-    remoteDeployProgress,
-    startingApiProxy,
-    stoppingApiProxy,
-    refreshingApiProxyKey,
-    bindingCodexProxy,
-    restoringCodexProxy,
-    savingApiProxyKey,
-    refreshingRemoteProxyId,
-    deployingRemoteProxyId,
-    startingRemoteProxyId,
-    stoppingRemoteProxyId,
-    readingRemoteLogsId,
-    installingDependencyName,
-    installingDependencyTargetId,
-    installingCloudflared,
-    startingCloudflared,
-    stoppingCloudflared,
-    refreshUsage,
-    refreshTokenUsage,
-    loadCostAnalytics,
-    refreshCostAnalytics,
-    exportCostAnalytics,
-    onDeleteCodexSession,
-    checkForAppUpdate,
-    installPendingUpdate,
-    openDebugUpdateDialog,
-    openManualDownloadPage,
-    closeUpdateDialog,
-    updateSettings,
-    onOpenAddDialog,
-    onReauthorizeAccount,
-    onWarmupAccount,
-    onPrepareOauthLogin,
-    onOpenOauthAuthorizationPage,
-    onCloseAddDialog,
-    onCancelOauthLogin,
-    onCompleteOauthCallbackLogin,
-    onImportCurrentAuth,
-    onCreateApiAccount,
-    onTestApiAccountConnection,
-    onImportAuthFiles,
-    onExportAccounts,
-    loadApiProxyStatus,
-    onSelectApiProxyUsageRange,
-    onSelectApiProxyUsageMetric,
-    onExportApiProxyUsage,
-    onClearApiProxyUsageStats,
-    onStartApiProxy,
-    onStopApiProxy,
-    onRefreshApiProxyKey,
-    onBindCodexToApiProxy,
-    onRestoreCodexProxyBinding,
-    onCreateApiProxyKey,
-    onUpdateApiProxyKey,
-    onDeleteApiProxyKey,
-    onRegenerateApiProxyKey,
-    onRefreshRemoteProxyStatus,
-    onDeployRemoteProxy,
-    onStartRemoteProxy,
-    onStopRemoteProxy,
-    onReadRemoteProxyLogs,
-    onPickLocalIdentityFile,
-    loadCloudflaredStatus,
-    onInstallCloudflared,
-    onStartCloudflared,
-    onStopCloudflared,
-    onRenameAccountLabel,
-    onToggleAccountApiProxy,
-    onDelete,
-    onCancelDelete,
-    onConfirmDelete,
-    onSwitch,
-    onSmartSwitch,
-    onUpdateRemoteServers,
-    smartSwitching,
-  } = useCodexController(activeTab);
-
-  useEffect(() => {
-    const isMac =
-      typeof navigator !== "undefined" &&
-      /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
-    const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      if (key !== "r") {
-        return;
-      }
-      const isTrigger = isMac ? event.metaKey : event.ctrlKey;
-      if (!isTrigger) {
-        return;
-      }
-      event.preventDefault();
-      void refreshUsage(false);
-      void refreshTokenUsage(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [refreshTokenUsage, refreshUsage]);
-
-  useEffect(() => {
-    let disposed = false;
-    const unlistenFns: UnlistenFn[] = [];
-
-    const registerAppMenuListeners = async () => {
-      try {
-        const openSettingsUnlisten = await listen<void>(
-          APP_MENU_OPEN_SETTINGS_EVENT,
-          () => {
-            setActiveTab("settings");
-          },
-        );
-        const checkUpdateUnlisten = await listen<void>(
-          APP_MENU_CHECK_UPDATE_EVENT,
-          () => {
-            void checkForAppUpdate(false);
-          },
-        );
-        const openQuotaOnboardingUnlisten = await listen<void>(
-          APP_MENU_OPEN_QUOTA_ONBOARDING_EVENT,
-          () => {
-            void updateSettings(
-              { macosQuotaOnboardingCompleted: false },
-              { silent: true, throwOnError: true, keepInteractive: true },
-            );
-          },
-        );
-
-        if (disposed) {
-          void openSettingsUnlisten();
-          void checkUpdateUnlisten();
-          void openQuotaOnboardingUnlisten();
-          return;
-        }
-
-        unlistenFns.push(
-          openSettingsUnlisten,
-          checkUpdateUnlisten,
-          openQuotaOnboardingUnlisten,
-        );
-      } catch {
-        // The app can still run in a browser-only preview where Tauri events are unavailable.
-      }
-    };
-
-    void registerAppMenuListeners();
-
-    return () => {
-      disposed = true;
-      for (const unlisten of unlistenFns) {
-        void unlisten();
-      }
-    };
-  }, [checkForAppUpdate, updateSettings]);
-
-  useEffect(() => {
-    if (activeTab !== "accounts" || !mainWindowVisible) {
-      return;
-    }
-
-    const updatedAtMs = (tokenUsage?.updatedAt ?? 0) * 1000;
-    if (updatedAtMs > 0 && Date.now() < updatedAtMs + TOKEN_USAGE_FRESHNESS_MS) {
-      return;
-    }
-
-    void refreshTokenUsage(true);
-  }, [activeTab, mainWindowVisible, refreshTokenUsage, tokenUsage]);
-
-  const refreshAccountsView = () => {
+  const refresh = () => {
     if (activeTab === "analytics") {
-      void refreshCostAnalytics(false);
-      return;
+      void c.refreshCostAnalytics(false);
+      void c.refreshTokenUsage(true);
+    } else if (activeTab === "proxy") void c.loadApiProxyStatus();
+    else {
+      void c.refreshUsage(false);
+      void c.refreshTokenUsage(false);
     }
-    void refreshUsage(false);
-    void refreshTokenUsage(false);
   };
 
   return (
-    <div className={`shell${mainWindowVisible ? "" : " isUiInactive"}`}>
-      <div className="ambient" />
+    <div
+      className={`shell nativeApp${isMacos ? " isMacos" : ""}${c.mainWindowVisible ? "" : " isUiInactive"}`}
+    >
       <main className="panel">
-        <AppTopBar
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
+        <div className="workspaceMain">
+          <AppTopBar
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            onRefresh={refresh}
+            refreshing={
+              activeTab === "analytics"
+                ? c.costAnalyticsLoading
+                : c.refreshing || c.refreshingTokenUsage
+            }
+            showRefresh={activeTab !== "settings"}
+            searchOpen={accountSearchOpen}
+            onSearch={openAccountSearch}
+            onAddAccount={c.onOpenAddDialog}
+          />
+          <section
+            className="viewStage"
+            id="workspace-content"
+            aria-label={activeTab}
+          >
+            <Suspense
+              fallback={
+                <div className="workspaceLoading" role="status">
+                  …
+                </div>
+              }
+            >
+              {activeTab === "accounts" ? (
+                <AccountsView
+                  c={c}
+                  searchVisible={accountSearchOpen}
+                  onCloseSearch={closeAccountSearch}
+                  onShowAnalytics={() => setActiveTab("analytics")}
+                />
+              ) : activeTab === "analytics" ? (
+                <AnalyticsView c={c} />
+              ) : activeTab === "proxy" ? (
+                <ProxyView c={c} />
+              ) : (
+                <SettingsView
+                  c={c}
+                  themeMode={themeMode}
+                  toggleTheme={toggleTheme}
+                />
+              )}
+            </Suspense>
+          </section>
+        </div>
+        <AppDialogs
+          c={c}
           themeMode={themeMode}
-          onToggleTheme={toggleTheme}
-          onRefresh={refreshAccountsView}
-          refreshing={
-            activeTab === "analytics"
-              ? costAnalyticsLoading
-              : refreshing || refreshingTokenUsage
-          }
-          onGoHome={() => setActiveTab("accounts")}
-          showRefresh={activeTab === "accounts" || activeTab === "analytics"}
+          quotaOnboardingPlatform={quotaOnboardingPlatform}
         />
-
-        <AddAccountDialog
-          open={addDialogOpen}
-          reauthorizeAccount={reauthorizeAccount}
-          importingAccounts={importingAccounts}
-          oauthWaitingForCallback={oauthWaitingForCallback}
-          onPrepareOauth={onPrepareOauthLogin}
-          onOpenOauthPage={onOpenOauthAuthorizationPage}
-          onCompleteOauth={onCompleteOauthCallbackLogin}
-          onCancelOauth={onCancelOauthLogin}
-          onImportCurrentAuth={onImportCurrentAuth}
-          onCreateApiAccount={onCreateApiAccount}
-          onTestApiConnection={onTestApiAccountConnection}
-          onImportFiles={onImportAuthFiles}
-          onClose={onCloseAddDialog}
-        />
-        <DeleteAccountDialog
-          account={deleteCandidate}
-          deleting={deletingAccountId === deleteCandidate?.id}
-          onCancel={onCancelDelete}
-          onConfirm={() => void onConfirmDelete()}
-        />
-
-        <NoticeBanner notice={notice} />
-        <RemoteDeployProgressToast progress={remoteDeployProgress} />
-        <DebugFloatingTool onOpenUpdateDialog={openDebugUpdateDialog} />
-        <UpdateBanner
-          open={updateDialogOpen}
-          pendingUpdate={pendingUpdate}
-          updateProgress={updateProgress}
-          installingUpdate={installingUpdate}
-          onClose={closeUpdateDialog}
-          onManualDownload={() => void openManualDownloadPage()}
-          onSkipVersion={() => void skipPendingUpdateVersion()}
-          onInstallNow={() => void installPendingUpdate()}
-        />
-        <QuotaDisplayOnboardingDialog
-          open={shouldOpenQuotaOnboarding({
-            platform: quotaOnboardingPlatform,
-            settingsLoaded,
-            windowsCompleted: settings.windowsQuotaOnboardingCompleted,
-            macosCompleted: settings.macosQuotaOnboardingCompleted,
-          })}
-          platform={quotaOnboardingPlatform === "macos" ? "macos" : "windows"}
-          lightTheme={themeMode !== "dark"}
-          settings={settings}
-          saving={savingSettings}
-          onPreviewSettings={(patch) =>
-            updateSettings(patch, {
-              silent: true,
-              throwOnError: true,
-              keepInteractive: true,
-            })
-          }
-          onConfirm={(patch) =>
-            updateSettings(patch, { silent: true, throwOnError: true })
-          }
-        />
-
-        <section className="viewStage">
-          {activeTab === "accounts" ? (
-            <div className="accountsPage">
-              <AccountsGrid
-                leadingContent={
-                  <MetaStrip
-                    accounts={accounts}
-                    exportingAccounts={exportingAccounts}
-                    onExportAccounts={() => void onExportAccounts()}
-                  />
-                }
-                toolbarActions={
-                  <AddAccountSection
-                    onOpenAddDialog={onOpenAddDialog}
-                    onSmartSwitch={() => void onSmartSwitch()}
-                    smartSwitching={smartSwitching}
-                  />
-                }
-                accounts={accounts}
-                tokenUsage={tokenUsage}
-                tokenUsageError={tokenUsageError}
-                loading={loading}
-                usageRefreshing={usageRefreshInFlight}
-                showInitialUsageRefresh={initialUsageRefreshPending}
-                usageRefreshError={usageRefreshError}
-                exportingAccounts={exportingAccounts}
-                authBusy={authBusy}
-                switchingId={switchingId}
-                warmingAccountId={warmingAccountId}
-                renamingAccountId={renamingAccountId}
-                pendingDeleteId={pendingDeleteId}
-                onExportAll={() => void onExportAccounts()}
-                onExport={(account) => void onExportAccounts(account)}
-                onReauthorize={(account) => void onReauthorizeAccount(account)}
-                onWarmup={(account) => onWarmupAccount(account)}
-                onRename={(account, label) =>
-                  onRenameAccountLabel(account, label)
-                }
-                onToggleApiProxy={(account, enabled) =>
-                  onToggleAccountApiProxy(account, enabled)
-                }
-                onSwitch={(account) => onSwitch(account)}
-                onDelete={(account) => void onDelete(account)}
-              />
-            </div>
-          ) : activeTab === "analytics" ? (
-            <AnalyticsPanel
-              analytics={costAnalytics}
-              error={costAnalyticsError}
-              loading={costAnalyticsLoading}
-              exporting={costAnalyticsExporting}
-              progress={costAnalyticsProgress}
-              weeklyBudgetUsd={settings.codexAnalyticsWeeklyBudgetUsd}
-              savingSettings={savingSettings}
-              onRefresh={() => void refreshCostAnalytics(false)}
-              onExport={(format) => void exportCostAnalytics(format)}
-              onDeleteSession={(session) => void onDeleteCodexSession(session)}
-              onUpdateWeeklyBudget={(value) =>
-                updateSettings(
-                  { codexAnalyticsWeeklyBudgetUsd: value },
-                  { silent: true, keepInteractive: true },
-                ).then(async () => {
-                  await loadCostAnalytics(true);
-                })
-              }
-            />
-          ) : activeTab === "proxy" ? (
-            <ApiProxyPanel
-              status={apiProxyStatus}
-              apiProxyKeys={apiProxyKeys}
-              apiProxyKeyLogs={apiProxyKeyLogs}
-              apiProxyKeysLoading={apiProxyKeysLoading}
-              apiProxyUsageStats={apiProxyUsageStats}
-              apiProxyUsageRange={apiProxyUsageRange}
-              apiProxyUsageMetric={apiProxyUsageMetric}
-              apiProxyUsageLoading={apiProxyUsageLoading}
-              apiProxyUsageClearing={apiProxyUsageClearing}
-              apiProxyUsageExporting={apiProxyUsageExporting}
-              cloudflaredStatus={cloudflaredStatus}
-              accountCount={accounts.length}
-              autoStartEnabled={settings.autoStartApiProxy}
-              savedPort={settings.apiProxyPort}
-              loadBalanceMode={settings.apiProxyLoadBalanceMode}
-              sequentialFiveHourLimitPercent={
-                settings.apiProxySequentialFiveHourLimitPercent
-              }
-              apiProxySupportedModels={apiProxySupportedModels}
-              apiProxyDisabledModels={settings.apiProxyDisabledModels}
-              remoteServers={settings.remoteServers}
-              remoteStatuses={remoteProxyStatuses}
-              remoteLogs={remoteProxyLogs}
-              savingSettings={savingSettings}
-              starting={startingApiProxy}
-              stopping={stoppingApiProxy}
-              refreshingApiKey={refreshingApiProxyKey}
-              bindingCodexProxy={bindingCodexProxy}
-              restoringCodexProxy={restoringCodexProxy}
-              savingApiProxyKey={savingApiProxyKey}
-              refreshingRemoteId={refreshingRemoteProxyId}
-              deployingRemoteId={deployingRemoteProxyId}
-              startingRemoteId={startingRemoteProxyId}
-              stoppingRemoteId={stoppingRemoteProxyId}
-              readingRemoteLogsId={readingRemoteLogsId}
-              installingDependencyName={installingDependencyName}
-              installingDependencyTargetId={installingDependencyTargetId}
-              installingCloudflared={installingCloudflared}
-              startingCloudflared={startingCloudflared}
-              stoppingCloudflared={stoppingCloudflared}
-              onStart={onStartApiProxy}
-              onStop={() => void onStopApiProxy()}
-              onCreateApiProxyKey={onCreateApiProxyKey}
-              onUpdateApiProxyKey={onUpdateApiProxyKey}
-              onDeleteApiProxyKey={onDeleteApiProxyKey}
-              onRegenerateApiProxyKey={onRegenerateApiProxyKey}
-              onSelectApiProxyUsageRange={onSelectApiProxyUsageRange}
-              onSelectApiProxyUsageMetric={onSelectApiProxyUsageMetric}
-              onExportApiProxyUsage={onExportApiProxyUsage}
-              onClearApiProxyUsageStats={onClearApiProxyUsageStats}
-              onRefreshApiKey={() => void onRefreshApiProxyKey()}
-              onBindCodexProxy={() => void onBindCodexToApiProxy()}
-              onRestoreCodexProxy={() => void onRestoreCodexProxyBinding()}
-              onRefresh={() => void loadApiProxyStatus()}
-              onToggleAutoStart={(enabled) =>
-                void updateSettings(
-                  { autoStartApiProxy: enabled },
-                  { silent: true, keepInteractive: true },
-                )
-              }
-              onPersistPort={(port) =>
-                updateSettings(
-                  { apiProxyPort: port },
-                  { silent: true, keepInteractive: true },
-                )
-              }
-              onUpdateLoadBalanceMode={(mode) =>
-                updateSettings(
-                  { apiProxyLoadBalanceMode: mode },
-                  { silent: true, keepInteractive: true },
-                )
-              }
-              onUpdateSequentialFiveHourLimitPercent={(percent) =>
-                updateSettings(
-                  { apiProxySequentialFiveHourLimitPercent: percent },
-                  { silent: true, keepInteractive: true },
-                )
-              }
-              onUpdateApiProxyDisabledModels={(models) =>
-                updateSettings(
-                  { apiProxyDisabledModels: models },
-                  { silent: true, keepInteractive: true },
-                )
-              }
-              onUpdateRemoteServers={(servers) =>
-                void onUpdateRemoteServers(servers)
-              }
-              onRefreshRemoteStatus={(server) =>
-                void onRefreshRemoteProxyStatus(server)
-              }
-              onDeployRemote={(server) => void onDeployRemoteProxy(server)}
-              onStartRemote={(server) => void onStartRemoteProxy(server)}
-              onStopRemote={(server) => void onStopRemoteProxy(server)}
-              onReadRemoteLogs={(server) => void onReadRemoteProxyLogs(server)}
-              onPickLocalIdentityFile={() => onPickLocalIdentityFile()}
-              onRefreshCloudflared={() => void loadCloudflaredStatus()}
-              onInstallCloudflared={() => void onInstallCloudflared()}
-              onStartCloudflared={(input) => void onStartCloudflared(input)}
-              onStopCloudflared={() => void onStopCloudflared()}
-            />
-          ) : (
-            <SettingsPanel
-              themeMode={themeMode}
-              onToggleTheme={toggleTheme}
-              checkingUpdate={checkingUpdate}
-              onCheckUpdate={() => void checkForAppUpdate(false)}
-              onOpenExternalUrl={(url) => void openExternalUrl(url)}
-              settings={settings}
-              accounts={accounts}
-              installedEditorApps={installedEditorApps}
-              hasOpencodeDesktopApp={hasOpencodeDesktopApp}
-              savingSettings={savingSettings}
-              onUpdateSettings={(patch, options) =>
-                void updateSettings(patch, options)
-              }
-            />
-          )}
-        </section>
       </main>
     </div>
   );

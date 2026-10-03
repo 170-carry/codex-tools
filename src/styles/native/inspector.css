@@ -1,0 +1,78 @@
+.accountActionMenu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  width: 206px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--menu-surface);
+  color: var(--ink);
+  box-shadow: 0 10px 35px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.accountActionMenu button { display: flex; align-items: center; gap: 8px; min-height: 29px; padding: 5px 8px; text-align: left; font: 400 12px var(--font-ui); border: 0; border-radius: 4px; background: transparent; color: var(--ink); box-shadow: none; }
+.accountActionMenu button:hover, .accountActionMenu button:focus { background: var(--brand); color: #fff; transform: none; box-shadow: none; outline: none; }
+.accountActionMenu button:disabled { opacity: .4; background: transparent; color: var(--subtle); }
+.accountActionMenu button > svg { width: 14px; height: 14px; }
+.accountActionMenu button > svg:last-child:not(:first-child) { margin-left: auto; }
+.accountActionMenu .dangerMenuItem { color: var(--danger); }
+.accountActionMenu .dangerMenuItem:hover, .accountActionMenu .dangerMenuItem:focus { color: #fff; background: var(--danger); }
+.menuSeparator { height: 1px; margin: 4px 3px; background: var(--line); }
+.accountInspector { position: fixed; inset: 12px 12px 12px auto; width: min(350px, calc(100vw - 24px)); height: calc(100dvh - 24px); max-height: none; max-width: none; margin: 0; padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card); color: var(--ink); box-shadow: var(--panel-shadow); overflow: hidden; }
+.accountInspector::backdrop { background: rgba(0, 0, 0, .14); }
+.inspectorContent { display: flex; flex-direction: column; height: 100%; }
+.inspectorToolbar { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 8px 18px; border-bottom: 1px solid var(--line); color: var(--subtle); font-size: 11px; }
+.inspectorBody { flex: 1; min-height: 0; overflow: auto; padding: 20px; scrollbar-width: thin; }
+.detailIdentity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.detailIdentity > div { min-width: 0; }
+.detailAvatar { width: 36px; height: 36px; border-radius: 9px; }
+.detailIdentity h2 { font: 600 14px/1.4 var(--font-ui); margin: 0 0 3px; overflow-wrap: anywhere; }
+.nativeApp .inspectorAddress { display: flex; align-items: flex-start; gap: 6px; min-height: 0; max-width: 100%; padding: 0; margin: 10px 0; overflow-wrap: anywhere; text-align: left; color: var(--subtle); background: transparent; border: 0; box-shadow: none; font-size: 11px; }
+.inspectorAddress svg { width: 12px; height: 12px; margin-top: 2px; }
+.nativeApp .detailEditButton { display: flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; background: var(--button-bg); }
+.detailEditButton svg { width: 12px; height: 12px; }
+.detailAliasEditor { display: flex; gap: 5px; }
+.detailAliasEditor input { width: 100%; min-width: 0; border-radius: 5px; padding: 4px 6px; color: var(--ink); background: var(--bg-1); border: 1px solid var(--line); }
+.detailAliasEditor button { flex-shrink: 0; }
+.inspectorIssue { overflow-wrap: anywhere; color: var(--danger); font-size: 11px; }
+.inspectorSection { display: grid; gap: 15px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.inspectorSection h3 { font-size: 12px; font-weight: 600; margin: 0; }
+.inspectorSection .quotaMeterHead strong { font-size: 16px; }
+.detailMetaGrid { gap: 14px; }
+.detailMetaGrid > div { display: grid; gap: 5px; }
+.detailMetaGrid span, .membershipExpiryLabel { color: var(--subtle); font-size: 10px; }
+.detailMetaGrid strong { font-size: 12px; font-weight: 500; }
+.membershipExpiryLabel { display: flex; align-items: center; gap: 5px; }
+.membershipHelpTip { position: relative; display: inline-flex; }
+.nativeApp .membershipHelpButton { min-height: 14px; width: 14px; padding: 0; border-radius: 100%; font-size: 10px; color: var(--subtle); background: transparent; box-shadow: none; }
+.membershipHelpBubble { position: absolute; bottom: 22px; right: -25px; width: 245px; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--menu-surface); box-shadow: var(--panel-shadow); opacity: 0; visibility: hidden; z-index: 3; }
+.membershipHelpTip:hover .membershipHelpBubble, .membershipHelpTip:focus-within .membershipHelpBubble { visibility: visible; opacity: 1; }
+.nativeApp .membershipReauthorizeAction { justify-self: start; color: var(--brand); background: transparent; padding: 0; border: 0; box-shadow: none; font-size: 10px; }
+.inspectorProxyRow { display: flex; align-items: center; justify-content: space-between; }
+.inspectorProxyRow input { width: 14px; height: 14px; }
+.resetCreditsCard { display: grid; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.detailSectionTitle { display: flex; align-items: center; justify-content: space-between; }
+.detailSectionTitle h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.resetCreditsCount { color: var(--subtle); font-size: 10px; }
+.resetCreditList { display: grid; gap: 10px; }
+.resetCreditItem { display: flex; align-items: center; gap: 10px; }
+.resetCreditIndex { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: var(--bg-1); font-size: 11px; color: var(--subtle); }
+.resetCreditItem > div { display: grid; gap: 3px; }
+.resetCreditItem div span { color: var(--subtle); font-size: 10px; }
+.resetCreditItem strong { font-size: 11px; font-weight: 500; }
+.nativeApp .resetCreditsToggle { display: flex; align-items: center; gap: 5px; width: fit-content; padding: 0; color: var(--brand); background: transparent; border: 0; box-shadow: none; }
+.resetCreditsToggleIcon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.resetCreditsToggleIcon.isExpanded { transform: rotate(180deg); }
+.inspectorHistory { padding: 18px 0; }
+.inspectorHistory summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 12px; font-weight: 500; list-style: none; }
+.inspectorHistory summary::-webkit-details-marker { display: none; }
+.inspectorHistory summary svg { width: 12px; height: 12px; color: var(--subtle); }
+.inspectorHistory[open] summary svg { transform: rotate(90deg); }
+.inspectorHistory p { color: var(--subtle); font-size: 11px; }
+.recentSwitchList { list-style: none; display: grid; gap: 12px; margin: 14px 0 0; padding: 0; }
+.recentSwitchList li { display: grid; gap: 3px; min-width: 0; }
+.recentSwitchList strong { font-weight: 500; font-size: 11px; overflow-wrap: anywhere; }
+.recentSwitchList time, .recentSwitchList span { color: var(--subtle); font-size: 10px; overflow-wrap: anywhere; }
+.inspectorFooter { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--bg-1); }

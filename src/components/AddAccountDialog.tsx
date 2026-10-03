@@ -7,7 +7,6 @@ import {
   type ChangeEvent,
   type InputHTMLAttributes,
 } from "react";
-import { createPortal } from "react-dom";
 import { useI18n } from "../i18n/I18nProvider";
 import type {
   AccountSummary,
@@ -18,7 +17,10 @@ import type {
   TestApiAccountConnectionResult,
 } from "../types/app";
 
-type AddAccountRoute = "oauth" | "current" | "session" | "upload" | "api";
+import type { AccountImportRoute as AddAccountRoute } from "./accounts/import/types";
+import { AccountImportFrame } from "./accounts/import/AccountImportFrame";
+import { SecretInput } from "./accounts/import/SecretInput";
+import { getAccountImportCopy } from "./accounts/import/copy";
 
 type AddAccountDialogProps = {
   open: boolean;
@@ -43,82 +45,6 @@ const folderPickerAttributes = {
   directory: "",
 } as unknown as InputHTMLAttributes<HTMLInputElement>;
 
-function AddAccountRouteIcon({ route }: { route: AddAccountRoute }) {
-  if (route === "oauth") {
-    return (
-      <svg
-        className="iconGlyph"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d="M12 3a9 9 0 1 0 9 9" />
-        <path d="M12 3v6l4 2" />
-        <path d="M21 5v4h-4" />
-      </svg>
-    );
-  }
-
-  if (route === "current") {
-    return (
-      <svg
-        className="iconGlyph"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d="M12 4v16" />
-        <path d="m7 9 5-5 5 5" />
-        <path d="M5 19h14" />
-      </svg>
-    );
-  }
-
-  if (route === "api") {
-    return (
-      <svg
-        className="iconGlyph"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d="M4 8.5h16" />
-        <path d="M4 15.5h16" />
-        <path d="M7 4.5v15" />
-        <path d="M17 4.5v15" />
-      </svg>
-    );
-  }
-
-  if (route === "session") {
-    return (
-      <svg
-        className="iconGlyph"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d="M9 3h6" />
-        <path d="M10 3v4.5L5.8 17a3 3 0 0 0 2.7 4.2h7a3 3 0 0 0 2.7-4.2L14 7.5V3" />
-        <path d="M8 14h8" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg
-      className="iconGlyph"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M12 16V4" />
-      <path d="m7 11 5 5 5-5" />
-      <path d="M5 20h14" />
-    </svg>
-  );
-}
-
 export function AddAccountDialog({
   open,
   reauthorizeAccount,
@@ -134,7 +60,8 @@ export function AddAccountDialog({
   onImportFiles,
   onClose,
 }: AddAccountDialogProps) {
-  const { copy } = useI18n();
+  const { copy, locale } = useI18n();
+  const importCopy = getAccountImportCopy(locale);
   const [activeRoute, setActiveRoute] = useState<AddAccountRoute>("oauth");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [sessionJsonText, setSessionJsonText] = useState("");
@@ -183,7 +110,6 @@ export function AddAccountDialog({
   useEffect(() => {
     if (!open) {
       // This effect intentionally resets transient dialog state at the close boundary.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveRoute("oauth");
       setSelectedFiles([]);
       setSessionJsonText("");
@@ -327,7 +253,6 @@ export function AddAccountDialog({
 
     // Leaving the OAuth route is the lifecycle boundary that cancels and
     // clears the in-progress OAuth session.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     resetOauthState(true);
   }, [
     activeRoute,
@@ -531,407 +456,326 @@ export function AddAccountDialog({
     }
   };
 
-  return createPortal(
-    <div
-      className="settingsOverlay"
-      onClick={() => {
-        if (!closeBlocked) {
-          onClose();
-        }
-      }}
+  return (
+    <AccountImportFrame
+      title={dialogTitle}
+      subtitle={dialogSubtitle}
+      routes={routeOptions}
+      activeRoute={activeRoute}
+      description={activeRouteMeta.description}
+      closeBlocked={closeBlocked}
+      routeSwitchBlocked={routeSwitchBlocked}
+      onSelectRoute={setActiveRoute}
+      onClose={onClose}
     >
-      <section
-        className="settingsDialog addAuthDialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={copy.addAccount.dialogAriaLabel}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="settingsHeader">
-          <div>
-            <h2>{dialogTitle}</h2>
-            <p className="addAccountDialogSubtitle">{dialogSubtitle}</p>
+      {activeRoute === "oauth" ? (
+        <div className="addAccountPanelBody addOauthSection">
+          <div className="addOauthActionRow">
+            <button
+              type="button"
+              className="primary addAccountPrimaryAction"
+              onClick={() => void handleOpenOauthPage()}
+              disabled={actionLocked || !oauthLogin}
+            >
+              {copy.addAccount.oauthOpenBrowser}
+            </button>
+            {oauthWaitingForCallback ? (
+              <span className="addOauthListening">
+                {copy.addAccount.oauthListening}
+              </span>
+            ) : null}
           </div>
+
+          <details className="addOauthFallback">
+            <summary>{importCopy.manualCallback}</summary>
+            <div className="addOauthFallbackBody">
+              <label className="addOauthField">
+                <span className="addOauthFieldLabel">
+                  {copy.addAccount.oauthLinkLabel}
+                </span>
+                <input
+                  className="addOauthInput addOauthReadonlyInput"
+                  value={oauthLogin?.authUrl ?? ""}
+                  readOnly
+                />
+              </label>
+
+              <label className="addOauthField">
+                <span className="addOauthFieldLabel">
+                  {copy.addAccount.oauthCallbackLabel}
+                </span>
+                <textarea
+                  className="addOauthTextarea"
+                  value={oauthCallbackUrl}
+                  onChange={(event) => setOauthCallbackUrl(event.target.value)}
+                  placeholder={copy.addAccount.oauthCallbackPlaceholder}
+                  rows={4}
+                  spellCheck={false}
+                />
+              </label>
+
+              <button
+                type="button"
+                className="primary addAccountPrimaryAction"
+                onClick={() => void handleCompleteOauth()}
+                disabled={actionLocked || oauthCallbackUrl.trim() === ""}
+              >
+                {pendingRoute === "oauth" || importingAccounts
+                  ? copy.addAccount.oauthCallbackSubmitting
+                  : reauthorizeAccount
+                    ? copy.addAccount.reauthorizeParseCallback
+                    : copy.addAccount.oauthParseCallback}
+              </button>
+            </div>
+          </details>
+          {!oauthLogin ? (
+            <div className="addOauthStatus">
+              <strong>{copy.addAccount.oauthPreparing}</strong>
+              <p>{activeRouteMeta.description}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeRoute === "current" ? (
+        <div className="addAccountPanelBody addCurrentSection">
           <button
             type="button"
-            className="iconButton ghost closeButton"
-            onClick={onClose}
-            title={copy.common.close}
-            disabled={closeBlocked}
-            aria-label={copy.common.close}
+            className="primary addAccountPrimaryAction"
+            onClick={() => void handleImportCurrentAuth()}
+            disabled={actionLocked}
           >
-            <svg
-              className="iconGlyph"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path d="m6 6 12 12" />
-              <path d="M18 6 6 18" />
-            </svg>
+            {pendingRoute === "current"
+              ? copy.addAccount.currentImporting
+              : copy.addAccount.currentStart}
           </button>
         </div>
+      ) : null}
 
-        <div className="addAccountWorkspace">
-          <div
-            className="addAccountTabs"
-            aria-label={copy.addAccount.tabsAriaLabel}
-          >
-            {routeOptions.map((route) => {
-              const active = route.id === activeRoute;
-              return (
-                <button
-                  key={route.id}
-                  type="button"
-                  aria-pressed={active}
-                  className={`addAccountTab${active ? " isActive" : ""}`}
-                  onClick={() => setActiveRoute(route.id)}
-                  disabled={routeSwitchBlocked}
-                >
-                  <span className="addAccountTabIcon">
-                    <AddAccountRouteIcon route={route.id} />
-                  </span>
-                  <span className="addAccountTabContent">
-                    <strong>{route.label}</strong>
-                    <span>{route.description}</span>
-                  </span>
-                </button>
-              );
-            })}
+      {activeRoute === "upload" ? (
+        <div className="addAccountPanelBody addUploadSection">
+          <div className="addUploadPickerGrid">
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={actionLocked}
+            >
+              {copy.addAccount.uploadChooseFiles}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => folderInputRef.current?.click()}
+              disabled={actionLocked}
+            >
+              {copy.addAccount.uploadChooseFolder}
+            </button>
           </div>
 
-          <div className="addAccountPanel">
-            <div className="addAccountPanelHead">
-              <span className="addAccountPanelIcon">
-                <AddAccountRouteIcon route={activeRoute} />
-              </span>
-              <div className="addAccountPanelCopy">
-                <h3>{activeRouteMeta.label}</h3>
-                <p>{activeRouteMeta.description}</p>
-              </div>
+          <div className="addUploadQueue">
+            <div className="addUploadQueueHeader">
+              <strong>
+                {selectedFiles.length > 0
+                  ? copy.addAccount.uploadSelectedCount(selectedFiles.length)
+                  : copy.addAccount.uploadQueueTitle}
+              </strong>
+              {selectedFiles.length > 0 ? <p>{selectedSummary}</p> : null}
             </div>
 
-            {activeRoute === "oauth" ? (
-              <div className="addAccountPanelBody addOauthSection">
-                <div className="addOauthActionRow">
-                  <button
-                    type="button"
-                    className="primary addAccountPrimaryAction"
-                    onClick={() => void handleOpenOauthPage()}
-                    disabled={actionLocked || !oauthLogin}
-                  >
-                    {copy.addAccount.oauthOpenBrowser}
-                  </button>
-                  {oauthWaitingForCallback ? (
-                    <span className="addOauthListening">
-                      {copy.addAccount.oauthListening}
-                    </span>
-                  ) : null}
-                </div>
-
-                <label className="addOauthField">
-                  <span className="addOauthFieldLabel">
-                    {copy.addAccount.oauthLinkLabel}
-                  </span>
-                  <input
-                    className="addOauthInput addOauthReadonlyInput"
-                    value={oauthLogin?.authUrl ?? ""}
-                    readOnly
-                  />
-                </label>
-
-                <label className="addOauthField">
-                  <span className="addOauthFieldLabel">
-                    {copy.addAccount.oauthCallbackLabel}
-                  </span>
-                  <textarea
-                    className="addOauthTextarea"
-                    value={oauthCallbackUrl}
-                    onChange={(event) =>
-                      setOauthCallbackUrl(event.target.value)
-                    }
-                    placeholder={copy.addAccount.oauthCallbackPlaceholder}
-                    rows={4}
-                    spellCheck={false}
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  className="primary addAccountPrimaryAction"
-                  onClick={() => void handleCompleteOauth()}
-                  disabled={actionLocked || oauthCallbackUrl.trim() === ""}
-                >
-                  {pendingRoute === "oauth" || importingAccounts
-                    ? copy.addAccount.oauthCallbackSubmitting
-                    : reauthorizeAccount
-                      ? copy.addAccount.reauthorizeParseCallback
-                      : copy.addAccount.oauthParseCallback}
-                </button>
-
-                {!oauthLogin ? (
-                  <div className="addOauthStatus">
-                    <strong>{copy.addAccount.oauthPreparing}</strong>
-                    <p>{activeRouteMeta.description}</p>
-                  </div>
-                ) : null}
+            {selectedPreview.length > 0 ? (
+              <ul className="addUploadFileList">
+                {selectedPreview.map((file, index) => (
+                  <li key={file.key} className="addUploadFileItem">
+                    <span className="addUploadFileIndex">{index + 1}</span>
+                    <span className="addUploadFilePath">{file.label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="addUploadEmptyState">
+                {copy.addAccount.uploadQueueEmpty}
               </div>
-            ) : null}
+            )}
+          </div>
 
-            {activeRoute === "current" ? (
-              <div className="addAccountPanelBody addCurrentSection">
-                <div className="addCurrentSummary">
-                  <span className="addInlineBadge">AUTH.JSON</span>
-                  <p>{copy.addAccount.currentDescription}</p>
-                </div>
-                <button
-                  type="button"
-                  className="primary addAccountPrimaryAction"
-                  onClick={() => void handleImportCurrentAuth()}
-                  disabled={actionLocked}
-                >
-                  {pendingRoute === "current"
-                    ? copy.addAccount.currentImporting
-                    : copy.addAccount.currentStart}
-                </button>
-              </div>
-            ) : null}
+          <button
+            type="button"
+            className="primary addAccountPrimaryAction"
+            onClick={() => void handleImportFiles()}
+            disabled={actionLocked || selectedFiles.length === 0}
+          >
+            {pendingRoute === "upload" || importingAccounts || readingFiles
+              ? copy.addAccount.uploadImporting
+              : copy.addAccount.uploadStartImport}
+          </button>
+        </div>
+      ) : null}
 
-            {activeRoute === "upload" ? (
-              <div className="addAccountPanelBody addUploadSection">
-                <div className="addUploadPickerGrid">
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={actionLocked}
-                  >
-                    {copy.addAccount.uploadChooseFiles}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => folderInputRef.current?.click()}
-                    disabled={actionLocked}
-                  >
-                    {copy.addAccount.uploadChooseFolder}
-                  </button>
-                </div>
-
-                <div className="addUploadQueue">
-                  <div className="addUploadQueueHeader">
-                    <strong>
-                      {selectedFiles.length > 0
-                        ? copy.addAccount.uploadSelectedCount(
-                            selectedFiles.length,
-                          )
-                        : copy.addAccount.uploadQueueTitle}
-                    </strong>
-                    <p>
-                      {selectedFiles.length > 0
-                        ? selectedSummary
-                        : copy.addAccount.uploadQueueEmpty}
-                    </p>
-                  </div>
-
-                  {selectedPreview.length > 0 ? (
-                    <ul className="addUploadFileList">
-                      {selectedPreview.map((file, index) => (
-                        <li key={file.key} className="addUploadFileItem">
-                          <span className="addUploadFileIndex">
-                            {index + 1}
-                          </span>
-                          <span className="addUploadFilePath">
-                            {file.label}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="addUploadEmptyState">
-                      {copy.addAccount.uploadQueueEmpty}
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  className="primary addAccountPrimaryAction"
-                  onClick={() => void handleImportFiles()}
-                  disabled={actionLocked || selectedFiles.length === 0}
-                >
-                  {pendingRoute === "upload" ||
-                  importingAccounts ||
-                  readingFiles
-                    ? copy.addAccount.uploadImporting
-                    : copy.addAccount.uploadStartImport}
-                </button>
-              </div>
-            ) : null}
-
-            {activeRoute === "session" ? (
-              <div className="addAccountPanelBody addSessionSection">
-                <label className="addOauthField">
-                  <span className="addOauthFieldLabel">
-                    {copy.addAccount.sessionJsonLabel}
-                  </span>
-                  <textarea
-                    className="addOauthTextarea addSessionTextarea"
-                    value={sessionJsonText}
-                    onChange={(event) => setSessionJsonText(event.target.value)}
-                    placeholder={copy.addAccount.sessionJsonPlaceholder}
-                    rows={10}
-                    spellCheck={false}
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  className="primary addAccountPrimaryAction"
-                  onClick={() => void handleImportSessionJson()}
-                  disabled={actionLocked || sessionJsonText.trim() === ""}
-                >
-                  {pendingRoute === "session" || importingAccounts
-                    ? copy.addAccount.sessionImporting
-                    : copy.addAccount.sessionStartImport}
-                </button>
-              </div>
-            ) : null}
-
-            {activeRoute === "api" ? (
-              <div className="addAccountPanelBody addApiSection">
-                <div className="addApiFieldGrid">
-                  <label className="addOauthField">
-                    <span className="addOauthFieldLabel">
-                      {copy.addAccount.apiNameLabel}
-                    </span>
-                    <input
-                      className="addOauthInput"
-                      value={apiForm.label}
-                      onChange={handleApiFieldChange("label")}
-                      placeholder={copy.addAccount.apiNamePlaceholder}
-                      spellCheck={false}
-                    />
-                  </label>
-
-                  <label className="addOauthField">
-                    <span className="addOauthFieldLabel">
-                      {copy.addAccount.apiBaseUrlLabel}
-                    </span>
-                    <input
-                      className="addOauthInput"
-                      value={apiForm.baseUrl}
-                      onChange={handleApiFieldChange("baseUrl")}
-                      placeholder={copy.addAccount.apiBaseUrlPlaceholder}
-                      spellCheck={false}
-                    />
-                    <span className="addFieldHint">
-                      {copy.addAccount.apiBaseUrlHint}
-                    </span>
-                  </label>
-
-                  <label className="addOauthField">
-                    <span className="addOauthFieldLabel">
-                      {copy.addAccount.apiKeyLabel}
-                    </span>
-                    <input
-                      className="addOauthInput"
-                      value={apiForm.apiKey}
-                      onChange={handleApiFieldChange("apiKey")}
-                      placeholder={copy.addAccount.apiKeyPlaceholder}
-                      spellCheck={false}
-                    />
-                  </label>
-
-                  <label className="addOauthField">
-                    <span className="addOauthFieldLabel">
-                      {copy.addAccount.apiModelLabel}
-                    </span>
-                    <input
-                      className="addOauthInput"
-                      value={apiForm.modelName}
-                      onChange={handleApiFieldChange("modelName")}
-                      placeholder={copy.addAccount.apiModelPlaceholder}
-                      spellCheck={false}
-                    />
-                  </label>
-                </div>
-
-                {apiInlineError ? (
-                  <div className="addApiErrorBox">
-                    <strong>{copy.addAccount.apiValidationFailed}</strong>
-                    <p>{apiInlineError}</p>
-                  </div>
-                ) : apiInlineSuccess ? (
-                  <div className="addOauthStatus addApiStatus addApiSuccessBox">
-                    <strong>{copy.addAccount.apiTestSucceeded}</strong>
-                    <p>{apiInlineSuccess}</p>
-                  </div>
-                ) : (
-                  <div className="addOauthStatus addApiStatus">
-                    <strong>{copy.addAccount.apiValidationTitle}</strong>
-                    <p>{copy.addAccount.apiValidationDescription}</p>
-                  </div>
-                )}
-
-                <div className="addApiActionRow">
-                  <button
-                    type="button"
-                    className="ghost addAccountSecondaryAction"
-                    onClick={() => void handleTestApiConnection()}
-                    disabled={
-                      actionLocked || testingApiConnection || apiRequiredMissing
-                    }
-                  >
-                    {testingApiConnection
-                      ? copy.addAccount.apiTestingConnection
-                      : copy.addAccount.apiTestConnection}
-                  </button>
-                  <button
-                    type="button"
-                    className="primary addAccountPrimaryAction"
-                    onClick={() => void handleCreateApiAccount(false)}
-                    disabled={apiSubmitDisabled}
-                  >
-                    {pendingRoute === "api"
-                      ? copy.addAccount.apiSaving
-                      : copy.addAccount.apiValidateAndSave}
-                  </button>
-                  {apiCanForceSave ? (
-                    <button
-                      type="button"
-                      className="ghost addAccountSecondaryAction"
-                      onClick={() => void handleCreateApiAccount(true)}
-                      disabled={actionLocked}
-                    >
-                      {copy.addAccount.apiForceSave}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            <input
-              ref={fileInputRef}
-              className="visuallyHidden"
-              type="file"
-              multiple
-              accept=".json,application/json"
-              onChange={handleFilesPicked}
+      {activeRoute === "session" ? (
+        <div className="addAccountPanelBody addSessionSection">
+          <label className="addOauthField">
+            <span className="addOauthFieldLabel">
+              {copy.addAccount.sessionJsonLabel}
+            </span>
+            <textarea
+              className="addOauthTextarea addSessionTextarea"
+              value={sessionJsonText}
+              onChange={(event) => setSessionJsonText(event.target.value)}
+              placeholder={copy.addAccount.sessionJsonPlaceholder}
+              rows={10}
+              spellCheck={false}
             />
-            <input
-              ref={folderInputRef}
-              className="visuallyHidden"
-              type="file"
-              multiple
-              accept=".json,application/json"
-              onChange={handleFilesPicked}
-              {...folderPickerAttributes}
-            />
+          </label>
+
+          <button
+            type="button"
+            className="primary addAccountPrimaryAction"
+            onClick={() => void handleImportSessionJson()}
+            disabled={actionLocked || sessionJsonText.trim() === ""}
+          >
+            {pendingRoute === "session" || importingAccounts
+              ? copy.addAccount.sessionImporting
+              : copy.addAccount.sessionStartImport}
+          </button>
+        </div>
+      ) : null}
+
+      {activeRoute === "api" ? (
+        <div className="addAccountPanelBody addApiSection">
+          <div className="addApiFieldGrid">
+            <label className="addOauthField">
+              <span className="addOauthFieldLabel">
+                {copy.addAccount.apiNameLabel}
+              </span>
+              <input
+                className="addOauthInput"
+                value={apiForm.label}
+                onChange={handleApiFieldChange("label")}
+                placeholder={copy.addAccount.apiNamePlaceholder}
+                spellCheck={false}
+              />
+            </label>
+
+            <label className="addOauthField">
+              <span className="addOauthFieldLabel">
+                {copy.addAccount.apiBaseUrlLabel}
+              </span>
+              <input
+                className="addOauthInput"
+                value={apiForm.baseUrl}
+                onChange={handleApiFieldChange("baseUrl")}
+                placeholder={copy.addAccount.apiBaseUrlPlaceholder}
+                spellCheck={false}
+              />
+              <span className="addFieldHint">
+                {copy.addAccount.apiBaseUrlHint}
+              </span>
+            </label>
+
+            <label className="addOauthField">
+              <span className="addOauthFieldLabel">
+                {copy.addAccount.apiKeyLabel}
+              </span>
+                    <SecretInput
+                      className="addOauthInput"
+                      aria-label={copy.addAccount.apiKeyLabel}
+                value={apiForm.apiKey}
+                onChange={handleApiFieldChange("apiKey")}
+                placeholder={copy.addAccount.apiKeyPlaceholder}
+                spellCheck={false}
+              />
+            </label>
+
+            <label className="addOauthField">
+              <span className="addOauthFieldLabel">
+                {copy.addAccount.apiModelLabel}
+              </span>
+              <input
+                className="addOauthInput"
+                value={apiForm.modelName}
+                onChange={handleApiFieldChange("modelName")}
+                placeholder={copy.addAccount.apiModelPlaceholder}
+                spellCheck={false}
+              />
+            </label>
+          </div>
+
+          {apiInlineError ? (
+            <div className="addApiErrorBox">
+              <strong>{copy.addAccount.apiValidationFailed}</strong>
+              <p>{apiInlineError}</p>
+            </div>
+          ) : apiInlineSuccess ? (
+            <div className="addOauthStatus addApiStatus addApiSuccessBox">
+              <strong>{copy.addAccount.apiTestSucceeded}</strong>
+              <p>{apiInlineSuccess}</p>
+            </div>
+          ) : (
+            <div className="addOauthStatus addApiStatus">
+              <strong>{copy.addAccount.apiValidationTitle}</strong>
+              <p>{copy.addAccount.apiValidationDescription}</p>
+            </div>
+          )}
+
+          <div className="addApiActionRow">
+            <button
+              type="button"
+              className="ghost addAccountSecondaryAction"
+              onClick={() => void handleTestApiConnection()}
+              disabled={
+                actionLocked || testingApiConnection || apiRequiredMissing
+              }
+            >
+              {testingApiConnection
+                ? copy.addAccount.apiTestingConnection
+                : copy.addAccount.apiTestConnection}
+            </button>
+            <button
+              type="button"
+              className="primary addAccountPrimaryAction"
+              onClick={() => void handleCreateApiAccount(false)}
+              disabled={apiSubmitDisabled}
+            >
+              {pendingRoute === "api"
+                ? copy.addAccount.apiSaving
+                : copy.addAccount.apiValidateAndSave}
+            </button>
+            {apiCanForceSave ? (
+              <button
+                type="button"
+                className="ghost addAccountSecondaryAction"
+                onClick={() => void handleCreateApiAccount(true)}
+                disabled={actionLocked}
+              >
+                {copy.addAccount.apiForceSave}
+              </button>
+            ) : null}
           </div>
         </div>
-      </section>
-    </div>,
-    document.body,
+      ) : null}
+
+      <input
+        ref={fileInputRef}
+        className="visuallyHidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        type="file"
+        multiple
+        accept=".json,application/json"
+        onChange={handleFilesPicked}
+      />
+      <input
+        ref={folderInputRef}
+        className="visuallyHidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        type="file"
+        multiple
+        accept=".json,application/json"
+        onChange={handleFilesPicked}
+        {...folderPickerAttributes}
+      />
+    </AccountImportFrame>
   );
 }
