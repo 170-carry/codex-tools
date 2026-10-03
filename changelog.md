@@ -2,15 +2,21 @@
 
 ### Unreleased
 
+### Released
+
+- v3.0.1
+
 #### English
 
-- Restore directly accessible per-account proxy participation switches in the account table (#216). Move reset-credit counts beside plan tags and remove the duplicate proxy option from the More menu.
+1. Restore directly accessible proxy-participation switches on every account row (#216). Keep optimistic feedback, disable the control while saving, and restore saved state on failure.
+2. Show reset-credit counts next to plan tags, preserve zero/unknown values and plan-variant counts, and keep the account table at five columns.
+3. Remove the duplicate proxy switch from the More menu. Preserve keyboard access, account detail synchronization, stable row order and the minimum-window layout.
 
 #### 中文
 
-- 账号表格常显各账号的反代参与开关（#216）；重置卡数量移到套餐标签右侧，并去掉更多菜单中的重复反代选项。
-
-### Released
+1. 账号列表常显各账号的反代参与开关（#216），一键切换；保存期间禁用，失败时回退原状态。
+2. 重置卡数量移到套餐标签右侧，保留零张、未知数量与套餐变体对应数量；账号表格保持五列。
+3. 去掉更多菜单中的重复反代开关，保留键盘操作、详情状态同步、稳定列表顺序和最小窗口布局。
 
 - v3.0.0
 
