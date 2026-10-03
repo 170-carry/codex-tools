@@ -10,6 +10,7 @@ The release contains the compact account table, inspectors, import dialogs, anal
 - React page rendering: 36 checks passed, including all five locales, draft retention, platform-specific quota controls and account order after refresh/switching. These are static rendering checks.
 - ESLint: zero errors and zero warnings.
 - TypeScript and production frontend build passed. The main frontend chunk still produces Vite's existing size warning; secondary pages load as separate chunks.
+- The frontend compiler is pinned to esbuild 0.27.3. Clean installation of 0.27.7 failed to transform destructuring for the configured Safari 13 target, so its failed release checks published no installers. The pinned dependency passed Node tests, page rendering, lint and production build again.
 - Rust library: 314 tests passed.
 - Locked standalone proxy compilation passed from `src-tauri/gen/remote-build`, the actual installer resource tree.
 

@@ -14,7 +14,7 @@
 4. Preserve the saved API-account editor in the new workspace, including optional secret replacement; keep existing account switching, Relay routing, warm-up controls, quota displays and export tools.
 5. Add GPT-6.1 Sol to model listings, aliases, permissions, Responses Lite and compact requests with Codex 0.159.0 identity; validate reasoning efforts, apply its distinct token prices and rebuild old cost caches (#214).
 6. Mask API keys by default in import/edit dialogs, keep focus inside modal dialogs, restore trigger focus when they close, and retain all five import methods and five locales.
-7. Add page-render regressions to the macOS/Windows release checks and verify npm publication identity before compiling CLI packages.
+7. Add page-render regressions to the macOS/Windows release checks, pin the frontend compiler for supported Safari/WebView targets, and verify npm publication identity before compiling CLI packages.
 
 #### 中文
 
@@ -24,7 +24,7 @@
 4. 在新工作区保留已保存 API 账号编辑及可选密钥替换，保留账号切换、Relay 路由、预热控制、额度展示与导出工具。
 5. 新增 GPT-6.1 Sol 支持，覆盖模型列表、别名、权限、Responses Lite 和 compact 请求；使用 Codex 0.159.0 标识，校验推理强度，应用独立 Token 费率并重建旧成本缓存（#214）。
 6. 导入与编辑弹窗默认遮挡 API Key，限制模态弹窗内焦点并在关闭后恢复，保留全部五种导入方式和五种语言。
-7. 将页面渲染回归加入 macOS/Windows 发布校验，并在编译 CLI 包前核对 npm 发布身份。
+7. 将页面渲染回归加入 macOS/Windows 发布校验，固定适配现有 Safari/WebView 目标的前端编译器，并在编译 CLI 包前核对 npm 发布身份。
 
 - v2.10.0
 
