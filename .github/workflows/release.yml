@@ -1,6 +1,9 @@
 name: Release Tauri App
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -34,14 +37,13 @@ jobs:
       - uses: swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run lint
-      - run: npm run test:usage-errors
-      - run: npm run test:quota-onboarding
+      - run: npm test
       - run: npm run build
       - name: Rust regression tests
         run: cargo test --locked --lib
         working-directory: src-tauri
-      - name: Standalone proxy check
-        run: cargo check --locked --manifest-path proxyd/Cargo.toml
+      - name: Packaged standalone proxy check
+        run: cargo check --locked --manifest-path gen/remote-build/proxyd/Cargo.toml --target-dir proxyd/target
         working-directory: src-tauri
 
   build-and-release:

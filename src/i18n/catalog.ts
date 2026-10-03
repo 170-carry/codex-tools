@@ -148,6 +148,9 @@ export type MessageCatalog = {
     uploadDescription: string;
     apiTab: string;
     apiDescription: string;
+    apiEditTitle: string;
+    apiEditHint: string;
+    apiEditSave: string;
     apiNameLabel: string;
     apiNamePlaceholder: string;
     apiBaseUrlLabel: string;
@@ -691,6 +694,7 @@ export type MessageCatalog = {
     usageRefreshed: string;
     refreshFailed: (error: string) => string;
     accountWarmupActivated: string;
+    accountWarmupRequestSent: string;
     accountWarmupAlreadyActive: string;
     accountWarmupRecentlyAttempted: string;
     accountWarmupExhausted: string;

@@ -173,12 +173,7 @@ pub(super) fn append_configured_codex_candidates(
 
     #[cfg(target_os = "macos")]
     if is_macos_app_bundle(configured_path) {
-        candidates.push(
-            configured_path
-                .join("Contents")
-                .join("Resources")
-                .join("codex"),
-        );
+        candidates.extend(macos_codex_cli_candidates_for_bundle(configured_path));
     }
 
     for dir in search_dirs {

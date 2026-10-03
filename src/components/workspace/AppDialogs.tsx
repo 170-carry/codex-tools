@@ -1,4 +1,5 @@
 import { AddAccountDialog } from "../AddAccountDialog";
+import { EditApiAccountDialog } from "../accounts/EditApiAccountDialog";
 import { DeleteAccountDialog } from "../DeleteAccountDialog";
 import { NoticeBanner } from "../NoticeBanner";
 import { QuotaDisplayOnboardingDialog } from "../QuotaDisplayOnboardingDialog";
@@ -22,6 +23,15 @@ export function AppDialogs({
 }) {
   return (
     <>
+      {c.apiAccountEditor.account ? (
+        <EditApiAccountDialog
+          account={c.apiAccountEditor.account}
+          saving={c.apiAccountEditor.saving}
+          error={c.apiAccountEditor.error}
+          onSave={c.apiAccountEditor.save}
+          onClose={c.apiAccountEditor.close}
+        />
+      ) : null}
       <AddAccountDialog
         open={c.addDialogOpen}
         reauthorizeAccount={c.reauthorizeAccount}

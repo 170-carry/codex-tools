@@ -1,3 +1,5 @@
+mod quota_mode;
+use quota_mode::quota_icon_mode;
 #[cfg(target_os = "macos")]
 use std::cell::RefCell;
 use tauri::AppHandle;
@@ -220,8 +222,8 @@ fn tray_icon_percent(accounts: &[AccountSummary], mode: TrayUsageDisplayMode) ->
     }
 }
 
-fn quota_icon_percent(accounts: &[AccountSummary]) -> Option<f64> {
-    tray_icon_percent(accounts, TrayUsageDisplayMode::Remaining)
+fn quota_icon_percent(accounts: &[AccountSummary], mode: TrayUsageDisplayMode) -> Option<f64> {
+    tray_icon_percent(accounts, quota_icon_mode(mode))
 }
 
 #[cfg(target_os = "macos")]
@@ -820,7 +822,7 @@ fn update_macos_tray_snapshot_on_main_thread(
     let onboarding_preview_percent = load_store(app).ok().and_then(|store| {
         macos_onboarding_preview_percent(store.settings.macos_quota_onboarding_completed, accounts)
     });
-    let percent = quota_icon_percent(accounts).or(onboarding_preview_percent);
+    let percent = quota_icon_percent(accounts, mode).or(onboarding_preview_percent);
 
     if should_show_usage_surface(mode) {
         let title = onboarding_preview_percent
@@ -882,7 +884,7 @@ fn update_macos_tray_snapshot_on_main_thread(
         return Ok(());
     }
 
-    let quota_mode = TrayUsageDisplayMode::Remaining;
+    let quota_mode = quota_icon_mode(mode);
     let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
     let quota_tooltip = build_macos_tray_tooltip(accounts, quota_mode, locale);
     let quota_tray = if let Some(tray) = MACOS_QUOTA_TRAY.with(|slot| slot.borrow().clone()) {
@@ -1008,7 +1010,7 @@ fn update_windows_usage_snapshot(
         } else {
             render_windows_tray_icon(
                 config.tray_icon_style,
-                quota_icon_percent(accounts),
+                quota_icon_percent(accounts, config.mode),
                 snapshot.status,
             )
         };
@@ -1284,8 +1286,8 @@ fn create_macos_status_bar_trays(
     #[cfg(debug_assertions)]
     log_macos_status_bar_render(_log_context, &summaries, &title);
 
-    let quota_mode = TrayUsageDisplayMode::Remaining;
-    let percent = quota_icon_percent(&summaries).or(onboarding_preview_percent);
+    let quota_mode = quota_icon_mode(mode);
+    let percent = quota_icon_percent(&summaries, mode).or(onboarding_preview_percent);
     let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
     let quota_tooltip = build_macos_tray_tooltip(&summaries, quota_mode, locale);
     let quota_tray = if quota_icon_visible {
@@ -1439,7 +1441,7 @@ fn setup_windows_tray(app: &AppHandle) -> Result<(), String> {
     } else {
         render_windows_tray_icon(
             config.tray_icon_style,
-            quota_icon_percent(&summaries),
+            quota_icon_percent(&summaries, config.mode),
             initial_snapshot.status,
         )
     };
@@ -1766,10 +1768,19 @@ mod tests {
     }
 
     #[test]
-    fn quota_icon_always_uses_the_most_constrained_remaining_window() {
+    fn quota_icon_uses_selected_window_or_the_combined_limit() {
+        let accounts = [current_account_with_usage()];
         assert_eq!(
-            quota_icon_percent(&[current_account_with_usage()]),
+            quota_icon_percent(&accounts, TrayUsageDisplayMode::Remaining),
             Some(40.0)
+        );
+        assert_eq!(
+            quota_icon_percent(&accounts, TrayUsageDisplayMode::FiveHourRemaining),
+            Some(40.0)
+        );
+        assert_eq!(
+            quota_icon_percent(&accounts, TrayUsageDisplayMode::OneWeekRemaining),
+            Some(60.0)
         );
     }
 
@@ -1862,6 +1873,9 @@ mod tests {
             tray_icon_percent(std::slice::from_ref(&account), TrayUsageDisplayMode::Hidden,),
             None
         );
-        assert_eq!(quota_icon_percent(&[account]), Some(40.0));
+        assert_eq!(
+            quota_icon_percent(&[account], TrayUsageDisplayMode::Remaining),
+            Some(40.0)
+        );
     }
 }

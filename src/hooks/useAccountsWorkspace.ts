@@ -12,7 +12,7 @@ import {
   sortVariantsForGroup,
 } from "../components/accounts/accountModel";
 import { displayAccountAddress } from "../components/accounts/accountPresentation";
-import { compareAccountsByRemaining } from "../utils/accountRanking";
+import { sortAccountsForDisplay } from "../utils/accountDisplayOrder";
 
 export function useAccountsWorkspace(props: AccountsGridProps) {
   const { accounts, switchingId, authBusy, onSwitch } = props;
@@ -27,7 +27,7 @@ export function useAccountsWorkspace(props: AccountsGridProps) {
 
   const rows = useMemo<AccountRow[]>(() => {
     const grouped = new Map<string, AccountSummary[]>();
-    for (const account of accounts) {
+    for (const account of sortAccountsForDisplay(accounts)) {
       const existing = grouped.get(account.accountKey);
       if (existing) existing.push(account);
       else grouped.set(account.accountKey, [account]);
@@ -44,14 +44,7 @@ export function useAccountsWorkspace(props: AccountsGridProps) {
           group.variants.find((a) => a.id === preferredVariants[group.id]) ||
           group.variants.find((a) => a.isCurrent) ||
           group.variants[0],
-      }))
-      .sort((a, b) =>
-        a.account.isCurrent !== b.account.isCurrent
-          ? a.account.isCurrent
-            ? -1
-            : 1
-          : compareAccountsByRemaining(a.account, b.account),
-      );
+      }));
   }, [accounts, preferredVariants, switchingId]);
 
   const filteredRows = useMemo(() => {

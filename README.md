@@ -151,7 +151,7 @@ Codex Tools 可以启动本地 OpenAI 兼容反代：
 - 账号选择：按可用额度自动选择，支持运行中切换
 - 默认模型：`gpt-5.6-sol`
 - 默认推理：`xhigh` + `default`（标准速度；客户端仍可显式请求 `fast`）
-- GPT-6 模型：`gpt-6-astra`（兼容 `gpt6`、`gpt-6`、`gpt6-astra` 别名）
+- GPT-6 Codex 账号代理模型：`gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-luna`。代理使用 Codex CLI `0.159.0` 标识及 Responses Lite 请求格式；模型能否调用仍由上游账号权限决定。
 - GPT-5.6 模型：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`
 
 `CODEX_TOOLS_PROXY_SERVICE_TIER` 可设置代理默认速度，支持 `auto`、`default` / `standard`、`fast` / `priority`、`flex`。显式请求值优先于环境变量；`fast` / `priority` 转为上游 `priority`。未设置或环境变量非法时使用 `default`，显式非法请求仍会被拒绝，Key 的速度权限继续生效。
@@ -179,7 +179,9 @@ Cursor 可能由服务端代发请求，不建议填写 `127.0.0.1`、`localhost
 - 远程 Linux 反代地址
 - 自己的公网域名反向代理地址
 
-GPT-6 Astra 使用 `gpt-6-astra`，支持 `low`、`medium`、`high`、`xhigh`、`max` 推理强度（`ultra` 映射为 `max`），不支持 `none` / `minimal`。代理采用 Codex CLI `0.153.4` 的客户端标识与 Responses Lite 转换；已有默认模型保持 `gpt-5.6-sol`。
+GPT-6 Astra、GPT-6.1 Sol、GPT-6 Sol、GPT-6 Luna 分别使用 `gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-luna`。Codex 账号代理支持 `low`、`medium`、`high`、`xhigh`、`max` 推理强度（`ultra` 映射为 `max`），拒绝 `none` / `minimal`。默认模型保持 `gpt-5.6-sol`。
+
+GPT-6.1 Sol 也兼容 `gpt6.1-sol`、`gpt-6-1-sol`、`gpt-6.1`、`gpt6.1`、`gpt-6-1` 及带日期的模型名称。已有 Key 若设置了模型白名单，需要显式勾选 `gpt-6.1-sol`；升级不会扩大 Key 权限。其标准短上下文 API 费用估算使用每百万 Token 输入 $2、缓存输入 $0.10、输出 $10，详见 [官方模型说明](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。
 
 模型名称也可使用 `gpt-5.6-sol`。`gpt-5.6`、`gpt5.6` 和 `gpt-5-6` 会映射到 Sol，Terra/Luna 也兼容无点号和全连字符别名。
 

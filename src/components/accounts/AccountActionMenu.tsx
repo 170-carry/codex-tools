@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { useId } from "react";
 import type { AccountSummary } from "../../types/app";
+import { useI18n } from "../../i18n/I18nProvider";
 import type { AccountsGridProps, UiCopy } from "./types";
 import { useAnchoredMenu } from "../../hooks/useAnchoredMenu";
 import {
@@ -19,6 +20,7 @@ export function AccountActionMenu({
   text: UiCopy;
   onInspect: () => void;
 }) {
+  const { copy } = useI18n();
   const {
     open,
     toggle,
@@ -37,6 +39,14 @@ export function AccountActionMenu({
     danger?: boolean;
   }[] = [
     { label: text.detailsTitle, icon: "info", action: onInspect },
+    ...(account.sourceKind === "relay"
+      ? [{
+          label: copy.addAccount.apiEditTitle,
+          icon: "edit" as const,
+          disabled: actions.authBusy,
+          action: () => actions.onEditApiAccount(account),
+        }]
+      : []),
     {
       label: text.reauthorize,
       icon: "login",

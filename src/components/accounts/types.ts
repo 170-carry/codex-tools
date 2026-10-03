@@ -94,6 +94,7 @@ export type AccountsGridProps = {
   onExportAll: () => void;
   onExport: (account: AccountSummary) => void;
   onReauthorize: (account: AccountSummary) => void;
+  onEditApiAccount: (account: AccountSummary) => void;
   onWarmup: (account: AccountSummary) => Promise<boolean>;
   onRename: (account: AccountSummary, label: string) => Promise<boolean>;
   onToggleApiProxy: (

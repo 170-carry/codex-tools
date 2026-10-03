@@ -17,6 +17,35 @@ fn astra_catalog_aliases_and_snapshots_are_consistent() {
     );
 }
 
+#[test]
+fn sol_and_luna_use_codex_0155_responses_lite() {
+    for (model, alias) in [("gpt-6-sol", "gpt6-sol"), ("gpt-6-luna", "gpt6-luna")] {
+        assert!(MODELS.contains(&model));
+        assert_eq!(map_client_model_to_upstream(alias).unwrap(), model);
+        assert_eq!(normalize_model_for_client(alias), model);
+        let (payload, _) = normalize_openai_responses_request(json!({
+            "model": alias,
+            "input": "hello",
+            "reasoning": { "effort": "medium" }
+        }))
+        .unwrap();
+        assert_eq!(payload["model"], model);
+        assert_eq!(payload["input"][0]["type"], "additional_tools");
+        assert_eq!(payload["reasoning"]["context"], "all_turns");
+        assert!(payload_uses_responses_lite(&payload));
+        assert!(normalize_openai_responses_request(json!({
+            "model": model,
+            "input": "hello",
+            "reasoning": { "effort": "none" }
+        }))
+        .is_err());
+    }
+    assert_eq!(
+        upstream_codex_client_identity(&HeaderMap::new(), true),
+        ("0.159.0", "codex_cli_rs/0.159.0")
+    );
+}
+
 fn assert_astra_lite(payload: &Value) {
     assert_eq!(payload["model"], "gpt-6-astra");
     assert_eq!(payload["input"][0]["type"], "additional_tools");
@@ -95,11 +124,11 @@ fn astra_uses_supported_client_version_even_for_old_downstream_clients() {
     headers.insert("user-agent", HeaderValue::from_static("old-client"));
     assert_eq!(
         upstream_codex_client_identity(&headers, true),
-        ("0.153.4", "codex_cli_rs/0.153.4")
+        ("0.159.0", "codex_cli_rs/0.159.0")
     );
     assert_eq!(
         upstream_codex_client_identity(&HeaderMap::new(), false),
-        ("0.153.4", "codex_cli_rs/0.153.4")
+        ("0.159.0", "codex_cli_rs/0.159.0")
     );
 }
 
@@ -169,4 +198,13 @@ fn base_model_permissions_do_not_grant_distinct_pro_or_mini_variants() {
         model_catalog::normalize_model_for_permissions("gpt-5.4-2026-03-05"),
         "gpt-5.4"
     );
+}
+
+#[test]
+fn invalid_request_errors_are_not_retried_across_the_account_pool() {
+    assert!(classify_retriable_failure(
+        StatusCode::BAD_REQUEST,
+        &Bytes::from_static(br#"{"error":{"message":"Unsupported parameter: temperature"}}"#)
+    )
+    .is_none());
 }

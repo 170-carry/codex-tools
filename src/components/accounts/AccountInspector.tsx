@@ -45,6 +45,10 @@ export function AccountInspector({
       onClose();
       actions.onReauthorize(target);
     },
+    onEditApiAccount: (target: AccountSummary) => {
+      onClose();
+      actions.onEditApiAccount(target);
+    },
   };
   const saving = actions.renamingAccountId === account.accountKey;
   useLayoutEffect(() => {
@@ -146,6 +150,10 @@ export function AccountInspector({
               type="button"
               className="detailEditButton"
               onClick={() => {
+                if (account.sourceKind === "relay") {
+                  inspectorActions.onEditApiAccount(account);
+                  return;
+                }
                 setDraft(account.label);
                 setEditing(true);
               }}

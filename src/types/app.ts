@@ -481,6 +481,7 @@ export type AppSettings = {
 };
 
 export type AccountWarmupStatus =
+  | "requestSent"
   | "activated"
   | "alreadyActive"
   | "recentlyAttempted"

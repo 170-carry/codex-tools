@@ -34,6 +34,7 @@ export function AccountsView({
         onExportAll={() => void c.onExportAccounts()}
         onExport={(account) => void c.onExportAccounts(account)}
         onReauthorize={(account) => void c.onReauthorizeAccount(account)}
+        onEditApiAccount={c.apiAccountEditor.open}
         onWarmup={c.onWarmupAccount}
         onRename={c.onRenameAccountLabel}
         onToggleApiProxy={c.onToggleAccountApiProxy}

@@ -29,21 +29,7 @@ use crate::utils::try_set_private_permissions;
 const REMOTE_BINARY_NAME: &str = "codex-tools-proxyd";
 const REMOTE_DEPLOY_PROGRESS_EVENT: &str = "remote-deploy-progress";
 const PROXYD_BUNDLED_SOURCE_ROOT: &str = "gen/remote-build";
-const PROXYD_BUILD_SOURCE_FILES: &[&str] = &[
-    "proxyd/Cargo.toml",
-    "proxyd/Cargo.lock",
-    "proxyd/src/main.rs",
-    "src/app_paths.rs",
-    "src/auth.rs",
-    "src/models.rs",
-    "src/profile_files.rs",
-    "src/proxy_daemon.rs",
-    "src/proxy_service.rs",
-    "src/state.rs",
-    "src/store.rs",
-    "src/usage.rs",
-    "src/utils.rs",
-];
+use crate::remote_build_manifest::PROXYD_BUILD_SOURCE_FILES;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
