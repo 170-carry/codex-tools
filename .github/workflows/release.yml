@@ -38,6 +38,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: npm run test:pages
       - run: npm run build
       - name: Rust regression tests
         run: cargo test --locked --lib
@@ -137,6 +138,12 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Verify npm publication identity
+        if: ${{ env.NPM_TOKEN != '' }}
+        run: npm whoami --registry=https://registry.npmjs.org
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

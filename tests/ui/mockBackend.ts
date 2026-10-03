@@ -6,6 +6,8 @@ import {
   DEFAULT_CLOUDFLARED_STATUS,
 } from "./defaults";
 import type { AppSettings } from "../../src/types/app";
+import type { ApiAccountEdit } from "../../src/hooks/useApiAccountEditor";
+import { version } from "../../package.json";
 
 export function installPreviewBackend() {
   const params = new URLSearchParams(location.search);
@@ -46,7 +48,7 @@ export function installPreviewBackend() {
       if (command === "get_cloudflared_status")
         return DEFAULT_CLOUDFLARED_STATUS;
       if (command === "get_api_proxy_supported_models")
-        return ["gpt-5.4", "gpt-5.4-mini"];
+        return ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-image-2"];
       if (
         [
           "list_api_proxy_keys",
@@ -63,14 +65,13 @@ export function installPreviewBackend() {
           series: [],
           keySeries: [],
         };
-      if (
-        command === "is_opencode_desktop_app_installed" ||
-        command === "plugin:window|is_minimized"
-      )
+      if (command === "is_opencode_desktop_app_installed")
+        return params.get("opencode") === "installed";
+      if (command === "plugin:window|is_minimized" || command === "get_windows_widgets_enabled")
         return false;
-      if (command === "plugin:app|version") return "2.9.0";
+      if (command === "plugin:app|version") return version;
       if (command === "plugin:app|name") return "Codex Tools Preview";
-      if (command === "get_runtime_platform") return "macos";
+      if (command === "get_runtime_platform") return params.get("platform") ?? "macos";
       if (command === "get_tray_visual_previews") return [];
       if (command === "is_debug_build") return false;
       if (command === "plugin:updater|check") return null;
@@ -80,6 +81,17 @@ export function installPreviewBackend() {
             a.label = String(payload?.label);
         });
         return payload?.label;
+      }
+      if (command === "update_api_account") {
+        const input = payload?.input as ApiAccountEdit;
+        accounts.forEach((a) => {
+          if (a.id === payload?.id && a.sourceKind === "relay") {
+            a.label = input.label;
+            a.apiBaseUrl = input.baseUrl;
+            a.modelName = input.modelName;
+          }
+        });
+        return null;
       }
       if (command === "update_account_api_proxy_enabled") {
         accounts.forEach((a) => {

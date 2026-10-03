@@ -7,6 +7,7 @@ import { I18nProvider } from "../../src/i18n/I18nProvider";
 import { AnalyticsPanel } from "../../src/components/AnalyticsPanel";
 import { ApiProxyPanel } from "../../src/components/ApiProxyPanel";
 import { SettingsPanel } from "../../src/components/SettingsPanel";
+import { AccountsGrid } from "../../src/components/AccountsGrid";
 import { PageSections } from "../../src/components/workspace/PageSections";
 import { QuotaSettings } from "../../src/components/settings/QuotaSettings";
 import { useSettingsWorkspace } from "../../src/components/settings/useSettingsWorkspace";
@@ -20,6 +21,8 @@ import {
   DEFAULT_CLOUDFLARED_STATUS,
 } from "./defaults";
 import { proxyProps } from "./proxyProps";
+import { accountProps } from "./accountProps";
+import { fixtureAccount } from "./fixtures";
 
 let locale = "zh-CN";
 const storage = {
@@ -66,6 +69,19 @@ function sectionChecks(html: string, name: string, total: number) {
   );
 }
 const empty = () => {};
+const imported = [
+  fixtureAccount("second", "second@example.com", 1, 1, {addedAt: 20, isCurrent: true}),
+  fixtureAccount("first", "first@example.com", 99, 99, {addedAt: 10}),
+];
+const ordered = render(<AccountsGrid {...accountProps({accounts: imported})} />);
+check("Accounts: current status and quota ranking preserve import order",
+  ordered.indexOf("first@example.com") < ordered.indexOf("second@example.com"));
+const refreshed = render(<AccountsGrid {...accountProps({accounts: imported.map((account) => ({
+  ...account, isCurrent: account.id === "first", label: `${account.id}@example.com`,
+  usage: {...account.usage!, fiveHour: {...account.usage!.fiveHour!, usedPercent: 100 - account.usage!.fiveHour!.usedPercent!}},
+}))})} />);
+check("Accounts: refresh and switching keep the same row order",
+  refreshed.indexOf("first@example.com") < refreshed.indexOf("second@example.com"));
 const settingsProps: SettingsPanelProps = {
   themeMode: "light",
   onToggleTheme: empty,

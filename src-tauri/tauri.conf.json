@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Tools",
-  "version": "2.10.0",
+  "version": "3.0.0",
   "identifier": "com.carry.codex-tools",
   "build": {
     "frontendDist": "../dist",
@@ -21,7 +21,10 @@
         "fullscreen": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 16, "y": 18 },
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 18
+        },
         "acceptFirstMouse": true
       }
     ],

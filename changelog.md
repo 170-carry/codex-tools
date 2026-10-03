@@ -2,15 +2,29 @@
 
 ### Unreleased
 
+### Released
+
+- v3.0.0
+
 #### English
 
-- Support GPT-6.1 Sol in the model catalog, aliases, model restrictions, Responses Lite transports and compact requests (#214). Use Codex CLI 0.159.0 identity, reject unsupported reasoning efforts, estimate its distinct cached-input rate and rebuild old cost caches. Existing defaults and explicit API-key allowlists are preserved.
+1. Replace the desktop workspace with a compact five-column account table, title-bar navigation, an on-demand inspector and keyboard actions. Use a 920 × 700 default window with a 640 × 500 minimum; support light/dark themes and system appearance.
+2. Reorganize analytics, API proxy and settings into focused sections, preserve drafts while changing sections, and load secondary views on demand. Split page adapters, dialogs, account logic, settings, proxy controls and chart calculations into small modules.
+3. Show complete quota reset dates in the system time zone, display reset-credit counts directly, preserve cached error states and keep imported account order stable across refreshes and switches.
+4. Preserve the saved API-account editor in the new workspace, including optional secret replacement; keep existing account switching, Relay routing, warm-up controls, quota displays and export tools.
+5. Add GPT-6.1 Sol to model listings, aliases, permissions, Responses Lite and compact requests with Codex 0.159.0 identity; validate reasoning efforts, apply its distinct token prices and rebuild old cost caches (#214).
+6. Mask API keys by default in import/edit dialogs, keep focus inside modal dialogs, restore trigger focus when they close, and retain all five import methods and five locales.
+7. Add page-render regressions to the macOS/Windows release checks and verify npm publication identity before compiling CLI packages.
 
 #### 中文
 
-- 新增 GPT-6.1 Sol 支持，覆盖模型目录、别名、模型权限、Responses Lite 协议和 compact 请求（#214）。使用 Codex CLI 0.159.0 标识，拒绝不支持的推理强度，按其独立缓存输入费率估算费用并重建旧成本缓存；保留既有默认模型和 API Key 显式白名单。
-
-### Released
+1. 桌面工作区改为紧凑五列账号表格、标题栏导航、按需详情检查器与键盘操作。默认窗口为 920 × 700，最小窗口为 640 × 500；支持明暗主题与系统外观。
+2. 分析、API 反代和设置按功能分组，切换页内分组保留未提交草稿，次级视图按需加载。视图适配、弹窗、账号逻辑、设置、反代控制与图表计算拆分为独立模块。
+3. 按系统本地时区显示完整额度重置日期，直接展示重置卡可用数量，保留缓存失败状态，并让账号列表在刷新与切换后保持导入顺序。
+4. 在新工作区保留已保存 API 账号编辑及可选密钥替换，保留账号切换、Relay 路由、预热控制、额度展示与导出工具。
+5. 新增 GPT-6.1 Sol 支持，覆盖模型列表、别名、权限、Responses Lite 和 compact 请求；使用 Codex 0.159.0 标识，校验推理强度，应用独立 Token 费率并重建旧成本缓存（#214）。
+6. 导入与编辑弹窗默认遮挡 API Key，限制模态弹窗内焦点并在关闭后恢复，保留全部五种导入方式和五种语言。
+7. 将页面渲染回归加入 macOS/Windows 发布校验，并在编译 CLI 包前核对 npm 发布身份。
 
 - v2.10.0
 

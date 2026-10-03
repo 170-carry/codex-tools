@@ -1,7 +1,7 @@
 {
   "name": "codex-tools",
   "private": true,
-  "version": "2.10.0",
+  "version": "3.0.0",
   "license": "MIT",
   "homepage": "https://github.com/170-carry/codex-tools",
   "bugs": {
@@ -23,6 +23,7 @@
     "preview": "vite preview",
     "test:quota-onboarding": "node --test tests/quotaDisplayOnboarding.test.ts",
     "test:usage-errors": "node --test tests/usageRefreshError.test.ts",
+    "test:pages": "node scripts/check-pages.mjs",
     "tauri": "tauri",
     "test": "node --test tests/*.test.ts"
   },
@@ -40,6 +41,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "esbuild": "^0.27.7",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
