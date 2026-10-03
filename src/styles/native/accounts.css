@@ -41,10 +41,15 @@
 .accountTable th { position: sticky; top: 0; padding: 12px 10px; color: var(--subtle); font-size: 11px; font-weight: 500; text-align: left; background: var(--body-bg); z-index: 1; border-bottom: 1px solid var(--line); }
 .accountTable .accountIdentityColumn { width: auto; }
 .accountTable .accountQuotaColumn { width: 23%; }
-.accountTable .accountCreditsColumn { width: 68px; }
+.accountTable .accountProxyColumn { width: 72px; }
 .accountTable .accountActionsColumn { width: 100px; }
 .accountColumnHint { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 400; }
-.accountTable .accountCreditsHead, .accountTable .accountCreditsCell { text-align: center; }
+.accountTable .accountProxyHead, .accountTable .accountProxyCell { text-align: center; }
+.nativeApp .accountProxyToggle { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; min-height: 32px; padding: 4px 2px; cursor: pointer; }
+.nativeApp .accountProxyToggle .themeSwitchTrack { width: 30px; height: 18px; }
+.nativeApp .accountProxyToggle .themeSwitchThumb { width: 14px; height: 14px; }
+.nativeApp .accountProxyToggle input:checked + .themeSwitchTrack .themeSwitchThumb { transform: translateX(12px); }
+.accountProxyToggle.isDisabled { cursor: default; }
 .accountTable td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .accountTable td:first-child { padding-left: 0; }
 .accountTable tbody tr:last-child td { border-bottom: 0; }
@@ -66,7 +71,8 @@
 .nativeApp .planChip.tone-free { background: var(--bg-2); border-color: transparent; color: var(--subtle); }
 .nativeApp .accountPlanVariants.hasVariants .planChip:not(.isSelected) { background: transparent; border-color: var(--line); color: var(--subtle); }
 .nativeApp .accountPlanVariants.hasVariants .planChip.isSelected { border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); }
-.accountResetCredits { display: inline-flex; align-items: baseline; color: var(--subtle); font-size: 12px; white-space: nowrap; }
+.accountResetCredits { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 3px; min-height: 17px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg-1); color: var(--subtle); font-size: 10px; line-height: 15px; white-space: nowrap; }
+.accountResetCredits .workspaceIcon { width: 11px; height: 11px; }
 .accountResetCredits strong { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .accountResetCredits.isEmpty strong { color: var(--subtle); }
 .statusText { display: inline-flex; align-items: center; gap: 4px; color: var(--subtle); font-size: 10px; line-height: 1.4; }

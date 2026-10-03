@@ -82,6 +82,31 @@ const refreshed = render(<AccountsGrid {...accountProps({accounts: imported.map(
 }))})} />);
 check("Accounts: refresh and switching keep the same row order",
   refreshed.indexOf("first@example.com") < refreshed.indexOf("second@example.com"));
+const proxyRows = render(<AccountsGrid {...accountProps({accounts: [
+  fixtureAccount("current", "current@example.com", 10, 10, {isCurrent: true, apiProxyEnabled: true}),
+  fixtureAccount("disabled", "disabled@example.com", 20, 20, {apiProxyEnabled: false}),
+  fixtureAccount("relay", "Relay", 0, 0, {sourceKind: "relay", apiProxyEnabled: true}),
+]})} />);
+const proxyInputs = matches(proxyRows, /<input[^>]*role="switch"[^>]*>/g).map((match) => match[0]);
+check("Accounts: every row, including current and Relay, exposes a proxy switch", proxyInputs.length === 3);
+check("Accounts: proxy switches reflect saved enabled and disabled states",
+  proxyInputs.filter((input) => input.includes('checked=""')).length === 2);
+check("Accounts: proxy switches identify their account and purpose",
+  proxyInputs.every((input) => input.includes('aria-label="') && input.includes(MESSAGES["zh-CN"].accountCard.apiProxyToggle)));
+const busyRows = render(<AccountsGrid {...accountProps({authBusy: true, accounts: imported})} />);
+check("Accounts: auth operations disable the visible proxy switches",
+  matches(busyRows, /<input[^>]*role="switch"[^>]*>/g).every((match) => match[0].includes('disabled=""')));
+check("Accounts: reset credits no longer have a separate column",
+  !proxyRows.includes("accountCreditsColumn") && !proxyRows.includes("accountCreditsCell") &&
+    matches(proxyRows, /<th scope="col"/g).length === 5);
+check("Accounts: reset credit badges follow the plan tags",
+  matches(proxyRows, /class="accountPlanVariants[^>]*>.*?<span class="accountResetCredits/g).length === 3);
+const unknownAndZero = render(<AccountsGrid {...accountProps({accounts: [
+  fixtureAccount("zero", "Zero", 0, 0, {usage: {...imported[0].usage!, resetCredits: {availableCount:0, credits:[]}}}),
+  fixtureAccount("unknown", "Unknown", 0, 0, {usage: {...imported[0].usage!, resetCredits: {availableCount:null, credits:[]}}}),
+]})} />);
+check("Accounts: inline reset credits keep zero and unknown counts distinct",
+  unknownAndZero.includes('accountResetCredits isEmpty') && unknownAndZero.includes('<strong>0</strong>') && unknownAndZero.includes('<strong>—</strong>'));
 const settingsProps: SettingsPanelProps = {
   themeMode: "light",
   onToggleTheme: empty,

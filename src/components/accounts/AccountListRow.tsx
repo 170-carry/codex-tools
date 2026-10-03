@@ -9,6 +9,7 @@ import { AccountResetCredits } from "./AccountResetCredits";
 import { QuotaMeter } from "./QuotaMeter";
 import { UsageFreshnessBadge } from "./UsageFreshnessBadge";
 import { AccountActionMenu } from "./AccountActionMenu";
+import { AccountProxyToggle } from "./AccountProxyToggle";
 
 export function AccountListRow({
   row,
@@ -55,6 +56,7 @@ export function AccountListRow({
                 labels={copy.accountCard.planLabels}
                 onSelect={(id) => onVariant(row.id, id)}
               />
+              <AccountResetCredits account={account} text={text} />
             </div>
             <div className="accountStateLine">
               {status !== "using" && status !== "available" ? (
@@ -101,8 +103,12 @@ export function AccountListRow({
           compact
         />
       </td>
-      <td className="accountCreditsCell">
-        <AccountResetCredits account={account} text={text} />
+      <td className="accountProxyCell">
+        <AccountProxyToggle
+          account={account}
+          disabled={actions.authBusy}
+          onToggle={actions.onToggleApiProxy}
+        />
       </td>
       <td className="accountActionCell">
         <div className="rowActions">

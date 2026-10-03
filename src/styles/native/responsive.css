@@ -4,9 +4,9 @@
   .quotaMeterHead strong { font-size: 16px; }
   .accountTable th, .accountTable td { padding-inline: 10px; }
   .accountTable th:first-child, .accountTable td:first-child { padding-left: 0; }
-  .accountTable .accountQuotaColumn { width: 22%; }
-  .accountTable .accountCreditsColumn { width: 60px; }
   .accountTable .accountActionsColumn { width: 94px; }
+  .accountTable .accountProxyColumn { width: 58px; }
+  .accountTable .accountQuotaColumn { width: 20%; }
   .nativeApp .settingsPage { padding: 16px 18px; }
   .accountListFoot { gap: 7px 10px; }
   .accountLastUpdated { font-size: 10px; }
