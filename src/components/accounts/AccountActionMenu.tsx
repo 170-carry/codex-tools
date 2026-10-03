@@ -123,26 +123,6 @@ export function AccountActionMenu({
               <div className="menuSeparator" />
               <button
                 type="button"
-                role="menuitemcheckbox"
-                aria-checked={account.apiProxyEnabled}
-                disabled={actions.authBusy}
-                onClick={() => {
-                  close(true);
-                  void actions.onToggleApiProxy(
-                    account,
-                    !account.apiProxyEnabled,
-                  );
-                }}
-              >
-                <WorkspaceIcon name="proxy" />
-                <span>{text.proxyEnabled}</span>
-                {account.apiProxyEnabled ? (
-                  <WorkspaceIcon name="check" />
-                ) : null}
-              </button>
-              <div className="menuSeparator" />
-              <button
-                type="button"
                 role="menuitem"
                 className="dangerMenuItem"
                 disabled={actions.authBusy}

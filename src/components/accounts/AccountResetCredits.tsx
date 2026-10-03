@@ -2,6 +2,7 @@ import type { AccountSummary } from "../../types/app";
 import type { UiCopy } from "./types";
 import { getCompactTableCopy } from "../../i18n/compactTableCopy";
 import { useI18n } from "../../i18n/I18nProvider";
+import { WorkspaceIcon } from "../workspace/WorkspaceIcon";
 
 export function AccountResetCredits({
   account,
@@ -15,8 +16,10 @@ export function AccountResetCredits({
     return (
       <span
         className="accountResetCredits isUnavailable"
-        aria-label={getCompactTableCopy(locale).unavailable}
+        title={`${text.resetCreditsTitle} · ${getCompactTableCopy(locale).unavailable}`}
+        aria-label={`${text.resetCreditsTitle} · ${getCompactTableCopy(locale).unavailable}`}
       >
+        <WorkspaceIcon name="refresh" />
         —
       </span>
     );
@@ -34,6 +37,7 @@ export function AccountResetCredits({
       title={description}
       aria-label={description}
     >
+      <WorkspaceIcon name="refresh" />
       <strong>{count ?? "—"}</strong>
     </span>
   );

@@ -94,6 +94,10 @@ export function installPreviewBackend() {
         return null;
       }
       if (command === "update_account_api_proxy_enabled") {
+        if (params.get("proxy-toggle") === "delayed")
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        if (params.get("proxy-toggle") === "failed")
+          throw new Error("Preview proxy participation save failed");
         accounts.forEach((a) => {
           if (a.accountKey === payload?.accountKey)
             a.apiProxyEnabled = Boolean(payload?.enabled);

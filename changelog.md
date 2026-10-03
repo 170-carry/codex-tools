@@ -2,6 +2,14 @@
 
 ### Unreleased
 
+#### English
+
+- Restore directly accessible per-account proxy participation switches in the account table (#216). Move reset-credit counts beside plan tags and remove the duplicate proxy option from the More menu.
+
+#### 中文
+
+- 账号表格常显各账号的反代参与开关（#216）；重置卡数量移到套餐标签右侧，并去掉更多菜单中的重复反代选项。
+
 ### Released
 
 - v3.0.0

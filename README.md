@@ -39,7 +39,7 @@ Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、
 
 ## Preview
 
-![Codex Tools v3 workspace preview](docs/pr-assets/compact-macos/v3-accounts-light.jpg)
+![Codex Tools workspace preview](docs/pr-assets/account-proxy-toggle/accounts-light.jpg)
 
 ## Installation
 

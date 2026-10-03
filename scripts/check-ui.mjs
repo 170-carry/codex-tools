@@ -55,8 +55,9 @@ try {
   await page.goto(baseUrl);
   await page.locator(".accountTable").waitFor();
   check(
-    "Accounts use five aligned columns",
-    (await page.locator(".accountTable th").count()) === 5,
+    "Accounts use five aligned columns with visible proxy participation",
+    (await page.locator(".accountTable th").count()) === 5 &&
+      (await page.locator(".accountProxyToggle input").count()) === 8,
   );
   check(
     "Search is collapsed by default",
@@ -73,9 +74,9 @@ try {
       ),
   );
   check(
-    "Reset credits have their own column",
+    "Reset credits sit beside the account plan tags",
     (await row("daily@example.com")
-      .locator(".accountCreditsCell")
+      .locator(".accountTitleLine .accountResetCredits")
       .innerText()) === "3",
   );
   check(
@@ -149,13 +150,12 @@ try {
     "Account menu restores keyboard focus",
     await trigger.evaluate((e) => e === document.activeElement),
   );
-  await trigger.click();
-  await page.getByRole("menuitemcheckbox").click();
+  await row("备用工作账号").locator(".accountProxyToggle input").uncheck();
   await trigger.click();
   check(
-    "Per-account proxy toggle is preserved",
-    (await page.getByRole("menuitemcheckbox").getAttribute("aria-checked")) ===
-      "false",
+    "Proxy participation is directly accessible and removed from the menu",
+    !(await row("备用工作账号").locator(".accountProxyToggle input").isChecked()) &&
+      (await page.getByRole("menuitemcheckbox").count()) === 0,
   );
   await page.keyboard.press("Escape");
 

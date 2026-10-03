@@ -53,7 +53,7 @@ export function AccountsGrid(props: AccountsGridProps) {
                 <col className="accountIdentityColumn" />
                 <col className="accountQuotaColumn" />
                 <col className="accountQuotaColumn" />
-                <col className="accountCreditsColumn" />
+                <col className="accountProxyColumn" />
                 <col className="accountActionsColumn" />
               </colgroup>
               <thead>
@@ -71,8 +71,8 @@ export function AccountsGrid(props: AccountsGridProps) {
                       {tableText.resetTime}
                     </span>
                   </th>
-                  <th scope="col" className="accountCreditsHead">
-                    {tableText.resetCredits}
+                  <th scope="col" className="accountProxyHead" title={copy.accountCard.apiProxyToggle}>
+                    {tableText.apiProxy}
                   </th>
                   <th scope="col">
                     <span className="visuallyHidden">{text.quickActions}</span>
