@@ -1,104 +1,104 @@
-.nativeApp .proxySectionContent {
+:where(html[data-layout="compact"]) .nativeApp .proxySectionContent {
   display: grid;
   gap: 0;
   min-width: 0;
 }
-.nativeApp .pageSectionPanel > .proxySectionCard {
+:where(html[data-layout="compact"]) .nativeApp .pageSectionPanel > .proxySectionCard {
   padding: 0;
   border: 0;
   gap: 16px;
 }
-.nativeApp .proxyPage .proxyDetailCard,
-.nativeApp .proxyPage .proxyInfoBlock {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyDetailCard,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyInfoBlock {
   background: transparent;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   padding: 12px 0;
 }
-.nativeApp .proxySectionContent > .proxyDetailCard {
+:where(html[data-layout="compact"]) .nativeApp .proxySectionContent > .proxyDetailCard {
   border-bottom: 1px solid var(--line);
 }
-.nativeApp .proxySectionContent > .proxyDetailCard:first-child {
+:where(html[data-layout="compact"]) .nativeApp .proxySectionContent > .proxyDetailCard:first-child {
   padding-top: 0;
 }
-.nativeApp .proxySectionContent > .proxyDetailCard:last-child {
+:where(html[data-layout="compact"]) .nativeApp .proxySectionContent > .proxyDetailCard:last-child {
   border-bottom: 0;
 }
-.nativeApp .proxyControlRow {
+:where(html[data-layout="compact"]) .nativeApp .proxyControlRow {
   align-items: center;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
-.nativeApp .proxyCompactField {
+:where(html[data-layout="compact"]) .nativeApp .proxyCompactField {
   grid-template-columns: auto 84px;
   align-items: center;
   gap: 12px;
 }
-.nativeApp .proxyControlRow .proxyPortInput {
+:where(html[data-layout="compact"]) .nativeApp .proxyControlRow .proxyPortInput {
   width: 84px;
 }
-.nativeApp .proxyHeaderStats {
+:where(html[data-layout="compact"]) .nativeApp .proxyHeaderStats {
   border-bottom: 0;
   padding: 0;
 }
-.nativeApp .proxyPage .proxyEndpointRow {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyEndpointRow {
   padding: 9px 0;
 }
-.nativeApp .proxyPage .proxyEndpointMeta code {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyEndpointMeta code {
   font: 12px/1.5 var(--font-mono);
   overflow-wrap: anywhere;
 }
-.nativeApp .proxyPage .proxyEndpointMeta > span {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyEndpointMeta > span {
   font-size: 11px;
 }
-.nativeApp .proxyPage .proxyCodexBindMeta > strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyCodexBindMeta > strong {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .proxyPage .proxyCodexBindCard {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyCodexBindCard {
   border-top: 1px solid var(--line);
 }
-.nativeApp .proxyModelCardCopy {
+:where(html[data-layout="compact"]) .nativeApp .proxyModelCardCopy {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 5px 10px;
 }
-.nativeApp .proxyModelCardCopy p {
+:where(html[data-layout="compact"]) .nativeApp .proxyModelCardCopy p {
   width: 100%;
   font-size: 11px;
 }
-.nativeApp .proxyModelCardCopy strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyModelCardCopy strong {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .proxyPage .proxyDetailGrid {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyDetailGrid {
   gap: 16px;
 }
-.nativeApp .proxyDetailCard > strong,
-.nativeApp .proxyKeyManagerIntro > strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyDetailCard > strong,
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyManagerIntro > strong {
   font-size: 13px;
   font-weight: 500;
 }
-.nativeApp .proxyDetailCard > p,
-.nativeApp .proxyKeyManagerIntro > p {
+:where(html[data-layout="compact"]) .nativeApp .proxyDetailCard > p,
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyManagerIntro > p {
   font-size: 11px;
   font-weight: 400;
 }
-.nativeApp .proxyPage .proxyModePicker .editorPickerTrigger {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyModePicker .editorPickerTrigger {
   min-height: 28px;
 }
-.nativeApp .proxyKeyManagerHeader {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyManagerHeader {
   grid-template-columns: 1fr;
   gap: 12px;
 }
-.nativeApp .proxyKeyCreateRow {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyCreateRow {
   grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.2fr) auto;
 }
-.nativeApp .proxyKeyInput,
-.nativeApp .proxyPage .remoteServerField input,
-.nativeApp .proxyPage .cloudflaredInputField input {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyInput,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerField input,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredInputField input {
   min-height: 28px;
   border-radius: 5px;
   padding: 5px 8px;
@@ -106,24 +106,24 @@
   font-weight: 400;
   background: var(--bg-0);
 }
-.nativeApp .proxyPage .proxyKeyItem {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyKeyItem {
   padding: 14px 0;
   gap: 10px;
   background: transparent;
   border-radius: 0;
 }
-.nativeApp .proxyKeySecretRow {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeySecretRow {
   padding: 7px 0;
   border: 0;
   background: transparent;
   font-size: 11px;
 }
-.nativeApp .proxyKeySummaryGrid {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeySummaryGrid {
   display: flex;
   flex-wrap: wrap;
   gap: 12px 24px;
 }
-.nativeApp .proxyKeySummaryGrid span {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeySummaryGrid span {
   display: flex;
   flex-direction: row;
   gap: 6px;
@@ -134,210 +134,210 @@
   font-size: 10px;
   font-weight: 400;
 }
-.nativeApp .proxyKeySummaryGrid strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeySummaryGrid strong {
   font-size: 11px;
   font-weight: 500;
 }
-.nativeApp .proxyKeyDetails {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyDetails {
   border: 0;
   margin: 0;
 }
-.proxyKeyDetails > summary {
+:where(html[data-layout="compact"]) .proxyKeyDetails > summary {
   width: fit-content;
   padding: 4px 0;
   color: var(--subtle);
   font-size: 11px;
   cursor: pointer;
 }
-.proxyKeyDetails > div {
+:where(html[data-layout="compact"]) .proxyKeyDetails > div {
   display: grid;
   gap: 10px;
   padding-top: 10px;
 }
-.nativeApp .proxyKeyBindingBlock,
-.nativeApp .proxyKeyLogRow {
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyBindingBlock,
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyLogRow {
   padding: 8px 0;
   border-radius: 0;
   background: transparent;
 }
-.nativeApp .proxyPage .proxyKeyChip {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyKeyChip {
   min-height: 26px;
   border-radius: 4px;
   font-size: 11px;
 }
-.nativeApp .proxyPage .proxyUsageCard {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyUsageCard {
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
-.nativeApp .proxyPage .proxyUsageHeading > span {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyUsageHeading > span {
   display: none;
 }
-.nativeApp .proxyPage .proxyUsageHeading h3 {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyUsageHeading h3 {
   font-size: 13px;
 }
-.nativeApp .proxyPage .proxyUsageFrame {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxyUsageFrame {
   margin-block: 12px;
 }
-.nativeApp .proxyPage .proxySectionHeader {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .proxySectionHeader {
   padding: 0 0 14px;
 }
-.nativeApp .proxyPage .remoteWorkspace {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkspace {
   grid-template-columns: 210px minmax(0, 1fr);
   gap: 20px;
 }
-.nativeApp .proxyPage .remoteHistoryPanel {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryPanel {
   padding: 0 12px 0 0;
   border: 0;
   border-right: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
 }
-.nativeApp .proxyPage .remoteHistoryList {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryList {
   gap: 3px;
 }
-.nativeApp .proxyPage .remoteHistoryItem {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryItem {
   padding: 9px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   gap: 6px;
 }
-.nativeApp .proxyPage .remoteHistoryItem.isSelected {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryItem.isSelected {
   background: var(--bg-2);
   box-shadow: none;
 }
-.nativeApp .proxyPage .remoteHistoryIdentity strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryIdentity strong {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .proxyPage .remoteHistoryItemMeta span {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryItemMeta span {
   font-size: 10px;
 }
-.nativeApp .proxyPage .remoteWorkbenchCard,
-.nativeApp .proxyPage .remoteWorkbenchSection,
-.nativeApp .proxyPage .remoteServerPanel {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkbenchCard,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkbenchSection,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerPanel {
   border: 0;
   border-radius: 0;
   padding: 0 0 14px;
   background: transparent;
   box-shadow: none;
 }
-.nativeApp .proxyPage .remoteWorkbenchSection {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkbenchSection {
   border-top: 1px solid var(--line);
   padding-top: 14px;
 }
-.nativeApp .proxyPage .remoteWorkbenchHeader {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkbenchHeader {
   grid-template-columns: 1fr;
   gap: 12px;
 }
-.nativeApp .proxyPage .remoteWorkbenchActions {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkbenchActions {
   justify-content: flex-start;
 }
-.nativeApp .proxyPage .remoteGuideCard {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteGuideCard {
   padding: 10px 12px;
   background: var(--bg-1);
   border: 0;
   border-radius: 6px;
 }
-.nativeApp .proxyPage .remoteServerSummaryPill {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerSummaryPill {
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   font-size: 10px;
 }
-.nativeApp .proxyPage .remoteServerIdentity strong,
-.nativeApp .proxyPage .remoteWorkbenchSectionHeader strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerIdentity strong,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkbenchSectionHeader strong {
   font-size: 13px;
   font-weight: 500;
 }
-.nativeApp .proxyPage .remoteServerGrid {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
-.nativeApp .proxyPage .remoteServerField > span,
-.nativeApp .proxyPage .cloudflaredInputField > span {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerField > span,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredInputField > span {
   font-size: 11px;
   font-weight: 400;
 }
-.nativeApp .proxyPage .remoteServerTextarea {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteServerTextarea {
   border-radius: 5px;
   font-size: 11px;
 }
-.nativeApp .proxyPage .remoteDiagnosticsGrid {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteDiagnosticsGrid {
   grid-template-columns: 1fr;
   gap: 4px;
 }
-.nativeApp .proxyPage .remoteLogCode {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteLogCode {
   font-size: 11px;
   scrollbar-width: thin;
 }
-.nativeApp .proxyPage .cloudflaredInstallCard,
-.nativeApp .proxyPage .cloudflaredCallout {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredInstallCard,
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredCallout {
   padding: 12px 0;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
 }
-.nativeApp .proxyPage .cloudflaredInstallCard strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredInstallCard strong {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .proxyPage .cloudflaredInstallCard p {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredInstallCard p {
   font-size: 11px;
   font-weight: 400;
 }
-.nativeApp .proxyPage .cloudflaredModeCard {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredModeCard {
   padding: 10px 12px;
   border-radius: 6px;
   background: transparent;
   border-color: var(--line);
 }
-.nativeApp .proxyPage .cloudflaredModeCard.isActive {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredModeCard.isActive {
   background: var(--brand-soft);
   border-color: var(--brand);
   box-shadow: none;
 }
-.nativeApp .proxyPage .cloudflaredModeCard strong {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredModeCard strong {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .proxyPage .cloudflaredModeCard p {
+:where(html[data-layout="compact"]) .nativeApp .proxyPage .cloudflaredModeCard p {
   font-size: 11px;
   font-weight: 400;
 }
 @media (max-width: 800px) {
-  .nativeApp .proxyPage .remoteWorkspace {
+  :where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteWorkspace {
     grid-template-columns: 1fr;
   }
-  .nativeApp .proxyPage .remoteHistoryPanel {
+  :where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryPanel {
     padding: 0 0 12px;
     border: 0;
     border-bottom: 1px solid var(--line);
   }
-  .nativeApp .proxyPage .remoteHistoryList {
+  :where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryList {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 600px) {
-  .nativeApp .proxyControlRow {
+  :where(html[data-layout="compact"]) .nativeApp .proxyControlRow {
     grid-template-columns: auto 1fr;
   }
-  .nativeApp .proxyControlActions {
+  :where(html[data-layout="compact"]) .nativeApp .proxyControlActions {
     grid-column: 1 / -1;
   }
-  .nativeApp .proxyKeyCreateRow {
+  :where(html[data-layout="compact"]) .nativeApp .proxyKeyCreateRow {
     grid-template-columns: 1fr;
   }
-  .nativeApp .proxyKeyItemHeader {
+  :where(html[data-layout="compact"]) .nativeApp .proxyKeyItemHeader {
     grid-template-columns: 1fr auto;
     align-items: center;
   }
-  .nativeApp .proxyPage .remoteHistoryList {
+  :where(html[data-layout="compact"]) .nativeApp .proxyPage .remoteHistoryList {
     grid-template-columns: 1fr;
   }
 }

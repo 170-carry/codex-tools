@@ -33,7 +33,6 @@ export function fixtureAccount(
     apiBaseUrl: null,
     modelName: null,
     balanceText: null,
-    relayBalance: null,
     profileAuthReady: true,
     profileConfigReady: true,
     profileIntegrityError: null,

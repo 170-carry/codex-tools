@@ -1,37 +1,37 @@
 @media (max-width: 780px) {
-  .nativeApp .analyticsPage, .nativeApp .proxyPage { padding: 16px 18px 10px; }
-  .nativeApp .accountsPage { padding: 0 16px 6px; }
-  .quotaMeterHead strong { font-size: 16px; }
-  .accountTable th, .accountTable td { padding-inline: 10px; }
-  .accountTable th:first-child, .accountTable td:first-child { padding-left: 0; }
-  .accountTable .accountActionsColumn { width: 94px; }
-  .accountTable .accountProxyColumn { width: 58px; }
-  .accountTable .accountQuotaColumn { width: 20%; }
-  .nativeApp .settingsPage { padding: 16px 18px; }
-  .accountListFoot { gap: 7px 10px; }
-  .accountLastUpdated { font-size: 10px; }
-  .tokenUsageDisclosure summary > span { display: none; }
+  :where(html[data-layout="compact"]) .nativeApp .analyticsPage, :where(html[data-layout="compact"]) .nativeApp .proxyPage { padding: 16px 18px 10px; }
+  :where(html[data-layout="compact"]) .nativeApp .accountsPage { padding: 0 16px 6px; }
+  :where(html[data-layout="compact"]) .quotaMeterHead strong { font-size: 16px; }
+  :where(html[data-layout="compact"]) .accountTable th, :where(html[data-layout="compact"]) .accountTable td { padding-inline: 10px; }
+  :where(html[data-layout="compact"]) .accountTable th:first-child, :where(html[data-layout="compact"]) .accountTable td:first-child { padding-left: 0; }
+  :where(html[data-layout="compact"]) .accountTable .accountActionsColumn { width: 94px; }
+  :where(html[data-layout="compact"]) .accountTable .accountProxyColumn { width: 58px; }
+  :where(html[data-layout="compact"]) .accountTable .accountQuotaColumn { width: 20%; }
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage { padding: 16px 18px; }
+  :where(html[data-layout="compact"]) .accountListFoot { gap: 7px 10px; }
+  :where(html[data-layout="compact"]) .accountLastUpdated { font-size: 10px; }
+  :where(html[data-layout="compact"]) .tokenUsageDisclosure summary > span { display: none; }
 }
 @media (max-width: 580px) {
-  .nativeApp .analyticsPage, .nativeApp .proxyPage { padding: 12px; }
-  .nativeApp .accountsPage { padding: 0 10px 6px; }
-  .accountToolbar { flex-wrap: wrap; }
-  .accountSearch { max-width: none; }
-  .nativeApp .toolbarAddAccount > span { display: none; }
-  .accountTable { min-width: 530px; }
-  .quotaMeter.isCompact .quotaMeterHead small { display: none; }
-  .quotaReset { font-size: 11px; }
-  .accountTimeZone { order: 3; flex-basis: 100%; margin: 0; }
-  .accountListFoot .accountsMoreButton { margin-left: auto; }
-  .accountSummaryCounts { gap: 6px; }
-  .accountSummary { flex-wrap: wrap; gap: 6px; }
-  .nativeApp .analyticsHeader { grid-template-columns: 1fr; }
-  .nativeApp .analyticsStats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; }
-  .nativeApp .analyticsStatCard:nth-child(3) { padding-left: 0; }
-  .nativeApp .analyticsStatCard:nth-child(2) { border-right: 0; }
-  .nativeApp .settingRow { grid-template-columns: 1fr; gap: 8px; }
-  .nativeApp .settingRow > :last-child { justify-self: start; }
-  .nativeApp .addAccountWorkspace { grid-template-columns: 1fr; }
-  .nativeApp .addAccountTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .nativeApp .addAuthDialog { width: calc(100vw - 24px); }
+  :where(html[data-layout="compact"]) .nativeApp .analyticsPage, :where(html[data-layout="compact"]) .nativeApp .proxyPage { padding: 12px; }
+  :where(html[data-layout="compact"]) .nativeApp .accountsPage { padding: 0 10px 6px; }
+  :where(html[data-layout="compact"]) .accountToolbar { flex-wrap: wrap; }
+  :where(html[data-layout="compact"]) .accountSearch { max-width: none; }
+  :where(html[data-layout="compact"]) .nativeApp .toolbarAddAccount > span { display: none; }
+  :where(html[data-layout="compact"]) .accountTable { min-width: 530px; }
+  :where(html[data-layout="compact"]) .quotaMeter.isCompact .quotaMeterHead small { display: none; }
+  :where(html[data-layout="compact"]) .quotaReset { font-size: 11px; }
+  :where(html[data-layout="compact"]) .accountTimeZone { order: 3; flex-basis: 100%; margin: 0; }
+  :where(html[data-layout="compact"]) .accountListFoot .accountsMoreButton { margin-left: auto; }
+  :where(html[data-layout="compact"]) .accountSummaryCounts { gap: 6px; }
+  :where(html[data-layout="compact"]) .accountSummary { flex-wrap: wrap; gap: 6px; }
+  :where(html[data-layout="compact"]) .nativeApp .analyticsHeader { grid-template-columns: 1fr; }
+  :where(html[data-layout="compact"]) .nativeApp .analyticsStats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; }
+  :where(html[data-layout="compact"]) .nativeApp .analyticsStatCard:nth-child(3) { padding-left: 0; }
+  :where(html[data-layout="compact"]) .nativeApp .analyticsStatCard:nth-child(2) { border-right: 0; }
+  :where(html[data-layout="compact"]) .nativeApp .settingRow { grid-template-columns: 1fr; gap: 8px; }
+  :where(html[data-layout="compact"]) .nativeApp .settingRow > :last-child { justify-self: start; }
+  :where(html[data-layout="compact"]) .nativeApp .addAccountWorkspace { grid-template-columns: 1fr; }
+  :where(html[data-layout="compact"]) .nativeApp .addAccountTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :where(html[data-layout="compact"]) .nativeApp .addAuthDialog { width: calc(100vw - 24px); }
 }

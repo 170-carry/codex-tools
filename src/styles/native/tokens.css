@@ -1,4 +1,4 @@
-:root {
+:root[data-layout="compact"] {
   --ink: #242426;
   --subtle: #727277;
   --muted: #919196;
@@ -61,7 +61,7 @@
   --focus-ring: rgba(0, 122, 255, .4);
 }
 
-:root[data-theme="dark"] {
+:root[data-layout="compact"][data-theme="dark"] {
   --ink: #ececee;
   --subtle: #aaaaaf;
   --muted: #848489;

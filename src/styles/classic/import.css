@@ -1,0 +1,50 @@
+.classicApp .accountImportOverlay { padding: 16px; }
+.classicApp .settingsDialog.addAuthDialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; outline: none; }
+.classicApp .addAuthDialog .settingsHeader { display: flex; flex-direction: row; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 12px; padding: 14px 18px 5px; }
+.classicApp .addAuthDialog .settingsHeader h2 { margin: 0; font: 600 15px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .closeButton { flex: 0 0 28px; width: 28px; min-height: 28px; height: 28px; padding: 0; background: transparent; border: 0; box-shadow: none; }
+.classicApp .addAuthDialog .closeButton svg { width: 15px; height: 15px; }
+.classicApp .addAuthDialog .addAccountDialogSubtitle { flex-shrink: 0; margin: 0; padding: 0 18px 14px; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
+.classicApp .addAuthDialog .addAccountWorkspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 18px; margin: 0; padding: 0 18px 18px; overflow: hidden; align-items: start; }
+.classicApp .addAuthDialog.isSingleRoute .addAccountWorkspace { grid-template-columns: 1fr; }
+.classicApp .addAuthDialog .addAccountTabs { display: grid; grid-template-columns: 1fr; gap: 3px; align-content: start; overflow: auto; max-height: 100%; }
+.classicApp .addAuthDialog .addAccountTab { display: flex; align-items: center; gap: 7px; min-height: 32px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; text-align: left; }
+.classicApp .addAuthDialog .addAccountTab:hover { background: var(--surface-hover-bg); }
+.classicApp .addAuthDialog .addAccountTab.isActive { background: var(--surface-selected-bg); color: var(--brand); }
+.classicApp .addAuthDialog .addAccountTabIcon { display: flex; flex: 0 0 15px; width: 15px; height: 15px; background: transparent; border: 0; box-shadow: none; }
+.classicApp .addAuthDialog .addAccountTabIcon svg { width: 15px; height: 15px; }
+.classicApp .addAuthDialog .addAccountTabContent strong { color: inherit; font: 500 11px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .addAccountPanel { min-width: 0; min-height: 0; max-height: 100%; display: grid; align-content: start; gap: 12px; padding: 0 0 0 1px; overflow: auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; scrollbar-width: thin; }
+.classicApp .addAuthDialog .addAccountRouteDescription { margin: 0; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
+.classicApp .addAuthDialog .addAccountPanelBody { gap: 12px; }
+.classicApp .addAuthDialog .addOauthActionRow { flex-direction: row; align-items: center; gap: 8px; }
+.classicApp .addAuthDialog .addAccountPrimaryAction, .classicApp .addAuthDialog .addAccountSecondaryAction { justify-self: start; width: auto; min-width: 0; min-height: 28px; padding: 5px 11px; border-radius: 6px; font: 500 12px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .addOauthField { gap: 5px; }
+.classicApp .addAuthDialog .addOauthFieldLabel { font: 500 11px/1.4 var(--font-ui); color: var(--ink); }
+.classicApp .addAuthDialog .addOauthInput { min-height: 30px; padding: 5px 8px; border-radius: 5px; background: var(--bg-0); font: 400 12px/1.5 var(--font-ui); box-shadow: none; }
+.classicApp .addAuthDialog .addOauthTextarea { min-height: 78px; padding: 7px 8px; border-radius: 5px; background: var(--bg-0); font: 400 11px/1.5 var(--font-mono); box-shadow: none; }
+.classicApp .addAuthDialog .addSessionTextarea { min-height: 160px; }
+.classicApp .addAuthDialog .addOauthFallback { border-top: 1px solid var(--line); padding-top: 10px; }
+.classicApp .addAuthDialog .addOauthFallback summary { width: fit-content; cursor: pointer; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
+.addOauthFallbackBody { display: grid; gap: 10px; padding-top: 10px; }
+.classicApp .addAuthDialog .addUploadPickerGrid { display: flex; gap: 8px; }
+.classicApp .addAuthDialog .addUploadQueue { border: 0; padding: 0; border-radius: 0; background: transparent; }
+.classicApp .addAuthDialog .addUploadQueueHeader strong { font: 500 11px/1.5 var(--font-ui); }
+.classicApp .addAuthDialog .addUploadQueueHeader p, .classicApp .addAuthDialog .addUploadEmptyState { font: 400 11px/1.5 var(--font-ui); color: var(--subtle); }
+.classicApp .addAuthDialog .addUploadEmptyState { min-height: 50px; padding: 12px 0; background: transparent; }
+.classicApp .addAuthDialog .addApiFieldGrid { grid-template-columns: 1fr; gap: 10px; }
+.classicApp .addAuthDialog .addFieldHint { font: 400 10px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .addOauthStatus, .classicApp .addAuthDialog .addApiErrorBox { padding: 9px 10px; border-radius: 6px; gap: 5px; background: var(--bg-1); border: 1px solid var(--line); }
+.classicApp .addAuthDialog .addOauthStatus strong, .classicApp .addAuthDialog .addApiErrorBox strong { font: 500 11px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .addOauthStatus p, .classicApp .addAuthDialog .addApiErrorBox p { font: 400 11px/1.5 var(--font-ui); }
+.classicApp .addAuthDialog .addApiActionRow { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; }
+.classicApp .addAuthDialog .addApiActionRow > button { flex: 0 0 auto; width: auto; }
+.secretInput { position: relative; display: block; }
+.classicApp .addAuthDialog .secretInput input { padding-right: 58px; }
+.classicApp .addAuthDialog .secretVisibilityButton { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-height: 22px; padding: 2px 6px; border: 0; background: transparent; box-shadow: none; color: var(--subtle); font: 400 10px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .secretVisibilityButton:hover { transform: translateY(-50%); background: var(--surface-hover-bg); box-shadow: none; }
+@media (max-width: 540px) {
+  .classicApp .addAuthDialog .addAccountWorkspace { grid-template-columns: 1fr; gap: 12px; overflow: auto; }
+  .classicApp .addAuthDialog .addAccountTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
+  .classicApp .addAuthDialog .addAccountPanel { max-height: none; overflow: visible; }
+}

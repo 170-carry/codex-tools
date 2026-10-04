@@ -1,0 +1,43 @@
+/* Both layouts share controls and business state, but never share their visual overrides. */
+.layoutPicker { min-width: 100px; max-width: 180px; height: 34px; padding: 0 28px 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: var(--card); font: 500 12px var(--font-ui); }
+.layoutPicker:focus-visible { outline: 3px solid var(--brand-soft); outline-offset: 2px; }
+.nativeApp .layoutPicker { height: 28px; min-width: 88px; border-radius: 6px; font-size: 11px; }
+.nativeApp .topbar .layoutPicker { width: 105px; max-width: 105px; }
+.layoutSettingRow .settingMeta > span { display: block; color: var(--subtle); font-size: 12px; margin-top: 5px; }
+.classicApp { --menu-surface: var(--card); --focus-ring: var(--brand-soft); }
+.classicApp .workspaceMain { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.classicApp .workspaceIcon { width: 18px; height: 18px; flex-shrink: 0; }
+.classicApp.isMacos .topbar { padding-top: 34px; min-height: 118px; }
+.classicApp .topbar .layoutPicker { position: relative; z-index: 1; }
+.classicApp .accountStateLine .accountResetCredits { display: inline-flex; align-items: center; gap: 4px; color: var(--subtle); font-size: 11px; }
+.classicApp .accountResetCredits .workspaceIcon { width: 13px; height: 13px; }
+.classicApp .classicSectionTitle { margin: 0 0 8px; font: 650 16px/1.4 var(--font-ui); }
+.classicApp .classicSettingsGroup { display: grid; gap: 10px; }
+.classicApp .classicSettingsGroup > .settingsGroup { margin: 0; }
+.classicApp .classicPageHeader { padding: 18px 24px; }
+.classicApp .classicPageHeader h2 { margin: 0; font-size: 24px; }
+.classicApp .proxySectionContent { display: grid; gap: 14px; }
+.classicApp .proxyKeyDetails > summary { cursor: pointer; padding: 8px 0; color: var(--subtle); }
+.classicApp .proxyKeyDetails > div { display: grid; gap: 14px; }
+.classicApp .analyticsSessionTools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.classicApp .analyticsNoResults { padding: 18px; color: var(--subtle); text-align: center; }
+.classicApp .pageSectionDescription { font-size: 12px; margin: 0 0 12px; color: var(--subtle); }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 1180px) {
+  .classicApp .topbar { grid-template-columns: minmax(160px, 1fr) minmax(260px, 360px) auto; padding-inline: 20px; gap: 12px; }
+  .classicApp .brandLine h1 { font-size: 16px; }
+  .classicApp .topSegmentedNav { min-width: 0; }
+}
+@media (max-width: 900px) {
+  .classicApp .topbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand actions" "nav nav"; padding-inline: 14px; }
+  .classicApp.isMacos .topbar { padding-top: 38px; }
+  .classicApp .topSegmentedNav { width: 100%; }
+  .classicApp .topActions { flex-wrap: nowrap; gap: 6px; }
+}
+
+.classicApp .classicAnalyticsSection { min-width: 0; }
+.classicApp .classicAnalyticsSection > .analyticsBlock { height: 100%; }
+.classicApp .classicAnalyticsSection.section-sessions, .classicApp .classicAnalyticsSection.section-prompts { grid-column: 1 / -1; }
+@media (max-width: 780px) {
+  .nativeApp .toolbarAddAccount > span { display: none; }
+}

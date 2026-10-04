@@ -8,9 +8,14 @@ import { ProxyPublicAccess } from "./proxy/ProxyPublicAccess";
 import { PageSections } from "./workspace/PageSections";
 import { PageToolbar } from "./workspace/PageToolbar";
 import { getPageLayoutCopy } from "../i18n/pageLayoutCopy";
+import { useAppLayout } from "../hooks/useAppLayout";
+import { ClassicProxySections } from "./classic/ClassicProxySections";
 export function ApiProxyPanel(props: ApiProxyPanelProps) {
   const workspace = useApiProxyWorkspace(props);
+  const { layout } = useAppLayout();
   const text = getPageLayoutCopy(workspace.locale);
+  if (layout === "classic")
+    return <ClassicProxySections workspace={workspace} />;
   return (
     <section className="proxyPage workspacePage">
       <PageToolbar

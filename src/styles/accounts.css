@@ -1,4 +1,4 @@
-.accountsWorkspace {
+:where(html[data-layout="classic"]) .accountsWorkspace {
   min-height: 0;
   height: 100%;
   display: grid;
@@ -9,24 +9,24 @@
   scrollbar-color: color-mix(in srgb, var(--line) 78%, var(--subtle) 22%) transparent;
 }
 
-.accountsWorkspace::-webkit-scrollbar {
+:where(html[data-layout="classic"]) .accountsWorkspace::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-.accountsWorkspace::-webkit-scrollbar-thumb {
+:where(html[data-layout="classic"]) .accountsWorkspace::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: color-mix(in srgb, var(--line) 78%, var(--subtle) 22%);
 }
 
-.accountListStack,
-.accountListPanel,
-.accountDetailPanel {
+:where(html[data-layout="classic"]) .accountListStack,
+:where(html[data-layout="classic"]) .accountListPanel,
+:where(html[data-layout="classic"]) .accountDetailPanel {
   min-width: 0;
   min-height: 0;
 }
 
-.accountListStack {
+:where(html[data-layout="classic"]) .accountListStack {
   height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -34,25 +34,25 @@
   overflow: hidden;
 }
 
-.accountListLeading {
+:where(html[data-layout="classic"]) .accountListLeading {
   min-width: 0;
 }
 
-.accountListPanel,
-.accountDetailPanel {
+:where(html[data-layout="classic"]) .accountListPanel,
+:where(html[data-layout="classic"]) .accountDetailPanel {
   border: 1px solid var(--section-line);
   border-radius: 16px;
   background: var(--section-card-surface);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 
-.accountListPanel {
+:where(html[data-layout="classic"]) .accountListPanel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
-.accountToolbar {
+:where(html[data-layout="classic"]) .accountToolbar {
   display: grid;
   grid-template-columns: minmax(220px, 260px) auto minmax(0, 1fr) auto;
   gap: 10px;
@@ -62,7 +62,7 @@
   background: color-mix(in srgb, var(--surface-tint) 72%, transparent);
 }
 
-.accountSearch {
+:where(html[data-layout="classic"]) .accountSearch {
   min-width: 0;
   height: 40px;
   display: grid;
@@ -76,7 +76,7 @@
   box-shadow: inset 0 1px var(--surface-highlight-strong);
 }
 
-.searchIcon {
+:where(html[data-layout="classic"]) .searchIcon {
   width: 18px;
   height: 18px;
   color: var(--muted);
@@ -87,7 +87,7 @@
   stroke-linejoin: round;
 }
 
-.accountSearch input {
+:where(html[data-layout="classic"]) .accountSearch input {
   min-width: 0;
   width: 100%;
   border: 0;
@@ -97,18 +97,18 @@
   font: 600 0.86rem/1 var(--font-ui);
 }
 
-.accountSearch input::placeholder {
+:where(html[data-layout="classic"]) .accountSearch input::placeholder {
   color: var(--muted);
 }
 
-.accountFilters {
+:where(html[data-layout="classic"]) .accountFilters {
   display: flex;
   flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.accountFilters select {
+:where(html[data-layout="classic"]) .accountFilters select {
   height: 40px;
   min-width: 104px;
   border: 1px solid var(--line);
@@ -124,25 +124,25 @@
   appearance: none;
 }
 
-.accountToolbarActions {
+:where(html[data-layout="classic"]) .accountToolbarActions {
   min-width: 0;
 }
 
-.accountToolbarActions .importBar {
+:where(html[data-layout="classic"]) .accountToolbarActions .importBar {
   align-self: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.accountToolbarActions .importSmartSwitch,
-.accountToolbarActions .importPrimary {
+:where(html[data-layout="classic"]) .accountToolbarActions .importSmartSwitch,
+:where(html[data-layout="classic"]) .accountToolbarActions .importPrimary {
   min-width: 112px;
   min-height: 40px;
   padding: 0 14px;
   font-size: 0.78rem;
 }
 
-.accountListFrame {
+:where(html[data-layout="classic"]) .accountListFrame {
   --account-row-columns: minmax(260px, 1.5fr) minmax(108px, 0.66fr) minmax(108px, 0.66fr) minmax(96px, 0.56fr) 50px minmax(106px, auto);
   min-height: 0;
   display: grid;
@@ -150,7 +150,7 @@
   overflow: hidden;
 }
 
-.accountTokenUsageStrip {
+:where(html[data-layout="classic"]) .accountTokenUsageStrip {
   min-width: 0;
   min-height: 42px;
   display: grid;
@@ -162,20 +162,20 @@
   background: color-mix(in srgb, var(--bg-0) 82%, var(--surface-tint) 18%);
 }
 
-.accountTokenUsageStrip > strong {
+:where(html[data-layout="classic"]) .accountTokenUsageStrip > strong {
   color: var(--ink);
   font: 850 0.76rem/1 var(--font-ui);
   white-space: nowrap;
 }
 
-.accountTokenUsageItems {
+:where(html[data-layout="classic"]) .accountTokenUsageItems {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.accountTokenUsageItem {
+:where(html[data-layout="classic"]) .accountTokenUsageItem {
   min-height: 24px;
   display: inline-flex;
   align-items: center;
@@ -186,24 +186,24 @@
   background: color-mix(in srgb, var(--brand) 6%, var(--surface-tint) 94%);
 }
 
-.accountTokenUsageItem em {
+:where(html[data-layout="classic"]) .accountTokenUsageItem em {
   color: var(--subtle);
   font: 800 0.62rem/1 var(--font-ui);
   font-style: normal;
 }
 
-.accountTokenUsageItem b {
+:where(html[data-layout="classic"]) .accountTokenUsageItem b {
   color: var(--ink);
   font: 850 0.68rem/1 var(--font-mono);
 }
 
-.accountTokenUsageError {
+:where(html[data-layout="classic"]) .accountTokenUsageError {
   color: var(--danger);
   font: 750 0.66rem/1 var(--font-ui);
   white-space: nowrap;
 }
 
-.accountTokenUsageActions {
+:where(html[data-layout="classic"]) .accountTokenUsageActions {
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -211,7 +211,7 @@
   gap: 8px;
 }
 
-button.accountTokenExportButton {
+:where(html[data-layout="classic"]) button.accountTokenExportButton {
   min-width: 112px;
   min-height: 32px;
   display: inline-flex;
@@ -224,12 +224,12 @@ button.accountTokenExportButton {
   white-space: nowrap;
 }
 
-.accountTokenExportButton .actionIconGlyph {
+:where(html[data-layout="classic"]) .accountTokenExportButton .actionIconGlyph {
   width: 15px;
   height: 15px;
 }
 
-.accountRows {
+:where(html[data-layout="classic"]) .accountRows {
   min-height: 0;
   padding: 8px 12px 12px;
   display: grid;
@@ -240,16 +240,16 @@ button.accountTokenExportButton {
   scrollbar-color: color-mix(in srgb, var(--line) 80%, var(--subtle) 20%) transparent;
 }
 
-.accountRows::-webkit-scrollbar {
+:where(html[data-layout="classic"]) .accountRows::-webkit-scrollbar {
   width: 8px;
 }
 
-.accountRows::-webkit-scrollbar-thumb {
+:where(html[data-layout="classic"]) .accountRows::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: color-mix(in srgb, var(--line) 76%, var(--subtle) 24%);
 }
 
-.accountListHeader {
+:where(html[data-layout="classic"]) .accountListHeader {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -264,15 +264,15 @@ button.accountTokenExportButton {
   white-space: nowrap;
 }
 
-.accountListHeader span:nth-child(5) {
+:where(html[data-layout="classic"]) .accountListHeader span:nth-child(5) {
   text-align: center;
 }
 
-.accountListHeader span:last-child {
+:where(html[data-layout="classic"]) .accountListHeader span:last-child {
   text-align: right;
 }
 
-.accountRow {
+:where(html[data-layout="classic"]) .accountRow {
   position: relative;
   min-width: 0;
   min-height: 76px;
@@ -293,20 +293,20 @@ button.accountTokenExportButton {
     box-shadow 160ms ease;
 }
 
-.accountRow:hover {
+:where(html[data-layout="classic"]) .accountRow:hover {
   border-color: color-mix(in srgb, var(--line) 78%, var(--brand) 22%);
   background: color-mix(in srgb, var(--card) 94%, var(--surface-tint) 6%);
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
 }
 
-.accountRow:focus-visible {
+:where(html[data-layout="classic"]) .accountRow:focus-visible {
   border-color: var(--brand);
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent),
     0 10px 20px rgba(37, 99, 235, 0.08);
 }
 
-.accountRow.isSelected {
+:where(html[data-layout="classic"]) .accountRow.isSelected {
   border-color: color-mix(in srgb, var(--brand) 68%, var(--line) 32%);
   background: color-mix(in srgb, var(--card) 90%, var(--brand-soft) 10%);
   box-shadow:
@@ -314,11 +314,11 @@ button.accountTokenExportButton {
     0 8px 18px rgba(37, 99, 235, 0.06);
 }
 
-.accountRow.isMenuOpen {
+:where(html[data-layout="classic"]) .accountRow.isMenuOpen {
   z-index: 20;
 }
 
-.accountIdentityCell {
+:where(html[data-layout="classic"]) .accountIdentityCell {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -326,7 +326,7 @@ button.accountTokenExportButton {
   gap: 12px;
 }
 
-.accountAvatar {
+:where(html[data-layout="classic"]) .accountAvatar {
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -339,75 +339,75 @@ button.accountTokenExportButton {
   font: 800 1rem/1 var(--font-ui);
 }
 
-.accountAvatar.tone-team {
+:where(html[data-layout="classic"]) .accountAvatar.tone-team {
   color: #15803d;
   background: #dcfce7;
 }
 
-.accountAvatar.tone-pro {
+:where(html[data-layout="classic"]) .accountAvatar.tone-pro {
   color: #1d4ed8;
   background: #dbeafe;
 }
 
-.accountAvatar.tone-plus {
+:where(html[data-layout="classic"]) .accountAvatar.tone-plus {
   color: #7c3aed;
   background: #ede9fe;
 }
 
-.accountAvatar.tone-api {
+:where(html[data-layout="classic"]) .accountAvatar.tone-api {
   color: #0369a1;
   background: #e0f2fe;
 }
 
-.accountAvatar.tone-enterprise {
+:where(html[data-layout="classic"]) .accountAvatar.tone-enterprise {
   color: #b45309;
   background: #fef3c7;
 }
 
-.accountAvatar.tone-business {
+:where(html[data-layout="classic"]) .accountAvatar.tone-business {
   color: #0f766e;
   background: #ccfbf1;
 }
 
-.accountAvatar.tone-free,
-.accountAvatar.tone-unknown {
+:where(html[data-layout="classic"]) .accountAvatar.tone-free,
+:where(html[data-layout="classic"]) .accountAvatar.tone-unknown {
   color: #475569;
   background: #f1f5f9;
 }
 
-:root[data-theme="dark"] .accountAvatar {
+:where(html[data-layout="classic"]) :root[data-theme="dark"] .accountAvatar {
   background: rgba(96, 165, 250, 0.16);
   color: #bfdbfe;
 }
 
-:root[data-theme="dark"] .accountAvatar.tone-team {
+:where(html[data-layout="classic"]) :root[data-theme="dark"] .accountAvatar.tone-team {
   color: #bbf7d0;
   background: rgba(74, 222, 128, 0.16);
 }
 
-:root[data-theme="dark"] .accountAvatar.tone-plus {
+:where(html[data-layout="classic"]) :root[data-theme="dark"] .accountAvatar.tone-plus {
   color: #ddd6fe;
   background: rgba(167, 139, 250, 0.16);
 }
 
-:root[data-theme="dark"] .accountAvatar.tone-enterprise {
+:where(html[data-layout="classic"]) :root[data-theme="dark"] .accountAvatar.tone-enterprise {
   color: #fde68a;
   background: rgba(251, 191, 36, 0.16);
 }
 
-.detailAvatar {
+:where(html[data-layout="classic"]) .detailAvatar {
   width: 54px;
   height: 54px;
   font-size: 1.08rem;
 }
 
-.accountIdentityText {
+:where(html[data-layout="classic"]) .accountIdentityText {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-.accountTitleLine {
+:where(html[data-layout="classic"]) .accountTitleLine {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -415,7 +415,7 @@ button.accountTokenExportButton {
   gap: 7px;
 }
 
-.accountNameButton {
+:where(html[data-layout="classic"]) .accountNameButton {
   min-width: 0;
   width: 100%;
   min-height: 24px;
@@ -433,15 +433,15 @@ button.accountTokenExportButton {
   text-align: left;
 }
 
-.accountNameButton:hover,
-.accountNameButton:focus-visible {
+:where(html[data-layout="classic"]) .accountNameButton:hover,
+:where(html[data-layout="classic"]) .accountNameButton:focus-visible {
   transform: none;
   background: transparent;
   box-shadow: none;
   color: var(--brand);
 }
 
-.planChip {
+:where(html[data-layout="classic"]) .planChip {
   min-height: 24px;
   border: 1px solid rgba(37, 99, 235, 0.24);
   border-radius: 7px;
@@ -455,61 +455,61 @@ button.accountTokenExportButton {
   font: 800 0.64rem/1 var(--font-ui);
 }
 
-.planChip:hover,
-.planChip:focus-visible {
+:where(html[data-layout="classic"]) .planChip:hover,
+:where(html[data-layout="classic"]) .planChip:focus-visible {
   transform: none;
   box-shadow: none;
 }
 
-.planChip.tone-pro {
+:where(html[data-layout="classic"]) .planChip.tone-pro {
   border-color: rgba(245, 158, 11, 0.58);
   color: #f8d36b;
   background: linear-gradient(135deg, #111827 0%, #020617 58%, #3b2f11 100%);
 }
 
-.planChip.tone-plus {
+:where(html[data-layout="classic"]) .planChip.tone-plus {
   color: #7c3aed;
   border-color: rgba(124, 58, 237, 0.24);
   background: rgba(124, 58, 237, 0.08);
 }
 
-.planChip.tone-team {
+:where(html[data-layout="classic"]) .planChip.tone-team {
   color: #0f766e;
   border-color: rgba(20, 184, 166, 0.28);
   background: rgba(20, 184, 166, 0.1);
 }
 
-.planChip.tone-free,
-.planChip.tone-unknown {
+:where(html[data-layout="classic"]) .planChip.tone-free,
+:where(html[data-layout="classic"]) .planChip.tone-unknown {
   color: #475569;
   border-color: rgba(100, 116, 139, 0.24);
   background: rgba(148, 163, 184, 0.12);
 }
 
-.planChip.tone-api {
+:where(html[data-layout="classic"]) .planChip.tone-api {
   color: #0369a1;
   border-color: rgba(14, 165, 233, 0.26);
   background: rgba(14, 165, 233, 0.1);
 }
 
-.planChip.tone-enterprise {
+:where(html[data-layout="classic"]) .planChip.tone-enterprise {
   color: #b45309;
   border-color: rgba(245, 158, 11, 0.28);
   background: rgba(245, 158, 11, 0.1);
 }
 
-.planChip.tone-business {
+:where(html[data-layout="classic"]) .planChip.tone-business {
   color: #0f766e;
   border-color: rgba(45, 212, 191, 0.26);
   background: rgba(45, 212, 191, 0.1);
 }
 
-.planChip.isSelected,
-.planChip.isStatic {
+:where(html[data-layout="classic"]) .planChip.isSelected,
+:where(html[data-layout="classic"]) .planChip.isStatic {
   box-shadow: inset 0 0 0 1px currentColor;
 }
 
-.statusText {
+:where(html[data-layout="classic"]) .statusText {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -518,7 +518,7 @@ button.accountTokenExportButton {
   font: 700 0.76rem/1 var(--font-ui);
 }
 
-.accountStateLine {
+:where(html[data-layout="classic"]) .accountStateLine {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -526,15 +526,15 @@ button.accountTokenExportButton {
   gap: 6px 8px;
 }
 
-.accountStateLine > .statusText {
+:where(html[data-layout="classic"]) .accountStateLine > .statusText {
   flex: 0 0 7.5rem;
 }
 
-:root:lang(zh-CN) .accountStateLine > .statusText {
+:where(html[data-layout="classic"]) :root:lang(zh-CN) .accountStateLine > .statusText {
   flex-basis: 4.5rem;
 }
 
-.usageFreshnessBadge {
+:where(html[data-layout="classic"]) .usageFreshnessBadge {
   min-width: 0;
   max-width: 100%;
   min-height: 20px;
@@ -550,13 +550,13 @@ button.accountTokenExportButton {
   white-space: nowrap;
 }
 
-.usageFreshnessBadge > span:last-child {
+:where(html[data-layout="classic"]) .usageFreshnessBadge > span:last-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.usageFreshnessDot {
+:where(html[data-layout="classic"]) .usageFreshnessDot {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
@@ -564,13 +564,13 @@ button.accountTokenExportButton {
   background: var(--subtle);
 }
 
-.usageFreshnessBadge.tone-refreshing {
+:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-refreshing {
   border-color: color-mix(in srgb, var(--brand) 18%, transparent 82%);
   color: color-mix(in srgb, var(--brand) 72%, var(--ink) 28%);
   background: color-mix(in srgb, var(--brand-soft) 58%, transparent 42%);
 }
 
-.usageFreshnessBadge.tone-refreshing .usageFreshnessDot {
+:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-refreshing .usageFreshnessDot {
   width: 8px;
   height: 8px;
   border: 1.5px solid color-mix(in srgb, var(--brand) 28%, transparent 72%);
@@ -579,21 +579,21 @@ button.accountTokenExportButton {
   animation: iconSpin 800ms linear infinite;
 }
 
-.usageFreshnessBadge.tone-error {
+:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-error {
   border-color: color-mix(in srgb, var(--danger) 18%, transparent 82%);
   color: color-mix(in srgb, var(--danger) 76%, var(--ink) 24%);
   background: color-mix(in srgb, var(--danger) 8%, transparent 92%);
 }
 
-.usageFreshnessBadge.tone-error .usageFreshnessDot {
+:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-error .usageFreshnessDot {
   background: var(--danger);
 }
 
-.statusLabel {
+:where(html[data-layout="classic"]) .statusLabel {
   flex: 0 0 auto;
 }
 
-.statusReason {
+:where(html[data-layout="classic"]) .statusReason {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -602,7 +602,7 @@ button.accountTokenExportButton {
   opacity: 0.78;
 }
 
-.statusDot {
+:where(html[data-layout="classic"]) .statusDot {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
@@ -610,98 +610,98 @@ button.accountTokenExportButton {
   background: var(--ok);
 }
 
-.statusText.status-using .statusDot {
+:where(html[data-layout="classic"]) .statusText.status-using .statusDot {
   background: var(--brand);
 }
 
-.statusText.status-available .statusDot {
+:where(html[data-layout="classic"]) .statusText.status-available .statusDot {
   background: var(--ok);
 }
 
-.statusText.status-low .statusDot {
+:where(html[data-layout="classic"]) .statusText.status-low .statusDot {
   background: var(--warning);
 }
 
-.statusText.status-exhausted .statusDot {
+:where(html[data-layout="classic"]) .statusText.status-exhausted .statusDot {
   background: #b91c1c;
 }
 
-.statusText.status-issue .statusDot {
+:where(html[data-layout="classic"]) .statusText.status-issue .statusDot {
   background: #e11d48;
 }
 
-.statusDot.status-using {
+:where(html[data-layout="classic"]) .statusDot.status-using {
   background: var(--brand);
 }
 
-.statusDot.status-available {
+:where(html[data-layout="classic"]) .statusDot.status-available {
   background: var(--ok);
 }
 
-.statusDot.status-low {
+:where(html[data-layout="classic"]) .statusDot.status-low {
   background: var(--warning);
 }
 
-.statusDot.status-exhausted {
+:where(html[data-layout="classic"]) .statusDot.status-exhausted {
   background: #b91c1c;
 }
 
-.statusDot.status-issue {
+:where(html[data-layout="classic"]) .statusDot.status-issue {
   background: #e11d48;
 }
 
-.statusText.status-using {
+:where(html[data-layout="classic"]) .statusText.status-using {
   color: color-mix(in srgb, var(--brand) 78%, var(--ink) 22%);
 }
 
-.statusText.status-available {
+:where(html[data-layout="classic"]) .statusText.status-available {
   color: color-mix(in srgb, var(--ok) 72%, var(--ink) 28%);
 }
 
-.statusText.status-low {
+:where(html[data-layout="classic"]) .statusText.status-low {
   color: color-mix(in srgb, var(--warning) 74%, var(--ink) 26%);
 }
 
-.statusText.status-exhausted {
+:where(html[data-layout="classic"]) .statusText.status-exhausted {
   color: #b91c1c;
 }
 
-.statusText.status-issue {
+:where(html[data-layout="classic"]) .statusText.status-issue {
   color: #e11d48;
 }
 
-.usageMeter {
+:where(html[data-layout="classic"]) .usageMeter {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-.usageMeterHead,
-.usageMeterFoot {
+:where(html[data-layout="classic"]) .usageMeterHead,
+:where(html[data-layout="classic"]) .usageMeterFoot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.usageMeterHead span {
+:where(html[data-layout="classic"]) .usageMeterHead span {
   color: var(--subtle);
   font: 700 0.68rem/1 var(--font-ui);
 }
 
-.usageMeterHead strong {
+:where(html[data-layout="classic"]) .usageMeterHead strong {
   color: var(--ink);
   font: 800 0.78rem/1 var(--font-mono);
 }
 
-.usageBar {
+:where(html[data-layout="classic"]) .usageBar {
   height: 6px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--bar-track);
 }
 
-.usageBar span {
+:where(html[data-layout="classic"]) .usageBar span {
   display: block;
   height: 100%;
   min-width: 4px;
@@ -710,38 +710,38 @@ button.accountTokenExportButton {
   transition: width 220ms ease;
 }
 
-.usageMeter.tone-warning .usageBar span {
+:where(html[data-layout="classic"]) .usageMeter.tone-warning .usageBar span {
   background: var(--warning);
 }
 
-.usageMeter.tone-danger .usageBar span {
+:where(html[data-layout="classic"]) .usageMeter.tone-danger .usageBar span {
   background: var(--danger);
 }
 
-.usageMeterFoot span {
+:where(html[data-layout="classic"]) .usageMeterFoot span {
   color: var(--subtle);
   font: 650 0.62rem/1 var(--font-ui);
   white-space: nowrap;
 }
 
-.resetCell {
+:where(html[data-layout="classic"]) .resetCell {
   display: grid;
   gap: 6px;
 }
 
-.resetCell span,
-.resetCell strong {
+:where(html[data-layout="classic"]) .resetCell span,
+:where(html[data-layout="classic"]) .resetCell strong {
   color: var(--ink);
   font: 750 0.76rem/1.1 var(--font-mono);
   white-space: nowrap;
 }
 
-.resetCell strong {
+:where(html[data-layout="classic"]) .resetCell strong {
   color: var(--subtle);
   font-weight: 650;
 }
 
-.rowToggle {
+:where(html[data-layout="classic"]) .rowToggle {
   width: 42px;
   height: 24px;
   position: relative;
@@ -751,13 +751,13 @@ button.accountTokenExportButton {
   cursor: pointer;
 }
 
-.rowToggle input {
+:where(html[data-layout="classic"]) .rowToggle input {
   position: absolute;
   opacity: 0;
   pointer-events: none;
 }
 
-.rowToggle span {
+:where(html[data-layout="classic"]) .rowToggle span {
   width: 42px;
   height: 24px;
   border-radius: 999px;
@@ -765,7 +765,7 @@ button.accountTokenExportButton {
   transition: background 140ms ease;
 }
 
-.rowToggle span::before {
+:where(html[data-layout="classic"]) .rowToggle span::before {
   content: "";
   position: absolute;
   top: 3px;
@@ -778,15 +778,15 @@ button.accountTokenExportButton {
   transition: transform 140ms ease;
 }
 
-.rowToggle input:checked + span {
+:where(html[data-layout="classic"]) .rowToggle input:checked + span {
   background: var(--surface-switch-track-active);
 }
 
-.rowToggle input:checked + span::before {
+:where(html[data-layout="classic"]) .rowToggle input:checked + span::before {
   transform: translateX(18px);
 }
 
-.rowActions {
+:where(html[data-layout="classic"]) .rowActions {
   position: relative;
   display: flex;
   align-items: center;
@@ -795,7 +795,7 @@ button.accountTokenExportButton {
   gap: 6px;
 }
 
-.rowSwitchButton {
+:where(html[data-layout="classic"]) .rowSwitchButton {
   min-width: 58px;
   min-height: 34px;
   padding: 0 12px;
@@ -803,20 +803,20 @@ button.accountTokenExportButton {
   font-size: 0.76rem;
 }
 
-.rowMoreButton {
+:where(html[data-layout="classic"]) .rowMoreButton {
   width: 32px;
   height: 32px;
   padding: 0;
   border-radius: 10px;
 }
 
-.rowMoreButton.isPending {
+:where(html[data-layout="classic"]) .rowMoreButton.isPending {
   border-color: color-mix(in srgb, var(--danger) 36%, var(--line) 64%);
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 10%, var(--surface-tint) 90%);
 }
 
-.rowActionMenu {
+:where(html[data-layout="classic"]) .rowActionMenu {
   position: absolute;
   top: 50%;
   right: 38px;
@@ -832,7 +832,7 @@ button.accountTokenExportButton {
   transform: translateY(-50%);
 }
 
-.rowActionMenuPortal {
+:where(html[data-layout="classic"]) .rowActionMenuPortal {
   position: fixed;
   top: auto;
   right: auto;
@@ -840,7 +840,7 @@ button.accountTokenExportButton {
   transform: none;
 }
 
-.rowActionMenu button {
+:where(html[data-layout="classic"]) .rowActionMenu button {
   min-height: 34px;
   border: 0;
   border-radius: 8px;
@@ -857,17 +857,17 @@ button.accountTokenExportButton {
   text-align: left;
 }
 
-.rowActionMenu button:hover,
-.rowActionMenu button:focus-visible {
+:where(html[data-layout="classic"]) .rowActionMenu button:hover,
+:where(html[data-layout="classic"]) .rowActionMenu button:focus-visible {
   transform: none;
   background: color-mix(in srgb, var(--brand-soft) 54%, transparent);
 }
 
-.rowActionMenu .dangerMenuItem {
+:where(html[data-layout="classic"]) .rowActionMenu .dangerMenuItem {
   color: var(--danger);
 }
 
-.rowIcon {
+:where(html[data-layout="classic"]) .rowIcon {
   width: 18px;
   height: 18px;
   stroke: currentColor;
@@ -876,7 +876,7 @@ button.accountTokenExportButton {
   stroke-linecap: round;
 }
 
-.accountDetailPanel {
+:where(html[data-layout="classic"]) .accountDetailPanel {
   padding: 16px;
   display: grid;
   grid-auto-rows: max-content;
@@ -885,7 +885,7 @@ button.accountTokenExportButton {
   overflow: auto;
 }
 
-.detailHeader {
+:where(html[data-layout="classic"]) .detailHeader {
   min-height: 84px;
   display: flex;
   align-items: center;
@@ -893,7 +893,7 @@ button.accountTokenExportButton {
   gap: 14px;
 }
 
-.detailIdentity {
+:where(html[data-layout="classic"]) .detailIdentity {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -901,14 +901,14 @@ button.accountTokenExportButton {
   align-items: center;
 }
 
-.detailTitleBlock {
+:where(html[data-layout="classic"]) .detailTitleBlock {
   min-width: 0;
   display: grid;
   justify-items: start;
   gap: 5px;
 }
 
-.detailTitleBlock h2 {
+:where(html[data-layout="classic"]) .detailTitleBlock h2 {
   max-width: 220px;
   margin: 0;
   color: var(--ink);
@@ -918,7 +918,7 @@ button.accountTokenExportButton {
   text-overflow: ellipsis;
 }
 
-.detailEditButton {
+:where(html[data-layout="classic"]) .detailEditButton {
   flex: 0 0 auto;
   min-width: 84px;
   min-height: 38px;
@@ -931,14 +931,14 @@ button.accountTokenExportButton {
   white-space: nowrap;
 }
 
-.detailAliasEditor {
+:where(html[data-layout="classic"]) .detailAliasEditor {
   width: min(300px, 100%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
 }
 
-.detailAliasEditor input {
+:where(html[data-layout="classic"]) .detailAliasEditor input {
   min-width: 0;
   height: 34px;
   border: 1px solid var(--line);
@@ -950,35 +950,35 @@ button.accountTokenExportButton {
   font: 700 0.78rem/1 var(--font-ui);
 }
 
-.detailAliasEditor button {
+:where(html[data-layout="classic"]) .detailAliasEditor button {
   min-height: 34px;
   padding: 0 10px;
   border-radius: 10px;
   font-size: 0.72rem;
 }
 
-.detailCard,
-.detailMetaGrid {
+:where(html[data-layout="classic"]) .detailCard,
+:where(html[data-layout="classic"]) .detailMetaGrid {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: color-mix(in srgb, var(--card) 94%, var(--bg-1) 6%);
   box-shadow: inset 0 1px var(--surface-highlight-soft);
 }
 
-.detailCard {
+:where(html[data-layout="classic"]) .detailCard {
   display: grid;
   gap: 16px;
   padding: 16px;
 }
 
-.detailCard h3,
-.detailSectionTitle h3 {
+:where(html[data-layout="classic"]) .detailCard h3,
+:where(html[data-layout="classic"]) .detailSectionTitle h3 {
   margin: 0;
   color: var(--ink);
   font: 850 0.9rem/1.15 var(--font-ui);
 }
 
-.detailCardTitle {
+:where(html[data-layout="classic"]) .detailCardTitle {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -986,13 +986,13 @@ button.accountTokenExportButton {
   gap: 12px;
 }
 
-.detailMetaGrid {
+:where(html[data-layout="classic"]) .detailMetaGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   overflow: visible;
 }
 
-.detailMetaGrid div {
+:where(html[data-layout="classic"]) .detailMetaGrid div {
   min-width: 0;
   min-height: 64px;
   display: grid;
@@ -1000,47 +1000,47 @@ button.accountTokenExportButton {
   padding: 12px 14px;
 }
 
-.detailMetaGrid div:nth-child(odd) {
+:where(html[data-layout="classic"]) .detailMetaGrid div:nth-child(odd) {
   border-right: 1px solid var(--line);
 }
 
-.detailMetaGrid div:nth-child(n + 3) {
+:where(html[data-layout="classic"]) .detailMetaGrid div:nth-child(n + 3) {
   border-top: 1px solid var(--line);
 }
 
-.recentSwitchCard {
+:where(html[data-layout="classic"]) .recentSwitchCard {
   min-height: 168px;
 }
 
-.detailMetaGrid span {
+:where(html[data-layout="classic"]) .detailMetaGrid span {
   color: var(--subtle);
   font: 750 0.68rem/1 var(--font-ui);
 }
 
-.detailMetaGrid strong {
+:where(html[data-layout="classic"]) .detailMetaGrid strong {
   min-width: 0;
   color: var(--ink);
   font: 750 0.76rem/1.25 var(--font-ui);
   overflow-wrap: anywhere;
 }
 
-.membershipExpiryMeta {
+:where(html[data-layout="classic"]) .membershipExpiryMeta {
   position: relative;
 }
 
-.detailMetaGrid .membershipExpiryLabel {
+:where(html[data-layout="classic"]) .detailMetaGrid .membershipExpiryLabel {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.detailMetaGrid .membershipHelpTip {
+:where(html[data-layout="classic"]) .detailMetaGrid .membershipHelpTip {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.membershipHelpButton {
+:where(html[data-layout="classic"]) .membershipHelpButton {
   width: 17px;
   height: 17px;
   display: inline-grid;
@@ -1054,12 +1054,12 @@ button.accountTokenExportButton {
   cursor: help;
 }
 
-.membershipHelpButton:focus-visible {
+:where(html[data-layout="classic"]) .membershipHelpButton:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--brand-cool) 72%, transparent);
   outline-offset: 2px;
 }
 
-.detailMetaGrid .membershipHelpBubble {
+:where(html[data-layout="classic"]) .detailMetaGrid .membershipHelpBubble {
   position: absolute;
   left: 0;
   top: calc(100% + 8px);
@@ -1082,14 +1082,14 @@ button.accountTokenExportButton {
   visibility: hidden;
 }
 
-.membershipHelpTip:hover .membershipHelpBubble,
-.membershipHelpTip:focus-within .membershipHelpBubble {
+:where(html[data-layout="classic"]) .membershipHelpTip:hover .membershipHelpBubble,
+:where(html[data-layout="classic"]) .membershipHelpTip:focus-within .membershipHelpBubble {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
 }
 
-.membershipReauthorizeAction {
+:where(html[data-layout="classic"]) .membershipReauthorizeAction {
   justify-self: start;
   padding: 0;
   border: 0;
@@ -1099,27 +1099,27 @@ button.accountTokenExportButton {
   cursor: pointer;
 }
 
-.membershipReauthorizeAction:hover:not(:disabled) {
+:where(html[data-layout="classic"]) .membershipReauthorizeAction:hover:not(:disabled) {
   text-decoration: underline;
 }
 
-.membershipReauthorizeAction:disabled {
+:where(html[data-layout="classic"]) .membershipReauthorizeAction:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.detailSectionTitle {
+:where(html[data-layout="classic"]) .detailSectionTitle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.resetCreditsCard {
+:where(html[data-layout="classic"]) .resetCreditsCard {
   gap: 12px;
 }
 
-.resetCreditsCount {
+:where(html[data-layout="classic"]) .resetCreditsCount {
   min-height: 26px;
   display: inline-flex;
   align-items: center;
@@ -1132,12 +1132,12 @@ button.accountTokenExportButton {
   white-space: nowrap;
 }
 
-.resetCreditList {
+:where(html[data-layout="classic"]) .resetCreditList {
   display: grid;
   gap: 8px;
 }
 
-.resetCreditItem {
+:where(html[data-layout="classic"]) .resetCreditItem {
   min-width: 0;
   min-height: 54px;
   display: grid;
@@ -1150,7 +1150,7 @@ button.accountTokenExportButton {
   background: color-mix(in srgb, var(--card) 92%, var(--surface-tint) 8%);
 }
 
-.resetCreditIndex {
+:where(html[data-layout="classic"]) .resetCreditIndex {
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -1162,25 +1162,25 @@ button.accountTokenExportButton {
   font: 850 0.76rem/1 var(--font-mono);
 }
 
-.resetCreditItem div {
+:where(html[data-layout="classic"]) .resetCreditItem div {
   min-width: 0;
   display: grid;
   gap: 5px;
 }
 
-.resetCreditItem span:not(.resetCreditIndex) {
+:where(html[data-layout="classic"]) .resetCreditItem span:not(.resetCreditIndex) {
   color: var(--subtle);
   font: 750 0.66rem/1 var(--font-ui);
 }
 
-.resetCreditItem strong {
+:where(html[data-layout="classic"]) .resetCreditItem strong {
   min-width: 0;
   color: var(--ink);
   font: 760 0.78rem/1.2 var(--font-mono);
   overflow-wrap: anywhere;
 }
 
-.resetCreditsToggle {
+:where(html[data-layout="classic"]) .resetCreditsToggle {
   min-height: 34px;
   justify-self: stretch;
   display: inline-flex;
@@ -1192,7 +1192,7 @@ button.accountTokenExportButton {
   font: 850 0.72rem/1 var(--font-ui);
 }
 
-.resetCreditsToggleIcon {
+:where(html[data-layout="classic"]) .resetCreditsToggleIcon {
   width: 15px;
   height: 15px;
   stroke: currentColor;
@@ -1203,11 +1203,11 @@ button.accountTokenExportButton {
   transition: transform 140ms ease;
 }
 
-.resetCreditsToggleIcon.isExpanded {
+:where(html[data-layout="classic"]) .resetCreditsToggleIcon.isExpanded {
   transform: rotate(180deg);
 }
 
-.recentSwitchList {
+:where(html[data-layout="classic"]) .recentSwitchList {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1215,7 +1215,7 @@ button.accountTokenExportButton {
   gap: 8px;
 }
 
-.recentSwitchList li {
+:where(html[data-layout="classic"]) .recentSwitchList li {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(82px, auto) minmax(90px, auto) minmax(0, 1fr);
@@ -1225,7 +1225,7 @@ button.accountTokenExportButton {
   font: 650 0.72rem/1.25 var(--font-ui);
 }
 
-.recentSwitchEmpty {
+:where(html[data-layout="classic"]) .recentSwitchEmpty {
   margin: 0;
   min-height: 48px;
   display: grid;
@@ -1234,13 +1234,13 @@ button.accountTokenExportButton {
   font: 700 0.76rem/1.4 var(--font-ui);
 }
 
-.recentSwitchList strong {
+:where(html[data-layout="classic"]) .recentSwitchList strong {
   color: color-mix(in srgb, var(--ink) 72%, var(--subtle) 28%);
   font: 700 0.72rem/1.25 var(--font-mono);
   white-space: nowrap;
 }
 
-.recentSwitchList em {
+:where(html[data-layout="classic"]) .recentSwitchList em {
   min-width: 0;
   color: var(--subtle);
   font-style: normal;
@@ -1249,13 +1249,13 @@ button.accountTokenExportButton {
   text-overflow: ellipsis;
 }
 
-.quickActionGrid {
+:where(html[data-layout="classic"]) .quickActionGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
-.quickActionGrid button {
+:where(html[data-layout="classic"]) .quickActionGrid button {
   min-width: 0;
   min-height: 64px;
   border-radius: 12px;
@@ -1269,18 +1269,18 @@ button.accountTokenExportButton {
   text-align: center;
 }
 
-.quickActionGrid button span {
+:where(html[data-layout="classic"]) .quickActionGrid button span {
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 
-.quickActionGrid .dangerAction {
+:where(html[data-layout="classic"]) .quickActionGrid .dangerAction {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 18%, var(--line) 82%);
   background: color-mix(in srgb, var(--danger) 6%, var(--surface-tint) 94%);
 }
 
-.actionIconGlyph {
+:where(html[data-layout="classic"]) .actionIconGlyph {
   width: 19px;
   height: 19px;
   stroke: currentColor;
@@ -1290,8 +1290,8 @@ button.accountTokenExportButton {
   stroke-linejoin: round;
 }
 
-.detailEmpty,
-.accountEmptyState {
+:where(html[data-layout="classic"]) .detailEmpty,
+:where(html[data-layout="classic"]) .accountEmptyState {
   min-height: 260px;
   display: grid;
   align-content: center;
@@ -1302,15 +1302,15 @@ button.accountTokenExportButton {
   color: var(--subtle);
 }
 
-.detailEmpty h3,
-.accountEmptyState h3 {
+:where(html[data-layout="classic"]) .detailEmpty h3,
+:where(html[data-layout="classic"]) .accountEmptyState h3 {
   margin: 0;
   color: var(--ink);
   font: 850 1rem/1.2 var(--font-ui);
 }
 
-.detailEmpty p,
-.accountEmptyState p {
+:where(html[data-layout="classic"]) .detailEmpty p,
+:where(html[data-layout="classic"]) .accountEmptyState p {
   margin: 0;
   max-width: 32ch;
   font: 600 0.84rem/1.55 var(--font-ui);

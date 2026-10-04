@@ -6,6 +6,7 @@
 @import "./styles/feedback.css";
 @import "./styles/analytics.css";
 @import "./styles/proxy.css";
+@import "./styles/accounts.css";
 @import "./styles/responsive.css";
 @import "./styles/native/tokens.css";
 @import "./styles/native/shell.css";
@@ -20,3 +21,8 @@
 @import "./styles/native/settings-page.css";
 @import "./styles/native/proxy-page.css";
 @import "./styles/native/utility-dialog.css";
+
+@import "./styles/classic/layout.css";
+@import "./styles/classic/dialogs.css";
+@import "./styles/classic/import.css";
+@import "./styles/classic/menus.css";

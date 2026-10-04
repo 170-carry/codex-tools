@@ -1,49 +1,49 @@
-.nativeApp .settingsPage .settingsGroup {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingsGroup {
   display: grid;
   padding: 0;
   gap: 0;
   border: 0;
   background: transparent;
 }
-.nativeApp .settingsPage .settingRow {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRow {
   min-height: 46px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
   grid-template-columns: minmax(180px, 1fr) minmax(0, auto);
 }
-.nativeApp .settingsPage .settingRow:first-child {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRow:first-child {
   padding-top: 4px;
 }
-.nativeApp .settingsPage .settingRow:last-child {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRow:last-child {
   border-bottom: 0;
 }
-.nativeApp .settingsPage .settingDescription {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingDescription {
   max-width: 44ch;
   line-height: 1.5;
 }
-.nativeApp .settingsPage .settingFieldGroup {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingFieldGroup {
   min-width: 0;
   max-width: 440px;
 }
-.nativeApp .settingsPage .settingPathValue {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingPathValue {
   white-space: normal;
   overflow-wrap: anywhere;
   font-size: 11px;
 }
-.nativeApp .settingsPage .settingRowNested {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRowNested {
   margin-left: 14px;
   padding-left: 0;
   background: transparent;
 }
-.nativeApp .settingsPage .settingRowTrayUsage,
-.nativeApp .settingsPage .settingRowTrayIconStyle {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRowTrayUsage,
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRowTrayIconStyle {
   grid-template-columns: minmax(150px, 0.7fr) minmax(0, 1.3fr);
 }
-.nativeApp .settingsPage .trayIconStyleOptions {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .trayIconStyleOptions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
-.nativeApp .settingsPage .trayIconStyleOption {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .trayIconStyleOption {
   min-height: 72px;
   border-radius: 6px;
   padding: 8px;
@@ -52,29 +52,29 @@
   color: var(--ink);
   border-color: var(--line);
 }
-.nativeApp .settingsPage .trayIconStyleOption[aria-pressed="true"],
-.nativeApp .settingsPage .trayIconStyleOption.isSelected {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .trayIconStyleOption[aria-pressed="true"],
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .trayIconStyleOption.isSelected {
   border-color: var(--brand);
   background: var(--brand-soft);
 }
-.nativeApp .settingsPage .trayIconStyleLabel {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .trayIconStyleLabel {
   font-size: 10px;
   font-weight: 400;
 }
-.nativeApp .settingsPage .trayLogoRingVariant {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .trayLogoRingVariant {
   background: transparent;
   box-shadow: none;
 }
-.nativeApp .settingsPage .warmupSettingsRow {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .warmupSettingsRow {
   align-items: start;
 }
-.nativeApp .settingsPage .warmupAccountChoices {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .warmupAccountChoices {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
   max-width: 460px;
 }
-.nativeApp .settingsPage .warmupAccountChoice {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .warmupAccountChoice {
   padding: 7px 0;
   background: transparent;
   border: 0;
@@ -82,20 +82,20 @@
   font-weight: 400;
   min-width: 0;
 }
-.nativeApp .settingsPage .warmupAccountChoice span {
+:where(html[data-layout="compact"]) .nativeApp .settingsPage .warmupAccountChoice span {
   overflow-wrap: anywhere;
 }
 @media (max-width: 680px) {
-  .nativeApp .settingsPage .settingRow,
-  .nativeApp .settingsPage .settingRowTrayUsage,
-  .nativeApp .settingsPage .settingRowTrayIconStyle {
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRow,
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRowTrayUsage,
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRowTrayIconStyle {
     grid-template-columns: minmax(0, 1fr) auto;
   }
-  .nativeApp .settingsPage .settingRow:has(.trayIconStyleOptions),
-  .nativeApp .settingsPage .warmupSettingsRow {
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage .settingRow:has(.trayIconStyleOptions),
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage .warmupSettingsRow {
     grid-template-columns: 1fr;
   }
-  .nativeApp .settingsPage .warmupAccountChoices {
+  :where(html[data-layout="compact"]) .nativeApp .settingsPage .warmupAccountChoices {
     max-width: none;
   }
 }

@@ -5,6 +5,7 @@ import type { AppTab } from "../types/workspace";
 import { WorkspaceIcon } from "./workspace/WorkspaceIcon";
 import { ViewTabs } from "./workspace/ViewTabs";
 import { getCompactTableCopy } from "../i18n/compactTableCopy";
+import { LayoutPicker } from "./layout/LayoutPicker";
 
 export function AppTopBar({
   activeTab,
@@ -45,6 +46,7 @@ export function AppTopBar({
         <ViewTabs activeTab={activeTab} onSelectTab={onSelectTab} />
       </div>
       <div className="topActions">
+        <LayoutPicker />
         {activeTab === "accounts" ? (
           <button
             type="button"

@@ -1,50 +1,50 @@
-.nativeApp .accountImportOverlay { padding: 16px; }
-.nativeApp .settingsDialog.addAuthDialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; outline: none; }
-.nativeApp .addAuthDialog .settingsHeader { display: flex; flex-direction: row; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 12px; padding: 14px 18px 5px; }
-.nativeApp .addAuthDialog .settingsHeader h2 { margin: 0; font: 600 15px/1.4 var(--font-ui); }
-.nativeApp .addAuthDialog .closeButton { flex: 0 0 28px; width: 28px; min-height: 28px; height: 28px; padding: 0; background: transparent; border: 0; box-shadow: none; }
-.nativeApp .addAuthDialog .closeButton svg { width: 15px; height: 15px; }
-.nativeApp .addAuthDialog .addAccountDialogSubtitle { flex-shrink: 0; margin: 0; padding: 0 18px 14px; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
-.nativeApp .addAuthDialog .addAccountWorkspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 18px; margin: 0; padding: 0 18px 18px; overflow: hidden; align-items: start; }
-.nativeApp .addAuthDialog.isSingleRoute .addAccountWorkspace { grid-template-columns: 1fr; }
-.nativeApp .addAuthDialog .addAccountTabs { display: grid; grid-template-columns: 1fr; gap: 3px; align-content: start; overflow: auto; max-height: 100%; }
-.nativeApp .addAuthDialog .addAccountTab { display: flex; align-items: center; gap: 7px; min-height: 32px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; text-align: left; }
-.nativeApp .addAuthDialog .addAccountTab:hover { background: var(--surface-hover-bg); }
-.nativeApp .addAuthDialog .addAccountTab.isActive { background: var(--surface-selected-bg); color: var(--brand); }
-.nativeApp .addAuthDialog .addAccountTabIcon { display: flex; flex: 0 0 15px; width: 15px; height: 15px; background: transparent; border: 0; box-shadow: none; }
-.nativeApp .addAuthDialog .addAccountTabIcon svg { width: 15px; height: 15px; }
-.nativeApp .addAuthDialog .addAccountTabContent strong { color: inherit; font: 500 11px/1.4 var(--font-ui); }
-.nativeApp .addAuthDialog .addAccountPanel { min-width: 0; min-height: 0; max-height: 100%; display: grid; align-content: start; gap: 12px; padding: 0 0 0 1px; overflow: auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; scrollbar-width: thin; }
-.nativeApp .addAuthDialog .addAccountRouteDescription { margin: 0; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
-.nativeApp .addAuthDialog .addAccountPanelBody { gap: 12px; }
-.nativeApp .addAuthDialog .addOauthActionRow { flex-direction: row; align-items: center; gap: 8px; }
-.nativeApp .addAuthDialog .addAccountPrimaryAction, .nativeApp .addAuthDialog .addAccountSecondaryAction { justify-self: start; width: auto; min-width: 0; min-height: 28px; padding: 5px 11px; border-radius: 6px; font: 500 12px/1.4 var(--font-ui); }
-.nativeApp .addAuthDialog .addOauthField { gap: 5px; }
-.nativeApp .addAuthDialog .addOauthFieldLabel { font: 500 11px/1.4 var(--font-ui); color: var(--ink); }
-.nativeApp .addAuthDialog .addOauthInput { min-height: 30px; padding: 5px 8px; border-radius: 5px; background: var(--bg-0); font: 400 12px/1.5 var(--font-ui); box-shadow: none; }
-.nativeApp .addAuthDialog .addOauthTextarea { min-height: 78px; padding: 7px 8px; border-radius: 5px; background: var(--bg-0); font: 400 11px/1.5 var(--font-mono); box-shadow: none; }
-.nativeApp .addAuthDialog .addSessionTextarea { min-height: 160px; }
-.nativeApp .addAuthDialog .addOauthFallback { border-top: 1px solid var(--line); padding-top: 10px; }
-.nativeApp .addAuthDialog .addOauthFallback summary { width: fit-content; cursor: pointer; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
-.addOauthFallbackBody { display: grid; gap: 10px; padding-top: 10px; }
-.nativeApp .addAuthDialog .addUploadPickerGrid { display: flex; gap: 8px; }
-.nativeApp .addAuthDialog .addUploadQueue { border: 0; padding: 0; border-radius: 0; background: transparent; }
-.nativeApp .addAuthDialog .addUploadQueueHeader strong { font: 500 11px/1.5 var(--font-ui); }
-.nativeApp .addAuthDialog .addUploadQueueHeader p, .nativeApp .addAuthDialog .addUploadEmptyState { font: 400 11px/1.5 var(--font-ui); color: var(--subtle); }
-.nativeApp .addAuthDialog .addUploadEmptyState { min-height: 50px; padding: 12px 0; background: transparent; }
-.nativeApp .addAuthDialog .addApiFieldGrid { grid-template-columns: 1fr; gap: 10px; }
-.nativeApp .addAuthDialog .addFieldHint { font: 400 10px/1.4 var(--font-ui); }
-.nativeApp .addAuthDialog .addOauthStatus, .nativeApp .addAuthDialog .addApiErrorBox { padding: 9px 10px; border-radius: 6px; gap: 5px; background: var(--bg-1); border: 1px solid var(--line); }
-.nativeApp .addAuthDialog .addOauthStatus strong, .nativeApp .addAuthDialog .addApiErrorBox strong { font: 500 11px/1.4 var(--font-ui); }
-.nativeApp .addAuthDialog .addOauthStatus p, .nativeApp .addAuthDialog .addApiErrorBox p { font: 400 11px/1.5 var(--font-ui); }
-.nativeApp .addAuthDialog .addApiActionRow { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; }
-.nativeApp .addAuthDialog .addApiActionRow > button { flex: 0 0 auto; width: auto; }
-.secretInput { position: relative; display: block; }
-.nativeApp .addAuthDialog .secretInput input { padding-right: 58px; }
-.nativeApp .addAuthDialog .secretVisibilityButton { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-height: 22px; padding: 2px 6px; border: 0; background: transparent; box-shadow: none; color: var(--subtle); font: 400 10px/1.4 var(--font-ui); }
-.nativeApp .addAuthDialog .secretVisibilityButton:hover { transform: translateY(-50%); background: var(--surface-hover-bg); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .accountImportOverlay { padding: 16px; }
+:where(html[data-layout="compact"]) .nativeApp .settingsDialog.addAuthDialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; outline: none; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .settingsHeader { display: flex; flex-direction: row; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 12px; padding: 14px 18px 5px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .settingsHeader h2 { margin: 0; font: 600 15px/1.4 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .closeButton { flex: 0 0 28px; width: 28px; min-height: 28px; height: 28px; padding: 0; background: transparent; border: 0; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .closeButton svg { width: 15px; height: 15px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountDialogSubtitle { flex-shrink: 0; margin: 0; padding: 0 18px 14px; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountWorkspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 18px; margin: 0; padding: 0 18px 18px; overflow: hidden; align-items: start; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog.isSingleRoute .addAccountWorkspace { grid-template-columns: 1fr; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTabs { display: grid; grid-template-columns: 1fr; gap: 3px; align-content: start; overflow: auto; max-height: 100%; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTab { display: flex; align-items: center; gap: 7px; min-height: 32px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; text-align: left; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTab:hover { background: var(--surface-hover-bg); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTab.isActive { background: var(--surface-selected-bg); color: var(--brand); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTabIcon { display: flex; flex: 0 0 15px; width: 15px; height: 15px; background: transparent; border: 0; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTabIcon svg { width: 15px; height: 15px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTabContent strong { color: inherit; font: 500 11px/1.4 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountPanel { min-width: 0; min-height: 0; max-height: 100%; display: grid; align-content: start; gap: 12px; padding: 0 0 0 1px; overflow: auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; scrollbar-width: thin; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountRouteDescription { margin: 0; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountPanelBody { gap: 12px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthActionRow { flex-direction: row; align-items: center; gap: 8px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountPrimaryAction, :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountSecondaryAction { justify-self: start; width: auto; min-width: 0; min-height: 28px; padding: 5px 11px; border-radius: 6px; font: 500 12px/1.4 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthField { gap: 5px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthFieldLabel { font: 500 11px/1.4 var(--font-ui); color: var(--ink); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthInput { min-height: 30px; padding: 5px 8px; border-radius: 5px; background: var(--bg-0); font: 400 12px/1.5 var(--font-ui); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthTextarea { min-height: 78px; padding: 7px 8px; border-radius: 5px; background: var(--bg-0); font: 400 11px/1.5 var(--font-mono); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addSessionTextarea { min-height: 160px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthFallback { border-top: 1px solid var(--line); padding-top: 10px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthFallback summary { width: fit-content; cursor: pointer; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
+:where(html[data-layout="compact"]) .addOauthFallbackBody { display: grid; gap: 10px; padding-top: 10px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addUploadPickerGrid { display: flex; gap: 8px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addUploadQueue { border: 0; padding: 0; border-radius: 0; background: transparent; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addUploadQueueHeader strong { font: 500 11px/1.5 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addUploadQueueHeader p, :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addUploadEmptyState { font: 400 11px/1.5 var(--font-ui); color: var(--subtle); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addUploadEmptyState { min-height: 50px; padding: 12px 0; background: transparent; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addApiFieldGrid { grid-template-columns: 1fr; gap: 10px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addFieldHint { font: 400 10px/1.4 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthStatus, :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addApiErrorBox { padding: 9px 10px; border-radius: 6px; gap: 5px; background: var(--bg-1); border: 1px solid var(--line); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthStatus strong, :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addApiErrorBox strong { font: 500 11px/1.4 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addOauthStatus p, :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addApiErrorBox p { font: 400 11px/1.5 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addApiActionRow { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addApiActionRow > button { flex: 0 0 auto; width: auto; }
+:where(html[data-layout="compact"]) .secretInput { position: relative; display: block; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .secretInput input { padding-right: 58px; }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .secretVisibilityButton { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-height: 22px; padding: 2px 6px; border: 0; background: transparent; box-shadow: none; color: var(--subtle); font: 400 10px/1.4 var(--font-ui); }
+:where(html[data-layout="compact"]) .nativeApp .addAuthDialog .secretVisibilityButton:hover { transform: translateY(-50%); background: var(--surface-hover-bg); box-shadow: none; }
 @media (max-width: 540px) {
-  .nativeApp .addAuthDialog .addAccountWorkspace { grid-template-columns: 1fr; gap: 12px; overflow: auto; }
-  .nativeApp .addAuthDialog .addAccountTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
-  .nativeApp .addAuthDialog .addAccountPanel { max-height: none; overflow: visible; }
+  :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountWorkspace { grid-template-columns: 1fr; gap: 12px; overflow: auto; }
+  :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
+  :where(html[data-layout="compact"]) .nativeApp .addAuthDialog .addAccountPanel { max-height: none; overflow: visible; }
 }

@@ -1,3 +1,6 @@
+import { useAppLayout } from "../hooks/useAppLayout";
+import { ClassicAnalyticsHeader } from "./classic/ClassicAnalyticsHeader";
+import { ClassicProjectRows } from "./classic/ClassicProjectRows";
 import { useMemo, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
 import { getPageLayoutCopy } from "../i18n/pageLayoutCopy";
@@ -28,11 +31,14 @@ export function AnalyticsPanel({
   weeklyBudgetUsd,
   savingSettings,
   onExport,
+  onRefresh,
   onDeleteSession,
   onUpdateWeeklyBudget,
   tokenUsageContent,
 }: AnalyticsPanelProps) {
   const { copy, locale } = useI18n();
+  const { layout: appLayout } = useAppLayout();
+  const isClassic = appLayout === "classic";
   const text = copy.analytics;
   const layout = getPageLayoutCopy(locale);
   const [sessionQuery, setSessionQuery] = useState("");
@@ -66,8 +72,19 @@ export function AnalyticsPanel({
       label: layout.projects,
       content: (
         <section className="analyticsBlock analyticsBlockProjects">
+          {isClassic ? <h3>{text.projectsTitle}</h3> : null}
           <p className="pageSectionDescription">{text.projectsDescription}</p>
-          <ProjectTable projects={analytics?.projects ?? []} locale={locale} />
+          {isClassic ? (
+            <ClassicProjectRows
+              projects={analytics?.projects ?? []}
+              locale={locale}
+            />
+          ) : (
+            <ProjectTable
+              projects={analytics?.projects ?? []}
+              locale={locale}
+            />
+          )}
         </section>
       ),
     },
@@ -76,6 +93,7 @@ export function AnalyticsPanel({
       label: layout.sessions,
       content: (
         <section className="analyticsBlock analyticsBlockSessions">
+          {isClassic ? <h3>{text.sessionsTitle}</h3> : null}
           <div className="analyticsSessionTools">
             <input
               className="analyticsSearch"
@@ -107,6 +125,7 @@ export function AnalyticsPanel({
       label: layout.activity,
       content: (
         <section className="analyticsBlock analyticsBlockHeatmap">
+          {isClassic ? <h3>{text.heatmapTitle}</h3> : null}
           <p className="pageSectionDescription">{text.heatmapDescription}</p>
           <UsageHeatmap
             buckets={analytics?.heatmap ?? []}
@@ -121,6 +140,7 @@ export function AnalyticsPanel({
       label: layout.prompts,
       content: (
         <section className="analyticsBlock analyticsBlockPrompts">
+          {isClassic ? <h3>{text.topPromptsTitle}</h3> : null}
           <p className="pageSectionDescription">{text.topPromptsDescription}</p>
           <TopPrompts prompts={analytics?.topPrompts ?? []} locale={locale} />
           {!analytics?.topPrompts.length ? (
@@ -131,96 +151,129 @@ export function AnalyticsPanel({
     },
   ];
   return (
-    <section className="analyticsPage workspacePage">
-      <PageToolbar
-        title={layout.analytics}
-        detail={source.label}
-        detailTitle={source.title}
-        actions={
-          <ActionMenu
-            label={exporting ? text.exporting : layout.export}
-            disabled={exporting !== null}
-            actions={[
-              {
-                label: text.exportCsv,
-                icon: "export",
-                onClick: () => onExport("csv"),
-              },
-              {
-                label: text.exportJson,
-                icon: "export",
-                onClick: () => onExport("json"),
-              },
-            ]}
+    <section
+      className={
+        isClassic
+          ? "analyticsPage classicAnalyticsPage"
+          : "analyticsPage workspacePage"
+      }
+    >
+      <div className={isClassic ? "analyticsShell" : undefined}>
+        {isClassic ? (
+          <ClassicAnalyticsHeader
+            text={text}
+            loading={loading}
+            exporting={exporting}
+            onRefresh={onRefresh}
+            onExport={onExport}
           />
-        }
-      />
-      {error ? (
-        <div className="analyticsNotice tone-danger" role="alert">
-          <strong>{text.errorTitle}</strong>
-          <span>{error}</span>
-        </div>
-      ) : null}
-      {loading || progress ? (
-        <div className="analyticsProgress" aria-live="polite">
-          <div>
-            <strong>{progressStageLabel(progress, text)}</strong>
-            <span>
-              {progress && progress.totalFiles > 0
-                ? `${formatNumber(progress.processedFiles, locale)} / ${formatNumber(progress.totalFiles, locale)} ${text.sourceFiles}`
-                : text.loadingDescription}
-            </span>
+        ) : (
+          <PageToolbar
+            title={layout.analytics}
+            detail={source.label}
+            detailTitle={source.title}
+            actions={
+              <ActionMenu
+                label={exporting ? text.exporting : layout.export}
+                disabled={exporting !== null}
+                actions={[
+                  {
+                    label: text.exportCsv,
+                    icon: "export",
+                    onClick: () => onExport("csv"),
+                  },
+                  {
+                    label: text.exportJson,
+                    icon: "export",
+                    onClick: () => onExport("json"),
+                  },
+                ]}
+              />
+            }
+          />
+        )}
+        {error ? (
+          <div className="analyticsNotice tone-danger" role="alert">
+            <strong>{text.errorTitle}</strong>
+            <span>{error}</span>
           </div>
-          <div className="analyticsProgressMeter" aria-label={`${percent}%`}>
-            <i style={{ width: `${percent}%` }} />
+        ) : null}
+        {loading || progress ? (
+          <div className="analyticsProgress" aria-live="polite">
+            <div>
+              <strong>{progressStageLabel(progress, text)}</strong>
+              <span>
+                {progress && progress.totalFiles > 0
+                  ? `${formatNumber(progress.processedFiles, locale)} / ${formatNumber(progress.totalFiles, locale)} ${text.sourceFiles}`
+                  : text.loadingDescription}
+              </span>
+            </div>
+            <div className="analyticsProgressMeter" aria-label={`${percent}%`}>
+              <i style={{ width: `${percent}%` }} />
+            </div>
+            <b>{percent}%</b>
+            {progress?.currentPath ? (
+              <code title={progress.currentPath}>{progress.currentPath}</code>
+            ) : null}
           </div>
-          <b>{percent}%</b>
-          {progress?.currentPath ? (
-            <code title={progress.currentPath}>{progress.currentPath}</code>
-          ) : null}
-        </div>
-      ) : null}
-      <AnalyticsSummary analytics={analytics} text={text} locale={locale} />
-      {tokenUsageContent ? (
-        <div className="analyticsTokenStrip">{tokenUsageContent}</div>
-      ) : null}
-      <AnalyticsBudget
-        analytics={analytics}
-        weeklyBudgetUsd={weeklyBudgetUsd}
-        saving={savingSettings}
-        onUpdate={onUpdateWeeklyBudget}
-        text={text}
-      />
-      <PageSections label={layout.analytics} sections={sections} />
-      {!loading && (!analytics || analytics.eventCount === 0) ? (
-        <p className="analyticsNoResults">{text.emptyDescription}</p>
-      ) : null}
-      {analytics ? (
-        <footer className="analyticsFoot">
-          <span>
-            {text.updated}: {formatDateTime(analytics.updatedAt, locale)}
-          </span>
-          <span>
-            {text.sourceFiles}: {analytics.sourcePathCount}
-          </span>
-          {analytics.failedPathCount > 0 ? (
+        ) : null}
+        <AnalyticsSummary analytics={analytics} text={text} locale={locale} />
+        {!isClassic && tokenUsageContent ? (
+          <div className="analyticsTokenStrip">{tokenUsageContent}</div>
+        ) : null}
+        <AnalyticsBudget
+          analytics={analytics}
+          weeklyBudgetUsd={weeklyBudgetUsd}
+          saving={savingSettings}
+          onUpdate={onUpdateWeeklyBudget}
+          text={text}
+        />
+        {isClassic ? (
+          <div className="analyticsGrid">
+            {[sections[0], sections[2], sections[1], sections[3]].map(
+              (section) => (
+                <div
+                  key={section.id}
+                  className={`classicAnalyticsSection section-${section.id}`}
+                >
+                  {section.content}
+                </div>
+              ),
+            )}
+          </div>
+        ) : (
+          <PageSections label={layout.analytics} sections={sections} />
+        )}
+        {!loading && (!analytics || analytics.eventCount === 0) ? (
+          <p className="analyticsNoResults">{text.emptyDescription}</p>
+        ) : null}
+        {analytics ? (
+          <footer className="analyticsFoot">
             <span>
-              {text.failedSources}: {analytics.failedPathCount}
+              {text.updated}: {formatDateTime(analytics.updatedAt, locale)}
             </span>
-          ) : null}
-          {analytics.unresolvedForkCount > 0 ? (
             <span>
-              {text.unresolvedForks}: {analytics.unresolvedForkCount}
+              {text.sourceFiles}: {analytics.sourcePathCount}
             </span>
-          ) : null}
-          {analytics.unresolvedUsageEventCount > 0 ? (
-            <span>
-              {text.usageAnomalies}: {analytics.unresolvedUsageEventCount}
-            </span>
-          ) : null}
-          <span title={analytics.pricingSource}>{text.pricingEstimate}</span>
-        </footer>
-      ) : null}
+            {analytics.failedPathCount > 0 ? (
+              <span>
+                {text.failedSources}: {analytics.failedPathCount}
+              </span>
+            ) : null}
+            {analytics.unresolvedForkCount > 0 ? (
+              <span>
+                {text.unresolvedForks}: {analytics.unresolvedForkCount}
+              </span>
+            ) : null}
+            {analytics.unresolvedUsageEventCount > 0 ? (
+              <span>
+                {text.usageAnomalies}: {analytics.unresolvedUsageEventCount}
+              </span>
+            ) : null}
+            <span title={analytics.pricingSource}>{text.pricingEstimate}</span>
+          </footer>
+        ) : null}
+      </div>
     </section>
   );
 }

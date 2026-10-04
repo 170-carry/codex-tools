@@ -4,6 +4,22 @@
 
 ### Released
 
+- v3.0.2
+
+#### English
+
+1. Restore the original interface as the default for new installations and upgrades without a saved layout preference. Keep the compact interface available as an option.
+2. Add Original / Compact layout selection to the title bar and Settings → General. Apply changes immediately and remember the choice across restarts.
+3. Restore account summary cards, visible search and filters, Token totals, the account list and permanent detail panel. Restore expanded analytics, API proxy and settings sections, and the original default window size.
+4. Preserve stable account order, visible proxy-participation switches, reset-credit counts, API-account editing and authentication safeguards in both layouts. Isolate their styles while reusing the current business logic.
+
+#### 中文
+
+1. 新安装和未保存布局偏好的升级用户默认恢复原版界面，精简布局保留为可选项。
+2. 在窗口右上角和「设置 → 通用」增加原版 / 精简布局切换，立即生效并记住选择，重启后继续使用。
+3. 恢复账号统计卡片、常显搜索筛选、Token 汇总、账号列表与右侧详情；分析、API 反代和设置恢复分区展开，初始窗口恢复原版尺寸。
+4. 两种布局均保留稳定账号顺序、反代参与开关、重置卡数量、API 账号编辑和认证操作保护；隔离样式并复用现有业务逻辑。
+
 - v3.0.1
 
 #### English

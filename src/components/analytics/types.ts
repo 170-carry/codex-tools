@@ -15,6 +15,7 @@ export type AnalyticsPanelProps = {
   weeklyBudgetUsd: number | null;
   savingSettings: boolean;
   tokenUsageContent?: ReactNode;
+  onRefresh?: () => void;
   onExport: (format: "csv" | "json") => void;
   onDeleteSession: (session: CodexSessionCostBreakdown) => Promise<void> | void;
   onUpdateWeeklyBudget: (value: number | null) => Promise<void>;

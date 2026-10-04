@@ -1,0 +1,22 @@
+.accountActionMenu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  width: 206px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--menu-surface);
+  color: var(--ink);
+  box-shadow: 0 10px 35px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.accountActionMenu button { display: flex; align-items: center; gap: 8px; min-height: 29px; padding: 5px 8px; text-align: left; font: 400 12px var(--font-ui); border: 0; border-radius: 4px; background: transparent; color: var(--ink); box-shadow: none; }
+.accountActionMenu button:hover, .accountActionMenu button:focus { background: var(--brand); color: #fff; transform: none; box-shadow: none; outline: none; }
+.accountActionMenu button:disabled { opacity: .4; background: transparent; color: var(--subtle); }
+.accountActionMenu button > svg { width: 14px; height: 14px; }
+.accountActionMenu button > svg:last-child:not(:first-child) { margin-left: auto; }
+.accountActionMenu .dangerMenuItem { color: var(--danger); }
+.accountActionMenu .dangerMenuItem:hover, .accountActionMenu .dangerMenuItem:focus { color: #fff; background: var(--danger); }
+.menuSeparator { height: 1px; margin: 4px 3px; background: var(--line); }

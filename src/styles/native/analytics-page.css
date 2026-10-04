@@ -1,38 +1,38 @@
-.nativeApp .analyticsSummaryRow {
+:where(html[data-layout="compact"]) .nativeApp .analyticsSummaryRow {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 4px 0 18px;
   gap: 18px;
 }
-.analyticsSummaryRow > div {
+:where(html[data-layout="compact"]) .analyticsSummaryRow > div {
   display: grid;
   gap: 5px;
   min-width: 0;
 }
-.analyticsSummaryRow span {
+:where(html[data-layout="compact"]) .analyticsSummaryRow span {
   color: var(--subtle);
   font-size: 11px;
 }
-.analyticsSummaryRow strong {
+:where(html[data-layout="compact"]) .analyticsSummaryRow strong {
   font-size: 22px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.4px;
 }
-.nativeApp .analyticsTokenStrip {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTokenStrip {
   padding: 0 0 12px;
   font-size: 11px;
 }
-.nativeApp .analyticsTokenStrip .accountTokenUsageItems {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTokenStrip .accountTokenUsageItems {
   gap: 8px;
   padding: 8px 0 0;
 }
-.nativeApp .analyticsBudgetControl {
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudgetControl {
   margin: 0 0 16px;
   border-block: 1px solid var(--line);
   font-size: 11px;
 }
-.analyticsBudgetControl > summary {
+:where(html[data-layout="compact"]) .analyticsBudgetControl > summary {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -40,59 +40,59 @@
   cursor: pointer;
   list-style: none;
 }
-.analyticsBudgetControl > summary::-webkit-details-marker {
+:where(html[data-layout="compact"]) .analyticsBudgetControl > summary::-webkit-details-marker {
   display: none;
 }
-.analyticsBudgetControl > summary::before {
+:where(html[data-layout="compact"]) .analyticsBudgetControl > summary::before {
   content: "›";
   font-size: 16px;
   color: var(--subtle);
   transition: transform 120ms;
 }
-.analyticsBudgetControl[open] > summary::before {
+:where(html[data-layout="compact"]) .analyticsBudgetControl[open] > summary::before {
   transform: rotate(90deg);
 }
-.analyticsBudgetControl > summary > span:first-of-type {
+:where(html[data-layout="compact"]) .analyticsBudgetControl > summary > span:first-of-type {
   flex: 1;
 }
-.analyticsBudgetControl > summary strong {
+:where(html[data-layout="compact"]) .analyticsBudgetControl > summary strong {
   font-size: 11px;
   font-weight: 400;
   color: var(--subtle);
 }
-.analyticsBudgetMiniTrack {
+:where(html[data-layout="compact"]) .analyticsBudgetMiniTrack {
   width: 96px;
   height: 3px;
   overflow: hidden;
   background: var(--bar-track);
   border-radius: 2px;
 }
-.analyticsBudgetMiniTrack i {
+:where(html[data-layout="compact"]) .analyticsBudgetMiniTrack i {
   display: block;
   height: 100%;
   background: var(--brand);
 }
-.analyticsBudgetControl.tone-warning .analyticsBudgetMiniTrack i {
+:where(html[data-layout="compact"]) .analyticsBudgetControl.tone-warning .analyticsBudgetMiniTrack i {
   background: var(--warning);
 }
-.analyticsBudgetControl.tone-danger .analyticsBudgetMiniTrack i {
+:where(html[data-layout="compact"]) .analyticsBudgetControl.tone-danger .analyticsBudgetMiniTrack i {
   background: var(--danger);
 }
-.analyticsBudgetEditor {
+:where(html[data-layout="compact"]) .analyticsBudgetEditor {
   padding: 0 0 12px 18px;
 }
-.analyticsBudgetEditor p {
+:where(html[data-layout="compact"]) .analyticsBudgetEditor p {
   margin: 0 0 10px;
   color: var(--subtle);
   font-size: 11px;
 }
-.analyticsBudgetEditor > div {
+:where(html[data-layout="compact"]) .analyticsBudgetEditor > div {
   display: flex;
   gap: 8px;
   align-items: end;
   flex-wrap: wrap;
 }
-.analyticsBudgetEditor label {
+:where(html[data-layout="compact"]) .analyticsBudgetEditor label {
   display: grid;
   gap: 5px;
   flex: 1;
@@ -100,7 +100,7 @@
   min-width: 160px;
   color: var(--subtle);
 }
-.nativeApp .analyticsBudgetEditor input {
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudgetEditor input {
   width: 100%;
   min-height: 28px;
   padding: 4px 8px;
@@ -110,57 +110,57 @@
   color: var(--ink);
   background: var(--bg-0);
 }
-.nativeApp .pageSectionPanel .analyticsBlock {
+:where(html[data-layout="compact"]) .nativeApp .pageSectionPanel .analyticsBlock {
   display: block;
   padding: 0;
   border: 0;
 }
-.nativeApp .analyticsSessionTools {
+:where(html[data-layout="compact"]) .nativeApp .analyticsSessionTools {
   display: flex;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
   margin: 0 0 12px;
 }
-.analyticsSessionTools > span {
+:where(html[data-layout="compact"]) .analyticsSessionTools > span {
   font-size: 11px;
   color: var(--subtle);
   white-space: nowrap;
 }
-.nativeApp .analyticsSessionTools .analyticsSearch {
+:where(html[data-layout="compact"]) .nativeApp .analyticsSessionTools .analyticsSearch {
   width: min(320px, 75%);
 }
-.nativeApp .analyticsTableWrap {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTableWrap {
   border: 0;
   border-radius: 0;
   overflow: auto;
 }
-.nativeApp .analyticsTable {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable {
   width: 100%;
 }
-.nativeApp .analyticsTable thead th {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable thead th {
   background: transparent;
   color: var(--subtle);
   font-weight: 500;
   white-space: nowrap;
   border-bottom: 1px solid var(--line);
 }
-.nativeApp .analyticsTable tr {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable tr {
   background: transparent;
 }
-.nativeApp .analyticsTable th:first-child,
-.nativeApp .analyticsTable td:first-child {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable th:first-child,
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable td:first-child {
   padding-left: 0;
 }
-.nativeApp .analyticsTable th:last-child,
-.nativeApp .analyticsTable td:last-child {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable th:last-child,
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable td:last-child {
   padding-right: 0;
 }
-.nativeApp .analyticsTable td {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable td {
   border-bottom: 1px solid var(--line);
   font-variant-numeric: tabular-nums;
 }
-.nativeApp .analyticsTable small {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable small {
   max-width: 34ch;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -168,10 +168,10 @@
   color: var(--subtle);
   font-size: 10px;
 }
-.nativeApp .analyticsTable tbody tr:hover {
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable tbody tr:hover {
   background: var(--row-current-surface);
 }
-.nativeApp .analyticsDeleteButton {
+:where(html[data-layout="compact"]) .nativeApp .analyticsDeleteButton {
   min-height: 25px;
   padding: 3px 7px;
   border-color: transparent;
@@ -180,11 +180,11 @@
   color: var(--subtle);
   font-size: 11px;
 }
-.nativeApp .analyticsDeleteButton:hover {
+:where(html[data-layout="compact"]) .nativeApp .analyticsDeleteButton:hover {
   color: var(--danger);
   background: var(--bg-1);
 }
-.nativeApp .analyticsFoot {
+:where(html[data-layout="compact"]) .nativeApp .analyticsFoot {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
@@ -192,43 +192,43 @@
   border-top: 1px solid var(--line);
   color: var(--subtle);
 }
-.analyticsNoResults {
+:where(html[data-layout="compact"]) .analyticsNoResults {
   padding: 20px 0;
   color: var(--subtle);
   font-size: 12px;
   text-align: center;
 }
-.nativeApp .analyticsProgress {
+:where(html[data-layout="compact"]) .nativeApp .analyticsProgress {
   margin-bottom: 14px;
   padding: 8px 10px;
   font-size: 11px;
 }
-.nativeApp .analyticsProgress > div strong,
-.nativeApp .analyticsProgress b {
+:where(html[data-layout="compact"]) .nativeApp .analyticsProgress > div strong,
+:where(html[data-layout="compact"]) .nativeApp .analyticsProgress b {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .analyticsProgress > div span {
+:where(html[data-layout="compact"]) .nativeApp .analyticsProgress > div span {
   font-size: 11px;
 }
-.nativeApp .analyticsNotice {
+:where(html[data-layout="compact"]) .nativeApp .analyticsNotice {
   padding: 10px 0;
   margin-bottom: 12px;
   font-size: 12px;
 }
 @media (max-width: 680px) {
-  .nativeApp .analyticsSummaryRow {
+  :where(html[data-layout="compact"]) .nativeApp .analyticsSummaryRow {
     gap: 12px;
   }
-  .analyticsSummaryRow strong {
+  :where(html[data-layout="compact"]) .analyticsSummaryRow strong {
     font-size: 18px;
   }
-  .nativeApp .analyticsBudgetEditor {
+  :where(html[data-layout="compact"]) .nativeApp .analyticsBudgetEditor {
     padding-left: 0;
   }
 }
 @media (max-width: 480px) {
-  .nativeApp .analyticsSummaryRow {
+  :where(html[data-layout="compact"]) .nativeApp .analyticsSummaryRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

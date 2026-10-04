@@ -1,93 +1,93 @@
-.nativeApp .settingsPage { width: min(780px, 100%); margin: 0 auto; padding: 24px 24px 32px; }
-.nativeApp .settingsShell { gap: 20px; padding: 0; }
-.nativeApp .settingsGroup { border-radius: 0; background: transparent; border: 0; border-bottom: 1px solid var(--line); box-shadow: none; }
-.nativeApp .settingsGroup.featureDisclosure { padding: 0; }
-.nativeApp .settingsGroup.featureDisclosure .featureDisclosureBody { padding: 0; gap: 0; }
-.nativeApp .settingRow { min-height: 42px; padding: 9px 0; gap: 12px; grid-template-columns: minmax(150px, 1fr) auto; }
-.nativeApp .settingRowCompact { min-height: 40px; }
-.nativeApp .settingMeta strong { font-size: 12px; font-weight: 500; }
-.nativeApp .settingMeta span, .nativeApp .settingValueMuted, .nativeApp .settingInlineValue { font-size: 11px; font-weight: 400; }
-.nativeApp .settingRowTrayUsage { align-items: start; }
-.nativeApp .settingLink, .nativeApp .settingLinkLabel { font-size: 12px; font-weight: 400; }
-.nativeApp .editorSelectTrigger { min-height: 28px; font-size: 12px; border-radius: 6px; }
-.nativeApp .modeGroup { gap: 4px; }
-.nativeApp .modeGroup > button { min-height: 26px; padding: 4px 8px; font-size: 11px; }
-.nativeApp .warmupAccountChoice { min-height: 34px; padding: 7px 9px; border-radius: 6px; box-shadow: none; }
-.nativeApp .warmupAccountLabel { font-size: 12px; font-weight: 500; }
-.nativeApp .warmupAccountMeta, .nativeApp .warmupSettingsHelp { font-size: 11px; font-weight: 400; }
-.nativeApp .analyticsPage { padding: 24px; }
-.analyticsTokenUsage { padding: 18px 24px 0; }
-.analyticsTokenUsage .tokenUsageDisclosure { font-size: 12px; }
-.analyticsTokenUsage .accountTokenUsageItems { padding: 12px 0 0; }
-.nativeApp .analyticsShell { gap: 18px; }
-.nativeApp .analyticsHeader { padding: 0 0 3px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.nativeApp .analyticsHeader h2 { font-size: 15px; font-weight: 500; }
-.nativeApp .analyticsKicker { display: none; }
-.nativeApp .analyticsHeader p, .nativeApp .analyticsBlock p, .nativeApp .analyticsBudget p { font-size: 11px; font-weight: 400; }
-.nativeApp .analyticsStatCard { border: 0; border-right: 1px solid var(--line); border-radius: 0; padding: 8px 18px; background: transparent; box-shadow: none; }
-.nativeApp .analyticsStatCard:first-child { padding-left: 0; }
-.nativeApp .analyticsStatCard:last-child { border-right: 0; }
-.nativeApp .analyticsStatCard > strong { font-size: 25px; font-weight: 500; }
-.nativeApp .analyticsStatCard > span, .nativeApp .analyticsStatCard > small { font-size: 10px; font-weight: 400; }
-.nativeApp .analyticsBudget, .nativeApp .analyticsBlock, .nativeApp .analyticsNotice, .nativeApp .analyticsEmpty { border-radius: 0; box-shadow: none; background: transparent; border: 0; border-bottom: 1px solid var(--line); }
-.nativeApp .analyticsBudget, .nativeApp .analyticsBlock { padding: 14px 0; }
-.nativeApp .analyticsBlock h3 { font-size: 13px; font-weight: 600; }
-.nativeApp .analyticsBudget strong { font-size: 19px; font-weight: 500; }
-.nativeApp .analyticsBudget label span { font-size: 10px; }
-.nativeApp .analyticsProjectRow { padding: 11px 0; border-radius: 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
-.nativeApp .analyticsProjectRow strong, .nativeApp .analyticsTable strong { font-size: 12px; font-weight: 500; }
-.nativeApp .analyticsProjectMetrics b { font-size: 12px; font-weight: 500; }
-.nativeApp .analyticsSearch { min-height: 28px; font-size: 12px; border-radius: 5px; padding: 4px 8px; }
-.nativeApp .analyticsTable th, .nativeApp .analyticsTable td { padding: 9px 10px; font-size: 11px; font-weight: 400; }
-.nativeApp .analyticsFoot { background: transparent; border: 0; padding: 0; font-size: 10px; }
-.nativeApp .analyticsPromptRow { padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
-.nativeApp .analyticsPromptBody strong { font-size: 13px; font-weight: 500; }
-.nativeApp .analyticsPromptBody p { font-size: 12px; font-weight: 400; }
-.nativeApp .analyticsBudgetMeter, .nativeApp .analyticsProjectBar { height: 4px; }
-.nativeApp .analyticsBudgetMeter i { background: var(--brand); }
-.nativeApp .analyticsProjectBar i { background: var(--brand); }
-.nativeApp .analyticsBudget input { min-height: 28px; padding: 5px 8px; font-size: 12px; border-radius: 5px; }
-.nativeApp .analyticsProgress { padding: 12px; border-radius: 8px; background: var(--brand-soft); box-shadow: none; }
-.nativeApp .proxyPage { padding: 24px 24px 32px; --proxy-nested-card-radius: 7px; --proxy-nested-card-surface: var(--bg-1); --proxy-nested-card-shadow: none; }
-.nativeApp .proxyShell { padding: 0; gap: 18px; }
-.nativeApp .proxySectionCard { padding: 14px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
-.nativeApp .proxySectionCardPrimary { background: transparent; }
-.nativeApp .proxySectionCard.featureDisclosure { padding: 0; display: block; }
-.nativeApp .proxyUsageDisclosure .proxyUsageCard { padding: 0; border: 0; border-radius: 0; }
-.nativeApp .proxySectionCard { backdrop-filter: none; -webkit-backdrop-filter: none; }
-.nativeApp .proxyUsageCard { backdrop-filter: none; -webkit-backdrop-filter: none; }
-.nativeApp .proxyHeaderStats { gap: 16px; justify-content: flex-start; padding-bottom: 12px; }
-.nativeApp .proxyHeaderStat { min-height: 0; padding: 0; border: 0; background: transparent; border-radius: 0; box-shadow: none; font-size: 11px; font-weight: 400; }
-.nativeApp .proxyHeaderStat strong { font-size: 12px; font-weight: 500; }
-.nativeApp .proxyStatusDot.isRunning { animation: none; box-shadow: none; background: var(--ok); }
-.nativeApp .proxySectionHeader h3 { font-size: 13px; font-weight: 600; }
-.nativeApp .proxySectionHeader p { font-size: 11px; font-weight: 400; }
-.nativeApp .proxyLabel { font-size: 11px; font-weight: 500; }
-.nativeApp .proxyPortInput { min-height: 28px; border-radius: 5px; font-size: 12px; }
-.nativeApp .proxyControlRow { gap: 8px; }
-.nativeApp .proxyDetailCard { box-shadow: none; border-radius: 7px; padding: 12px; }
-.nativeApp .proxyUsageCard { border-radius: 10px; box-shadow: none; }
-.nativeApp .proxyUsageHeading h3 { font-size: 13px; font-weight: 600; }
-.nativeApp .proxyUsageHeading p, .nativeApp .proxyUsageUpdated { font-size: 10px; font-weight: 400; }
-.nativeApp .proxyUsageUpdated { border: 0; background: transparent; padding: 0; box-shadow: none; }
-.nativeApp .proxyUsageFrame { min-height: 180px; height: 220px; border-radius: 6px; background: var(--bg-1); }
-.nativeApp .proxyUsageStateOrb { width: 22px; height: 22px; border-radius: 6px; background: var(--bg-2); box-shadow: none; }
-.nativeApp .proxyUsageState strong { font-size: 12px; font-weight: 500; }
-.nativeApp .proxyUsageState p { font-size: 11px; font-weight: 400; }
-.nativeApp .proxyUsageChip { min-height: 26px; padding: 4px 8px; font-size: 11px; border-radius: 5px; box-shadow: none; }
-.nativeApp .proxyUsageExportPicker select { min-height: 28px; border-radius: 5px; font-size: 12px; }
-.nativeApp .proxyPortInput { height: 28px; width: 92px; }
-.nativeApp .proxyCompactField { min-width: 92px; }
-.nativeApp .proxyInlineSetting { min-width: 140px; }
-.nativeApp .proxyLocalControlCard .proxyDetailCard { padding: 10px 0; gap: 5px; border: 0; background: transparent; }
-.nativeApp .proxyLocalControlCard .proxyDetailCard > strong { font-size: 12px; font-weight: 500; }
-.nativeApp .proxyLocalControlCard .proxyDetailCard > p { font-size: 11px; font-weight: 400; }
-.nativeApp .proxyInfoBlock { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
-.nativeApp .proxyInfoBlock code { font-size: 11px; font-weight: 400; }
-.nativeApp .proxyKeyItem { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
-.nativeApp .remoteHistoryPanel { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
-.nativeApp .remoteGuideCard, .nativeApp .cloudflaredCallout { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
-.nativeApp .remoteGuideTitle, .nativeApp .cloudflaredCallout strong { font-size: 12px; font-weight: 500; }
-.nativeApp .remoteGuideCard p, .nativeApp .cloudflaredCallout p { font-size: 11px; font-weight: 400; }
-.nativeApp .featureDisclosure > summary { padding: 12px 0; }
-.nativeApp .featureDisclosureBody { padding: 12px 0; }
+:where(html[data-layout="compact"]) .nativeApp .settingsPage { width: min(780px, 100%); margin: 0 auto; padding: 24px 24px 32px; }
+:where(html[data-layout="compact"]) .nativeApp .settingsShell { gap: 20px; padding: 0; }
+:where(html[data-layout="compact"]) .nativeApp .settingsGroup { border-radius: 0; background: transparent; border: 0; border-bottom: 1px solid var(--line); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .settingsGroup.featureDisclosure { padding: 0; }
+:where(html[data-layout="compact"]) .nativeApp .settingsGroup.featureDisclosure .featureDisclosureBody { padding: 0; gap: 0; }
+:where(html[data-layout="compact"]) .nativeApp .settingRow { min-height: 42px; padding: 9px 0; gap: 12px; grid-template-columns: minmax(150px, 1fr) auto; }
+:where(html[data-layout="compact"]) .nativeApp .settingRowCompact { min-height: 40px; }
+:where(html[data-layout="compact"]) .nativeApp .settingMeta strong { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .settingMeta span, :where(html[data-layout="compact"]) .nativeApp .settingValueMuted, :where(html[data-layout="compact"]) .nativeApp .settingInlineValue { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .settingRowTrayUsage { align-items: start; }
+:where(html[data-layout="compact"]) .nativeApp .settingLink, :where(html[data-layout="compact"]) .nativeApp .settingLinkLabel { font-size: 12px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .editorSelectTrigger { min-height: 28px; font-size: 12px; border-radius: 6px; }
+:where(html[data-layout="compact"]) .nativeApp .modeGroup { gap: 4px; }
+:where(html[data-layout="compact"]) .nativeApp .modeGroup > button { min-height: 26px; padding: 4px 8px; font-size: 11px; }
+:where(html[data-layout="compact"]) .nativeApp .warmupAccountChoice { min-height: 34px; padding: 7px 9px; border-radius: 6px; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .warmupAccountLabel { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .warmupAccountMeta, :where(html[data-layout="compact"]) .nativeApp .warmupSettingsHelp { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsPage { padding: 24px; }
+:where(html[data-layout="compact"]) .analyticsTokenUsage { padding: 18px 24px 0; }
+:where(html[data-layout="compact"]) .analyticsTokenUsage .tokenUsageDisclosure { font-size: 12px; }
+:where(html[data-layout="compact"]) .analyticsTokenUsage .accountTokenUsageItems { padding: 12px 0 0; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsShell { gap: 18px; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsHeader { padding: 0 0 3px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsHeader h2 { font-size: 15px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsKicker { display: none; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsHeader p, :where(html[data-layout="compact"]) .nativeApp .analyticsBlock p, :where(html[data-layout="compact"]) .nativeApp .analyticsBudget p { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsStatCard { border: 0; border-right: 1px solid var(--line); border-radius: 0; padding: 8px 18px; background: transparent; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsStatCard:first-child { padding-left: 0; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsStatCard:last-child { border-right: 0; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsStatCard > strong { font-size: 25px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsStatCard > span, :where(html[data-layout="compact"]) .nativeApp .analyticsStatCard > small { font-size: 10px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudget, :where(html[data-layout="compact"]) .nativeApp .analyticsBlock, :where(html[data-layout="compact"]) .nativeApp .analyticsNotice, :where(html[data-layout="compact"]) .nativeApp .analyticsEmpty { border-radius: 0; box-shadow: none; background: transparent; border: 0; border-bottom: 1px solid var(--line); }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudget, :where(html[data-layout="compact"]) .nativeApp .analyticsBlock { padding: 14px 0; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBlock h3 { font-size: 13px; font-weight: 600; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudget strong { font-size: 19px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudget label span { font-size: 10px; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsProjectRow { padding: 11px 0; border-radius: 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsProjectRow strong, :where(html[data-layout="compact"]) .nativeApp .analyticsTable strong { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsProjectMetrics b { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsSearch { min-height: 28px; font-size: 12px; border-radius: 5px; padding: 4px 8px; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsTable th, :where(html[data-layout="compact"]) .nativeApp .analyticsTable td { padding: 9px 10px; font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsFoot { background: transparent; border: 0; padding: 0; font-size: 10px; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsPromptRow { padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsPromptBody strong { font-size: 13px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsPromptBody p { font-size: 12px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudgetMeter, :where(html[data-layout="compact"]) .nativeApp .analyticsProjectBar { height: 4px; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudgetMeter i { background: var(--brand); }
+:where(html[data-layout="compact"]) .nativeApp .analyticsProjectBar i { background: var(--brand); }
+:where(html[data-layout="compact"]) .nativeApp .analyticsBudget input { min-height: 28px; padding: 5px 8px; font-size: 12px; border-radius: 5px; }
+:where(html[data-layout="compact"]) .nativeApp .analyticsProgress { padding: 12px; border-radius: 8px; background: var(--brand-soft); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyPage { padding: 24px 24px 32px; --proxy-nested-card-radius: 7px; --proxy-nested-card-surface: var(--bg-1); --proxy-nested-card-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyShell { padding: 0; gap: 18px; }
+:where(html[data-layout="compact"]) .nativeApp .proxySectionCard { padding: 14px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxySectionCardPrimary { background: transparent; }
+:where(html[data-layout="compact"]) .nativeApp .proxySectionCard.featureDisclosure { padding: 0; display: block; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageDisclosure .proxyUsageCard { padding: 0; border: 0; border-radius: 0; }
+:where(html[data-layout="compact"]) .nativeApp .proxySectionCard { backdrop-filter: none; -webkit-backdrop-filter: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageCard { backdrop-filter: none; -webkit-backdrop-filter: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyHeaderStats { gap: 16px; justify-content: flex-start; padding-bottom: 12px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyHeaderStat { min-height: 0; padding: 0; border: 0; background: transparent; border-radius: 0; box-shadow: none; font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .proxyHeaderStat strong { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .proxyStatusDot.isRunning { animation: none; box-shadow: none; background: var(--ok); }
+:where(html[data-layout="compact"]) .nativeApp .proxySectionHeader h3 { font-size: 13px; font-weight: 600; }
+:where(html[data-layout="compact"]) .nativeApp .proxySectionHeader p { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .proxyLabel { font-size: 11px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .proxyPortInput { min-height: 28px; border-radius: 5px; font-size: 12px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyControlRow { gap: 8px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyDetailCard { box-shadow: none; border-radius: 7px; padding: 12px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageCard { border-radius: 10px; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageHeading h3 { font-size: 13px; font-weight: 600; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageHeading p, :where(html[data-layout="compact"]) .nativeApp .proxyUsageUpdated { font-size: 10px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageUpdated { border: 0; background: transparent; padding: 0; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageFrame { min-height: 180px; height: 220px; border-radius: 6px; background: var(--bg-1); }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageStateOrb { width: 22px; height: 22px; border-radius: 6px; background: var(--bg-2); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageState strong { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageState p { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageChip { min-height: 26px; padding: 4px 8px; font-size: 11px; border-radius: 5px; box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyUsageExportPicker select { min-height: 28px; border-radius: 5px; font-size: 12px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyPortInput { height: 28px; width: 92px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyCompactField { min-width: 92px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyInlineSetting { min-width: 140px; }
+:where(html[data-layout="compact"]) .nativeApp .proxyLocalControlCard .proxyDetailCard { padding: 10px 0; gap: 5px; border: 0; background: transparent; }
+:where(html[data-layout="compact"]) .nativeApp .proxyLocalControlCard .proxyDetailCard > strong { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .proxyLocalControlCard .proxyDetailCard > p { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .proxyInfoBlock { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .proxyInfoBlock code { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .proxyKeyItem { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .remoteHistoryPanel { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .remoteGuideCard, :where(html[data-layout="compact"]) .nativeApp .cloudflaredCallout { border-radius: 7px; background: var(--bg-1); box-shadow: none; }
+:where(html[data-layout="compact"]) .nativeApp .remoteGuideTitle, :where(html[data-layout="compact"]) .nativeApp .cloudflaredCallout strong { font-size: 12px; font-weight: 500; }
+:where(html[data-layout="compact"]) .nativeApp .remoteGuideCard p, :where(html[data-layout="compact"]) .nativeApp .cloudflaredCallout p { font-size: 11px; font-weight: 400; }
+:where(html[data-layout="compact"]) .nativeApp .featureDisclosure > summary { padding: 12px 0; }
+:where(html[data-layout="compact"]) .nativeApp .featureDisclosureBody { padding: 12px 0; }

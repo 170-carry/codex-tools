@@ -8,10 +8,14 @@ import { AboutSettings } from "./settings/AboutSettings";
 import { PageToolbar } from "./workspace/PageToolbar";
 import { PageSections } from "./workspace/PageSections";
 import { getPageLayoutCopy } from "../i18n/pageLayoutCopy";
+import { useAppLayout } from "../hooks/useAppLayout";
+import { ClassicSettings } from "./classic/ClassicSettings";
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const workspace = useSettingsWorkspace(props);
+  const { layout } = useAppLayout();
   const text = getPageLayoutCopy(workspace.locale);
+  if (layout === "classic") return <ClassicSettings workspace={workspace} />;
   return (
     <section
       className="settingsPage workspacePage"

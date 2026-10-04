@@ -1,4 +1,4 @@
-.nativeApp .utilityDialog {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog {
   display: flex;
   flex-direction: column;
   width: min(540px, calc(100vw - 40px));
@@ -12,7 +12,7 @@
   outline: none;
   overflow: hidden;
 }
-.nativeApp .utilityDialogHeader {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogHeader {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -20,23 +20,23 @@
   padding: 20px 20px 16px;
   background: transparent;
 }
-.nativeApp .utilityDialogHeader > div {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogHeader > div {
   min-width: 0;
 }
-.nativeApp .utilityDialogHeader h2 {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogHeader h2 {
   margin: 0;
   font-size: 15px;
   line-height: 1.4;
   font-weight: 600;
 }
-.nativeApp .utilityDialogHeader p {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogHeader p {
   margin: 7px 0 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--subtle);
   overflow-wrap: anywhere;
 }
-.nativeApp .utilityDialogHeader .closeButton {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogHeader .closeButton {
   flex: 0 0 24px;
   width: 24px;
   height: 24px;
@@ -46,13 +46,13 @@
   border: 0;
   box-shadow: none;
 }
-.nativeApp .utilityDialogContent {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogContent {
   padding: 0 20px 16px;
   overflow: auto;
   min-height: 0;
   scrollbar-width: thin;
 }
-.nativeApp .utilityDialogActions {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogActions {
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -62,14 +62,14 @@
   background: var(--bg-1);
   flex-shrink: 0;
 }
-.nativeApp .utilityDialogActions button {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialogActions button {
   min-width: 68px;
 }
-.nativeApp .utilityDialog.deleteAccountDialog {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog.deleteAccountDialog {
   width: min(400px, calc(100vw - 40px));
   text-align: left;
 }
-.nativeApp .utilityDialog.updateDialog .updateText {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog.updateDialog .updateText {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
@@ -79,72 +79,72 @@
   color: var(--subtle);
   font-size: 11px;
 }
-.nativeApp .utilityDialog .updateChangelog {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .updateChangelog {
   padding: 12px 0 0;
   border: 0;
   border-top: 1px solid var(--line);
   background: transparent;
 }
-.nativeApp .utilityDialog .updateChangelog > strong {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .updateChangelog > strong {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .utilityDialog .updateChangelogList {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .updateChangelogList {
   display: block;
   padding-left: 18px;
   margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.6;
 }
-.nativeApp .utilityDialog .updateChangelogList li {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .updateChangelogList li {
   padding: 3px 0;
   color: var(--ink);
 }
-.nativeApp .utilityDialog .updateProgress {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .updateProgress {
   font-size: 11px;
   margin-bottom: 0;
 }
-.nativeApp .utilityDialog .proxyModelDialogToolbar {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelDialogToolbar {
   gap: 8px;
   padding: 0 0 12px;
 }
-.nativeApp .utilityDialog .proxyModelDialogToolbarActions {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelDialogToolbarActions {
   gap: 6px;
 }
-.nativeApp .utilityDialog .proxyModelDialogList {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelDialogList {
   border: 0;
   border-top: 1px solid var(--line);
   border-radius: 0;
   padding: 0;
   max-height: 50dvh;
 }
-.nativeApp .utilityDialog .proxyModelToggleRow {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelToggleRow {
   min-height: 39px;
   padding: 8px 0;
   border-radius: 0;
   background: transparent;
 }
-.nativeApp .utilityDialog .proxyModelToggleName {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelToggleName {
   font-size: 12px;
   font-weight: 400;
 }
-.nativeApp .utilityDialog .proxyModelSearchInput {
+:where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelSearchInput {
   min-height: 28px;
   border-radius: 5px;
   padding: 5px 8px;
   font-size: 12px;
 }
 @media (max-width: 520px) {
-  .nativeApp .utilityDialogActions {
+  :where(html[data-layout="compact"]) .nativeApp .utilityDialogActions {
     flex-wrap: wrap;
   }
-  .nativeApp .utilityDialog .proxyModelDialogToolbar {
+  :where(html[data-layout="compact"]) .nativeApp .utilityDialog .proxyModelDialogToolbar {
     grid-template-columns: 1fr;
   }
 }
 
 /* Keep the first-run quota chooser consistent with the settings form. */
-.nativeApp .quotaOnboardingDialog {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingDialog {
   width: min(660px, calc(100vw - 40px));
   border-radius: 12px;
   box-shadow: var(--panel-shadow);
@@ -152,21 +152,21 @@
   gap: 16px;
   padding: 20px;
 }
-.nativeApp .quotaOnboardingHeader {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingHeader {
   gap: 6px;
 }
-.nativeApp .quotaOnboardingHeader h2 {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingHeader h2 {
   font-size: 15px;
   font-weight: 600;
 }
-.nativeApp .quotaOnboardingHeader p {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingHeader p {
   font-size: 12px;
   font-weight: 400;
 }
-.nativeApp .quotaOnboardingOptions {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingOptions {
   gap: 0;
 }
-.nativeApp .quotaOnboardingRow {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingRow {
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -174,22 +174,22 @@
   padding: 14px 0;
   gap: 12px;
 }
-.nativeApp .quotaOnboardingRow + .quotaOnboardingRow {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingRow + .quotaOnboardingRow {
   border-top: 1px solid var(--line);
 }
-.nativeApp .quotaOnboardingRow.isSelected {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingRow.isSelected {
   background: transparent;
   border-color: var(--line);
   box-shadow: none;
 }
-.nativeApp .quotaOnboardingRowHeader h3 {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingRowHeader h3 {
   font-size: 12px;
   font-weight: 500;
 }
-.nativeApp .quotaOnboardingIconGrid {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingIconGrid {
   gap: 6px;
 }
-.nativeApp .quotaOnboardingIconGrid > button {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingIconGrid > button {
   min-height: 70px;
   padding: 9px 6px;
   border-radius: 6px;
@@ -199,29 +199,29 @@
   font-size: 11px;
   font-weight: 400;
 }
-.nativeApp .quotaOnboardingIconGrid > button.isSelected {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingIconGrid > button.isSelected {
   background: var(--brand-soft);
   border-color: var(--brand);
   box-shadow: none;
 }
-.nativeApp .quotaOnboardingFooter {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingFooter {
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
-.nativeApp .quotaOnboardingConfirm {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingConfirm {
   min-height: 28px;
   padding: 5px 16px;
   border-radius: 6px;
   font-size: 12px;
 }
 
-.nativeApp .quotaOnboardingHeader {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingHeader {
   padding: 0 0 12px;
 }
-.nativeApp .quotaOnboardingOptions {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingOptions {
   padding: 0;
 }
-.nativeApp .quotaOnboardingFooter {
+:where(html[data-layout="compact"]) .nativeApp .quotaOnboardingFooter {
   padding-inline: 0;
   padding-bottom: 0;
 }

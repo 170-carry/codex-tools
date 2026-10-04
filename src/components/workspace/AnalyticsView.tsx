@@ -22,6 +22,10 @@ export function AnalyticsView({ c }: { c: CodexController }) {
       progress={c.costAnalyticsProgress}
       weeklyBudgetUsd={c.settings.codexAnalyticsWeeklyBudgetUsd}
       savingSettings={c.savingSettings}
+      onRefresh={() => {
+        void c.refreshCostAnalytics(false);
+        void c.refreshTokenUsage(true);
+      }}
       onExport={(format) => void c.exportCostAnalytics(format)}
       onDeleteSession={(session) => void c.onDeleteCodexSession(session)}
       onUpdateWeeklyBudget={(value) =>

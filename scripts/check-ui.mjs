@@ -53,6 +53,33 @@ const snap = (name) =>
 
 try {
   await page.goto(baseUrl);
+  await page.locator(".classicAccountsWorkspace").waitFor();
+  check(
+    "Fresh installs open the original layout",
+    (await page.locator(".topbar .layoutPicker").inputValue()) === "classic",
+  );
+  check(
+    "Original restores cards, filters and account details",
+    (await page.locator(".metaPill").count()) === 4 &&
+      (await page.locator(".accountFilters").isVisible()) &&
+      (await page.locator(".accountDetailPanel").isVisible()),
+  );
+  await page.locator(".topbar .layoutPicker").selectOption("compact");
+  await page.locator(".accountTable").waitFor();
+  await page.reload();
+  await page.locator(".accountTable").waitFor();
+  check(
+    "Compact preference survives reload",
+    (await page.locator(".topbar .layoutPicker").inputValue()) === "compact",
+  );
+  await page.locator(".topbar .layoutPicker").selectOption("classic");
+  await page.reload();
+  await page.locator(".classicAccountsWorkspace").waitFor();
+  check(
+    "Original preference survives reload",
+    (await page.locator(".topbar .layoutPicker").inputValue()) === "classic",
+  );
+  await page.locator(".topbar .layoutPicker").selectOption("compact");
   await page.locator(".accountTable").waitFor();
   check(
     "Accounts use five aligned columns with visible proxy participation",
@@ -154,8 +181,9 @@ try {
   await trigger.click();
   check(
     "Proxy participation is directly accessible and removed from the menu",
-    !(await row("备用工作账号").locator(".accountProxyToggle input").isChecked()) &&
-      (await page.getByRole("menuitemcheckbox").count()) === 0,
+    !(await row("备用工作账号")
+      .locator(".accountProxyToggle input")
+      .isChecked()) && (await page.getByRole("menuitemcheckbox").count()) === 0,
   );
   await page.keyboard.press("Escape");
 

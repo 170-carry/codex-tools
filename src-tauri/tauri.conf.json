@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Tools",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "identifier": "com.carry.codex-tools",
   "build": {
     "frontendDist": "../dist",
@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Codex Tools",
-        "width": 920,
-        "height": 700,
+        "width": 1586,
+        "height": 992,
         "minWidth": 640,
         "minHeight": 500,
         "resizable": true,

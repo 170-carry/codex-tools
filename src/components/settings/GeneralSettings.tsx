@@ -2,6 +2,7 @@ import { SwitchField } from "../SwitchField";
 import { EditorMultiSelect } from "../EditorMultiSelect";
 import { ThemeSwitch } from "../ThemeSwitch";
 import type { SettingsWorkspace } from "./useSettingsWorkspace";
+import { LayoutPicker } from "../layout/LayoutPicker";
 export function GeneralSettings({
   workspace,
 }: {
@@ -21,6 +22,7 @@ export function GeneralSettings({
   } = workspace;
   return (
     <div className="settingsGroup">
+      <LayoutPicker settings />
       <div className="settingRow">
         <div className="settingMeta">
           <strong>{languageLabel}</strong>

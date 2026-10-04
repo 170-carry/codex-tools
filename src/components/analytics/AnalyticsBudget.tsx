@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { CodexCostAnalyticsSnapshot } from "../../types/app";
 import type { AnalyticsCopy } from "./types";
 import { alertLabel } from "./formatting";
+import { useAppLayout } from "../../hooks/useAppLayout";
 
 export function AnalyticsBudget({
   analytics,
@@ -16,6 +17,7 @@ export function AnalyticsBudget({
   onUpdate: (value: number | null) => Promise<void>;
   text: AnalyticsCopy;
 }) {
+  const { layout } = useAppLayout();
   const input = useRef<HTMLInputElement>(null);
   const budgetValue = weeklyBudgetUsd === null ? "" : String(weeklyBudgetUsd);
   const alert = analytics?.weeklyBudgetAlert ?? "none";
@@ -25,6 +27,54 @@ export function AnalyticsBudget({
     if (value !== null && (!Number.isFinite(value) || value <= 0)) return;
     void onUpdate(value);
   };
+  if (layout === "classic")
+    return (
+      <section className={`analyticsBudget tone-${alert}`}>
+        <div>
+          <span>{text.budgetTitle}</span>
+          <strong>{alertLabel(alert, text)}</strong>
+          <p>{text.budgetDescription}</p>
+        </div>
+        <div className="analyticsBudgetMeter" aria-hidden="true">
+          <i
+            style={{
+              width: `${Math.max(0, Math.min(100, analytics?.weeklyBudgetPercent ?? 0))}%`,
+            }}
+          />
+        </div>
+        <label>
+          <span>{text.budgetInputLabel}</span>
+          <input
+            ref={input}
+            key={budgetValue}
+            defaultValue={budgetValue}
+            inputMode="decimal"
+            placeholder={text.budgetPlaceholder}
+          />
+        </label>
+        <div className="analyticsBudgetActions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={saving}
+            onClick={() => {
+              if (input.current) input.current.value = "";
+              void onUpdate(null);
+            }}
+          >
+            {text.budgetClear}
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={saving}
+            onClick={save}
+          >
+            {text.budgetSave}
+          </button>
+        </div>
+      </section>
+    );
   return (
     <details
       className={`analyticsBudgetControl tone-${alert}`}

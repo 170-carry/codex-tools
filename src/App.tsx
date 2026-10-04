@@ -7,6 +7,9 @@ import { useCodexController } from "./hooks/useCodexController";
 import { useThemeMode } from "./hooks/useThemeMode";
 import { useAppNavigation } from "./hooks/useAppNavigation";
 import type { AppTab } from "./types/workspace";
+import { AppLayoutProvider } from "./components/layout/AppLayoutProvider";
+import { useAppLayout } from "./hooks/useAppLayout";
+import { ClassicTopBar } from "./components/classic/ClassicTopBar";
 
 const AnalyticsView = lazy(() =>
   import("./components/workspace/AnalyticsView").then((module) => ({
@@ -24,7 +27,8 @@ const SettingsView = lazy(() =>
   })),
 );
 
-function App() {
+function AppWorkspace() {
+  const { layout } = useAppLayout();
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
   const [accountSearchOpen, setAccountSearchOpen] = useState(false);
   const openAccountSearch = useCallback(() => {
@@ -61,24 +65,41 @@ function App() {
 
   return (
     <div
-      className={`shell nativeApp${isMacos ? " isMacos" : ""}${c.mainWindowVisible ? "" : " isUiInactive"}`}
+      className={`shell ${layout === "compact" ? "nativeApp" : "classicApp"}${isMacos ? " isMacos" : ""}${c.mainWindowVisible ? "" : " isUiInactive"}`}
     >
       <main className="panel">
         <div className="workspaceMain">
-          <AppTopBar
-            activeTab={activeTab}
-            onSelectTab={setActiveTab}
-            onRefresh={refresh}
-            refreshing={
-              activeTab === "analytics"
-                ? c.costAnalyticsLoading
-                : c.refreshing || c.refreshingTokenUsage
-            }
-            showRefresh={activeTab !== "settings"}
-            searchOpen={accountSearchOpen}
-            onSearch={openAccountSearch}
-            onAddAccount={c.onOpenAddDialog}
-          />
+          {layout === "classic" ? (
+            <ClassicTopBar
+              activeTab={activeTab}
+              onSelectTab={setActiveTab}
+              themeMode={themeMode}
+              onToggleTheme={toggleTheme}
+              onRefresh={refresh}
+              refreshing={
+                activeTab === "analytics"
+                  ? c.costAnalyticsLoading
+                  : c.refreshing || c.refreshingTokenUsage
+              }
+              onGoHome={() => setActiveTab("accounts")}
+              showRefresh={activeTab !== "settings"}
+            />
+          ) : (
+            <AppTopBar
+              activeTab={activeTab}
+              onSelectTab={setActiveTab}
+              onRefresh={refresh}
+              refreshing={
+                activeTab === "analytics"
+                  ? c.costAnalyticsLoading
+                  : c.refreshing || c.refreshingTokenUsage
+              }
+              showRefresh={activeTab !== "settings"}
+              searchOpen={accountSearchOpen}
+              onSearch={openAccountSearch}
+              onAddAccount={c.onOpenAddDialog}
+            />
+          )}
           <section
             className="viewStage"
             id="workspace-content"
@@ -119,6 +140,14 @@ function App() {
         />
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AppLayoutProvider>
+      <AppWorkspace />
+    </AppLayoutProvider>
   );
 }
 
