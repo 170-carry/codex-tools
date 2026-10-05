@@ -6,8 +6,14 @@ use std::sync::OnceLock;
 pub(super) fn catalog_for_key(settings: &AppSettings, key: &ApiProxyKey) -> Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     let catalog = CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("catalog/codex-models.json"))
-            .expect("bundled Codex catalog must be valid JSON")
+        let mut catalog: Value = serde_json::from_str(include_str!("catalog/codex-models.json"))
+            .expect("bundled Codex catalog must be valid JSON");
+        // Older clients still require the legacy field. Generate it once
+        // instead of embedding a second copy of every model's instructions.
+        for model in catalog["models"].as_array_mut().expect("bundled models") {
+            model["base_instructions"] = model["model_messages"]["instructions_template"].clone();
+        }
+        catalog
     });
     let visible = api_proxy_visible_models_for_key(settings, key);
     let mut models: Vec<_> = catalog["models"]

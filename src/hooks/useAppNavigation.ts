@@ -17,6 +17,7 @@ export function useAppNavigation(
     refreshCostAnalytics,
     loadApiProxyStatus,
     mainWindowVisible,
+    loading,
     tokenUsage,
   } = c;
   useEffect(() => {
@@ -99,6 +100,7 @@ export function useAppNavigation(
   }, [checkForAppUpdate, onSelectTab, updateSettings]);
   useEffect(() => {
     if (
+      loading ||
       (activeTab !== "accounts" && activeTab !== "analytics") ||
       !mainWindowVisible
     )
@@ -106,5 +108,5 @@ export function useAppNavigation(
     const updatedAtMs = (tokenUsage?.updatedAt ?? 0) * 1000;
     if (updatedAtMs > 0 && Date.now() < updatedAtMs + 5 * 60 * 1000) return;
     void refreshTokenUsage(true);
-  }, [activeTab, mainWindowVisible, refreshTokenUsage, tokenUsage]);
+  }, [activeTab, loading, mainWindowVisible, refreshTokenUsage, tokenUsage]);
 }

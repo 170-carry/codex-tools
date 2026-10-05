@@ -1,3 +1,4 @@
+import { dateFormatter, numberFormatter } from "../../utils/intlFormatters.ts";
 import type {
   CodexBudgetAlert,
   CodexCostAnalyticsProgress,
@@ -7,7 +8,7 @@ import type { AnalyticsCopy } from "./types";
 
 export function formatUsd(value: number, locale: string) {
   const digits = Math.abs(value) < 1 ? 4 : 2;
-  return new Intl.NumberFormat(locale, {
+  return numberFormatter(locale, {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: digits,
@@ -16,14 +17,14 @@ export function formatUsd(value: number, locale: string) {
 }
 
 export function formatNumber(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, {
+  return numberFormatter(locale, {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
 }
 
 export function formatWholeNumber(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, {
+  return numberFormatter(locale, {
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -41,7 +42,7 @@ export function formatTokenCount(value: number, locale: string) {
     return formatWholeNumber(value, locale);
   }
 
-  const formatted = new Intl.NumberFormat(locale, {
+  const formatted = numberFormatter(locale, {
     maximumFractionDigits: 1,
   }).format(value / scale.divisor);
   return `${formatted}${scale.suffix}`;
@@ -51,7 +52,7 @@ export function formatDateTime(value: number | null, locale: string) {
   if (!value) {
     return "--";
   }
-  return new Intl.DateTimeFormat(locale, {
+  return dateFormatter(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -66,9 +67,9 @@ export function formatDuration(seconds: number | null, locale: string) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   if (hours <= 0) {
-    return new Intl.NumberFormat(locale).format(minutes) + "m";
+    return numberFormatter(locale).format(minutes) + "m";
   }
-  return `${new Intl.NumberFormat(locale).format(hours)}h ${minutes}m`;
+  return `${numberFormatter(locale).format(hours)}h ${minutes}m`;
 }
 
 export function alertLabel(alert: CodexBudgetAlert, copy: AnalyticsCopy) {

@@ -1,7 +1,8 @@
 # Issue #219: Codex model discovery and navigation
 
 Validated locally on 2026-10-05. Source branch: `codex/fix-219-model-catalog-motion`.
-This change has not been published as an installer or deployed to the reporter's machine.
+The changes are included in the v3.0.3 release preparation. Native acceptance
+on the reporter's machine remains separate from the checks below.
 
 ## Reproduced cause
 

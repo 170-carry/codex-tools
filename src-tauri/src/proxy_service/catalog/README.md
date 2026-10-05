@@ -5,9 +5,9 @@
 Git blob `77e0389c56000ca19df5029278c30c3e9528af51`, retrieved on 2026-10-05.
 The upstream license is included in `LICENSE`.
 
-Modifications: retain only text models supported by this proxy, and mirror each
-model's `model_messages.instructions_template` into the legacy
-`base_instructions` field for older clients. Keep instructions and capability
+Modifications: retain only text models supported by this proxy. At runtime,
+mirror each model's `model_messages.instructions_template` into the legacy
+`base_instructions` field for older clients, avoiding duplicate embedded data. Keep instructions and capability
 metadata together; inventing a minimal picker entry also changes the agent's
 tools, prompt, reasoning options, and context window.
 

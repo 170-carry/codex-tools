@@ -1,3 +1,5 @@
+import { dateFormatter } from "./intlFormatters.ts";
+
 export function formatFullDate(
   epochSec: number | null | undefined,
   locale: string,
@@ -6,12 +8,14 @@ export function formatFullDate(
   if (!epochSec) {
     return emptyValue;
   }
+  const date = new Date(epochSec * 1000);
+  if (Number.isNaN(date.getTime())) return emptyValue;
 
-  return new Date(epochSec * 1000).toLocaleString(locale, {
+  return dateFormatter(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }).format(date);
 }

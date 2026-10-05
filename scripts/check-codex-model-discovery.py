@@ -105,6 +105,8 @@ def main():
     if not args.codex:
         parser.error("Supply --codex with the desktop-bundled Codex binary")
     seed = json.loads(SEED.read_text(encoding="utf-8"))
+    for model in seed["models"]:
+        model["base_instructions"] = model["model_messages"]["instructions_template"]
     requests = []
 
     class ModelsServer(BaseHTTPRequestHandler):

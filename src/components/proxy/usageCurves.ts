@@ -1,3 +1,4 @@
+import { dateFormatter } from "../../utils/intlFormatters.ts";
 import type { ApiProxyUsageRange } from "../../types/app";
 import type {
   ApiProxyUsagePlotPoint,
@@ -10,21 +11,21 @@ export function formatUsageTickLabel(
 ) {
   const date = new Date(timestampSec * 1000);
   if (range === "1h" || range === "24h") {
-    return new Intl.DateTimeFormat(locale, {
+    return dateFormatter(locale, {
       hour: "2-digit",
       minute: "2-digit",
     }).format(date);
   }
 
   if (range === "7d") {
-    return new Intl.DateTimeFormat(locale, {
+    return dateFormatter(locale, {
       month: "short",
       day: "numeric",
       hour: "2-digit",
     }).format(date);
   }
 
-  return new Intl.DateTimeFormat(locale, {
+  return dateFormatter(locale, {
     month: "short",
     day: "numeric",
   }).format(date);

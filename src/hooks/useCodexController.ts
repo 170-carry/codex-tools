@@ -207,6 +207,7 @@ export function useCodexController(
   activeTab: "accounts" | "analytics" | "proxy" | "settings",
 ) {
   const { copy, locale } = useI18n();
+  const loadedLocaleRef = useRef(locale);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [tokenUsage, setTokenUsage] = useState<CodexTokenUsageSnapshot | null>(
     null,
@@ -1347,10 +1348,10 @@ export function useCodexController(
   ]);
 
   useEffect(() => {
-    if (loading) {
+    if (loading || loadedLocaleRef.current === locale) {
       return;
     }
-
+    loadedLocaleRef.current = locale;
     void loadAccounts();
     void loadApiProxyStatus();
     void loadCloudflaredStatus();

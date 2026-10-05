@@ -1,3 +1,5 @@
+import { dateFormatter, getSystemTimeZone } from "./intlFormatters.ts";
+
 export type QuotaTime = {
   date: string;
   time: string;
@@ -9,12 +11,12 @@ export type QuotaTime = {
 /** Convert a backend Unix timestamp into an unambiguous local date and time. */
 export function formatQuotaTime(
   epochSeconds: number | null | undefined,
-  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  timeZone = getSystemTimeZone(),
 ): QuotaTime | null {
   if (epochSeconds == null || !Number.isFinite(epochSeconds)) return null;
   const value = new Date(epochSeconds * 1000);
   if (Number.isNaN(value.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-GB", {
+  const parts = dateFormatter("en-GB", {
     timeZone,
     year: "numeric",
     month: "2-digit",

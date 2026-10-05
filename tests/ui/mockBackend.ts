@@ -12,6 +12,18 @@ import { version } from "../../package.json";
 export function installPreviewBackend() {
   const params = new URLSearchParams(location.search);
   let accounts = structuredClone(fixtures);
+  const accountCount = Number(params.get("accounts"));
+  if (accountCount > 0 && accountCount <= 1000) {
+    accounts = Array.from({ length: accountCount }, (_, index) => ({
+      ...structuredClone(fixtures[0]),
+      id: `synthetic-${index}`,
+      accountKey: `synthetic-${index}`,
+      label: `synthetic-${String(index).padStart(3, "0")}@example.com`,
+      email: `synthetic-${String(index).padStart(3, "0")}@example.com`,
+      isCurrent: index === 0,
+      addedAt: now + index,
+    }));
+  }
   if (params.get("scenario") === "empty") accounts = [];
   if (params.get("scenario") === "no-active")
     accounts.forEach((a) => {

@@ -4,6 +4,24 @@
 
 ### Released
 
+- v3.0.3
+
+#### English
+
+1. Merge #220: prevent keyboard focus in Settings from scrolling the entire window shell. Keep an overflow fallback for older WebKit versions.
+2. Fix #219: synchronize an explicit Codex model catalog so GPT-6.1 Sol appears when using the local API proxy. Existing bindings can sync the catalog directly; restart Codex afterward. Preserve model switches, key allowlists and original configuration backups.
+3. Keep the current page visible while a lazy view loads, preload the intended tab on hover/focus, and smooth classic navigation while respecting reduced motion.
+4. Reuse bounded date/number formatters across account rows, analytics and proxy charts. Eliminate four duplicate startup reads while retaining manual refresh, language switching and hidden-window polling controls.
+5. Remove six unused legacy components and duplicated embedded model instructions. Preserve existing account, analytics, proxy and settings functionality in both layouts.
+
+#### 中文
+
+1. 合并 #220：修复设置页键盘聚焦导致整个窗口外壳滚动、界面偏移的问题，并保留旧 WebKit 的溢出样式回退。
+2. 修复 #219：为本机反代同步 Codex 专用模型目录，解决 GPT-6.1 Sol 不出现在模型选择器中的问题。已有绑定可直接「同步模型目录」，完成后重启 Codex；保留模型开关、Key 白名单和原始配置备份。
+3. 懒加载切页时保持当前页面可见，悬停或键盘聚焦时预加载目标页；改善经典导航过渡，并遵循减少动态效果设置。
+4. 账号列表、分析和反代图表复用有容量上限的日期、数字格式化器；去除启动时四次重复读取，保留手动刷新、语言切换及隐藏窗口的轮询控制。
+5. 清理六个未使用的旧组件和重复内嵌的模型提示词；两种布局下的账号、分析、反代和设置功能保持完整。
+
 - v3.0.2
 
 #### English

@@ -1,3 +1,4 @@
+import { dateFormatter } from "../../utils/intlFormatters.ts";
 import type { AccountSummary } from "../../types/app";
 import {
   classifyUsageRefreshError,
@@ -59,13 +60,15 @@ function formatUsageFetchedAt(epochSec: number | null | undefined, locale: strin
   if (!epochSec) {
     return null;
   }
+  const date = new Date(epochSec * 1000);
+  if (Number.isNaN(date.getTime())) return null;
 
-  return new Date(epochSec * 1000).toLocaleString(locale, {
+  return dateFormatter(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }).format(date);
 }
 
 export function UsageFreshnessBadge({

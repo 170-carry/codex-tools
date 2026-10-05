@@ -1,3 +1,4 @@
+import { numberFormatter } from "./intlFormatters.ts";
 import type { UsageWindow } from "../types/app";
 
 export function percent(value: number | undefined | null): string {
@@ -14,10 +15,10 @@ export function formatTokenCount(value: number | undefined | null, locale?: stri
 
   const normalized = Math.max(0, value);
   if (normalized < 1000) {
-    return new Intl.NumberFormat(locale).format(normalized);
+    return numberFormatter(locale).format(normalized);
   }
 
-  return new Intl.NumberFormat(locale, {
+  return numberFormatter(locale, {
     notation: "compact",
     maximumFractionDigits: normalized < 100_000 ? 1 : 0,
   }).format(normalized);

@@ -1,4 +1,5 @@
 import type { AccountSummary } from "../../types/app";
+import { dateFormatter } from "../../utils/intlFormatters.ts";
 
 export function accountInitial(account: AccountSummary): string {
   const seed =
@@ -22,13 +23,15 @@ export function formatResetValue(
   if (!epochSec) {
     return emptyValue;
   }
+  const date = new Date(epochSec * 1000);
+  if (Number.isNaN(date.getTime())) return emptyValue;
 
-  return new Date(epochSec * 1000).toLocaleString(locale, {
+  return dateFormatter(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }).format(date);
 }
 
 export function hasResetCredits(account: AccountSummary): boolean {

@@ -1,3 +1,4 @@
+import { dateFormatter, numberFormatter } from "../../utils/intlFormatters.ts";
 import type { ApiProxyUsageMetric, ApiProxyUsageRange } from "../../types/app";
 import { API_PROXY_USAGE_PALETTE } from "./usageConstants";
 export function hashUsageModel(model: string) {
@@ -37,7 +38,7 @@ export function formatUsageMetricValue(
 
   const normalized = Math.max(0, Math.round(value));
   void metric;
-  return new Intl.NumberFormat(locale, {
+  return numberFormatter(locale, {
     maximumFractionDigits: 0,
     useGrouping: true,
   }).format(normalized);
@@ -95,7 +96,7 @@ export function formatUsageTooltipTime(
   const endDate = new Date(bucketEndSec * 1000);
 
   try {
-    const formatter = new Intl.DateTimeFormat(
+    const formatter = dateFormatter(
       locale,
       usageTooltipDateTimeOptions(range),
     );
