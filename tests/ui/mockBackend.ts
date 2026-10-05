@@ -26,6 +26,18 @@ export function installPreviewBackend() {
     codexAnalyticsWeeklyBudgetUsd: 50,
   };
   const commands: string[] = [];
+  const proxyStatus = params.get("proxy") === "bound"
+    ? {
+        ...DEFAULT_API_PROXY_STATUS,
+        running: true,
+        port: 8787,
+        baseUrl: "http://127.0.0.1:8787/v1",
+        apiKey: "sk-preview-only",
+        codexProxyBound: true,
+        codexProxyRestoreAvailable: true,
+        codexProxyBaseUrl: "http://127.0.0.1:8787/v1",
+      }
+    : DEFAULT_API_PROXY_STATUS;
   Object.assign(window, { __previewCommands: commands });
   mockWindows("main");
   mockIPC(
@@ -44,7 +56,7 @@ export function installPreviewBackend() {
         command === "refresh_codex_cost_analytics"
       )
         return analytics;
-      if (command === "get_api_proxy_status") return DEFAULT_API_PROXY_STATUS;
+      if (command === "get_api_proxy_status" || command === "bind_codex_to_api_proxy") return proxyStatus;
       if (command === "get_cloudflared_status")
         return DEFAULT_CLOUDFLARED_STATUS;
       if (command === "get_api_proxy_supported_models")

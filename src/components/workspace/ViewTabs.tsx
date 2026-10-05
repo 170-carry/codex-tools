@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n/I18nProvider";
 import { getWorkspaceCopy } from "../../i18n/workspaceCopy";
 import type { AppTab } from "../../types/workspace";
 import { WorkspaceIcon } from "./WorkspaceIcon";
+import { preloadWorkspaceView } from "./viewModules";
 
 const tabs: AppTab[] = ["accounts", "analytics", "proxy"];
 
@@ -54,6 +55,8 @@ export function ViewTabs({
               : -1
           }
           onClick={() => onSelectTab(tab)}
+          onPointerEnter={() => preloadWorkspaceView(tab)}
+          onFocus={() => preloadWorkspaceView(tab)}
           onKeyDown={(event) => onKeyDown(event, index)}
           title={`${copy.bottomDock[tab]} · ⌘${index + 1}`}
         >

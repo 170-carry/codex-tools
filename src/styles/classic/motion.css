@@ -1,0 +1,31 @@
+.classicApp .topSegmentedIndicator {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 5px;
+  width: calc((100% - 22px) / 4);
+  border-radius: inherit;
+  background: var(--surface-tint);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, .08), inset 0 1px rgba(255, 255, 255, .92);
+  transform: translateX(calc(var(--active-tab) * (100% + 4px)));
+  pointer-events: none;
+}
+
+.classicApp .topSegmentedButton { position: relative; }
+.classicApp .topSegmentedButton.isActive { background: transparent; box-shadow: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .classicApp .topSegmentedIndicator {
+    transition: transform 220ms cubic-bezier(.22, .8, .25, 1);
+  }
+  .classicApp .topSegmentedButton { transition: color 160ms ease, background 160ms ease; }
+  .classicApp .viewStage > :not(.workspaceLoading) { animation: fadeIn 160ms ease; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classicApp *, .classicApp *::before, .classicApp *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

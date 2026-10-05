@@ -1,6 +1,7 @@
 import { LayoutPicker } from "../layout/LayoutPicker";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
+import { preloadWorkspaceView } from "../workspace/viewModules";
 
 import { useI18n } from "../../i18n/I18nProvider";
 import type { ThemeMode } from "../../types/app";
@@ -114,13 +115,20 @@ export function ClassicTopBar({
         aria-hidden="true"
         onMouseDown={handleStartWindowDrag}
       />
-      <nav className="topSegmentedNav" aria-label={copy.bottomDock.ariaLabel}>
+      <nav
+        className="topSegmentedNav"
+        aria-label={copy.bottomDock.ariaLabel}
+        style={{ "--active-tab": navItems.findIndex((item) => item.id === activeTab) } as CSSProperties}
+      >
+        <span className="topSegmentedIndicator" aria-hidden="true" />
         {navItems.map((item) => (
           <button
             key={item.id}
             type="button"
             className={`topSegmentedButton${activeTab === item.id ? " isActive" : ""}`}
             onClick={() => onSelectTab(item.id)}
+            onPointerEnter={() => preloadWorkspaceView(item.id)}
+            onFocus={() => preloadWorkspaceView(item.id)}
             aria-pressed={activeTab === item.id}
           >
             {item.label}

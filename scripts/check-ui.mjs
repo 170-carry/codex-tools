@@ -45,6 +45,10 @@ const nav = (name) => ({
   click: async () => {
     if (name === "设置") await page.locator(".settingsButton").click();
     else await page.getByRole("tab", { name, exact: true }).click();
+    // Lazy navigation retains the old page until the new chunk is ready.
+    const tab = { "账号": "accounts", "分析": "analytics", "API 反代": "proxy", "设置": "settings" }[name];
+    assert.ok(tab, `Unknown navigation label: ${name}`);
+    await page.locator(`#workspace-content[aria-label="${tab}"]`).waitFor();
   },
 });
 const inspector = page.locator(".accountInspector[open]");
@@ -177,7 +181,7 @@ try {
     "Account menu restores keyboard focus",
     await trigger.evaluate((e) => e === document.activeElement),
   );
-  await row("备用工作账号").locator(".accountProxyToggle input").uncheck();
+  await row("备用工作账号").locator(".accountProxyToggle").click();
   await trigger.click();
   check(
     "Proxy participation is directly accessible and removed from the menu",

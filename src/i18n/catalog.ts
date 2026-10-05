@@ -369,6 +369,8 @@ export type MessageCatalog = {
     codexBindRestoreAvailableDescription: string;
     codexBindCurrentBaseUrlLabel: string;
     codexBindAction: string;
+    codexRefreshModelsAction: string;
+    codexModelsRestartHint: string;
     codexBindActionBusy: string;
     codexRestoreAction: string;
     codexRestoreActionBusy: string;

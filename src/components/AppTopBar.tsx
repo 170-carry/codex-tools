@@ -6,6 +6,7 @@ import { WorkspaceIcon } from "./workspace/WorkspaceIcon";
 import { ViewTabs } from "./workspace/ViewTabs";
 import { getCompactTableCopy } from "../i18n/compactTableCopy";
 import { LayoutPicker } from "./layout/LayoutPicker";
+import { preloadWorkspaceView } from "./workspace/viewModules";
 
 export function AppTopBar({
   activeTab,
@@ -64,6 +65,8 @@ export function AppTopBar({
           type="button"
           className={`toolbarIconButton settingsButton${activeTab === "settings" ? " isSelected" : ""}`}
           onClick={() => onSelectTab("settings")}
+          onPointerEnter={() => preloadWorkspaceView("settings")}
+          onFocus={() => preloadWorkspaceView("settings")}
           title={`${copy.bottomDock.settings} · ⌘,`}
           aria-label={copy.bottomDock.settings}
           aria-pressed={activeTab === "settings"}

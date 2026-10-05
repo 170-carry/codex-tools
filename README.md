@@ -199,6 +199,8 @@ GPT-5.6 可用推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`ma
 
 反代面板也提供“切到本机反代”和“恢复正常地址”按钮，会自动备份并恢复 `~/.codex/config.toml` 与 `~/.codex/auth.json`。
 
+如果官方 Codex App/CLI 接入反代后看不到 GPT-6.1 Sol，可点击“切到本机反代”（已绑定时为“同步模型目录”），然后重启 Codex App/CLI。API Key 接入下，部分客户端使用内置模型目录，并不会读取反代的 `/v1/models`。绑定时本工具会通过 `model_catalog_json` 提供独立的 Codex 模型目录，按模型开关和当前 Key 白名单筛选；启动代理或修改这些权限时也会同步。原有 Key 的权限不会自动扩大。切换回普通账号或恢复配置后，Codex 继续使用原来的模型目录。
+
 ### Anthropic Messages
 
 兼容 Anthropic Messages 的客户端可以请求：

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { startTransition, Suspense, useCallback, useState } from "react";
 import "./App.css";
 import { AppTopBar } from "./components/AppTopBar";
 import { AppDialogs } from "./components/workspace/AppDialogs";
@@ -10,26 +10,15 @@ import type { AppTab } from "./types/workspace";
 import { AppLayoutProvider } from "./components/layout/AppLayoutProvider";
 import { useAppLayout } from "./hooks/useAppLayout";
 import { ClassicTopBar } from "./components/classic/ClassicTopBar";
-
-const AnalyticsView = lazy(() =>
-  import("./components/workspace/AnalyticsView").then((module) => ({
-    default: module.AnalyticsView,
-  })),
-);
-const ProxyView = lazy(() =>
-  import("./components/workspace/ProxyView").then((module) => ({
-    default: module.ProxyView,
-  })),
-);
-const SettingsView = lazy(() =>
-  import("./components/workspace/SettingsView").then((module) => ({
-    default: module.SettingsView,
-  })),
-);
+import { AnalyticsView, ProxyView, SettingsView } from "./components/workspace/viewModules";
 
 function AppWorkspace() {
   const { layout } = useAppLayout();
   const [activeTab, setActiveTab] = useState<AppTab>("accounts");
+  const selectTab = useCallback((tab: AppTab) => {
+    // Keep the current page visible while a lazy view is loading.
+    startTransition(() => setActiveTab(tab));
+  }, []);
   const [accountSearchOpen, setAccountSearchOpen] = useState(false);
   const openAccountSearch = useCallback(() => {
     setAccountSearchOpen(true);
@@ -45,7 +34,7 @@ function AppWorkspace() {
   };
   const { themeMode, toggleTheme } = useThemeMode();
   const c = useCodexController(activeTab);
-  useAppNavigation(activeTab, setActiveTab, c, openAccountSearch);
+  useAppNavigation(activeTab, selectTab, c, openAccountSearch);
   const isMacos = /Macintosh|Mac OS X/i.test(navigator.userAgent);
   const quotaOnboardingPlatform = /Windows/i.test(navigator.userAgent)
     ? "windows"
@@ -72,7 +61,7 @@ function AppWorkspace() {
           {layout === "classic" ? (
             <ClassicTopBar
               activeTab={activeTab}
-              onSelectTab={setActiveTab}
+              onSelectTab={selectTab}
               themeMode={themeMode}
               onToggleTheme={toggleTheme}
               onRefresh={refresh}
@@ -81,13 +70,13 @@ function AppWorkspace() {
                   ? c.costAnalyticsLoading
                   : c.refreshing || c.refreshingTokenUsage
               }
-              onGoHome={() => setActiveTab("accounts")}
+              onGoHome={() => selectTab("accounts")}
               showRefresh={activeTab !== "settings"}
             />
           ) : (
             <AppTopBar
               activeTab={activeTab}
-              onSelectTab={setActiveTab}
+              onSelectTab={selectTab}
               onRefresh={refresh}
               refreshing={
                 activeTab === "analytics"
@@ -117,7 +106,7 @@ function AppWorkspace() {
                   c={c}
                   searchVisible={accountSearchOpen}
                   onCloseSearch={closeAccountSearch}
-                  onShowAnalytics={() => setActiveTab("analytics")}
+                  onShowAnalytics={() => selectTab("analytics")}
                 />
               ) : activeTab === "analytics" ? (
                 <AnalyticsView c={c} />

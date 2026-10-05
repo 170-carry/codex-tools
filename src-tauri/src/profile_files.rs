@@ -1,5 +1,8 @@
+#[path = "profile_files/codex_catalog.rs"]
+mod codex_catalog;
 #[path = "profile_files/config.rs"]
 mod config;
+pub(crate) use codex_catalog::{bound_proxy_key, sync_proxy_catalog};
 pub(crate) use config::current_config_matches_account;
 use config::{
     build_chatgpt_profile_config, build_codex_proxy_config, build_relay_profile_config,
@@ -250,6 +253,7 @@ pub(crate) fn codex_proxy_binding_state(
 pub(crate) fn bind_codex_to_api_proxy(
     base_url: &str,
     api_key: &str,
+    catalog: &Value,
 ) -> Result<CodexProxyBindingState, String> {
     let base_url = normalize_codex_proxy_base_url(base_url)
         .ok_or_else(|| "本机反代 Base URL 为空。请先启动 API 反代。".to_string())?;
@@ -263,13 +267,19 @@ pub(crate) fn bind_codex_to_api_proxy(
     ensure_codex_proxy_backup(&config_path, &auth_path, &base_url)?;
 
     let config_template = read_optional_text(&config_path)?;
-    let config_text = build_codex_proxy_config(config_template.as_deref(), &base_url);
+    let config_text = build_codex_proxy_config(
+        config_template.as_deref(),
+        &base_url,
+        &codex_catalog::catalog_path(&config_path),
+    );
     let auth_json = build_api_auth_json(api_key);
     let serialized_auth = serde_json::to_string_pretty(&auth_json)
         .map_err(|error| format!("序列化本机反代 auth.json 失败: {error}"))?;
 
+    codex_catalog::write_catalog(&config_path, catalog)?;
     write_file_atomically(&config_path, config_text.as_bytes())?;
     write_file_atomically(&auth_path, serialized_auth.as_bytes())?;
+    codex_catalog::record_bound_base_url(&codex_proxy_backup_metadata_path()?, &base_url)?;
     codex_proxy_binding_state(Some(&base_url))
 }
 
@@ -744,6 +754,7 @@ openai_base_url = "https://api.openai.com/v1"
 "#,
             ),
             "http://127.0.0.1:8787/v1",
+            std::path::Path::new("/tmp/codex-tools-models.json"),
         );
         let document = config
             .parse::<DocumentMut>()
@@ -878,7 +889,11 @@ shared_setting = "keep-me"
 
     #[test]
     fn build_codex_proxy_config_uses_gpt_5_6_defaults_for_new_profiles() {
-        let config = build_codex_proxy_config(None, "http://127.0.0.1:8787/v1");
+        let config = build_codex_proxy_config(
+            None,
+            "http://127.0.0.1:8787/v1",
+            std::path::Path::new("/tmp/codex-tools-models.json"),
+        );
         let document = config
             .parse::<DocumentMut>()
             .expect("proxy config should parse");

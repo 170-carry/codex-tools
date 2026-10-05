@@ -48,6 +48,7 @@ pub(crate) async fn update_app_settings_internal(
     patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
     let mut launch_at_startup_to_apply = None;
+    let models_changed = patch.api_proxy_disabled_models.is_some();
     let mut previous_launch_at_startup = None;
     let settings = {
         let _guard = state.store_lock.lock().await;
@@ -161,6 +162,9 @@ pub(crate) async fn update_app_settings_internal(
         }
     }
 
+    if models_changed {
+        crate::proxy_service::sync_bound_codex_catalog_internal(app, state).await?;
+    }
     Ok(settings)
 }
 
@@ -193,17 +197,22 @@ pub(crate) async fn replace_app_settings_internal(
     state: &AppState,
     settings: AppSettings,
 ) -> Result<(), String> {
-    let launch_at_startup_changed = {
+    let (launch_at_startup_changed, models_changed) = {
         let _guard = state.store_lock.lock().await;
         let mut store = load_store(app)?;
         let changed = store.settings.launch_at_startup != settings.launch_at_startup;
+        let models_changed =
+            store.settings.api_proxy_disabled_models != settings.api_proxy_disabled_models;
         store.settings = settings.clone();
         save_store(app, &store)?;
-        changed
+        (changed, models_changed)
     };
 
     if launch_at_startup_changed {
         set_system_autostart(app, settings.launch_at_startup)?;
+    }
+    if models_changed {
+        crate::proxy_service::sync_bound_codex_catalog_internal(app, state).await?;
     }
 
     Ok(())

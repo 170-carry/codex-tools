@@ -3,6 +3,7 @@ use super::*;
 
 pub(super) fn build_chatgpt_profile_config(current_config: Option<&str>) -> String {
     let mut document = parse_config_or_default(current_config);
+    codex_catalog::remove_managed_catalog(&mut document);
     let had_base_url = document.get("openai_base_url").is_some();
     document.remove("openai_base_url");
     if let Some(providers) = document
@@ -30,6 +31,7 @@ pub(super) fn build_relay_profile_config(
     model_name: &str,
 ) -> String {
     let mut document = parse_config_or_default(current_config);
+    codex_catalog::remove_managed_catalog(&mut document);
     document["openai_base_url"] = value(base_url);
     document["model"] = value(model_name);
     configure_relay_provider(&mut document, base_url);
@@ -37,10 +39,15 @@ pub(super) fn build_relay_profile_config(
     document.to_string()
 }
 
-pub(super) fn build_codex_proxy_config(current_config: Option<&str>, base_url: &str) -> String {
+pub(super) fn build_codex_proxy_config(
+    current_config: Option<&str>,
+    base_url: &str,
+    catalog_path: &Path,
+) -> String {
     let mut document = parse_config_or_default(current_config);
     document["openai_base_url"] = value(base_url);
     document["model_provider"] = value("openai");
+    document["model_catalog_json"] = value(catalog_path.to_string_lossy().as_ref());
     document["cli_auth_credentials_store"] = value(MANAGED_AUTH_CREDENTIALS_STORE);
     set_missing_string_default(&mut document, "model", DEFAULT_API_PROXY_MODEL);
     set_missing_string_default(

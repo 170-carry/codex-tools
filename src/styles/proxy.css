@@ -19,6 +19,12 @@
   padding-inline: 24px;
 }
 
+.proxyCatalogHint {
+  margin: 4px 0 12px;
+  color: var(--subtle);
+  font: 400 12px/1.5 var(--font-ui);
+}
+
 .proxyHeaderStats {
   display: flex;
   align-items: center;

@@ -182,15 +182,18 @@ export function ProxyService({ workspace }: { workspace: ApiProxyWorkspace }) {
             <button
               type="button"
               className="primary"
-              disabled={!canBindCodexProxy || status.codexProxyBound}
+              disabled={!canBindCodexProxy}
               onClick={onBindCodexProxy}
             >
               {bindingCodexProxy
                 ? proxyCopy.codexBindActionBusy
-                : proxyCopy.codexBindAction}
+                : status.codexProxyBound
+                  ? proxyCopy.codexRefreshModelsAction
+                  : proxyCopy.codexBindAction}
             </button>
           </div>
         </div>
+        <p className="proxyCatalogHint">{proxyCopy.codexModelsRestartHint}</p>
         <div className="proxyEndpointList">
           <div className="proxyEndpointRow">
             <div className="proxyEndpointMeta">

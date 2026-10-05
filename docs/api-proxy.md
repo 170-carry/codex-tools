@@ -557,7 +557,13 @@ app bind 不需要 patch 官方 App 文件。
 3. 工具会备份当前 `~/.codex/config.toml` 和 `~/.codex/auth.json`
 4. 工具会把 `openai_base_url` 写成当前本机 `Base URL`
 5. 工具会把当前反代 `API Key` 写入 `auth.json`
-6. 点击“恢复正常地址”时，还原到绑定前的配置和认证文件
+6. 工具会写入独立的 `codex-tools-models.json`，并通过 `model_catalog_json` 指向它
+7. 重启 Codex App/CLI，使模型选择器加载新目录；已经绑定时可直接点击“同步模型目录”
+8. 点击“恢复正常地址”时，还原到绑定前的配置和认证文件，包括原先的自定义模型目录配置
+
+Codex 的 API Key 接入模式在自定义 `openai_base_url` 下可能跳过远端模型发现，即使 `/v1/models` 包含 GPT-6.1 Sol 也不会显示在选择器中。独立目录保留模型的完整能力和提示词，并按全局模型开关与绑定 Key 的白名单筛选，不覆盖官方 `models_cache.json`。启动本机代理、保存模型开关或修改 Key 权限时会同步已有绑定；目录没有变化时不重复写盘。Key 被禁用或撤销时不展示可选模型，也不扩大旧 Key 的白名单。
+
+本功能使用 Codex 的 [`model_catalog_json` 配置](https://developers.openai.com/codex/config-reference/)。可用 `python3 scripts/check-codex-model-discovery.py --codex /path/to/codex` 对实际客户端做隔离验证；只使用临时目录、测试 Key 和回环接口，不发起推理请求。
 
 这个方式把“账号池 + token refresh + 运行中轮换”留在 codex-tools，把官方 App/CLI 只当普通 OpenAI/Responses 客户端。
 

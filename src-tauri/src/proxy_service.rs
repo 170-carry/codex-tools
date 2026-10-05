@@ -12,8 +12,17 @@ mod request_policy;
 use request_policy::anthropic_reasoning_effort;
 use request_policy::api_proxy_service_tier_for_upstream;
 
+#[cfg(feature = "desktop")]
+#[path = "proxy_service/codex_binding.rs"]
+mod codex_binding;
+#[path = "proxy_service/codex_catalog.rs"]
+mod codex_catalog;
 #[path = "proxy_service/model_catalog.rs"]
 mod model_catalog;
+#[cfg(feature = "desktop")]
+pub(crate) use codex_binding::{
+    bind_codex_to_api_proxy_internal, sync_bound_codex_catalog_internal,
+};
 #[path = "proxy_service/responses_lite.rs"]
 mod responses_lite;
 use model_catalog::{
@@ -770,7 +779,9 @@ pub(crate) async fn update_api_proxy_key_internal(
     input: UpdateApiProxyKeyInput,
 ) -> Result<Vec<ApiProxyKey>, String> {
     let storage = app_proxy_storage_context(app, state)?;
-    update_api_proxy_key_with_runtime(&storage, &state.api_proxy, input).await
+    let keys = update_api_proxy_key_with_runtime(&storage, &state.api_proxy, input).await?;
+    codex_binding::sync_bound_codex_catalog(&storage).await?;
+    Ok(keys)
 }
 
 pub(crate) async fn update_api_proxy_key_with_runtime(
@@ -813,7 +824,9 @@ pub(crate) async fn delete_api_proxy_key_internal(
     id: String,
 ) -> Result<Vec<ApiProxyKey>, String> {
     let storage = app_proxy_storage_context(app, state)?;
-    delete_api_proxy_key_with_runtime(&storage, &state.api_proxy, &id).await
+    let keys = delete_api_proxy_key_with_runtime(&storage, &state.api_proxy, &id).await?;
+    codex_binding::sync_bound_codex_catalog(&storage).await?;
+    Ok(keys)
 }
 
 pub(crate) async fn delete_api_proxy_key_with_runtime(
@@ -845,7 +858,9 @@ pub(crate) async fn regenerate_api_proxy_key_internal(
     id: String,
 ) -> Result<Vec<ApiProxyKey>, String> {
     let storage = app_proxy_storage_context(app, state)?;
-    regenerate_api_proxy_key_with_runtime(&storage, &state.api_proxy, Some(&id)).await
+    let keys = regenerate_api_proxy_key_with_runtime(&storage, &state.api_proxy, Some(&id)).await?;
+    codex_binding::sync_bound_codex_catalog(&storage).await?;
+    Ok(keys)
 }
 
 pub(crate) async fn regenerate_api_proxy_key_with_runtime(
@@ -1005,13 +1020,15 @@ pub(crate) async fn start_api_proxy_internal(
     preferred_port: Option<u16>,
 ) -> Result<ApiProxyStatus, String> {
     let storage = app_proxy_storage_context(app, state)?;
-    start_api_proxy_with_runtime(
+    let status = start_api_proxy_with_runtime(
         &storage,
         &state.api_proxy,
         preferred_port,
         DESKTOP_API_PROXY_BIND_HOST,
     )
-    .await
+    .await?;
+    codex_binding::sync_bound_codex_catalog(&storage).await?;
+    Ok(status)
 }
 
 pub(crate) async fn start_api_proxy_with_runtime(
@@ -1165,26 +1182,9 @@ pub(crate) async fn refresh_api_proxy_key_internal(
     state: &AppState,
 ) -> Result<ApiProxyStatus, String> {
     let storage = app_proxy_storage_context(app, state)?;
-    refresh_api_proxy_key_with_runtime(&storage, &state.api_proxy).await
-}
-
-#[cfg(feature = "desktop")]
-pub(crate) async fn bind_codex_to_api_proxy_internal(
-    app: &AppHandle,
-    state: &AppState,
-) -> Result<ApiProxyStatus, String> {
-    let status = get_api_proxy_status_internal(app, state).await?;
-    let base_url = status
-        .base_url
-        .as_deref()
-        .ok_or_else(|| "请先启动 API 反代，再绑定 Codex App/CLI。".to_string())?;
-    let api_key = status
-        .api_key
-        .as_deref()
-        .ok_or_else(|| "请先生成 API 反代 API Key，再绑定 Codex App/CLI。".to_string())?;
-
-    profile_files::bind_codex_to_api_proxy(base_url, api_key)?;
-    get_api_proxy_status_internal(app, state).await
+    let status = refresh_api_proxy_key_with_runtime(&storage, &state.api_proxy).await?;
+    codex_binding::sync_bound_codex_catalog(&storage).await?;
+    Ok(status)
 }
 
 #[cfg(feature = "desktop")]
@@ -1192,7 +1192,10 @@ pub(crate) async fn restore_codex_proxy_binding_internal(
     app: &AppHandle,
     state: &AppState,
 ) -> Result<ApiProxyStatus, String> {
-    profile_files::restore_codex_proxy_binding()?;
+    {
+        let _guard = state.store_lock.lock().await;
+        profile_files::restore_codex_proxy_binding()?;
+    }
     get_api_proxy_status_internal(app, state).await
 }
 
