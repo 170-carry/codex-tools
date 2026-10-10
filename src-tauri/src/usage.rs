@@ -331,6 +331,14 @@ fn map_reset_credits_payload(payload: serde_json::Value) -> ResetCreditsSnapshot
             items
                 .iter()
                 .map(|item| ResetCredit {
+                    id: item
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    status: item
+                        .get("status")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
                     granted_at: get_timestamp_field(
                         item,
                         &[

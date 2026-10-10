@@ -5,6 +5,7 @@ import { useAppLayout } from "../../hooks/useAppLayout";
 import { ClassicAccountsGrid } from "../classic/ClassicAccountsGrid";
 import { ClassicMetaStrip } from "../classic/ClassicMetaStrip";
 import { ClassicAccountActions } from "../classic/ClassicAccountActions";
+import { moveAccountGroup } from "../../utils/accountDisplayOrder";
 
 export function AccountsView({
   c,
@@ -19,6 +20,11 @@ export function AccountsView({
 }) {
   const { layout } = useAppLayout();
   const actions: AccountsGridProps = {
+    accountOrder: c.settings.accountOrder,
+    orderingAccounts: c.savingSettings,
+    onMoveAccount: (account, direction) => void c.updateSettings({
+      accountOrder: moveAccountGroup(c.accounts, c.settings.accountOrder, account.accountKey, direction),
+    }),
     searchVisible,
     onCloseSearch,
     onShowAnalytics,
@@ -33,6 +39,8 @@ export function AccountsView({
     authBusy: c.authBusy,
     switchingId: c.switchingId,
     warmingAccountId: c.warmingAccountId,
+    resettingAccountId: c.resettingAccountId,
+    onUseResetCredit: c.onUseResetCredit,
     renamingAccountId: c.renamingAccountId,
     pendingDeleteId: c.pendingDeleteId,
     onExportAll: () => void c.onExportAccounts(),

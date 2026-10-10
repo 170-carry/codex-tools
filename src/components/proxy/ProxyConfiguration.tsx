@@ -43,6 +43,7 @@ export function ProxyConfiguration({
           />
         </div>
 
+        {loadBalanceMode === "priority" ? <p>{proxyCopy.priorityDescription}</p> : null}
         {loadBalanceMode === "sequential" ? (
           <div className="proxySequentialLimit">
             <div className="proxySequentialLimitHeader">

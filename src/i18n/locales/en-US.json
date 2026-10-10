@@ -523,7 +523,12 @@
     "publicStatusStoppedDescription": "A public URL will be generated after start",
     "publicUrlLabel": "Public URL",
     "installPathLabel": "Install path",
-    "notDetected": "Not detected"
+    "notDetected": "Not detected",
+    "loadBalancePriority": "Priority",
+    "priorityDescription": "Prefer available accounts in list order, returning to a higher-priority account when it recovers. Sessions may change accounts. Reorder accounts in their details.",
+    "accountOrderLabel": "Account order and proxy priority",
+    "moveUp": "Move up",
+    "moveDown": "Move down"
   },
   "settings": {
     "dialogAriaLabel": "App settings",
@@ -543,7 +548,11 @@
       "uncheckedText": "Off",
       "description": "Sends a fixed hello request only for selected accounts; active, exhausted, or cooling-down accounts are skipped.",
       "accountsLabel": "Warm-up accounts",
-      "noAccounts": "No ChatGPT accounts"
+      "noAccounts": "No ChatGPT accounts",
+      "scheduleLabel": "Limit automatic warm-up hours",
+      "scheduleDescription": "Uses the system time zone, including overnight ranges. Stops after the end time without resetting active windows. Keep the app running; manual warm-up is unaffected.",
+      "startTime": "Daily start",
+      "endTime": "Daily end"
     },
     "launchCodexAfterSwitch": {
       "label": "Launch Codex after switch",
@@ -649,6 +658,10 @@
       "openIssues": "Issues",
       "openReleases": "Releases",
       "openChangelog": "Changelog"
+    },
+    "proxyPoolDisplay": {
+      "label": "Show proxy pool in menu bar",
+      "description": "Show average quota and sample counts for eligible ChatGPT accounts, not total tokens. Excludes API accounts, duplicates and snapshots older than 10 minutes."
     }
   },
   "editorPicker": {
@@ -788,5 +801,17 @@
     "cloudflaredStopped": "cloudflared public access stopped",
     "cloudflaredStopFailed": "Failed to stop cloudflared public access: {{error}}",
     "accountWarmupRequestSent": "Warm-up request completed; 5h activation is not yet confirmed. Quota may update later; refresh shortly."
+  },
+  "resetCredit": {
+    "use": "Use this card",
+    "confirm": "Consume the selected reset card for this account? This cannot be undone; quota windows reset according to upstream rules.",
+    "confirmUse": "Confirm use",
+    "submitting": "Submitting…",
+    "reset": "Upstream confirmed the quota reset",
+    "nothingToReset": "No windows needed resetting; card was kept",
+    "noCredit": "No reset credit available",
+    "alreadyRedeemed": "This card was already used; check the latest quota",
+    "unknown": "Outcome unknown; refresh usage to verify",
+    "refreshFailed": "Request completed, but usage refresh failed; refresh manually"
   }
 }

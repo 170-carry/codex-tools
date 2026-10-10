@@ -150,6 +150,7 @@ dependencies = [
  "async-stream",
  "axum",
  "base64 0.22.1",
+ "chrono",
  "clap",
  "constant_time_eq",
  "dirs 6.0.0",

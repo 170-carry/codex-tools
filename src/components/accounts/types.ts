@@ -75,6 +75,11 @@ export type UiCopy = {
 };
 
 export type AccountsGridProps = {
+  resettingAccountId?: string | null;
+  onUseResetCredit?: (account: AccountSummary, creditId: string) => Promise<boolean>;
+  accountOrder?: string[];
+  orderingAccounts?: boolean;
+  onMoveAccount?: (account: AccountSummary, direction: -1 | 1) => void;
   searchVisible: boolean;
   onCloseSearch: () => void;
   onShowAnalytics: () => void;
