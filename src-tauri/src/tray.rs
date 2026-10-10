@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "macos", test))]
+mod proxy_pool;
 mod quota_mode;
 use quota_mode::quota_icon_mode;
 #[cfg(target_os = "macos")]
@@ -633,7 +635,10 @@ fn build_macos_tray_tooltip(
     mode: TrayUsageDisplayMode,
     locale: crate::models::AppLocale,
 ) -> String {
-    let mut lines = vec![i18n::tray_usage_heading(locale).to_string()];
+    let mut lines = vec![
+        i18n::tray_usage_heading(locale).to_string(),
+        proxy_pool::summary(accounts, locale),
+    ];
     lines.push(format!(
         "{}: {}",
         i18n::tray_display_mode_label(locale),
@@ -709,6 +714,15 @@ fn build_macos_tray_menu(
     let current_item = MenuItem::with_id("tray_current_summary", current_line, false, None);
     menu.append(&current_item)
         .map_err(|e| format!("写入状态栏菜单失败: {e}"))?;
+
+    let pool = MenuItem::with_id(
+        "tray_proxy_pool",
+        proxy_pool::summary(accounts, locale),
+        false,
+        None,
+    );
+    menu.append(&pool)
+        .map_err(|e| format!("写入代理池额度菜单失败: {e}"))?;
 
     let separator = PredefinedMenuItem::separator();
     menu.append(&separator)
@@ -822,12 +836,25 @@ fn update_macos_tray_snapshot_on_main_thread(
     let onboarding_preview_percent = load_store(app).ok().and_then(|store| {
         macos_onboarding_preview_percent(store.settings.macos_quota_onboarding_completed, accounts)
     });
-    let percent = quota_icon_percent(accounts, mode).or(onboarding_preview_percent);
+    let pool_enabled = load_store(app)
+        .map(|s| s.settings.macos_tray_proxy_pool)
+        .unwrap_or(false);
+    let percent = if pool_enabled {
+        proxy_pool::percent(accounts, mode)
+    } else {
+        quota_icon_percent(accounts, mode).or(onboarding_preview_percent)
+    };
 
     if should_show_usage_surface(mode) {
-        let title = onboarding_preview_percent
-            .map(|percent| build_macos_onboarding_preview_title(mode, show_window_labels, percent))
-            .unwrap_or_else(|| build_tray_usage_title(accounts, mode, show_window_labels));
+        let title = if pool_enabled {
+            proxy_pool::title(accounts, mode, show_window_labels)
+        } else {
+            onboarding_preview_percent
+                .map(|percent| {
+                    build_macos_onboarding_preview_title(mode, show_window_labels, percent)
+                })
+                .unwrap_or_else(|| build_tray_usage_title(accounts, mode, show_window_labels))
+        };
         let tooltip = build_macos_tray_tooltip(accounts, mode, locale);
         #[cfg(debug_assertions)]
         log_macos_status_bar_render("update", accounts, &title);
@@ -1279,15 +1306,24 @@ fn create_macos_status_bar_trays(
         store.settings.macos_quota_onboarding_completed,
         &summaries,
     );
-    let title = onboarding_preview_percent
-        .map(|percent| build_macos_onboarding_preview_title(mode, show_window_labels, percent))
-        .unwrap_or_else(|| build_tray_usage_title(&summaries, mode, show_window_labels));
+    let pool_enabled = store.settings.macos_tray_proxy_pool;
+    let title = if pool_enabled {
+        proxy_pool::title(&summaries, mode, show_window_labels)
+    } else {
+        onboarding_preview_percent
+            .map(|percent| build_macos_onboarding_preview_title(mode, show_window_labels, percent))
+            .unwrap_or_else(|| build_tray_usage_title(&summaries, mode, show_window_labels))
+    };
     let tooltip = build_macos_tray_tooltip(&summaries, mode, locale);
     #[cfg(debug_assertions)]
     log_macos_status_bar_render(_log_context, &summaries, &title);
 
     let quota_mode = quota_icon_mode(mode);
-    let percent = quota_icon_percent(&summaries, mode).or(onboarding_preview_percent);
+    let percent = if pool_enabled {
+        proxy_pool::percent(&summaries, mode)
+    } else {
+        quota_icon_percent(&summaries, mode).or(onboarding_preview_percent)
+    };
     let quota_title = macos_quota_icon_title(icon_style, percent, logo_ring_show_percentage);
     let quota_tooltip = build_macos_tray_tooltip(&summaries, quota_mode, locale);
     let quota_tray = if quota_icon_visible {
@@ -1585,7 +1621,7 @@ mod tests {
         );
     }
 
-    fn current_account_with_usage() -> AccountSummary {
+    pub(super) fn current_account_with_usage() -> AccountSummary {
         AccountSummary {
             id: "current".to_string(),
             label: "Current account".to_string(),

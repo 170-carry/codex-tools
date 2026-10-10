@@ -13,6 +13,8 @@ export type CreditSnapshot = {
 };
 
 export type ResetCredit = {
+  id?: string | null;
+  status?: string | null;
   grantedAt: number | null;
   expiresAt: number | null;
 };
@@ -432,7 +434,7 @@ export type WindowsTrayIconStyle =
   | "logoProgressRing";
 export type WindowsTaskbarWidgetPlacement = "embedded" | "left" | "hidden";
 
-export type ApiProxyLoadBalanceMode = "average" | "sequential";
+export type ApiProxyLoadBalanceMode = "average" | "sequential" | "priority";
 
 export type EditorAppId =
   | "vscode"
@@ -452,6 +454,7 @@ export type AppSettings = {
   launchAtStartup: boolean;
   trayUsageDisplayMode: TrayUsageDisplayMode;
   trayUsageTitleShowWindowLabels: boolean;
+  macosTrayProxyPool: boolean;
   macosTrayTextIconStyle: MacosTrayTextIconStyle;
   windowsTrayIconStyle: WindowsTrayIconStyle;
   trayQuotaIconVisible: boolean;
@@ -470,9 +473,13 @@ export type AppSettings = {
   autoStartApiProxy: boolean;
   apiProxyPort: number;
   apiProxyLoadBalanceMode: ApiProxyLoadBalanceMode;
+  accountOrder: string[];
   apiProxySequentialFiveHourLimitPercent: number;
   apiProxyDisabledModels: string[];
   autoAccountWarmupEnabled: boolean;
+  autoAccountWarmupScheduleEnabled: boolean;
+  autoAccountWarmupStartMinute: number;
+  autoAccountWarmupEndMinute: number;
   autoAccountWarmupAccountIds: string[];
   codexAnalyticsWeeklyBudgetUsd: number | null;
   remoteServers: RemoteServerConfig[];

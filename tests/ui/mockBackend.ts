@@ -57,6 +57,16 @@ export function installPreviewBackend() {
       commands.push(command);
       if (command === "list_accounts" || command === "refresh_all_usage")
         return structuredClone(accounts);
+      if (command === "use_reset_credit") {
+        const account = accounts.find(a => a.id === payload?.id);
+        const credits = account?.usage?.resetCredits;
+        if (!account || !credits) throw new Error("Preview credit unavailable");
+        const card = credits.credits.find(c => c.id === payload?.creditId && c.status === "available");
+        if (!card) throw new Error("Preview card unavailable");
+        card.status = "redeemed";
+        credits.availableCount = Math.max(0, (credits.availableCount ?? 0) - 1);
+        return { code: "reset", windowsReset: 2, accounts: structuredClone(accounts), refreshError: null };
+      }
       if (command === "get_app_settings") return settings;
       if (command === "update_app_settings") {
         settings = { ...settings, ...(payload?.patch as Partial<AppSettings>) };

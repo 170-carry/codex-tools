@@ -27,8 +27,9 @@ export function useProxyService({
     () => [
       { id: "average" as const, label: proxyCopy.loadBalanceAverage },
       { id: "sequential" as const, label: proxyCopy.loadBalanceSequential },
+      { id: "priority" as const, label: proxyCopy.loadBalancePriority },
     ],
-    [proxyCopy.loadBalanceAverage, proxyCopy.loadBalanceSequential],
+    [proxyCopy.loadBalanceAverage, proxyCopy.loadBalanceSequential, proxyCopy.loadBalancePriority],
   );
   const portInput =
     portDraft ?? String(status.port ?? savedPort ?? DEFAULT_PROXY_PORT);

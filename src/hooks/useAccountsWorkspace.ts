@@ -15,7 +15,7 @@ import { displayAccountAddress } from "../components/accounts/accountPresentatio
 import { sortAccountsForDisplay } from "../utils/accountDisplayOrder";
 
 export function useAccountsWorkspace(props: AccountsGridProps) {
-  const { accounts, switchingId, authBusy, onSwitch } = props;
+  const { accounts, accountOrder, switchingId, authBusy, onSwitch } = props;
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [planFilter, setPlanFilter] = useState("all");
@@ -27,7 +27,7 @@ export function useAccountsWorkspace(props: AccountsGridProps) {
 
   const rows = useMemo<AccountRow[]>(() => {
     const grouped = new Map<string, AccountSummary[]>();
-    for (const account of sortAccountsForDisplay(accounts)) {
+    for (const account of sortAccountsForDisplay(accounts, accountOrder)) {
       const existing = grouped.get(account.accountKey);
       if (existing) existing.push(account);
       else grouped.set(account.accountKey, [account]);
@@ -45,7 +45,7 @@ export function useAccountsWorkspace(props: AccountsGridProps) {
           group.variants.find((a) => a.isCurrent) ||
           group.variants[0],
       }));
-  }, [accounts, preferredVariants, switchingId]);
+  }, [accounts, accountOrder, preferredVariants, switchingId]);
 
   const filteredRows = useMemo(() => {
     const search = query.trim().toLowerCase();

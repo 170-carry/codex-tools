@@ -248,6 +248,7 @@ pub(crate) struct ProxyStorageContext {
 
 #[derive(Clone)]
 struct ProxyCandidate {
+    priority: usize,
     id: String,
     label: String,
     source_kind: AccountSourceKind,
@@ -4967,11 +4968,27 @@ async fn load_proxy_candidate_selection(
     let settings = store.settings.clone();
 
     let mut deduped: HashMap<String, ProxyCandidate> = HashMap::new();
-    for candidate in store
-        .accounts
-        .into_iter()
-        .filter_map(account_to_proxy_candidate)
-    {
+    let mut accounts = store.accounts;
+    accounts.sort_by(|left, right| {
+        left.added_at
+            .cmp(&right.added_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    // 构建一次索引，避免每个请求按账号数量重复线性查找优先级。
+    let mut priorities = HashMap::new();
+    for key in &settings.account_order {
+        let next = priorities.len();
+        priorities.entry(key.clone()).or_insert(next);
+    }
+    for account in &accounts {
+        let next = priorities.len();
+        priorities.entry(account.account_key()).or_insert(next);
+    }
+    for mut candidate in accounts.into_iter().filter_map(account_to_proxy_candidate) {
+        candidate.priority = priorities
+            .get(&candidate.account_key)
+            .copied()
+            .unwrap_or(usize::MAX);
         match deduped.get(&candidate.account_key) {
             Some(existing) if !should_replace_proxy_candidate(existing, &candidate) => {}
             _ => {
@@ -5226,6 +5243,7 @@ fn account_to_proxy_candidate(account: StoredAccount) -> Option<ProxyCandidate> 
         AccountSourceKind::Chatgpt => {
             let extracted = extract_auth(&account.auth_json).ok()?;
             Some(ProxyCandidate {
+                priority: usize::MAX,
                 id: account.id,
                 label: account.label,
                 source_kind: AccountSourceKind::Chatgpt,
@@ -5266,6 +5284,7 @@ fn account_to_proxy_candidate(account: StoredAccount) -> Option<ProxyCandidate> 
                 .filter(|value| !value.is_empty())?
                 .to_string();
             Some(ProxyCandidate {
+                priority: usize::MAX,
                 id: account.id,
                 label: account.label,
                 source_kind: AccountSourceKind::Relay,
@@ -5346,6 +5365,19 @@ fn order_proxy_candidates_for_request(
     load_balance: ProxyLoadBalanceConfig,
     current_sequential_account_key: Option<&str>,
 ) -> Vec<ProxyCandidate> {
+    if matches!(load_balance.mode, ApiProxyLoadBalanceMode::Priority) {
+        // 优先级模式每次重新按用户排序选择；已恢复的高优先级账号可立即接回后续请求。
+        // 与逐个模式分开，不能被上一个会话命中的低优先级账号永久占用。
+        let now = now_unix_seconds();
+        candidates.sort_by_key(|candidate| {
+            (
+                candidate.auth_refresh_blocked || priority_quota_exhausted(candidate, now),
+                candidate.priority,
+                candidate.account_key.clone(),
+            )
+        });
+        return candidates;
+    }
     candidates.sort_by(compare_proxy_candidates);
 
     if !matches!(load_balance.mode, ApiProxyLoadBalanceMode::Sequential) {
@@ -5380,6 +5412,19 @@ fn order_proxy_candidates_for_request(
     }
 
     candidates
+}
+
+fn priority_quota_exhausted(candidate: &ProxyCandidate, now: i64) -> bool {
+    candidate.usage.as_ref().is_some_and(|usage| {
+        [usage.five_hour.as_ref(), usage.one_week.as_ref()]
+            .into_iter()
+            .flatten()
+            .any(|window| {
+                window.used_percent.is_finite()
+                    && window.used_percent >= 100.0
+                    && window.reset_at.map(|reset| reset > now).unwrap_or(true)
+            })
+    })
 }
 
 fn sequential_account_key_for_request(
@@ -5611,6 +5656,7 @@ fn proxy_candidate_with_auth_json(
         extract_auth(&auth_json).map_err(|error| format!("刷新后解析账号登录态失败: {error}"))?;
 
     Ok(ProxyCandidate {
+        priority: candidate.priority,
         id: candidate.id.clone(),
         label: candidate.label.clone(),
         source_kind: AccountSourceKind::Chatgpt,
@@ -9205,6 +9251,31 @@ mod tests {
     }
 
     #[test]
+    fn priority_returns_to_recovered_account_and_ignores_session_affinity() {
+        let mut a = proxy_candidate("A", "a", Some(95.0), Some(100.0), false);
+        let mut b = proxy_candidate("B", "b", Some(5.0), Some(5.0), false);
+        a.priority = 0;
+        b.priority = 1;
+        let config = || load_balance_config(ApiProxyLoadBalanceMode::Priority, 80.0);
+        let ordered =
+            order_proxy_candidates_for_request(vec![b.clone(), a.clone()], config(), Some("a"));
+        assert_eq!(candidate_labels(&ordered), vec!["B", "A"]);
+        a.usage
+            .as_mut()
+            .unwrap()
+            .five_hour
+            .as_mut()
+            .unwrap()
+            .reset_at = Some(1);
+        let ordered =
+            order_proxy_candidates_for_request(vec![b.clone(), a.clone()], config(), Some("b"));
+        assert_eq!(candidate_labels(&ordered), vec!["A", "B"]);
+        a.auth_refresh_blocked = true;
+        let ordered = order_proxy_candidates_for_request(vec![a, b], config(), None);
+        assert_eq!(candidate_labels(&ordered), vec!["B", "A"]);
+    }
+
+    #[test]
     fn minimal_account_warmup_uses_fixed_low_cost_payload() {
         let payload = minimal_account_warmup_payload().expect("warmup payload should normalize");
         assert_eq!(
@@ -9253,6 +9324,7 @@ mod tests {
         plan_type: &str,
     ) -> ProxyCandidate {
         ProxyCandidate {
+            priority: usize::MAX,
             id: account_key.to_string(),
             label: label.to_string(),
             source_kind: AccountSourceKind::Chatgpt,
@@ -9362,6 +9434,43 @@ mod tests {
     fn desktop_proxy_binds_lan_interfaces_but_keeps_loopback_base_url() {
         assert_eq!(super::DESKTOP_API_PROXY_BIND_HOST, "0.0.0.0");
         assert_eq!(super::proxy_base_url(8787), "http://127.0.0.1:8787/v1");
+    }
+
+    #[tokio::test]
+    async fn saved_account_order_reaches_proxy_candidates_after_reload() {
+        let make_account = |id: &str, added_at: i64| -> StoredAccount {
+            serde_json::from_value(json!({
+                "id": id, "label": id, "accountId": id, "sourceKind": "relay",
+                "authJson": {}, "apiBaseUrl": "https://relay.example.com/v1",
+                "apiKey": "test-key", "modelName": "gpt-6-sol",
+                "addedAt": added_at, "updatedAt": added_at
+            }))
+            .unwrap()
+        };
+        let a = make_account("a", 1);
+        let b = make_account("b", 2);
+        let (storage, directory) = temp_proxy_storage_context("saved-priority");
+        let store = crate::models::AccountsStore {
+            settings: AppSettings {
+                account_order: vec![b.account_key(), a.account_key()],
+                api_proxy_load_balance_mode: ApiProxyLoadBalanceMode::Priority,
+                ..AppSettings::default()
+            },
+            accounts: vec![a, b, make_account("new", 3)],
+            ..crate::models::AccountsStore::default()
+        };
+        crate::store::save_store_to_path(
+            &super::account_store_path_from_data_dir(&directory),
+            &store,
+        )
+        .unwrap();
+        let selection = super::load_proxy_candidate_selection(&storage)
+            .await
+            .unwrap();
+        let ordered =
+            order_proxy_candidates_for_request(selection.candidates, selection.load_balance, None);
+        assert_eq!(candidate_labels(&ordered), vec!["b", "a", "new"]);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -9548,6 +9657,7 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             updated_at: 1,
+            priority: usize::MAX,
         };
         let relay = ProxyCandidate {
             id: "r1".to_string(),
@@ -9565,6 +9675,7 @@ mod tests {
             auth_refresh_blocked: false,
             auth_refresh_error: None,
             updated_at: 1,
+            priority: usize::MAX,
         };
 
         assert_eq!(

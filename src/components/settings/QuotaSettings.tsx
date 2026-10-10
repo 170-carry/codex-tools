@@ -1,3 +1,4 @@
+import { SwitchField } from "../SwitchField";
 import type { SettingsWorkspace } from "./useSettingsWorkspace";
 export function QuotaSettings({ workspace }: { workspace: SettingsWorkspace }) {
   const {
@@ -20,6 +21,19 @@ export function QuotaSettings({ workspace }: { workspace: SettingsWorkspace }) {
   } = workspace;
   return (
     <div className="settingsGroup">
+      {isMacos ? (
+        <div>
+          <SwitchField
+            checked={settings.macosTrayProxyPool}
+            onChange={(checked) => onUpdateSettings({ macosTrayProxyPool: checked })}
+            label={copy.settings.proxyPoolDisplay.label}
+            checkedText=""
+            uncheckedText=""
+            disabled={savingSettings}
+          />
+          <p className="settingDescription">{copy.settings.proxyPoolDisplay.description}</p>
+        </div>
+      ) : null}
       {isMacos || isWindows ? (
         <div className="settingRow settingRowTrayUsage">
           <div className="settingMeta">

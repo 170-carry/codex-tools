@@ -329,6 +329,11 @@ export type MessageCatalog = {
     chartExporting: string;
     loadBalanceLabel: string;
     loadBalanceAverage: string;
+    loadBalancePriority: string;
+    priorityDescription: string;
+    accountOrderLabel: string;
+    moveUp: string;
+    moveDown: string;
     loadBalanceSequential: string;
     sequentialFiveHourLimitLabel: string;
     sequentialFiveHourLimitDescription: string;
@@ -544,6 +549,7 @@ export type MessageCatalog = {
     installPathLabel: string;
     notDetected: string;
   };
+  resetCredit: { use: string; confirm: string; confirmUse: string; submitting: string; reset: string; nothingToReset: string; noCredit: string; alreadyRedeemed: string; unknown: string; refreshFailed: string; };
   settings: {
     dialogAriaLabel: string;
     title: string;
@@ -563,6 +569,10 @@ export type MessageCatalog = {
       description: string;
       accountsLabel: string;
       noAccounts: string;
+      scheduleLabel: string;
+      scheduleDescription: string;
+      startTime: string;
+      endTime: string;
     };
     launchCodexAfterSwitch: {
       label: string;
@@ -605,6 +615,7 @@ export type MessageCatalog = {
       description: string;
     };
     noSupportedEditors: string;
+    proxyPoolDisplay: { label: string; description: string; };
     trayUsageDisplay: {
       label: string;
       description: string;
@@ -885,6 +896,7 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.apiProxy.remoteDeployProgressTitle, { label }),
     },
     settings: raw.settings,
+    resetCredit: raw.resetCredit,
     editorPicker: raw.editorPicker,
     editorAppLabels: raw.editorAppLabels,
     updateDialog: {
