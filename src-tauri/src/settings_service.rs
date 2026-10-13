@@ -62,6 +62,9 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.tray_usage_display_mode {
             store.settings.tray_usage_display_mode = value;
         }
+        if let Some(value) = patch.macos_tray_proxy_pool {
+            store.settings.macos_tray_proxy_pool = value;
+        }
         if let Some(value) = patch.tray_usage_title_show_window_labels {
             store.settings.tray_usage_title_show_window_labels = value;
         }
@@ -119,6 +122,20 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.api_proxy_load_balance_mode {
             store.settings.api_proxy_load_balance_mode = value;
         }
+        if let Some(order) = patch.account_order {
+            let mut keys = Vec::new();
+            for key in order {
+                if !keys.contains(&key)
+                    && store
+                        .accounts
+                        .iter()
+                        .any(|account| account.account_key() == key)
+                {
+                    keys.push(key);
+                }
+            }
+            store.settings.account_order = keys;
+        }
         if let Some(value) = patch.api_proxy_sequential_five_hour_limit_percent {
             store.settings.api_proxy_sequential_five_hour_limit_percent =
                 normalize_api_proxy_sequential_five_hour_limit_percent(value);
@@ -129,6 +146,23 @@ pub(crate) async fn update_app_settings_internal(
         }
         if let Some(value) = patch.auto_account_warmup_enabled {
             store.settings.auto_account_warmup_enabled = value;
+        }
+        if let Some(value) = patch.auto_account_warmup_schedule_enabled {
+            store.settings.auto_account_warmup_schedule_enabled = value;
+        }
+        if let Some(value) = patch.auto_account_warmup_start_minute {
+            store.settings.auto_account_warmup_start_minute = value;
+        }
+        if let Some(value) = patch.auto_account_warmup_end_minute {
+            store.settings.auto_account_warmup_end_minute = value;
+        }
+        if store.settings.auto_account_warmup_start_minute >= 1440
+            || store.settings.auto_account_warmup_end_minute >= 1440
+            || (store.settings.auto_account_warmup_schedule_enabled
+                && store.settings.auto_account_warmup_start_minute
+                    == store.settings.auto_account_warmup_end_minute)
+        {
+            return Err("预热时段必须为有效时间，且开始与结束时间不能相同".to_string());
         }
         if let Some(value) = patch.auto_account_warmup_account_ids {
             store.settings.auto_account_warmup_account_ids =

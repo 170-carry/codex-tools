@@ -62,6 +62,8 @@ export function fixtureAccount(
       resetCredits: {
         availableCount: 3,
         credits: [1, 2, 3].map((n) => ({
+          id: `${id}-card-${n}`,
+          status: "available",
           grantedAt: now,
           expiresAt: now + n * 604800,
         })),

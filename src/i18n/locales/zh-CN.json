@@ -523,7 +523,12 @@
     "publicStatusStoppedDescription": "启动后会生成公网访问地址",
     "publicUrlLabel": "公网 URL",
     "installPathLabel": "安装路径",
-    "notDetected": "未检测到"
+    "notDetected": "未检测到",
+    "loadBalancePriority": "优先级",
+    "priorityDescription": "按账号列表顺序优先选择可用账号，高优先级账号恢复后会重新优先使用；同一会话也可能切换账号。可在账号详情中调整顺序。",
+    "accountOrderLabel": "账号顺序与反代优先级",
+    "moveUp": "上移",
+    "moveDown": "下移"
   },
   "settings": {
     "dialogAriaLabel": "应用设置",
@@ -543,7 +548,11 @@
       "uncheckedText": "已关闭",
       "description": "仅为选中的账号发送固定 hello 请求；已激活、额度耗尽或冷却中的账号会跳过。",
       "accountsLabel": "自动预热账号",
-      "noAccounts": "暂无 ChatGPT 账号"
+      "noAccounts": "暂无 ChatGPT 账号",
+      "scheduleLabel": "限定自动预热时段",
+      "scheduleDescription": "按本机时区执行，支持跨午夜；结束时间后暂停，已有窗口不重置。应用需保持运行，手动预热不受限制。",
+      "startTime": "每日开始",
+      "endTime": "每日结束"
     },
     "launchCodexAfterSwitch": {
       "label": "切换后启动 Codex",
@@ -649,6 +658,10 @@
       "openIssues": "反馈问题",
       "openReleases": "版本发布",
       "openChangelog": "更新日志"
+    },
+    "proxyPoolDisplay": {
+      "label": "菜单栏显示代理账号池",
+      "description": "显示有效 ChatGPT 账号的平均额度和样本数，不代表 Token 总量。排除 API 账号、重复账号和超过 10 分钟的快照。"
     }
   },
   "editorPicker": {
@@ -788,5 +801,17 @@
     "cloudflaredStopped": "cloudflared 公网访问已停止",
     "cloudflaredStopFailed": "停止 cloudflared 公网访问失败：{{error}}",
     "accountWarmupRequestSent": "预热请求已完成，尚未确认 5h 窗口激活；额度可能延迟更新，请稍后刷新。"
+  },
+  "resetCredit": {
+    "use": "使用此卡",
+    "confirm": "确认消耗此账号的所选重置卡？操作不可撤销，将按上游规则重置额度窗口。",
+    "confirmUse": "确认使用",
+    "submitting": "正在提交…",
+    "reset": "上游已确认额度重置",
+    "nothingToReset": "没有需要重置的窗口，卡片未消耗",
+    "noCredit": "账号没有可用重置卡",
+    "alreadyRedeemed": "这张卡已使用，请查看最新额度",
+    "unknown": "结果未知，请刷新用量核对",
+    "refreshFailed": "重置请求已完成，但用量刷新失败，请手动刷新"
   }
 }

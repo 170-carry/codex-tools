@@ -15,6 +15,11 @@ on:
         description: "Release tag (example: v0.1.0)"
         required: true
         type: string
+      publish_npm:
+        description: "Also publish the CLI packages to npm"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -99,6 +104,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+          releaseCommitish: ${{ github.sha }}
           releaseName: "Codex Tools ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}"
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
@@ -106,7 +112,7 @@ jobs:
           args: ${{ matrix.args }}
 
   publish-npm-native:
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && (github.event_name != 'workflow_dispatch' || inputs.publish_npm)
     needs: validate
     name: Publish npm native package
     strategy:

@@ -804,6 +804,19 @@ async fn refresh_all_usage(
 }
 
 #[tauri::command]
+async fn use_reset_credit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    credit_id: String,
+) -> Result<account_service::reset_credit::ResetCreditResult, String> {
+    let result =
+        account_service::reset_credit::use_credit(&app, state.inner(), &id, &credit_id).await?;
+    let _ = tray::update_usage_surfaces_snapshot(&app, &result.accounts);
+    Ok(result)
+}
+
+#[tauri::command]
 async fn warmup_account(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1172,7 +1185,8 @@ async fn update_app_settings(
     state: State<'_, AppState>,
     patch: AppSettingsPatch,
 ) -> Result<AppSettings, String> {
-    let refresh_usage_surfaces = patch.tray_usage_display_mode.is_some()
+    let refresh_usage_surfaces = patch.macos_tray_proxy_pool.is_some()
+        || patch.tray_usage_display_mode.is_some()
         || patch.tray_usage_title_show_window_labels.is_some()
         || patch.macos_tray_text_icon_style.is_some()
         || patch.windows_tray_icon_style.is_some()
@@ -3008,6 +3022,7 @@ pub fn run() {
             update_account_api_proxy_enabled,
             refresh_all_usage,
             warmup_account,
+            use_reset_credit,
             get_codex_token_usage,
             get_codex_cost_analytics,
             get_cached_codex_cost_analytics,

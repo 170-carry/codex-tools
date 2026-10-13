@@ -523,7 +523,12 @@
     "publicStatusStoppedDescription": "起動後に公開 URL が生成されます",
     "publicUrlLabel": "公開 URL",
     "installPathLabel": "インストールパス",
-    "notDetected": "未検出"
+    "notDetected": "未検出",
+    "loadBalancePriority": "優先順位",
+    "priorityDescription": "一覧の順で利用可能なアカウントを優先し、上位が回復すると戻ります。同じ会話でも変更される場合があります。詳細で順序を変更できます。",
+    "accountOrderLabel": "表示順とプロキシ優先順位",
+    "moveUp": "上へ",
+    "moveDown": "下へ"
   },
   "settings": {
     "dialogAriaLabel": "アプリ設定",
@@ -543,7 +548,11 @@
       "uncheckedText": "オフ",
       "description": "選択したアカウントに固定の hello リクエストを送信します。既に有効、上限到達、クールダウン中の場合はスキップします。",
       "accountsLabel": "対象アカウント",
-      "noAccounts": "ChatGPT アカウントがありません"
+      "noAccounts": "ChatGPT アカウントがありません",
+      "scheduleLabel": "自動ウォームアップの時間帯",
+      "scheduleDescription": "端末のタイムゾーンで実行し、日付をまたぐ時間帯にも対応します。終了後は停止し、既存の枠はリセットしません。アプリの起動が必要です。手動操作は対象外です。",
+      "startTime": "開始時刻",
+      "endTime": "終了時刻"
     },
     "launchCodexAfterSwitch": {
       "label": "切替後に Codex を起動",
@@ -649,6 +658,10 @@
       "openIssues": "Issue を開く",
       "openReleases": "リリース",
       "openChangelog": "変更履歴"
+    },
+    "proxyPoolDisplay": {
+      "label": "メニューバーにプロキシプールを表示",
+      "description": "有効な ChatGPT アカウントの平均残量と件数です。総トークン数ではありません。API アカウント、重複、10 分以上前のデータは除外します。"
     }
   },
   "editorPicker": {
@@ -788,5 +801,17 @@
     "cloudflaredStopped": "cloudflared 公開アクセスを停止しました",
     "cloudflaredStopFailed": "cloudflared 公開アクセスの停止に失敗しました: {{error}}",
     "accountWarmupRequestSent": "ウォームアップ要求は完了しましたが、5h 枠の有効化は未確認です。しばらくして使用量を更新してください。"
+  },
+  "resetCredit": {
+    "use": "このカードを使用",
+    "confirm": "このアカウントの選択したカードを消費しますか？元に戻せません。提供元の規則に従って使用量枠をリセットします。",
+    "confirmUse": "使用を確定",
+    "submitting": "送信中…",
+    "reset": "提供元がリセットを確認しました",
+    "nothingToReset": "リセット対象がなく、カードは消費されませんでした",
+    "noCredit": "利用可能なカードがありません",
+    "alreadyRedeemed": "このカードは使用済みです。使用量を確認してください",
+    "unknown": "結果不明です。使用量を更新してください",
+    "refreshFailed": "送信完了後の使用量更新に失敗しました。手動で更新してください"
   }
 }

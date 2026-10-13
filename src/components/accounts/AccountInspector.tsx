@@ -9,6 +9,7 @@ import { formatFullDate } from "../../utils/dateFormatting";
 import { formatPlan } from "../../utils/usage";
 import { MembershipExpiry } from "./MembershipExpiry";
 import { ResetCreditsSection } from "./ResetCreditsSection";
+import { AccountOrderControls } from "./AccountOrderControls";
 import { QuotaMeter } from "./QuotaMeter";
 import { UsageFreshnessBadge } from "./UsageFreshnessBadge";
 import { AccountActionMenu } from "./AccountActionMenu";
@@ -220,7 +221,11 @@ export function AccountInspector({
               />
             </label>
           </section>
+          <AccountOrderControls account={account} actions={actions} />
           <ResetCreditsSection
+            key={account.id}
+            busy={actions.authBusy}
+            onUseCredit={actions.onUseResetCredit}
             account={account}
             expanded={expandedCredits}
             locale={locale}

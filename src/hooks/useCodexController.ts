@@ -1,4 +1,5 @@
 import { useApiAccountEditor } from "./useApiAccountEditor";
+import { useResetCredits } from "./useResetCredits";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -73,6 +74,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   trayUsageDisplayMode: "oneWeekRemaining",
   trayUsageTitleShowWindowLabels: false,
+  macosTrayProxyPool: false,
   macosTrayTextIconStyle: "codexTools",
   windowsTrayIconStyle: "gradientNumberPlate",
   trayQuotaIconVisible: true,
@@ -91,9 +93,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoStartApiProxy: false,
   apiProxyPort: 8787,
   apiProxyLoadBalanceMode: "average",
+  accountOrder: [],
   apiProxySequentialFiveHourLimitPercent: 80,
   apiProxyDisabledModels: [],
   autoAccountWarmupEnabled: false,
+  autoAccountWarmupScheduleEnabled: false,
+  autoAccountWarmupStartMinute: 360,
+  autoAccountWarmupEndMinute: 1320,
   autoAccountWarmupAccountIds: [],
   codexAnalyticsWeeklyBudgetUsd: null,
   remoteServers: [],
@@ -352,7 +358,7 @@ export function useCodexController(
     () => sortAccountsByRemaining(accounts),
     [accounts],
   );
-  const authBusy =
+  const accountAuthBusy =
     importingAccounts || oauthWaitingForCallback || switchingId !== null || warmingAccountId !== null;
 
   const localizeError = useCallback(
@@ -421,6 +427,14 @@ export function useCodexController(
     },
     [copy.notices, localizeAccounts],
   );
+
+  const { resettingAccountId, onUseResetCredit } = useResetCredits({
+    busy: accountAuthBusy,
+    applyAccounts,
+    setNotice,
+    localizeError,
+  });
+  const authBusy = accountAuthBusy || resettingAccountId !== null;
 
   const localizeApiProxyStatus = useCallback(
     (status: ApiProxyStatus): ApiProxyStatus => ({
@@ -2815,7 +2829,7 @@ export function useCodexController(
 
   const onWarmupAccount = useCallback(
     async (account: AccountSummary) => {
-      if (warmingAccountId !== null || account.sourceKind === "relay") {
+      if (authBusy || account.sourceKind === "relay") {
         return false;
       }
       setWarmingAccountId(account.id);
@@ -2849,7 +2863,7 @@ export function useCodexController(
         setWarmingAccountId(null);
       }
     },
-    [applyAccounts, copy.notices, localizeError, warmingAccountId],
+    [applyAccounts, authBusy, copy.notices, localizeError],
   );
 
   const onCancelDelete = useCallback(() => {
@@ -3153,6 +3167,7 @@ export function useCodexController(
     stoppingCloudflared,
     switchingId,
     warmingAccountId,
+    resettingAccountId,
     renamingAccountId,
     pendingDeleteId: deleteCandidate?.id ?? null,
     deleteCandidate,
@@ -3225,6 +3240,7 @@ export function useCodexController(
     onToggleAccountApiProxy,
     onDelete,
     onWarmupAccount,
+    onUseResetCredit,
     onCancelDelete,
     onConfirmDelete,
     onSwitch,

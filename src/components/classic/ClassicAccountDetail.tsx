@@ -6,6 +6,7 @@ import { accountIssueReason, accountStatus } from "../accounts/accountModel";
 import { statusLabel } from "../accounts/accountCopy";
 import { MembershipExpiry } from "../accounts/MembershipExpiry";
 import { UsageFreshnessBadge } from "../accounts/UsageFreshnessBadge";
+import { AccountOrderControls } from "../accounts/AccountOrderControls";
 import { ResetCreditsSection } from "../accounts/ResetCreditsSection";
 import { UsageMeter } from "./ClassicUsageMeter";
 import { ActionIcon } from "./ClassicIcons";
@@ -179,7 +180,11 @@ export function ClassicAccountDetail({
             </div>
           </section>
 
+          <AccountOrderControls account={selectedRow.account} actions={workspace.actions} />
           <ResetCreditsSection
+            key={selectedRow.account.id}
+            busy={workspace.actions.authBusy}
+            onUseCredit={workspace.actions.onUseResetCredit}
             account={selectedRow.account}
             expanded={Boolean(
               expandedResetCreditsByAccount[selectedRow.account.id],

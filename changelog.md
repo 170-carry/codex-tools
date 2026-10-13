@@ -4,6 +4,26 @@
 
 ### Released
 
+- v3.1.0
+
+#### English
+
+1. Add account-group ordering and a strict priority proxy strategy (#223). Each request prefers the highest available priority, falls back when quota is exhausted, and returns to recovered accounts. Average and sequential strategies remain available.
+2. Schedule automatic warm-up within a daily local-time window, including overnight periods (#222). Recheck the selected accounts, current settings and time before sending; the application must be running.
+3. Fix manual five-hour activation being skipped after a recent attempt (#226). Manual activation bypasses success and failure cooldowns while retaining active-window, weekly-quota and authorization checks. Automatic warm-up keeps its persisted cooldowns.
+4. Show proxy-pool average quota and valid-account counts in the macOS menu bar (#221). Exclude duplicate, disabled, API, unauthorized and stale accounts; percentages are averages rather than a total token balance.
+5. Redeem a selected reset credit from account details after confirmation (#224). Recheck availability and expiry, persist the request ID, and distinguish redemption from a failed quota refresh. Redemption was validated with a local mock service; no real credit was consumed during testing.
+6. Keep #205 (Luna client failure) and #206 (Windows OpenCode settings visibility) open for current-version native reproduction. Existing protocol and simulated UI checks do not establish that these reports are resolved.
+
+#### 中文
+
+1. 新增账号组排序与独立的优先级反代策略（#223）：每次请求优先选择可用的高优先级账号，额度耗尽后回退，恢复后重新优先使用；保留平均和逐个策略。
+2. 自动预热支持每日系统本地时间范围及跨午夜时段（#222）；发送前重新核对账号选择、最新设置与时间，应用需要保持运行。
+3. 修复手动激活 5h 窗口被近期预热记录拦截的问题（#226）：手动操作绕过成功和失败冷却，仍检查已激活窗口、周额度和授权状态；自动预热继续使用持久化冷却。
+4. macOS 菜单栏可显示代理账号池平均额度与有效账号数（#221），排除重复、禁用、API、授权异常及过期数据；显示的是百分比平均值，并非 Token 总量。
+5. 账号详情支持选择重置卡并确认使用（#224），提交前核对状态和有效期、持久化请求 ID，并区分兑换结果与额度刷新失败。消费流程经过本地模拟服务验证，测试未消费真实重置卡。
+6. #205（Luna 客户端报错）与 #206（Windows OpenCode 设置页消失）继续保留，等待当前版本的原生复现；现有协议与模拟界面检查不能证明原报告已解决。
+
 - v3.0.3
 
 #### English
