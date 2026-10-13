@@ -136,19 +136,13 @@ async fn attempt_account_warmup(
         if let Some(error) = &account.usage_error {
             return Err(format!("无法确认预热前额度状态: {error}"));
         }
-        if account_has_active_five_hour_window(&account, now) {
-            return Ok(AccountWarmupStatus::AlreadyActive);
-        }
-        if account_weekly_quota_exhausted(&account) {
-            return Ok(AccountWarmupStatus::Exhausted);
-        }
-        if store
-            .settings
-            .account_warmup_attempts
-            .get(id)
-            .is_some_and(|attempt| warmup_attempt_is_recent(attempt, now))
-        {
-            return Ok(AccountWarmupStatus::RecentlyAttempted);
+        if let Some(status) = warmup_skip_status(
+            &account,
+            store.settings.account_warmup_attempts.get(id),
+            automatic,
+            now,
+        ) {
+            return Ok(status);
         }
         if account.auth_refresh_blocked {
             return Err(account
@@ -260,6 +254,26 @@ async fn persist_warmup_attempt(
     save_store(app, &store)
 }
 
+fn warmup_skip_status(
+    account: &StoredAccount,
+    attempt: Option<&AccountWarmupAttempt>,
+    automatic: bool,
+    now: i64,
+) -> Option<AccountWarmupStatus> {
+    if account_has_active_five_hour_window(account, now) {
+        return Some(AccountWarmupStatus::AlreadyActive);
+    }
+    if account_weekly_quota_exhausted(account) {
+        return Some(AccountWarmupStatus::Exhausted);
+    }
+    // An explicit retry must be possible after an upstream window reset. Keep
+    // recording manual attempts so the automatic scheduler cannot duplicate it.
+    if automatic && attempt.is_some_and(|attempt| warmup_attempt_is_recent(attempt, now)) {
+        return Some(AccountWarmupStatus::RecentlyAttempted);
+    }
+    None
+}
+
 pub(super) fn account_has_active_five_hour_window(account: &StoredAccount, now: i64) -> bool {
     account
         .usage
@@ -295,6 +309,84 @@ fn window_is_active(window: &crate::models::UsageWindow, now: i64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn unused_account(now: i64) -> StoredAccount {
+        serde_json::from_value(serde_json::json!({
+            "id": "warmup-test", "label": "Warmup test", "accountId": "test",
+            "authJson": {}, "addedAt": now, "updatedAt": now,
+            "usage": {
+                "fetchedAt": now,
+                "fiveHour": {"usedPercent": 0.0, "windowSeconds": 18000, "resetAt": now + 18000},
+                "oneWeek": {"usedPercent": 10.0, "windowSeconds": 604800, "resetAt": now + 604800}
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn manual_warmup_bypasses_success_and_failure_cooldowns_after_window_reset() {
+        let now = 2_000_000_000;
+        let account = unused_account(now);
+        for succeeded in [true, false] {
+            let attempt = AccountWarmupAttempt {
+                attempted_at: now - 1,
+                succeeded,
+                error: None,
+            };
+            assert_eq!(
+                warmup_skip_status(&account, Some(&attempt), false, now),
+                None
+            );
+            assert_eq!(
+                warmup_skip_status(&account, Some(&attempt), true, now),
+                Some(AccountWarmupStatus::RecentlyAttempted)
+            );
+            let cooldown = if succeeded {
+                WARMUP_SUCCESS_COOLDOWN_SECS
+            } else {
+                WARMUP_FAILURE_COOLDOWN_SECS
+            };
+            assert_eq!(
+                warmup_skip_status(
+                    &account,
+                    Some(&attempt),
+                    true,
+                    attempt.attempted_at + cooldown
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn manual_and_automatic_warmup_preserve_active_and_exhausted_window_checks() {
+        let now = 2_000_000_000;
+        let mut account = unused_account(now);
+        account
+            .usage
+            .as_mut()
+            .unwrap()
+            .five_hour
+            .as_mut()
+            .unwrap()
+            .used_percent = 1.0;
+        for automatic in [true, false] {
+            assert_eq!(
+                warmup_skip_status(&account, None, automatic, now),
+                Some(AccountWarmupStatus::AlreadyActive)
+            );
+        }
+        let usage = account.usage.as_mut().unwrap();
+        usage.five_hour.as_mut().unwrap().used_percent = 0.0;
+        usage.one_week.as_mut().unwrap().used_percent = 100.0;
+        for automatic in [true, false] {
+            assert_eq!(
+                warmup_skip_status(&account, None, automatic, now),
+                Some(AccountWarmupStatus::Exhausted)
+            );
+        }
+    }
+
     #[test]
     fn automatic_warmup_respects_day_and_overnight_boundaries() {
         let mut settings = AppSettings {

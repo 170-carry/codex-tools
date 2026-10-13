@@ -1,4 +1,5 @@
 import { useApiAccountEditor } from "./useApiAccountEditor";
+import { useResetCredits } from "./useResetCredits";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -311,7 +312,6 @@ export function useCodexController(
   const [startingCloudflared, setStartingCloudflared] = useState(false);
   const [stoppingCloudflared, setStoppingCloudflared] = useState(false);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
-  const [resettingAccountId, setResettingAccountId] = useState<string | null>(null);
   const [warmingAccountId, setWarmingAccountId] = useState<string | null>(null);
   const [renamingAccountId, setRenamingAccountId] = useState<string | null>(
     null,
@@ -358,8 +358,8 @@ export function useCodexController(
     () => sortAccountsByRemaining(accounts),
     [accounts],
   );
-  const authBusy =
-    importingAccounts || oauthWaitingForCallback || switchingId !== null || warmingAccountId !== null || resettingAccountId !== null;
+  const accountAuthBusy =
+    importingAccounts || oauthWaitingForCallback || switchingId !== null || warmingAccountId !== null;
 
   const localizeError = useCallback(
     (error: string) => localizeBackendError(error, locale),
@@ -427,6 +427,14 @@ export function useCodexController(
     },
     [copy.notices, localizeAccounts],
   );
+
+  const { resettingAccountId, onUseResetCredit } = useResetCredits({
+    busy: accountAuthBusy,
+    applyAccounts,
+    setNotice,
+    localizeError,
+  });
+  const authBusy = accountAuthBusy || resettingAccountId !== null;
 
   const localizeApiProxyStatus = useCallback(
     (status: ApiProxyStatus): ApiProxyStatus => ({
@@ -2819,29 +2827,9 @@ export function useCodexController(
     [copy.notices],
   );
 
-  const onUseResetCredit = useCallback(async (account: AccountSummary, creditId: string) => {
-    if (authBusy || resettingAccountId !== null || account.sourceKind === "relay") return false;
-    setResettingAccountId(account.id);
-    try {
-      const result = await invoke<{ code: string; windowsReset: number; accounts: AccountSummary[]; refreshError: string | null }>("use_reset_credit", { id: account.id, creditId });
-      applyAccounts(result.accounts);
-      const messages: Record<string, string> = {
-        reset: copy.resetCredit.reset,
-        nothing_to_reset: copy.resetCredit.nothingToReset,
-        no_credit: copy.resetCredit.noCredit,
-        already_redeemed: copy.resetCredit.alreadyRedeemed,
-      };
-      setNotice({ type: result.code === "reset" && !result.refreshError ? "ok" : "info", message: (messages[result.code] ?? copy.resetCredit.unknown) + (result.refreshError ? ` · ${copy.resetCredit.refreshFailed}` : "") });
-      return true;
-    } catch (error) {
-      setNotice({ type: "error", message: localizeError(String(error)) });
-      return false;
-    } finally { setResettingAccountId(null); }
-  }, [applyAccounts, authBusy, copy.resetCredit, localizeError, resettingAccountId]);
-
   const onWarmupAccount = useCallback(
     async (account: AccountSummary) => {
-      if (warmingAccountId !== null || account.sourceKind === "relay") {
+      if (authBusy || account.sourceKind === "relay") {
         return false;
       }
       setWarmingAccountId(account.id);
@@ -2875,7 +2863,7 @@ export function useCodexController(
         setWarmingAccountId(null);
       }
     },
-    [applyAccounts, copy.notices, localizeError, warmingAccountId],
+    [applyAccounts, authBusy, copy.notices, localizeError],
   );
 
   const onCancelDelete = useCallback(() => {
