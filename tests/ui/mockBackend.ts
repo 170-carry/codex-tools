@@ -8,9 +8,13 @@ import {
 import type { AppSettings } from "../../src/types/app";
 import type { ApiAccountEdit } from "../../src/hooks/useApiAccountEditor";
 import { version } from "../../package.json";
+import { gitActivityFixture, gitLayoutFixture } from './gitActivityFixture';
+import type { GitActivityConfig } from '../../src/features/git-activity/types';
 
 export function installPreviewBackend() {
   const params = new URLSearchParams(location.search);
+  const activityFixture = params.get('git') === 'layout' ? gitLayoutFixture : gitActivityFixture;
+  if (params.get('auto') !== 'on') localStorage.setItem('codex-tools-git-auto-refresh', JSON.stringify({onOpen: false, minutes: 0}));
   let accounts = structuredClone(fixtures);
   const accountCount = Number(params.get("accounts"));
   if (accountCount > 0 && accountCount <= 1000) {
@@ -50,11 +54,44 @@ export function installPreviewBackend() {
         codexProxyBaseUrl: "http://127.0.0.1:8787/v1",
       }
     : DEFAULT_API_PROXY_STATUS;
-  Object.assign(window, { __previewCommands: commands });
+  Object.assign(window, { __previewCommands: commands, isTauri: true });
   mockWindows("main");
   mockIPC(
     async (command, payload) => {
       commands.push(command);
+      if (command === 'get_git_activity') {
+        if (params.get('git') === 'unconfigured') return {config: {...activityFixture.config, sources: []}, report: null};
+        const saved = sessionStorage.getItem('preview-git-report');
+        const report = saved ? JSON.parse(saved) : params.get('git') === 'empty' ? null : params.get('git') === 'legacy' ? {...activityFixture, authors: [], config: {...activityFixture.config, excludedAuthors: ['FormerMember']}} : activityFixture;
+        return {config: report?.config ?? activityFixture.config, report};
+      }
+      if (command === 'select_git_activity_folder') return 'D:\\another-demo';
+      if (command === 'import_git_activity_config') return activityFixture.config;
+      if (command === 'run_git_activity') {
+        Object.assign(window, {__gitActivitySubmitted: payload?.config});
+        if (params.get('hold') === 'yes') await new Promise<void>(resolve => Object.assign(window, {__releaseGitRun: resolve}));
+        if (params.get('git') === 'failure') throw new Error('测试同步失败');
+        const config = payload?.config as GitActivityConfig;
+        const people = new Map<string, typeof activityFixture.people[number]>();
+        const excluded = new Set(config.excludedAuthors.map(value => value.trim().toLowerCase()));
+        const rows = activityFixture.rows.filter(row => !excluded.has(row.email.toLowerCase()) && !excluded.has(row.author.toLowerCase())).map(row => {
+          const name = config.aliases[row.email];
+          const identity = name ? `alias:${name}` : row.email;
+          let person = people.get(identity);
+          if (!person) {
+            person = {identity, person: name || row.author, names: [], emails: [], company_unique: 0};
+            people.set(identity, person);
+          }
+          if (!person.names.includes(row.author)) person.names.push(row.author);
+          if (!person.emails.includes(row.email)) person.emails.push(row.email);
+          person.company_unique++;
+          return {...row, person: identity};
+        });
+        const report = {...activityFixture, rows, people: [...people.values()], config};
+        sessionStorage.setItem('preview-git-report', JSON.stringify(report));
+        return report;
+      }
+      if (command === 'export_git_activity_html') { Object.assign(window, {__gitActivityExport: payload?.html}); return 'D:\\每日提交日历.html'; }
       if (command === "list_accounts" || command === "refresh_all_usage")
         return structuredClone(accounts);
       if (command === "use_reset_credit") {

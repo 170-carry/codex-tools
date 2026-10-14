@@ -210,7 +210,7 @@ function buildRemoteProxyFallback(
 }
 
 export function useCodexController(
-  activeTab: "accounts" | "analytics" | "proxy" | "settings",
+  activeTab: "accounts" | "analytics" | "proxy" | "git" | "settings",
 ) {
   const { copy, locale } = useI18n();
   const loadedLocaleRef = useRef(locale);

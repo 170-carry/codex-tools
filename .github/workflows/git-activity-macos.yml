@@ -1,0 +1,95 @@
+name: Build Git Calendar for macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+            label: AppleSilicon
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x86_64
+            label: Intel
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: git-calendar-${{ matrix.target }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Check source
+        run: |
+          npm run lint
+          npm test
+          npm run test:pages
+      - name: Test Git collector on macOS
+        working-directory: src-tauri
+        run: cargo test --locked --bin git-calendar
+      - name: Build app and disk image
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          CI: 'true'
+        run: |
+          npm run tauri -- build --ci --target "$BUILD_TARGET" \
+            --bundles app,dmg \
+            --config src-tauri/tauri.git-activity.conf.json \
+            --config src-tauri/tauri.git-activity.macos.conf.json
+      - name: Verify and prepare downloads
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          BUILD_LABEL: ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          bundle="src-tauri/target/$BUILD_TARGET/release/bundle"
+          app="$bundle/macos/Codex Tools Git.app"
+          test -d "$app"
+          binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo -verify_arch "$BUILD_ARCH" "$app/Contents/MacOS/$binary"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          mkdir -p macos-downloads
+          cp "$bundle"/dmg/*.dmg macos-downloads/
+          ditto -c -k --sequesterRsrc --keepParent "$app" "macos-downloads/CodexTools-Git-$BUILD_LABEL.app.zip"
+          (
+            cd macos-downloads
+            shasum -a 256 ./*.dmg ./*.zip > SHA256SUMS.txt
+          )
+          {
+            echo "### Codex Tools Git — $BUILD_LABEL"
+            echo "Download the artifact below; open the DMG and drag the app into Applications."
+            echo "This is an ad-hoc signed internal build, without Apple notarization."
+            echo "Source commit: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexTools-Git-macOS-${{ matrix.label }}
+          path: macos-downloads/
+          if-no-files-found: error
+          retention-days: 14

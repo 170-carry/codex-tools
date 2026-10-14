@@ -24,7 +24,7 @@ const check = (label, condition) => {
 try {
   for (const layout of ["classic", "compact"]) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "zh-CN" });
-    await context.addInitScript((layout) => localStorage.setItem("codex-tools-layout", layout), layout);
+    await context.addInitScript((layout) => { if(window === top) localStorage.setItem("codex-tools-layout", layout) }, layout);
     const page = await context.newPage();
     page.on("pageerror", (error) => errors.push(error.message));
     let releaseModule;
@@ -37,10 +37,14 @@ try {
       await route.continue();
     });
     await page.goto(`${url}?proxy=bound`);
+    const nav = page.locator(layout === "classic" ? ".topSegmentedButton" : ".viewTab");
+    check(`${layout}: code statistics is the first and default module`,
+      (await nav.first().innerText()).includes("代码统计") && (await nav.first().getAttribute("class")).includes("isActive"));
+    await nav.filter({hasText:/^账号$/}).click();
     await page.locator(layout === "classic" ? ".classicAccountsWorkspace" : ".accountTable").waitFor();
     const proxyTab = layout === "classic"
-      ? page.locator(".topSegmentedButton").nth(2)
-      : page.locator(".viewTab").nth(2);
+      ? page.locator(".topSegmentedButton").filter({hasText:"API 反代"})
+      : page.locator(".viewTab").filter({hasText:"API 反代"});
     await proxyTab.hover();
     await moduleStarted;
     check(`${layout}: approaching a tab preloads its view`, true);
@@ -60,7 +64,7 @@ try {
       (await page.locator("body").innerText()).includes("请重启 Codex"));
     await page.screenshot({ path: path.join(output, `${layout}-proxy.png`) });
     if (layout === "classic") {
-      await page.locator(".topSegmentedButton").nth(0).click();
+      await page.locator(".topSegmentedButton").filter({hasText:/^账号$/}).click();
       await page.locator(".accountsPage").waitFor();
       await page.waitForFunction(() => {
         const indicator = document.querySelector(".topSegmentedIndicator").getBoundingClientRect();

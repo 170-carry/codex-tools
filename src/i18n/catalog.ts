@@ -236,6 +236,7 @@ export type MessageCatalog = {
     usageUnavailable: string;
   };
   bottomDock: {
+    git: string;
     ariaLabel: string;
     accounts: string;
     analytics: string;

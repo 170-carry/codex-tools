@@ -2,6 +2,7 @@ export type WorkspaceIconName =
   | "accounts"
   | "analytics"
   | "proxy"
+  | "git"
   | "settings"
   | "refresh"
   | "plus"
@@ -25,6 +26,7 @@ const paths: Record<WorkspaceIconName, string> = {
   accounts:
     "M16 21v-2a4 4 0 0 0-8 0v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M20 8a3 3 0 0 1 0 6 M22 21v-2a4 4 0 0 0-3-3.87",
   analytics: "M4 3v17h17 M8 15v-4 M13 15V7 M18 15v-6",
+  git: "M5 4v12a4 4 0 0 0 4 4h5 M5 4a2 2 0 1 0 0 .01 M18 4a2 2 0 1 0 0 .01 M18 6v3a5 5 0 0 1-5 5H5 M16 20a2 2 0 1 0 0 .01",
   proxy: "M8 4H4v16h4 M16 4h4v16h-4 M8 12h8 M13 9l3 3-3 3",
   settings:
     "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M9 3l-.6 2.4-2.1 1.2L4 6l-2 3 1.8 1.8v2.4L2 15l2 3 2.3-.6 2.1 1.2L9 21h6l.6-2.4 2.1-1.2L20 18l2-3-1.8-1.8L22 9l-2-3-2.3.6-2.1-1.2L15 3Z",

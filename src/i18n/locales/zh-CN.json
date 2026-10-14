@@ -201,6 +201,7 @@
     "usageUnavailable": "暂无用量数据"
   },
   "bottomDock": {
+    "git": "代码统计",
     "ariaLabel": "底部导航",
     "accounts": "账号",
     "analytics": "分析",

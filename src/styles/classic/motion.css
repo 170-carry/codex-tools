@@ -3,7 +3,7 @@
   top: 5px;
   bottom: 5px;
   left: 5px;
-  width: calc((100% - 22px) / 4);
+  width: calc((100% - 26px) / 5);
   border-radius: inherit;
   background: var(--surface-tint);
   box-shadow: 0 6px 14px rgba(15, 23, 42, .08), inset 0 1px rgba(255, 255, 255, .92);

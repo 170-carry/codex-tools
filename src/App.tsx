@@ -10,11 +10,11 @@ import type { AppTab } from "./types/workspace";
 import { AppLayoutProvider } from "./components/layout/AppLayoutProvider";
 import { useAppLayout } from "./hooks/useAppLayout";
 import { ClassicTopBar } from "./components/classic/ClassicTopBar";
-import { AnalyticsView, ProxyView, SettingsView } from "./components/workspace/viewModules";
+import { AnalyticsView, ProxyView, SettingsView, GitActivityView } from "./components/workspace/viewModules";
 
 function AppWorkspace() {
   const { layout } = useAppLayout();
-  const [activeTab, setActiveTab] = useState<AppTab>("accounts");
+  const [activeTab, setActiveTab] = useState<AppTab>("git");
   const selectTab = useCallback((tab: AppTab) => {
     // Keep the current page visible while a lazy view is loading.
     startTransition(() => setActiveTab(tab));
@@ -70,8 +70,8 @@ function AppWorkspace() {
                   ? c.costAnalyticsLoading
                   : c.refreshing || c.refreshingTokenUsage
               }
-              onGoHome={() => selectTab("accounts")}
-              showRefresh={activeTab !== "settings"}
+              onGoHome={() => selectTab("git")}
+              showRefresh={activeTab !== "settings" && activeTab !== "git"}
             />
           ) : (
             <AppTopBar
@@ -83,7 +83,7 @@ function AppWorkspace() {
                   ? c.costAnalyticsLoading
                   : c.refreshing || c.refreshingTokenUsage
               }
-              showRefresh={activeTab !== "settings"}
+              showRefresh={activeTab !== "settings" && activeTab !== "git"}
               searchOpen={accountSearchOpen}
               onSearch={openAccountSearch}
               onAddAccount={c.onOpenAddDialog}
@@ -112,13 +112,14 @@ function AppWorkspace() {
                 <AnalyticsView c={c} />
               ) : activeTab === "proxy" ? (
                 <ProxyView c={c} />
-              ) : (
+              ) : activeTab === "git" ? null : (
                 <SettingsView
                   c={c}
                   themeMode={themeMode}
                   toggleTheme={toggleTheme}
                 />
               )}
+              <div hidden={activeTab !== "git"}><GitActivityView /></div>
             </Suspense>
           </section>
         </div>

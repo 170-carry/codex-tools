@@ -201,6 +201,7 @@
     "usageUnavailable": "Нет данных об использовании"
   },
   "bottomDock": {
+    "git": "Статистика Git",
     "ariaLabel": "Нижняя навигация",
     "accounts": "Аккаунты",
     "analytics": "Analytics",
