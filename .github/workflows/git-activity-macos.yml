@@ -71,7 +71,7 @@ jobs:
           app="$bundle/macos/Codex Tools Git.app"
           test -d "$app"
           binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
-          lipo -verify_arch "$BUILD_ARCH" "$app/Contents/MacOS/$binary"
+          lipo "$app/Contents/MacOS/$binary" -verify_arch "$BUILD_ARCH"
           codesign --verify --deep --strict --verbose=2 "$app"
           mkdir -p macos-downloads
           cp "$bundle"/dmg/*.dmg macos-downloads/
