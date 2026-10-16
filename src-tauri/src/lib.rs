@@ -1,4 +1,7 @@
 mod account_switch;
+mod git_activity;
+#[cfg(feature = "desktop")]
+mod git_activity_commands;
 #[cfg(target_os = "macos")]
 mod macos_desktop;
 #[cfg(target_os = "macos")]
@@ -3009,6 +3012,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            git_activity_commands::get_git_activity,
+            git_activity_commands::select_git_activity_folder,
+            git_activity_commands::import_git_activity_config,
+            git_activity_commands::run_git_activity,
+            git_activity_commands::cancel_git_activity,
+            git_activity_commands::export_git_activity_html,
             get_tray_visual_previews,
             list_accounts,
             import_current_auth_account,

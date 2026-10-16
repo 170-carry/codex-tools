@@ -6,7 +6,7 @@ import { preloadWorkspaceView } from "../workspace/viewModules";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { ThemeMode } from "../../types/app";
 
-type AppTab = "accounts" | "analytics" | "proxy" | "settings";
+import type { AppTab } from "../../types/workspace";
 
 type AppTopBarProps = {
   activeTab: AppTab;
@@ -79,6 +79,7 @@ export function ClassicTopBar({
 }: AppTopBarProps) {
   const { copy } = useI18n();
   const navItems: Array<{ id: AppTab; label: string }> = [
+    { id: "git", label: copy.bottomDock.git },
     { id: "accounts", label: copy.bottomDock.accounts },
     { id: "analytics", label: copy.bottomDock.analytics },
     { id: "proxy", label: copy.bottomDock.proxy },

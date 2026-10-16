@@ -16,6 +16,7 @@ for (const entry of ["render-pages", "render-layouts"]) {
       format: "esm",
       packages: "external",
       jsx: "automatic",
+      loader: { ".html": "text" },
     });
     const result = spawnSync(process.execPath, [output], { stdio: "inherit" });
     if (result.status !== 0) {

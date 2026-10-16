@@ -1,0 +1,30 @@
+{
+  "productName": "Codex Tools Git",
+  "mainBinaryName": "CodexToolsGit",
+  "identifier": "com.carry.codex-tools.git-activity",
+  "bundle": {
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": false,
+    "licenseFile": "../LICENSE",
+    "shortDescription": "Git 代码统计与人员提交日历",
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "compression": "lzma"
+      }
+    }
+  },
+  "app": { "windows": [{
+    "label": "main",
+    "title": "Codex Tools Git",
+    "width": 1586,
+    "height": 992,
+    "minWidth": 640,
+    "minHeight": 500,
+    "resizable": true
+  }] },
+  "plugins": { "updater": { "endpoints": [] } }
+}

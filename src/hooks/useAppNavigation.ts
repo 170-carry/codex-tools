@@ -33,8 +33,8 @@ export function useAppNavigation(
         : event.ctrlKey;
       if (!modifier || event.altKey || event.shiftKey) return;
       const key = event.key.toLowerCase();
-      const tabs: AppTab[] = ["accounts", "analytics", "proxy", "settings"];
-      if (/^[1-4]$/.test(key)) {
+      const tabs: AppTab[] = ["git", "accounts", "analytics", "proxy", "settings"];
+      if (/^[1-5]$/.test(key)) {
         event.preventDefault();
         onSelectTab(tabs[Number(key) - 1]);
       } else if (key === ",") {
@@ -46,7 +46,7 @@ export function useAppNavigation(
       } else if (key === "f" && activeTab === "accounts") {
         event.preventDefault();
         onFindAccount();
-      } else if (key === "r") {
+      } else if (key === "r" && activeTab !== "git") {
         event.preventDefault();
         if (activeTab === "analytics") {
           void refreshCostAnalytics(false);

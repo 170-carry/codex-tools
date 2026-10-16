@@ -13,6 +13,12 @@
 
 Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、命令行入口和本地 `/v1` 反代能力。你可以用它导入账号、查看用量、切换本机 Codex 登录态，也可以把账号池暴露成 OpenAI 兼容接口供 Cursor、ChatWise、CC Switch、本地脚本等工具调用。
 
+本分支新增 **Git 代码统计与人员提交日历**，默认打开「代码统计」模块。选择本地仓库、项目父目录或远程 Git 克隆地址，即可按人员和月份查看每日提交次数、新增与删除行数；支持账号合并、排除人员、自动刷新、日历布局设置，以及 CSV / 独立 HTML 导出。统计在本机完成，初次使用不包含任何公司的仓库或人员配置。
+
+使用与统计口径见 [代码统计说明](docs/git-activity.md)。需要系统已安装 Git；提交次数和行数不等同于代码质量、实际工时或薪资依据。
+
+Windows 安装包可在 Actions 中手动运行 **Build Git Calendar for Windows** 生成，macOS 见 [Mac 构建说明](docs/git-activity-macos.md)。这些构建与下方原版的发布渠道分开，保留原项目 MIT 许可和作者署名。
+
 ## Contents
 
 - [Highlights](#highlights)

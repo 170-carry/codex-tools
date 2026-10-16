@@ -2,6 +2,7 @@ import { lazy } from "react";
 import type { AppTab } from "../../types/workspace";
 
 const loaders = {
+  git: () => import("../../features/git-activity/GitActivityView").then(module => ({ default: module.GitActivityView })),
   analytics: () =>
     import("./AnalyticsView").then((module) => ({ default: module.AnalyticsView })),
   proxy: () =>
@@ -16,6 +17,7 @@ export function preloadWorkspaceView(tab: AppTab) {
   if (tab !== "accounts") void loaders[tab]().catch(() => {});
 }
 
+export const GitActivityView = lazy(loaders.git);
 export const AnalyticsView = lazy(loaders.analytics);
 export const ProxyView = lazy(loaders.proxy);
 export const SettingsView = lazy(loaders.settings);

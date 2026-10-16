@@ -201,6 +201,7 @@
     "usageUnavailable": "No usage data"
   },
   "bottomDock": {
+    "git": "Git activity",
     "ariaLabel": "Bottom navigation",
     "accounts": "Accounts",
     "analytics": "Analytics",

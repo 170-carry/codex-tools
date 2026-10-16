@@ -5,7 +5,7 @@ import type { AppTab } from "../../types/workspace";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import { preloadWorkspaceView } from "./viewModules";
 
-const tabs: AppTab[] = ["accounts", "analytics", "proxy"];
+const tabs: AppTab[] = ["git", "accounts", "analytics", "proxy"];
 
 export function ViewTabs({
   activeTab,

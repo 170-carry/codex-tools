@@ -201,6 +201,7 @@
     "usageUnavailable": "使用量データなし"
   },
   "bottomDock": {
+    "git": "Git 統計",
     "ariaLabel": "下部ナビゲーション",
     "accounts": "アカウント",
     "analytics": "Analytics",
