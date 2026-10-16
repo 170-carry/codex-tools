@@ -42,6 +42,9 @@ const FORK_MATCH_RESYNC_WINDOW: usize = 32;
 const FORK_MATCH_ANCHOR_RECORDS: usize = 4;
 const COST_ANALYTICS_CACHE_VERSION: u8 = 12;
 const COST_SOURCE_LOCAL: &str = "local_estimate";
+const TPS_MIN_RESPONSE_MS: i64 = 200;
+const TPS_MAX_RESPONSE_MS: i64 = 10 * 60 * 1000;
+const TPS_MIN_TOTAL_DURATION_MS: i64 = 1000;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
@@ -61,7 +64,50 @@ pub(crate) struct CodexTokenSessionUsage {
     pub(crate) total: CodexTokenTotals,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+/// Per-account usage attributed by the `creator_account_id` that Codex writes
+/// into each rollout's `session_meta`. A session resumed after a switch stays
+/// with the account that created it.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexAccountTokenUsage {
+    pub(crate) account_id: String,
+    pub(crate) last_24h: CodexTokenTotals,
+    pub(crate) last_7d: CodexTokenTotals,
+    pub(crate) last_30d: CodexTokenTotals,
+    pub(crate) last_active_at: Option<i64>,
+    pub(crate) response_count_24h: usize,
+    /// Output tokens per second over model responses in the last 24 hours,
+    /// measured from turn/previous-response boundary to the token_count event.
+    pub(crate) output_tps_24h: Option<f64>,
+    pub(crate) output_tps_7d: Option<f64>,
+    pub(crate) latest_output_tps: Option<f64>,
+    #[serde(skip)]
+    tps_24h: TpsAccumulator,
+    #[serde(skip)]
+    tps_7d: TpsAccumulator,
+    #[serde(skip)]
+    latest_tps_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct TpsAccumulator {
+    output_tokens: u64,
+    duration_ms: i64,
+}
+
+impl TpsAccumulator {
+    fn add(&mut self, output_tokens: u64, duration_ms: i64) {
+        self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+        self.duration_ms = self.duration_ms.saturating_add(duration_ms);
+    }
+
+    fn rate(&self) -> Option<f64> {
+        (self.duration_ms >= TPS_MIN_TOTAL_DURATION_MS && self.output_tokens > 0)
+            .then(|| round_tps(self.output_tokens as f64 * 1000.0 / self.duration_ms as f64))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexTokenUsageSnapshot {
     pub(crate) updated_at: i64,
@@ -75,6 +121,7 @@ pub(crate) struct CodexTokenUsageSnapshot {
     pub(crate) last_7d: CodexTokenTotals,
     pub(crate) last_30d: CodexTokenTotals,
     pub(crate) latest_session: Option<CodexTokenSessionUsage>,
+    pub(crate) accounts: Vec<CodexAccountTokenUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -193,6 +240,9 @@ struct CodexCostAnalyticsCacheFile {
 struct ParsedTokenEvent {
     record_index: usize,
     timestamp: i64,
+    /// Time from the turn start or previous response to this event, when it
+    /// looks like a single model response.
+    duration_ms: Option<i64>,
     last: Option<CodexTokenTotals>,
     total: Option<CodexTokenTotals>,
 }
@@ -381,7 +431,9 @@ fn build_codex_token_usage_snapshot(
         last_7d: CodexTokenTotals::default(),
         last_30d: CodexTokenTotals::default(),
         latest_session: None,
+        accounts: Vec::new(),
     };
+    let mut accounts: HashMap<String, CodexAccountTokenUsage> = HashMap::new();
 
     let last_24h_start = now.saturating_sub(DAY_SECONDS);
     let last_3d_start = now.saturating_sub(3 * DAY_SECONDS);
@@ -409,7 +461,18 @@ fn build_codex_token_usage_snapshot(
         let delta_result =
             derive_confirmed_token_deltas(&session.events, ownership.inherited_record_end);
         snapshot.unresolved_usage_event_count += delta_result.unresolved_event_count;
+        let mut account = session.creator_account_id.as_ref().map(|account_id| {
+            accounts
+                .entry(account_id.clone())
+                .or_insert_with(|| CodexAccountTokenUsage {
+                    account_id: account_id.clone(),
+                    ..CodexAccountTokenUsage::default()
+                })
+        });
         for event in &delta_result.events {
+            if let Some(account) = account.as_deref_mut() {
+                account.observe(event, last_24h_start, last_7d_start, last_30d_start);
+            }
             snapshot.event_count += 1;
             if event.timestamp >= last_24h_start {
                 snapshot.last_24h.add(&event.total);
@@ -437,12 +500,69 @@ fn build_codex_token_usage_snapshot(
         }
     }
 
+    let mut accounts = accounts
+        .into_values()
+        .filter(|account| account.last_30d.total_tokens > 0)
+        .map(|mut account| {
+            account.output_tps_24h = account.tps_24h.rate();
+            account.output_tps_7d = account.tps_7d.rate();
+            account
+        })
+        .collect::<Vec<_>>();
+    accounts.sort_by(|left, right| left.account_id.cmp(&right.account_id));
+    snapshot.accounts = accounts;
     snapshot
+}
+
+impl CodexAccountTokenUsage {
+    fn observe(
+        &mut self,
+        event: &ConfirmedTokenDelta,
+        last_24h_start: i64,
+        last_7d_start: i64,
+        last_30d_start: i64,
+    ) {
+        if event.timestamp < last_30d_start {
+            return;
+        }
+        self.last_30d.add(&event.total);
+        self.last_active_at = max_option_i64(self.last_active_at, Some(event.timestamp));
+        if event.timestamp >= last_7d_start {
+            self.last_7d.add(&event.total);
+        }
+        if event.timestamp >= last_24h_start {
+            self.last_24h.add(&event.total);
+            self.response_count_24h += 1;
+        }
+        let Some(duration_ms) = event.duration_ms else {
+            return;
+        };
+        let output_tokens = event.total.output_tokens;
+        if output_tokens == 0 {
+            return;
+        }
+        if event.timestamp >= last_7d_start {
+            self.tps_7d.add(output_tokens, duration_ms);
+        }
+        if event.timestamp >= last_24h_start {
+            self.tps_24h.add(output_tokens, duration_ms);
+        }
+        if self.latest_tps_at.map(|at| event.timestamp >= at).unwrap_or(true) {
+            self.latest_tps_at = Some(event.timestamp);
+            self.latest_output_tps =
+                Some(round_tps(output_tokens as f64 * 1000.0 / duration_ms as f64));
+        }
+    }
+}
+
+fn round_tps(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ConfirmedTokenDelta {
     timestamp: i64,
+    duration_ms: Option<i64>,
     total: CodexTokenTotals,
 }
 
@@ -495,6 +615,7 @@ fn derive_confirmed_token_deltas(
         }
         result.events.push(ConfirmedTokenDelta {
             timestamp: event.timestamp,
+            duration_ms: event.duration_ms,
             total: delta,
         });
     }
@@ -1073,11 +1194,15 @@ struct ParsedTokenSessionFile {
     filename_session_id: Option<String>,
     parent_session_id: Option<String>,
     parent_thread_id: Option<String>,
+    creator_account_id: Option<String>,
     identity_trusted: bool,
     header_checked: bool,
     record_hashes: Vec<u64>,
     events: Vec<ParsedTokenEvent>,
     latest_session: Option<CodexTokenSessionUsage>,
+    /// Millisecond timestamp of the latest turn start or response, carried
+    /// across incremental appends so TPS durations stay continuous.
+    response_boundary_ms: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -1701,11 +1826,13 @@ fn parse_token_session_file(path: &Path) -> Result<CachedTokenUsageFile, String>
         filename_session_id,
         parent_session_id: None,
         parent_thread_id: None,
+        creator_account_id: None,
         identity_trusted: false,
         header_checked: false,
         record_hashes: Vec::new(),
         events: Vec::new(),
         latest_session: None,
+        response_boundary_ms: None,
     };
 
     {
@@ -1813,14 +1940,51 @@ fn parse_token_session_lines<R: BufRead>(
                 parsed.payload_session_id = metadata.payload_session_id;
                 parsed.parent_session_id = metadata.forked_from_id;
                 parsed.parent_thread_id = metadata.parent_thread_id;
+                parsed.creator_account_id = metadata.creator_account_id;
+                parsed.response_boundary_ms = line_timestamp_ms(&line);
             }
             continue;
         }
-        if let Some(event) = parse_token_event_line_at(&line, record_index) {
+        if is_response_boundary_line(&line) {
+            if let Some(timestamp_ms) = line_timestamp_ms(&line) {
+                parsed.response_boundary_ms = Some(timestamp_ms);
+            }
+            continue;
+        }
+        if let Some(mut event) = parse_token_event_line_at(&line, record_index) {
+            if let Some(timestamp_ms) = line_timestamp_ms(&line) {
+                event.duration_ms = parsed
+                    .response_boundary_ms
+                    .map(|boundary| timestamp_ms - boundary)
+                    .filter(|duration| {
+                        (TPS_MIN_RESPONSE_MS..=TPS_MAX_RESPONSE_MS).contains(duration)
+                    });
+                parsed.response_boundary_ms = Some(timestamp_ms);
+            }
             parsed.events.push(event);
         }
     }
     Ok(())
+}
+
+/// A new user turn starts the clock for the next model response; idle time
+/// before it must not count against throughput.
+fn is_response_boundary_line(line: &str) -> bool {
+    [
+        "\"type\":\"turn_context\"",
+        "\"type\":\"user_message\"",
+        "\"type\":\"task_started\"",
+    ]
+    .iter()
+    .any(|pattern| line.contains(pattern))
+}
+
+fn line_timestamp_ms(line: &str) -> Option<i64> {
+    const KEY: &str = "\"timestamp\":\"";
+    let start = line.find(KEY)? + KEY.len();
+    let end = start + line[start..].find('"')?;
+    let timestamp = OffsetDateTime::parse(&line[start..end], &Rfc3339).ok()?;
+    i64::try_from(timestamp.unix_timestamp_nanos() / 1_000_000).ok()
 }
 
 fn latest_token_session_usage(events: &[ParsedTokenEvent]) -> Option<CodexTokenSessionUsage> {
@@ -1854,6 +2018,7 @@ struct ParsedSessionMetadata {
     payload_session_id: Option<String>,
     forked_from_id: Option<String>,
     parent_thread_id: Option<String>,
+    creator_account_id: Option<String>,
 }
 
 fn parse_session_metadata_payload(payload: &Value) -> ParsedSessionMetadata {
@@ -1873,6 +2038,12 @@ fn parse_session_metadata_payload(payload: &Value) -> ParsedSessionMetadata {
         parent_thread_id: payload
             .get("parent_thread_id")
             .and_then(Value::as_str)
+            .map(str::to_string),
+        creator_account_id: payload
+            .get("creator_account_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             .map(str::to_string),
     }
 }
@@ -2166,6 +2337,7 @@ fn parse_token_event_root(
     Some(ParsedTokenEvent {
         record_index,
         timestamp,
+        duration_ms: None,
         last,
         total,
     })
@@ -2819,6 +2991,73 @@ mod tests {
         assert_eq!(event.timestamp, 1_777_358_263);
         assert_eq!(event.last.expect("last usage").total_tokens, 206_498);
         assert_eq!(event.total.expect("total usage").input_tokens, 40_902_952);
+    }
+
+    fn cumulative_token_line(timestamp: &str, total: u64, output: u64) -> String {
+        serde_json::json!({
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": total - output,
+                        "output_tokens": output,
+                        "total_tokens": total
+                    }
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn attributes_usage_and_output_tps_to_the_creator_account() {
+        let root = unique_temp_dir();
+        let sessions = root.join("sessions").join("2026").join("04").join("28");
+        fs::create_dir_all(&sessions).expect("create sessions dir");
+        let meta = serde_json::json!({
+            "timestamp": "2026-04-28T05:00:00.000Z",
+            "type": "session_meta",
+            "payload": { "id": "tps-session", "creator_account_id": "acct-a" }
+        })
+        .to_string();
+        let turn = |timestamp: &str| {
+            serde_json::json!({
+                "timestamp": timestamp,
+                "type": "turn_context",
+                "payload": { "turn_id": "t" }
+            })
+            .to_string()
+        };
+        fs::write(
+            sessions.join("rollout-tps.jsonl"),
+            [
+                meta,
+                turn("2026-04-28T06:00:00.000Z"),
+                // 100 output tokens in 2s, then 300 more in 3s.
+                cumulative_token_line("2026-04-28T06:00:02.000Z", 1_100, 100),
+                cumulative_token_line("2026-04-28T06:00:05.000Z", 2_400, 400),
+                // An hour of idle time before the next turn must not count.
+                turn("2026-04-28T07:00:00.000Z"),
+                cumulative_token_line("2026-04-28T07:00:04.000Z", 3_000, 600),
+            ]
+            .join("\n"),
+        )
+        .expect("write log");
+
+        let snapshot = scan_codex_token_usage_roots(&[root.join("sessions")], 1_777_361_000);
+
+        assert_eq!(snapshot.accounts.len(), 1);
+        let account = &snapshot.accounts[0];
+        assert_eq!(account.account_id, "acct-a");
+        assert_eq!(account.last_24h.total_tokens, 3_000);
+        assert_eq!(account.response_count_24h, 3);
+        // 600 output tokens over 9 seconds of response time.
+        assert_eq!(account.output_tps_24h, Some(66.7));
+        assert_eq!(account.latest_output_tps, Some(50.0));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

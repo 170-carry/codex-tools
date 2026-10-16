@@ -1,0 +1,114 @@
+:where(html[data-layout="classic"]) .planChip {
+  --plan-shadow: none;
+  --plan-selected-border: color-mix(in srgb, currentColor 24%, transparent);
+  flex-shrink: 0;
+  min-height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--subtle);
+  background: var(--bg-2);
+  box-shadow: var(--plan-shadow);
+  font: 700 0.65rem/1 var(--font-ui);
+  white-space: nowrap;
+  transition: border-color 140ms ease, filter 140ms ease;
+}
+
+:where(html[data-layout="classic"]) .planChip:hover,
+:where(html[data-layout="classic"]) .planChip:focus-visible {
+  transform: none;
+  box-shadow: var(--plan-shadow);
+}
+
+/* Paid tiers share the finish, with black and gold reserved for Pro. */
+:where(html[data-layout="classic"]) .planChip:is(
+  .tone-pro,
+  .tone-plus,
+  .tone-team,
+  .tone-business,
+  .tone-enterprise
+) {
+  --plan-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(15, 23, 42, 0.1);
+  --plan-selected-border: color-mix(in srgb, var(--plan-accent) 80%, transparent);
+  color: var(--plan-text);
+  border-color: color-mix(in srgb, var(--plan-accent) 68%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 55%),
+    linear-gradient(135deg, var(--plan-start), var(--plan-end));
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-pro {
+  --plan-accent: #cda65f;
+  --plan-text: #f5d58d;
+  --plan-start: #25231f;
+  --plan-end: #090a0c;
+  --plan-inactive-color: #bba574;
+  --plan-inactive-background: linear-gradient(135deg, #25231f, #090a0c);
+  --plan-inactive-border: color-mix(in srgb, var(--plan-accent) 32%, transparent);
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-plus {
+  --plan-accent: #baa0ec;
+  --plan-text: #eee2ff;
+  --plan-start: #4b376b;
+  --plan-end: #281f43;
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-team {
+  --plan-accent: #78bda9;
+  --plan-text: #d6f3e8;
+  --plan-start: #254c47;
+  --plan-end: #142f2d;
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-business {
+  --plan-accent: #8eafd9;
+  --plan-text: #e0ebfc;
+  --plan-start: #2c4161;
+  --plan-end: #18283f;
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-enterprise {
+  --plan-accent: #dec69b;
+  --plan-text: #f6ead2;
+  --plan-start: #494137;
+  --plan-end: #272722;
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-free,
+:where(html[data-layout="classic"]) .planChip.tone-unknown {
+  color: var(--subtle);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+:where(html[data-layout="classic"]) .planChip.tone-api {
+  color: color-mix(in srgb, #0284c7 76%, var(--ink));
+  background: rgba(14, 165, 233, 0.1);
+}
+
+:where(html[data-layout="classic"]) .planChip.isSelected {
+  border-color: var(--plan-selected-border);
+}
+
+/* Keep the active choice distinct when one account offers multiple paid tiers. */
+:where(html[data-layout="classic"]) button.planChip[aria-pressed="false"] {
+  --plan-shadow: none;
+  color: var(--plan-inactive-color, var(--subtle));
+  border-color: var(--plan-inactive-border, var(--line));
+  background: var(--plan-inactive-background, var(--bg-1));
+  text-shadow: none;
+}
+
+:where(html[data-layout="classic"]) button.planChip:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+:where(html[data-layout="classic"]) button.planChip:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}

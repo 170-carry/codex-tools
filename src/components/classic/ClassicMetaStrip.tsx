@@ -144,6 +144,7 @@ export function ClassicMetaStrip({
         <article
           key={metric.label}
           className={`metaPill metric-${metric.tone}`}
+          title={`${metric.label} · ${metric.helper}`}
         >
           <span className="metricIcon">
             <MetricIcon tone={metric.tone} />
@@ -151,7 +152,6 @@ export function ClassicMetaStrip({
           <span className="metricCopy">
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
-            <em>{metric.helper}</em>
           </span>
         </article>
       ))}

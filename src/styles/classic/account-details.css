@@ -1,0 +1,559 @@
+:where(html[data-layout="classic"]) .accountDetailPanel {
+  padding: 20px;
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 0;
+  overflow: auto;
+}
+
+:where(html[data-layout="classic"]) .detailHeader {
+  min-height: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+:where(html[data-layout="classic"]) .detailIdentity {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+:where(html[data-layout="classic"]) .detailTitleBlock {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+:where(html[data-layout="classic"]) .detailPlanStatus {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+:where(html[data-layout="classic"]) .detailTitleBlock h2 {
+  max-width: 100%;
+  margin: 0;
+  color: var(--ink);
+  font: 850 0.96rem/1.25 var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:where(html[data-layout="classic"]) .detailEditButton {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+:where(html[data-layout="classic"]) .detailEditButton:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-hover-bg);
+  box-shadow: none;
+  transform: none;
+}
+
+:where(html[data-layout="classic"]) .detailAliasEditor {
+  width: min(300px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+:where(html[data-layout="classic"]) .detailAliasEditor input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: var(--bg-0);
+  color: var(--ink);
+  outline: none;
+  font: 700 0.78rem/1 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .detailAliasEditor button {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+}
+
+:where(html[data-layout="classic"]) .detailCard,
+:where(html[data-layout="classic"]) .detailMetaGrid {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:where(html[data-layout="classic"]) .detailCard {
+  display: grid;
+  gap: 14px;
+  padding: 16px 0;
+}
+
+:where(html[data-layout="classic"]) .detailCard:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+:where(html[data-layout="classic"]) .detailCard h3,
+:where(html[data-layout="classic"]) .detailSectionTitle h3 {
+  margin: 0;
+  color: var(--ink);
+  font: 850 0.9rem/1.15 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .detailCardTitle {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: visible;
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid > .membershipExpiryMeta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 16px 0;
+}
+
+:where(html[data-layout="classic"]) .recentSwitchCard.isEmpty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid span {
+  color: var(--subtle);
+  font: 750 0.68rem/1 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid strong {
+  min-width: 0;
+  color: var(--ink);
+  font: 750 0.76rem/1.25 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+:where(html[data-layout="classic"]) .membershipExpiryMeta {
+  position: relative;
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid .membershipExpiryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid .membershipHelpTip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+:where(html[data-layout="classic"]) .membershipHelpButton {
+  width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--brand-cool) 38%, var(--line) 62%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--control-bg) 88%, var(--brand-cool) 12%);
+  color: var(--brand-cool);
+  font: 850 0.65rem/1 var(--font-ui);
+  cursor: help;
+}
+
+:where(html[data-layout="classic"]) .membershipHelpButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-cool) 72%, transparent);
+  outline-offset: 2px;
+}
+
+:where(html[data-layout="classic"]) .detailMetaGrid .membershipHelpBubble {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: min(280px, calc(100vw - 64px));
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  color: var(--ink);
+  font: 650 0.72rem/1.45 var(--font-ui);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 130ms ease,
+    transform 130ms ease,
+    visibility 130ms ease;
+  visibility: hidden;
+}
+
+:where(html[data-layout="classic"]) .membershipHelpTip:hover .membershipHelpBubble,
+:where(html[data-layout="classic"]) .membershipHelpTip:focus-within .membershipHelpBubble {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+:where(html[data-layout="classic"]) .membershipReauthorizeAction {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand-cool);
+  font: 750 0.7rem/1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+:where(html[data-layout="classic"]) .membershipReauthorizeAction:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+:where(html[data-layout="classic"]) .membershipReauthorizeAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+:where(html[data-layout="classic"]) .detailSectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+:where(html[data-layout="classic"]) .resetCreditsCard {
+  gap: 12px;
+}
+
+:where(html[data-layout="classic"]) .resetCreditsCount {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 7px;
+  color: color-mix(in srgb, var(--brand) 82%, var(--ink) 18%);
+  background: color-mix(in srgb, var(--brand-soft) 68%, transparent);
+  font: 650 0.66rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+:where(html[data-layout="classic"]) .resetCreditList {
+  display: grid;
+  gap: 4px;
+}
+
+:where(html[data-layout="classic"]) .resetCreditItem {
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 0;
+  background: transparent;
+}
+
+:where(html[data-layout="classic"]) .resetCreditIndex {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand-soft) 78%, transparent);
+  font: 850 0.76rem/1 var(--font-mono);
+}
+
+:where(html[data-layout="classic"]) .resetCreditItem div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+:where(html[data-layout="classic"]) .resetCreditItem span:not(.resetCreditIndex) {
+  color: var(--subtle);
+  font: 750 0.66rem/1 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .resetCreditItem strong {
+  min-width: 0;
+  color: var(--ink);
+  font: 760 0.78rem/1.2 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+:where(html[data-layout="classic"]) .resetCreditsToggle {
+  min-height: 26px;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 6px;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--brand) 76%, var(--ink) 24%);
+  font: 650 0.72rem/1 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .resetCreditsToggle:hover:not(:disabled) {
+  background: var(--surface-hover-bg);
+  box-shadow: none;
+  transform: none;
+}
+
+:where(html[data-layout="classic"]) .resetCreditsToggleIcon {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 140ms ease;
+}
+
+:where(html[data-layout="classic"]) .resetCreditsToggleIcon.isExpanded {
+  transform: rotate(180deg);
+}
+
+:where(html[data-layout="classic"]) .recentSwitchList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+:where(html[data-layout="classic"]) .recentSwitchList li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px 9px;
+  color: var(--subtle);
+  font: 650 0.72rem/1.25 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .recentSwitchEmpty {
+  margin: 0;
+  color: var(--subtle);
+  font: 500 0.72rem/1.4 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .recentSwitchList strong {
+  color: color-mix(in srgb, var(--ink) 72%, var(--subtle) 28%);
+  font: 700 0.72rem/1.25 var(--font-mono);
+  white-space: nowrap;
+}
+
+:where(html[data-layout="classic"]) .recentSwitchList em {
+  grid-column: 2 / -1;
+  min-width: 0;
+  color: var(--subtle);
+  font-style: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:where(html[data-layout="classic"]) .accountDetailPanel .quickActionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 8px;
+}
+
+:where(html[data-layout="classic"]) .quickActionGrid button {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  border-radius: 8px;
+  padding: 8px 6px;
+  background: transparent;
+  box-shadow: none;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 7px;
+  color: var(--subtle);
+  font: 750 0.68rem/1.15 var(--font-ui);
+  text-align: center;
+}
+
+:where(html[data-layout="classic"]) .quickActionGrid button span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+:where(html[data-layout="classic"]) .quickActionGrid .dangerAction {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 15%, var(--line));
+  background: transparent;
+}
+
+:where(html[data-layout="classic"]) .quickActionGrid button:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-hover-bg);
+  box-shadow: none;
+  transform: none;
+}
+
+/* Token & speed card */
+:where(html[data-layout="classic"]) .accountTokenCardCredits {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--subtle);
+  background: color-mix(in srgb, var(--brand-soft) 70%, transparent);
+  font: 750 0.66rem/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+:where(html[data-layout="classic"]) .accountTokenCardCredits strong {
+  color: color-mix(in srgb, var(--brand) 80%, var(--ink) 20%);
+  font: 850 0.78rem/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(html[data-layout="classic"]) .accountTokenCardCredits strong.isEmpty {
+  color: var(--subtle);
+}
+
+:where(html[data-layout="classic"]) .accountTokenWindows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+:where(html[data-layout="classic"]) .accountTokenWindows span {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--bar-track) 38%, transparent);
+}
+
+:where(html[data-layout="classic"]) .accountTokenWindows em,
+:where(html[data-layout="classic"]) .accountTpsHero em {
+  color: var(--subtle);
+  font: 700 0.64rem/1 var(--font-ui);
+  font-style: normal;
+}
+
+:where(html[data-layout="classic"]) .accountTokenWindows b {
+  color: var(--ink);
+  font: 850 0.96rem/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(html[data-layout="classic"]) .accountTpsRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+:where(html[data-layout="classic"]) .accountTpsHero {
+  display: grid;
+  gap: 6px;
+  padding-right: 16px;
+  border-right: 1px solid var(--line);
+}
+
+:where(html[data-layout="classic"]) .accountTpsHero strong {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--ink);
+  font: 850 1.5rem/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(html[data-layout="classic"]) .accountTpsHero small {
+  color: var(--subtle);
+  font: 700 0.64rem/1 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .accountTpsFacts {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+:where(html[data-layout="classic"]) .accountTpsFacts div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+:where(html[data-layout="classic"]) .accountTpsFacts dt {
+  color: var(--subtle);
+  font: 700 0.62rem/1 var(--font-ui);
+}
+
+:where(html[data-layout="classic"]) .accountTpsFacts dd {
+  margin: 0;
+  color: var(--ink);
+  font: 750 0.74rem/1.2 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:where(html[data-layout="classic"]) .accountTokenEmpty {
+  margin: 0;
+  color: var(--subtle);
+  font: 650 0.7rem/1.4 var(--font-ui);
+}

@@ -1,17 +1,13 @@
 import type { AccountRow } from "../accounts/types";
 import { formatPlan, planTone } from "../../utils/usage";
-import { formatFullDate } from "../../utils/dateFormatting";
-import {
-  accountInitial,
-  displayAccountAddress,
-  formatResetValue,
-} from "../accounts/accountPresentation";
+import { displayAccountAddress } from "../accounts/accountPresentation";
 import { accountIssueReason, accountStatus } from "../accounts/accountModel";
 import { statusLabel } from "../accounts/accountCopy";
 import { UsageFreshnessBadge } from "../accounts/UsageFreshnessBadge";
 import { AccountActionMenu } from "../accounts/AccountActionMenu";
 import { AccountResetCredits } from "../accounts/AccountResetCredits";
 import { UsageMeter } from "./ClassicUsageMeter";
+import { ClassicAccountStats } from "./ClassicAccountStats";
 import { copyAccountText } from "./copyAccountText";
 import type { ClassicAccountsWorkspace } from "./useClassicAccounts";
 export function ClassicAccountRow({
@@ -35,11 +31,11 @@ export function ClassicAccountRow({
     authBusy,
     switchingId,
     onToggleApiProxy,
+    tokenUsageByAccount,
   } = workspace;
   const actions = workspace.actions;
   const account = row.account;
   const status = accountStatus(account);
-  const normalizedPlan = account.planType || account.usage?.planType;
   const isSelected = selectedRow?.account.id === account.id;
   const isSwitching = switchingId === account.id;
   const switchDisabled = authBusy || account.isCurrent;
@@ -64,9 +60,6 @@ export function ClassicAccountRow({
       }}
     >
       <div className="accountIdentityCell">
-        <span className={`accountAvatar tone-${planTone(normalizedPlan)}`}>
-          {accountInitial(account)}
-        </span>
         <span className="accountIdentityText">
           <span className="accountTitleLine">
             {row.variants.map((variant) => {
@@ -140,6 +133,7 @@ export function ClassicAccountRow({
         windowLabel="5h"
         window={account.usage?.fiveHour ?? null}
         text={text}
+        locale={locale}
       />
       <UsageMeter
         className="accountUsageWeek"
@@ -147,36 +141,18 @@ export function ClassicAccountRow({
         windowLabel="1w"
         window={account.usage?.oneWeek ?? null}
         text={text}
+        locale={locale}
       />
-      <div className="resetCell">
-        <span
-          title={formatFullDate(
-            account.usage?.fiveHour?.resetAt,
-            locale,
-            text.emptyValue,
-          )}
-        >
-          {formatResetValue(
-            account.usage?.fiveHour?.resetAt,
-            locale,
-            text.emptyValue,
-          )}
-        </span>
-        <strong
-          title={formatFullDate(
-            account.usage?.oneWeek?.resetAt,
-            locale,
-            text.emptyValue,
-          )}
-        >
-          {formatResetValue(
-            account.usage?.oneWeek?.resetAt,
-            locale,
-            text.emptyValue,
-          )}
-        </strong>
-      </div>
-      <label className="rowToggle" onClick={(event) => event.stopPropagation()}>
+      <ClassicAccountStats
+        account={account}
+        usage={tokenUsageByAccount.get(account.accountId)}
+        locale={locale}
+      />
+      <label
+        className="rowToggle"
+        title={copy.accountCard.apiProxyToggle}
+        onClick={(event) => event.stopPropagation()}
+      >
         <input
           type="checkbox"
           checked={account.apiProxyEnabled}

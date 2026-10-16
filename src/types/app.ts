@@ -47,6 +47,18 @@ export type CodexTokenSessionUsage = {
   total: CodexTokenTotals;
 };
 
+export type CodexAccountTokenUsage = {
+  accountId: string;
+  last24h: CodexTokenTotals;
+  last7d: CodexTokenTotals;
+  last30d: CodexTokenTotals;
+  lastActiveAt: number | null;
+  responseCount24h: number;
+  outputTps24h: number | null;
+  outputTps7d: number | null;
+  latestOutputTps: number | null;
+};
+
 export type CodexTokenUsageSnapshot = {
   updatedAt: number;
   sourcePathCount: number;
@@ -59,6 +71,8 @@ export type CodexTokenUsageSnapshot = {
   last7d: CodexTokenTotals;
   last30d: CodexTokenTotals;
   latestSession: CodexTokenSessionUsage | null;
+  /** Older backends omit per-account attribution. */
+  accounts?: CodexAccountTokenUsage[];
 };
 
 export type CodexBudgetAlert = "none" | "ok" | "warning" | "danger";

@@ -1,0 +1,23 @@
+/* Stack details before the list's fixed-width controls run out of room. */
+@media (max-width: 1360px) {
+  .classicApp .accountsWorkspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max-content;
+    align-content: start;
+    overflow: auto;
+  }
+
+  .classicApp .accountListStack {
+    height: auto;
+    grid-template-rows: auto max(540px, 70dvh);
+    overflow: visible;
+  }
+
+  .classicApp .accountListPanel {
+    min-height: 540px;
+  }
+
+  .classicApp .accountDetailPanel {
+    overflow: visible;
+  }
+}

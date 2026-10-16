@@ -57,7 +57,7 @@ export function ClassicAccountList({
               <span>{copy.bottomDock.accounts}</span>
               <span>{text.fiveHourUsage}</span>
               <span>{text.weekUsage}</span>
-              <span>{text.resetTime}</span>
+              <span>{text.tokenUsageTitle}</span>
               <span>{text.proxyEnabled}</span>
               <span>{text.switchAccount}</span>
             </div>

@@ -1,0 +1,107 @@
+.classicApp .metaStrip {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.classicApp .metaPill {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: var(--meta-bg);
+}
+
+.classicApp .metricIcon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.classicApp .metricIconGlyph {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.classicApp .metric-blue .metricIcon {
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.classicApp .metric-green .metricIcon {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+.classicApp .metric-amber .metricIcon {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.classicApp .metric-red .metricIcon {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.classicApp .metricCopy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.classicApp .metricCopy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--subtle);
+  font: 600 12px/1.4 var(--font-ui);
+}
+
+.classicApp .metricCopy strong {
+  flex-shrink: 0;
+  color: var(--ink);
+  font: 700 20px/1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.classicApp .metaExportButton {
+  display: none;
+}
+
+@media (max-width: 1280px) {
+  .classicApp .metaPill {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .classicApp .metricIcon {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (max-width: 620px) {
+  .classicApp .metaStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}

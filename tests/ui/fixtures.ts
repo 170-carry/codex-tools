@@ -58,7 +58,7 @@ export function fixtureAccount(
         windowSeconds: 604800,
         resetAt: now + 432000,
       },
-      credits: null,
+      credits: { hasCredits: true, unlimited: false, balance: "250" },
       resetCredits: {
         availableCount: 3,
         credits: [1, 2, 3].map((n) => ({
@@ -78,10 +78,12 @@ const freeExample = fixtureAccount("spent", "spent@example.com", 100, 100, {
 });
 freeExample.usage!.planType = "free";
 freeExample.usage!.resetCredits = { availableCount: 0, credits: [] };
+freeExample.usage!.credits = { hasCredits: false, unlimited: false, balance: "0" };
 const cachedExample = fixtureAccount("cached", "cached@example.com", 54, 77, {
   usageError: "usage -> 401 Unauthorized: token is expired",
 });
 cachedExample.usage!.resetCredits = { availableCount: null, credits: [] };
+cachedExample.usage!.credits = null;
 const alternatePlanExample = fixtureAccount(
   "team-pro",
   "team@example.com",
@@ -126,6 +128,22 @@ export const tokenUsage: CodexTokenUsageSnapshot = {
   last7d: totals(12430000),
   last30d: totals(42920000),
   latestSession: null,
+  accounts: [
+    { id: "daily", day: 1_284_000, tps: 42.6, latest: 51.2 },
+    { id: "studio", day: 358_800, tps: 31.4, latest: 28.9 },
+    { id: "backup", day: 0, tps: null, latest: 24.1 },
+    { id: "low", day: 2_902_000, tps: 57.3, latest: 63.8 },
+  ].map(({ id, day, tps, latest }) => ({
+    accountId: id,
+    last24h: totals(day),
+    last7d: totals(day * 4 + 820_000),
+    last30d: totals(day * 12 + 3_400_000),
+    lastActiveAt: day > 0 ? now - 1800 : now - 86400 * 3,
+    responseCount24h: Math.round(day / 4200),
+    outputTps24h: tps,
+    outputTps7d: tps ?? 26.7,
+    latestOutputTps: latest,
+  })),
 };
 
 export const analytics: CodexCostAnalyticsSnapshot = {
