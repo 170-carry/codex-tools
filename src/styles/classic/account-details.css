@@ -287,13 +287,19 @@
   min-width: 0;
   min-height: 44px;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   border: 0;
   border-radius: 0;
   padding: 6px 0;
   background: transparent;
+}
+
+:where(html[data-layout="classic"]) .resetCreditItem > button {
+  grid-column: 3;
+  grid-row: 1;
+  white-space: nowrap;
 }
 
 :where(html[data-layout="classic"]) .resetCreditIndex {

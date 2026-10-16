@@ -172,6 +172,26 @@ check(
     accountHtml.includes('class="detailEditButton"') &&
     accountHtml.includes("accountTokenExportButton"),
 );
+check(
+  "Original shows local account usage, estimated speed, balances and quota resets",
+  occurrences(accountHtml, 'class="accountStatsCell"') === 8 &&
+    accountHtml.includes('42.6') && accountHtml.includes('250') &&
+    accountHtml.includes('accountTokenCard') &&
+    accountHtml.includes('class="usageMeterReset"'),
+);
+const legacyAccountHtml = render(
+  <ClassicAccountsGrid
+    {...props}
+    tokenUsage={{ ...tokenUsage, accounts: undefined }}
+    tokenUsageError={null}
+  />,
+);
+check(
+  "Older snapshots keep account controls while displaying unknown local usage",
+  legacyAccountHtml.includes('accountTokenEmpty') &&
+    occurrences(legacyAccountHtml, 'class="rowToggle"') === 8 &&
+    !legacyAccountHtml.includes('NaN'),
+);
 const empty = render(
   <ClassicAccountsGrid
     {...accountProps({ accounts: [] })}

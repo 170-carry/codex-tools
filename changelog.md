@@ -4,6 +4,22 @@
 
 ### Released
 
+- v3.1.1
+
+#### English
+
+1. Refresh the classic account list, summary cards and detail panel with compact account statistics, clearer plan/status styling and responsive layouts.
+2. Show per-account local Token totals for the last 24 hours, 7 days and 30 days, estimated output speed, last activity and Credits balances. Usage is attributed to the account that created each Codex session; speed is estimated from local log timing, excluding long idle intervals.
+3. Show quota reset times directly in usage meters. Split account details, statistics, recent switches and styles into focused modules while preserving account ordering and reset-credit controls from v3.1.0.
+4. Desktop release only; npm CLI packages are not published in this release.
+
+#### 中文
+
+1. 更新经典账号列表、汇总卡片与详情面板，展示紧凑账号统计，优化套餐、状态样式与响应式布局。
+2. 展示每个账号近 24 小时、7 天和 30 天的本地 Token 用量、估算输出速度、最近使用时间及 Credits 余额。按 Codex 会话创建账号归属用量；速度依据本地日志耗时估算，排除长时间空闲间隔。
+3. 在用量条直接展示额度重置时间；将账号详情、统计、最近切换和样式拆分为独立模块，保留 v3.1.0 的账号排序和重置卡操作。
+4. 本次只发布桌面版本，暂不发布 npm CLI 包。
+
 - v3.1.0
 
 #### English
