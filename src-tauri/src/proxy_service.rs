@@ -25,8 +25,11 @@ mod model_catalog;
 pub(crate) use codex_binding::{
     bind_codex_to_api_proxy_internal, sync_bound_codex_catalog_internal,
 };
+#[path = "proxy_service/image_transport.rs"]
+mod image_transport;
 #[path = "proxy_service/responses_lite.rs"]
 mod responses_lite;
+use image_transport::{native_image_payload, validate_native_image_response};
 use model_catalog::{
     is_responses_lite_model, map_client_model_to_upstream, normalize_model_for_client,
     upstream_codex_client_identity, CODEX_CLIENT_VERSION, CODEX_USER_AGENT, MODELS,
@@ -35,6 +38,9 @@ use responses_lite::normalize_responses_lite_payload;
 #[cfg(test)]
 #[path = "proxy_service/astra_tests.rs"]
 mod astra_tests;
+#[cfg(test)]
+#[path = "proxy_service/image_transport_tests.rs"]
+mod image_transport_tests;
 #[cfg(test)]
 #[path = "proxy_service/sol_6_1_tests.rs"]
 mod sol_6_1_tests;
@@ -174,7 +180,9 @@ const PROXY_REQUEST_BODY_LIMIT_MIB_ENV_VAR: &str = "CODEX_TOOLS_PROXY_MAX_BODY_M
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 const ANTHROPIC_MESSAGES_REQUIRED_VERSION: &str = "2023-06-01";
 const SSE_DONE: &str = "data: [DONE]\n\n";
-const DEFAULT_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
+// Used only by Responses-compatible Relay accounts. ChatGPT uses the native
+// Images endpoints and never sends this retired controller model upstream.
+const RELAY_IMAGE_CONTROLLER_MODEL: &str = "gpt-5.5";
 const DEFAULT_IMAGE_TOOL_MODEL: &str = "gpt-image-2";
 const DEFAULT_UPSTREAM_SERVICE_TIER: &str = "default";
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
@@ -2104,11 +2112,17 @@ async fn forward_image_request(
         image_count,
     } = image_request;
 
+    let endpoint = if route == "/v1/images/generations" {
+        CodexUpstreamEndpoint::ImageGeneration
+    } else {
+        CodexUpstreamEndpoint::ImageEdit
+    };
+
     let upstream = match send_codex_request_over_candidates(
         &context,
         &proxy_key,
         route,
-        CodexUpstreamEndpoint::Responses,
+        endpoint,
         &headers,
         &upstream_payload,
         session_affinity_key,
@@ -2124,7 +2138,13 @@ async fn forward_image_request(
     update_proxy_error(&context, None).await;
     let usage_metadata = api_proxy_usage_metadata(&proxy_key, &candidate, route, &upstream_payload);
 
-    if downstream_stream {
+    if downstream_stream && matches!(&candidate.source_kind, AccountSourceKind::Chatgpt) {
+        build_native_image_streaming_response(
+            upstream_response,
+            context.storage.clone(),
+            usage_metadata,
+        )
+    } else if downstream_stream {
         build_image_streaming_response(upstream_response, context.storage.clone(), usage_metadata)
     } else {
         let mut upstream_headers = HeaderMap::new();
@@ -2142,7 +2162,7 @@ async fn forward_image_request(
                     &context,
                     &proxy_key,
                     route,
-                    CodexUpstreamEndpoint::Responses,
+                    endpoint,
                     &headers,
                     &upstream_payload,
                     session_affinity_key,
@@ -2168,7 +2188,12 @@ async fn forward_image_request(
             };
             upstream_headers = headers;
 
-            let completed = match extract_completed_response_from_sse(&upstream_body) {
+            let native_images = matches!(&candidate.source_kind, AccountSourceKind::Chatgpt);
+            let completed = match if native_images {
+                parse_native_image_response(&upstream_body)
+            } else {
+                extract_completed_response_from_sse(&upstream_body)
+            } {
                 Ok(value) => value,
                 Err(message) => {
                     update_proxy_error(&context, Some(message.clone())).await;
@@ -2179,7 +2204,11 @@ async fn forward_image_request(
                 api_proxy_usage_metadata(&proxy_key, &candidate, route, &upstream_payload);
             record_api_proxy_tokens_from_response(&context.storage, &usage_metadata, &completed)
                 .await;
-            let converted = match convert_responses_image_output_to_images_response(&completed) {
+            let converted = match if native_images {
+                Ok(completed)
+            } else {
+                convert_responses_image_output_to_images_response(&completed)
+            } {
                 Ok(value) => value,
                 Err(message) => {
                     update_proxy_error(&context, Some(message.clone())).await;
@@ -3757,7 +3786,7 @@ fn convert_image_request_parts_to_codex(
     if let Some(mask) = mask {
         content.push(json!({
             "type": "input_text",
-            "text": "Use the following image as the edit mask for the preceding image. Treat the light/white area as the region to edit and keep the dark/black area unchanged.",
+            "text": "Use the last supplied image as the edit mask for the image immediately before it. Treat the light/white area as the region to edit and keep the dark/black area unchanged.",
         }));
         content.push(mask_as_input_image(mask));
     }
@@ -3787,7 +3816,7 @@ fn convert_image_request_parts_to_codex(
     copy_image_tool_string_field(object, &mut tool, "input_fidelity", "input_fidelity");
 
     let payload = json!({
-        "model": DEFAULT_IMAGE_CONTROLLER_MODEL,
+        "model": RELAY_IMAGE_CONTROLLER_MODEL,
         "stream": true,
         "store": false,
         "instructions": "",
@@ -4574,6 +4603,22 @@ fn map_text_settings(root: &mut Map<String, Value>, text: &Value) {
 enum CodexUpstreamEndpoint {
     Responses,
     Compact,
+    ImageGeneration,
+    ImageEdit,
+}
+
+impl CodexUpstreamEndpoint {
+    fn is_image(self) -> bool {
+        matches!(self, Self::ImageGeneration | Self::ImageEdit)
+    }
+
+    fn for_candidate(self, candidate: &ProxyCandidate) -> Self {
+        if self.is_image() && matches!(&candidate.source_kind, AccountSourceKind::Relay) {
+            Self::Responses
+        } else {
+            self
+        }
+    }
 }
 
 async fn send_codex_request_over_candidates(
@@ -4760,8 +4805,13 @@ async fn forward_codex_request_with_candidate(
     payload: &Value,
     endpoint: CodexUpstreamEndpoint,
 ) -> Result<CodexUpstreamResponse, String> {
+    let endpoint = endpoint.for_candidate(candidate);
     let upstream_url = candidate_upstream_url(context, candidate, endpoint)?;
-    let mut upstream_payload = payload_for_upstream(&payload_for_candidate(candidate, payload));
+    let mut upstream_payload = if endpoint.is_image() {
+        native_image_payload(payload)?
+    } else {
+        payload_for_upstream(&payload_for_candidate(candidate, payload))
+    };
     if matches!(endpoint, CodexUpstreamEndpoint::Compact)
         && matches!(&candidate.source_kind, AccountSourceKind::Chatgpt)
     {
@@ -4799,7 +4849,9 @@ async fn forward_codex_request_with_candidate(
 
     let accept = match endpoint {
         CodexUpstreamEndpoint::Responses => "text/event-stream",
-        CodexUpstreamEndpoint::Compact => "application/json",
+        CodexUpstreamEndpoint::Compact
+        | CodexUpstreamEndpoint::ImageGeneration
+        | CodexUpstreamEndpoint::ImageEdit => "application/json",
     };
 
     let mut request = context
@@ -4818,6 +4870,9 @@ async fn forward_codex_request_with_candidate(
     if uses_responses_lite {
         // Responses Lite 标记同时属于 /responses 与显式 /responses/compact 契约。
         request = request.header(RESPONSES_LITE_HEADER, "true");
+    }
+    if endpoint.is_image() {
+        request = request.header("x-codex-image-turn-id", &session_id);
     }
     for name in CODEX_CONTEXT_REQUEST_HEADERS {
         if let Some(value) = headers.get(*name) {
@@ -5312,9 +5367,11 @@ fn candidate_upstream_url(
             .as_deref()
             .ok_or_else(|| format!("{} 缺少 API Base URL", candidate.label))?,
     };
-    let suffix = match endpoint {
+    let suffix = match endpoint.for_candidate(candidate) {
         CodexUpstreamEndpoint::Responses => "responses",
         CodexUpstreamEndpoint::Compact => "responses/compact",
+        CodexUpstreamEndpoint::ImageGeneration => "images/generations",
+        CodexUpstreamEndpoint::ImageEdit => "images/edits",
     };
     Ok(format!("{}/{suffix}", base_url.trim_end_matches('/')))
 }
@@ -7845,6 +7902,66 @@ fn build_anthropic_streaming_response(
         .unwrap_or_else(|_| {
             json_error_response(StatusCode::BAD_GATEWAY, "构建 Anthropic 流式响应失败")
         })
+}
+
+fn parse_native_image_response(body: &[u8]) -> Result<Value, String> {
+    let response: Value = serde_json::from_slice(body)
+        .map_err(|error| format!("解析 Codex 图片 JSON 响应失败: {error}"))?;
+    if let Some(message) = response
+        .pointer("/error/message")
+        .or_else(|| response.get("detail"))
+        .and_then(Value::as_str)
+        .filter(|message| !message.trim().is_empty())
+    {
+        return Err(message.to_string());
+    }
+    if let Some(message) = response_error_message_from_value(&response) {
+        return Err(message);
+    }
+    validate_native_image_response(&response)?;
+    Ok(response)
+}
+
+// Codex's native Images API returns JSON, not Responses SSE. Preserve the
+// downstream streaming contract with one final event, without inventing previews.
+fn build_native_image_streaming_response(
+    upstream: CodexUpstreamResponse,
+    usage_storage: ProxyStorageContext,
+    usage_metadata: ApiProxyUsageMetadata,
+) -> Response<Body> {
+    let upstream_headers = upstream.headers().clone();
+    let output = stream! {
+        let image = match upstream.into_bytes().await {
+            Ok((_, body)) => parse_native_image_response(&body),
+            Err(error) => Err(format!("读取 Codex 图片响应失败: {error}")),
+        };
+        match image {
+            Ok(image) => {
+                record_api_proxy_tokens_from_response(&usage_storage, &usage_metadata, &image).await;
+                yield Ok::<Bytes, Infallible>(sse_data_chunk(&json!({
+                    "type": "image_generation.completed",
+                    "image": image,
+                })));
+            }
+            Err(message) => {
+                yield Ok::<Bytes, Infallible>(sse_data_chunk(&json!({
+                    "error": { "message": message }
+                })));
+            }
+        }
+        yield Ok::<Bytes, Infallible>(Bytes::from_static(SSE_DONE.as_bytes()));
+    };
+    let mut response = Response::builder().status(StatusCode::OK);
+    for (name, value) in &upstream_headers {
+        if should_forward_response_header(name.as_str()) {
+            response = response.header(name, value);
+        }
+    }
+    response
+        .header("content-type", "text/event-stream; charset=utf-8")
+        .header("cache-control", "no-cache")
+        .body(Body::from_stream(output))
+        .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建图片流式响应失败"))
 }
 
 fn build_image_streaming_response(

@@ -254,9 +254,15 @@ Tauri 命令入口在：
 
 行为：
 
-- `generations` 会转成 Codex image generation tool
-- `edits` 和 `variations` 会把上传图片转成 `input_image`
+- ChatGPT 登录账号：`generations` 直接调用 Codex `/images/generations`，`edits` / `variations` 调用 `/images/edits`，顶层模型为 `gpt-image-2`，不再依赖已退役的 `gpt-5.5` 控制模型或 Responses Lite
+- API / Relay 账号：继续使用 Responses `image_generation` 工具，控制模型采用账号配置，图片工具模型仍为 `gpt-image-2`
+- `edits` 和 `variations` 会把上传图片转成原生图片引用或 Responses `input_image`；`mask` 延续“附加遮罩图片 + 提示词”的处理方式，并非原生 mask 参数
 - 返回值使用 OpenAI 图片接口常见的 `b64_json`
+- ChatGPT 原生接口返回完整 JSON；下游 `stream:true` 会收到一条 `image_generation.completed` 和 `[DONE]`，不提供 `partial_images` 中间预览。Relay 保留原有流式行为
+- ChatGPT 路径支持 `size`、`quality`、`background`，输出格式目前只接受省略或 `png`；不支持 `output_compression` / `compression`，`input_fidelity` 只接受省略或 `high`。其他格式可使用支持相应参数的 Relay 账号
+- `n` 仍由代理逐张请求；账号刷新、失败切换、图片模型权限与用量统计沿用现有逻辑
+
+ChatGPT 原生传输依据 [官方 Codex ImagesClient 实现](https://github.com/openai/codex/blob/8c076942cb70fba8e5c4732c23f1faabc4aed484/codex-rs/codex-api/src/endpoint/images.rs)及其[请求类型](https://github.com/openai/codex/blob/8c076942cb70fba8e5c4732c23f1faabc4aed484/codex-rs/codex-api/src/images.rs)。
 
 ## 7. 鉴权方式
 

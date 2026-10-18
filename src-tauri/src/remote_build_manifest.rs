@@ -13,6 +13,8 @@ pub(crate) const PROXYD_BUILD_SOURCE_FILES: &[&str] = &[
     "src/proxy_daemon.rs",
     "src/proxy_service.rs",
     "src/proxy_service/chat_stream.rs",
+    "src/proxy_service/image_transport.rs",
+    "src/proxy_service/image_transport_tests.rs",
     "src/proxy_service/warmup.rs",
     "src/proxy_service/model_catalog.rs",
     "src/proxy_service/codex_catalog.rs",
