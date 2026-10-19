@@ -1,6 +1,6 @@
 import type { AccountSummary } from "../../types/app";
 import type { UiCopy } from "./types";
-import { getCompactTableCopy } from "../../i18n/compactTableCopy";
+import { accountUnavailableLabel } from "../../i18n/accountStatusCopy";
 import { useI18n } from "../../i18n/I18nProvider";
 import { WorkspaceIcon } from "../workspace/WorkspaceIcon";
 
@@ -16,8 +16,8 @@ export function AccountResetCredits({
     return (
       <span
         className="accountResetCredits isUnavailable"
-        title={`${text.resetCreditsTitle} · ${getCompactTableCopy(locale).unavailable}`}
-        aria-label={`${text.resetCreditsTitle} · ${getCompactTableCopy(locale).unavailable}`}
+        title={`${text.resetCreditsTitle} · ${accountUnavailableLabel(locale)}`}
+        aria-label={`${text.resetCreditsTitle} · ${accountUnavailableLabel(locale)}`}
       >
         <WorkspaceIcon name="refresh" />
         —

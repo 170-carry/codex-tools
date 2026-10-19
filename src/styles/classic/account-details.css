@@ -1,4 +1,4 @@
-:where(html[data-layout="classic"]) .accountDetailPanel {
+.accountDetailPanel {
   padding: 20px;
   display: grid;
   grid-auto-rows: max-content;
@@ -7,7 +7,7 @@
   overflow: auto;
 }
 
-:where(html[data-layout="classic"]) .detailHeader {
+.detailHeader {
   min-height: 0;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
@@ -17,7 +17,7 @@
   gap: 14px;
 }
 
-:where(html[data-layout="classic"]) .detailIdentity {
+.detailIdentity {
   flex: 1;
   min-width: 0;
   display: grid;
@@ -25,14 +25,14 @@
   align-items: center;
 }
 
-:where(html[data-layout="classic"]) .detailTitleBlock {
+.detailTitleBlock {
   min-width: 0;
   display: grid;
   justify-items: start;
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .detailPlanStatus {
+.detailPlanStatus {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
@@ -40,7 +40,7 @@
   gap: 6px 10px;
 }
 
-:where(html[data-layout="classic"]) .detailTitleBlock h2 {
+.detailTitleBlock h2 {
   max-width: 100%;
   margin: 0;
   color: var(--ink);
@@ -50,7 +50,7 @@
   text-overflow: ellipsis;
 }
 
-:where(html[data-layout="classic"]) .detailEditButton {
+.detailEditButton {
   flex: 0 0 auto;
   min-width: 0;
   min-height: 32px;
@@ -66,21 +66,21 @@
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .detailEditButton:hover:not(:disabled) {
+.detailEditButton:hover:not(:disabled) {
   border-color: var(--line);
   background: var(--surface-hover-bg);
   box-shadow: none;
   transform: none;
 }
 
-:where(html[data-layout="classic"]) .detailAliasEditor {
+.detailAliasEditor {
   width: min(300px, 100%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
 }
 
-:where(html[data-layout="classic"]) .detailAliasEditor input {
+.detailAliasEditor input {
   min-width: 0;
   height: 34px;
   border: 1px solid var(--line);
@@ -92,15 +92,15 @@
   font: 700 0.78rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .detailAliasEditor button {
+.detailAliasEditor button {
   min-height: 34px;
   padding: 0 10px;
   border-radius: 10px;
   font-size: 0.72rem;
 }
 
-:where(html[data-layout="classic"]) .detailCard,
-:where(html[data-layout="classic"]) .detailMetaGrid {
+.detailCard,
+.detailMetaGrid {
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -108,25 +108,25 @@
   box-shadow: none;
 }
 
-:where(html[data-layout="classic"]) .detailCard {
+.detailCard {
   display: grid;
   gap: 14px;
   padding: 16px 0;
 }
 
-:where(html[data-layout="classic"]) .detailCard:last-child {
+.detailCard:last-child {
   border-bottom: 0;
   padding-bottom: 0;
 }
 
-:where(html[data-layout="classic"]) .detailCard h3,
-:where(html[data-layout="classic"]) .detailSectionTitle h3 {
+.detailCard h3,
+.detailSectionTitle h3 {
   margin: 0;
   color: var(--ink);
   font: 850 0.9rem/1.15 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .detailCardTitle {
+.detailCardTitle {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -134,13 +134,13 @@
   gap: 12px;
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid {
+.detailMetaGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: visible;
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid > .membershipExpiryMeta {
+.detailMetaGrid > .membershipExpiryMeta {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -149,7 +149,7 @@
   padding: 16px 0;
 }
 
-:where(html[data-layout="classic"]) .recentSwitchCard.isEmpty {
+.recentSwitchCard.isEmpty {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -157,35 +157,35 @@
   gap: 8px 12px;
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid span {
+.detailMetaGrid span {
   color: var(--subtle);
   font: 750 0.68rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid strong {
+.detailMetaGrid strong {
   min-width: 0;
   color: var(--ink);
   font: 750 0.76rem/1.25 var(--font-ui);
   overflow-wrap: anywhere;
 }
 
-:where(html[data-layout="classic"]) .membershipExpiryMeta {
+.membershipExpiryMeta {
   position: relative;
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid .membershipExpiryLabel {
+.detailMetaGrid .membershipExpiryLabel {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid .membershipHelpTip {
+.detailMetaGrid .membershipHelpTip {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-:where(html[data-layout="classic"]) .membershipHelpButton {
+.membershipHelpButton {
   width: 17px;
   height: 17px;
   display: inline-grid;
@@ -199,12 +199,12 @@
   cursor: help;
 }
 
-:where(html[data-layout="classic"]) .membershipHelpButton:focus-visible {
+.membershipHelpButton:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--brand-cool) 72%, transparent);
   outline-offset: 2px;
 }
 
-:where(html[data-layout="classic"]) .detailMetaGrid .membershipHelpBubble {
+.detailMetaGrid .membershipHelpBubble {
   position: absolute;
   left: 0;
   top: calc(100% + 8px);
@@ -227,14 +227,14 @@
   visibility: hidden;
 }
 
-:where(html[data-layout="classic"]) .membershipHelpTip:hover .membershipHelpBubble,
-:where(html[data-layout="classic"]) .membershipHelpTip:focus-within .membershipHelpBubble {
+.membershipHelpTip:hover .membershipHelpBubble,
+.membershipHelpTip:focus-within .membershipHelpBubble {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
 }
 
-:where(html[data-layout="classic"]) .membershipReauthorizeAction {
+.membershipReauthorizeAction {
   grid-column: 1 / -1;
   justify-self: start;
   padding: 0;
@@ -245,27 +245,27 @@
   cursor: pointer;
 }
 
-:where(html[data-layout="classic"]) .membershipReauthorizeAction:hover:not(:disabled) {
+.membershipReauthorizeAction:hover:not(:disabled) {
   text-decoration: underline;
 }
 
-:where(html[data-layout="classic"]) .membershipReauthorizeAction:disabled {
+.membershipReauthorizeAction:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-:where(html[data-layout="classic"]) .detailSectionTitle {
+.detailSectionTitle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-:where(html[data-layout="classic"]) .resetCreditsCard {
+.resetCreditsCard {
   gap: 12px;
 }
 
-:where(html[data-layout="classic"]) .resetCreditsCount {
+.resetCreditsCount {
   min-height: 22px;
   display: inline-flex;
   align-items: center;
@@ -278,12 +278,12 @@
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .resetCreditList {
+.resetCreditList {
   display: grid;
   gap: 4px;
 }
 
-:where(html[data-layout="classic"]) .resetCreditItem {
+.resetCreditItem {
   min-width: 0;
   min-height: 44px;
   display: grid;
@@ -296,13 +296,13 @@
   background: transparent;
 }
 
-:where(html[data-layout="classic"]) .resetCreditItem > button {
+.resetCreditItem > button {
   grid-column: 3;
   grid-row: 1;
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .resetCreditIndex {
+.resetCreditIndex {
   width: 24px;
   height: 24px;
   display: inline-flex;
@@ -314,25 +314,25 @@
   font: 850 0.76rem/1 var(--font-mono);
 }
 
-:where(html[data-layout="classic"]) .resetCreditItem div {
+.resetCreditItem div {
   min-width: 0;
   display: grid;
   gap: 5px;
 }
 
-:where(html[data-layout="classic"]) .resetCreditItem span:not(.resetCreditIndex) {
+.resetCreditItem span:not(.resetCreditIndex) {
   color: var(--subtle);
   font: 750 0.66rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .resetCreditItem strong {
+.resetCreditItem strong {
   min-width: 0;
   color: var(--ink);
   font: 760 0.78rem/1.2 var(--font-mono);
   overflow-wrap: anywhere;
 }
 
-:where(html[data-layout="classic"]) .resetCreditsToggle {
+.resetCreditsToggle {
   min-height: 26px;
   justify-self: start;
   display: inline-flex;
@@ -348,13 +348,13 @@
   font: 650 0.72rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .resetCreditsToggle:hover:not(:disabled) {
+.resetCreditsToggle:hover:not(:disabled) {
   background: var(--surface-hover-bg);
   box-shadow: none;
   transform: none;
 }
 
-:where(html[data-layout="classic"]) .resetCreditsToggleIcon {
+.resetCreditsToggleIcon {
   width: 15px;
   height: 15px;
   stroke: currentColor;
@@ -365,11 +365,11 @@
   transition: transform 140ms ease;
 }
 
-:where(html[data-layout="classic"]) .resetCreditsToggleIcon.isExpanded {
+.resetCreditsToggleIcon.isExpanded {
   transform: rotate(180deg);
 }
 
-:where(html[data-layout="classic"]) .recentSwitchList {
+.recentSwitchList {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -377,7 +377,7 @@
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .recentSwitchList li {
+.recentSwitchList li {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -387,19 +387,19 @@
   font: 650 0.72rem/1.25 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .recentSwitchEmpty {
+.recentSwitchEmpty {
   margin: 0;
   color: var(--subtle);
   font: 500 0.72rem/1.4 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .recentSwitchList strong {
+.recentSwitchList strong {
   color: color-mix(in srgb, var(--ink) 72%, var(--subtle) 28%);
   font: 700 0.72rem/1.25 var(--font-mono);
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .recentSwitchList em {
+.recentSwitchList em {
   grid-column: 2 / -1;
   min-width: 0;
   color: var(--subtle);
@@ -409,13 +409,13 @@
   text-overflow: ellipsis;
 }
 
-:where(html[data-layout="classic"]) .accountDetailPanel .quickActionGrid {
+.accountDetailPanel .quickActionGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
 }
 
-:where(html[data-layout="classic"]) .quickActionGrid button {
+.quickActionGrid button {
   min-width: 0;
   min-height: 44px;
   border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
@@ -432,18 +432,18 @@
   text-align: center;
 }
 
-:where(html[data-layout="classic"]) .quickActionGrid button span {
+.quickActionGrid button span {
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 
-:where(html[data-layout="classic"]) .quickActionGrid .dangerAction {
+.quickActionGrid .dangerAction {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 15%, var(--line));
   background: transparent;
 }
 
-:where(html[data-layout="classic"]) .quickActionGrid button:hover:not(:disabled) {
+.quickActionGrid button:hover:not(:disabled) {
   border-color: var(--line);
   background: var(--surface-hover-bg);
   box-shadow: none;
@@ -451,7 +451,7 @@
 }
 
 /* Token & speed card */
-:where(html[data-layout="classic"]) .accountTokenCardCredits {
+.accountTokenCardCredits {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
@@ -463,23 +463,23 @@
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .accountTokenCardCredits strong {
+.accountTokenCardCredits strong {
   color: color-mix(in srgb, var(--brand) 80%, var(--ink) 20%);
   font: 850 0.78rem/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-:where(html[data-layout="classic"]) .accountTokenCardCredits strong.isEmpty {
+.accountTokenCardCredits strong.isEmpty {
   color: var(--subtle);
 }
 
-:where(html[data-layout="classic"]) .accountTokenWindows {
+.accountTokenWindows {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .accountTokenWindows span {
+.accountTokenWindows span {
   min-width: 0;
   display: grid;
   gap: 6px;
@@ -488,34 +488,34 @@
   background: color-mix(in srgb, var(--bar-track) 38%, transparent);
 }
 
-:where(html[data-layout="classic"]) .accountTokenWindows em,
-:where(html[data-layout="classic"]) .accountTpsHero em {
+.accountTokenWindows em,
+.accountTpsHero em {
   color: var(--subtle);
   font: 700 0.64rem/1 var(--font-ui);
   font-style: normal;
 }
 
-:where(html[data-layout="classic"]) .accountTokenWindows b {
+.accountTokenWindows b {
   color: var(--ink);
   font: 850 0.96rem/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-:where(html[data-layout="classic"]) .accountTpsRow {
+.accountTpsRow {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 16px;
 }
 
-:where(html[data-layout="classic"]) .accountTpsHero {
+.accountTpsHero {
   display: grid;
   gap: 6px;
   padding-right: 16px;
   border-right: 1px solid var(--line);
 }
 
-:where(html[data-layout="classic"]) .accountTpsHero strong {
+.accountTpsHero strong {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
@@ -524,12 +524,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-:where(html[data-layout="classic"]) .accountTpsHero small {
+.accountTpsHero small {
   color: var(--subtle);
   font: 700 0.64rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .accountTpsFacts {
+.accountTpsFacts {
   min-width: 0;
   margin: 0;
   display: grid;
@@ -537,18 +537,18 @@
   gap: 10px 14px;
 }
 
-:where(html[data-layout="classic"]) .accountTpsFacts div {
+.accountTpsFacts div {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-:where(html[data-layout="classic"]) .accountTpsFacts dt {
+.accountTpsFacts dt {
   color: var(--subtle);
   font: 700 0.62rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .accountTpsFacts dd {
+.accountTpsFacts dd {
   margin: 0;
   color: var(--ink);
   font: 750 0.74rem/1.2 var(--font-mono);
@@ -558,8 +558,51 @@
   text-overflow: ellipsis;
 }
 
-:where(html[data-layout="classic"]) .accountTokenEmpty {
+.accountTokenEmpty {
   margin: 0;
   color: var(--subtle);
   font: 650 0.7rem/1.4 var(--font-ui);
+}
+
+/* Account order: title and stepper share one line. */
+.accountOrderCard.detailCard {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.accountOrderStepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 2px;
+}
+
+.accountOrderStepper button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  font: 750 0.72rem/1 var(--font-ui);
+}
+
+.accountOrderStepper button:hover:not(:disabled) {
+  background: var(--surface-hover-bg);
+  transform: none;
+}
+
+.accountOrderStepper span {
+  min-width: 44px;
+  color: var(--subtle);
+  font: 650 0.72rem/1 var(--font-mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.accountOrderStepper b {
+  color: var(--ink);
+  font-weight: 800;
 }

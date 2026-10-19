@@ -379,8 +379,8 @@
     grid-area: actions;
   }
 
-  .quickActionGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .accountDetailPanel .quickActionGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .resetCreditItem {

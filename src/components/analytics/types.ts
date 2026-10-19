@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import type { useI18n } from "../../i18n/I18nProvider";
 import type {
   CodexCostAnalyticsSnapshot,
@@ -14,7 +13,6 @@ export type AnalyticsPanelProps = {
   progress: CodexCostAnalyticsProgress | null;
   weeklyBudgetUsd: number | null;
   savingSettings: boolean;
-  tokenUsageContent?: ReactNode;
   onRefresh?: () => void;
   onExport: (format: "csv" | "json") => void;
   onDeleteSession: (session: CodexSessionCostBreakdown) => Promise<void> | void;

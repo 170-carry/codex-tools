@@ -1,4 +1,4 @@
-:where(html[data-layout="classic"]) .planChip {
+.planChip {
   --plan-shadow: none;
   --plan-selected-border: color-mix(in srgb, currentColor 24%, transparent);
   flex-shrink: 0;
@@ -17,14 +17,15 @@
   transition: border-color 140ms ease, filter 140ms ease;
 }
 
-:where(html[data-layout="classic"]) .planChip:hover,
-:where(html[data-layout="classic"]) .planChip:focus-visible {
+.planChip:hover,
+.planChip:focus-visible {
   transform: none;
   box-shadow: var(--plan-shadow);
 }
 
-/* Paid tiers share the finish, with black and gold reserved for Pro. */
-:where(html[data-layout="classic"]) .planChip:is(
+/* Paid tiers share the finish: black-gold for Pro, purple-gold for Pro Max. */
+.planChip:is(
+  .tone-promax,
   .tone-pro,
   .tone-plus,
   .tone-team,
@@ -42,7 +43,7 @@
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-pro {
+.planChip.tone-pro {
   --plan-accent: #cda65f;
   --plan-text: #f5d58d;
   --plan-start: #25231f;
@@ -52,51 +53,61 @@
   --plan-inactive-border: color-mix(in srgb, var(--plan-accent) 32%, transparent);
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-plus {
+.planChip.tone-promax {
+  --plan-accent: #d9b36a;
+  --plan-text: #f7d98f;
+  --plan-start: #4a2577;
+  --plan-end: #1d0c35;
+  --plan-inactive-color: #c6a86e;
+  --plan-inactive-background: linear-gradient(135deg, #4a2577, #1d0c35);
+  --plan-inactive-border: color-mix(in srgb, var(--plan-accent) 32%, transparent);
+}
+
+.planChip.tone-plus {
   --plan-accent: #baa0ec;
   --plan-text: #eee2ff;
   --plan-start: #4b376b;
   --plan-end: #281f43;
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-team {
+.planChip.tone-team {
   --plan-accent: #78bda9;
   --plan-text: #d6f3e8;
   --plan-start: #254c47;
   --plan-end: #142f2d;
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-business {
+.planChip.tone-business {
   --plan-accent: #8eafd9;
   --plan-text: #e0ebfc;
   --plan-start: #2c4161;
   --plan-end: #18283f;
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-enterprise {
+.planChip.tone-enterprise {
   --plan-accent: #dec69b;
   --plan-text: #f6ead2;
   --plan-start: #494137;
   --plan-end: #272722;
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-free,
-:where(html[data-layout="classic"]) .planChip.tone-unknown {
+.planChip.tone-free,
+.planChip.tone-unknown {
   color: var(--subtle);
   background: rgba(148, 163, 184, 0.12);
 }
 
-:where(html[data-layout="classic"]) .planChip.tone-api {
+.planChip.tone-api {
   color: color-mix(in srgb, #0284c7 76%, var(--ink));
   background: rgba(14, 165, 233, 0.1);
 }
 
-:where(html[data-layout="classic"]) .planChip.isSelected {
+.planChip.isSelected {
   border-color: var(--plan-selected-border);
 }
 
 /* Keep the active choice distinct when one account offers multiple paid tiers. */
-:where(html[data-layout="classic"]) button.planChip[aria-pressed="false"] {
+button.planChip[aria-pressed="false"] {
   --plan-shadow: none;
   color: var(--plan-inactive-color, var(--subtle));
   border-color: var(--plan-inactive-border, var(--line));
@@ -104,11 +115,16 @@
   text-shadow: none;
 }
 
-:where(html[data-layout="classic"]) button.planChip:hover:not(:disabled) {
+button.planChip:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
-:where(html[data-layout="classic"]) button.planChip:focus-visible {
+button.planChip:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
+}
+
+/* A shared minimum width keeps account names aligned across tiers. */
+.accountTitleLine .planChip {
+  min-width: 66px;
 }

@@ -1,4 +1,3 @@
-import { LayoutPicker } from "../layout/LayoutPicker";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { CSSProperties, MouseEvent } from "react";
 import { preloadWorkspaceView } from "../workspace/viewModules";
@@ -136,7 +135,6 @@ export function ClassicTopBar({
         ))}
       </nav>
       <div className="topActions">
-        <LayoutPicker />
         <button
           className="iconButton"
           onClick={onToggleTheme}

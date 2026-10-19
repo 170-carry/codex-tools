@@ -2,7 +2,6 @@ import { dateFormatter, numberFormatter } from "../../utils/intlFormatters.ts";
 import type {
   CodexBudgetAlert,
   CodexCostAnalyticsProgress,
-  CodexCostAnalyticsSnapshot,
 } from "../../types/app";
 import type { AnalyticsCopy } from "./types";
 
@@ -96,20 +95,4 @@ export function progressStageLabel(
     return copy.progressComplete;
   }
   return copy.progressScanning;
-}
-
-export function costSourceDetail(
-  analytics: CodexCostAnalyticsSnapshot | null,
-  copy: AnalyticsCopy,
-  locale: string,
-) {
-  if (!analytics) {
-    return { label: copy.pricingEstimate, title: undefined };
-  }
-
-  const updatedAt = formatDateTime(analytics.costSourceUpdatedAt, locale);
-  return {
-    label: `${copy.costSourceLocal} · ${updatedAt}`,
-    title: undefined,
-  };
 }

@@ -1,14 +1,7 @@
-/* Both layouts share controls and business state, but never share their visual overrides. */
-.layoutPicker { min-width: 100px; max-width: 180px; height: 34px; padding: 0 28px 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: var(--card); font: 500 12px var(--font-ui); }
-.layoutPicker:focus-visible { outline: 3px solid var(--brand-soft); outline-offset: 2px; }
-.nativeApp .layoutPicker { height: 28px; min-width: 88px; border-radius: 6px; font-size: 11px; }
-.nativeApp .topbar .layoutPicker { width: 105px; max-width: 105px; }
-.layoutSettingRow .settingMeta > span { display: block; color: var(--subtle); font-size: 12px; margin-top: 5px; }
 .classicApp { --menu-surface: var(--card); --focus-ring: var(--brand-soft); }
 .classicApp .workspaceMain { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .classicApp .workspaceIcon { width: 18px; height: 18px; flex-shrink: 0; }
 .classicApp.isMacos .topbar { padding-top: 34px; min-height: 118px; }
-.classicApp .topbar .layoutPicker { position: relative; z-index: 1; }
 .classicApp .accountStateLine .accountResetCredits { display: inline-flex; align-items: center; gap: 4px; color: var(--subtle); font-size: 11px; }
 .classicApp .accountResetCredits .workspaceIcon { width: 13px; height: 13px; }
 .classicApp .classicSectionTitle { margin: 0 0 8px; font: 650 16px/1.4 var(--font-ui); }
@@ -38,6 +31,3 @@
 .classicApp .classicAnalyticsSection { min-width: 0; }
 .classicApp .classicAnalyticsSection > .analyticsBlock { height: 100%; }
 .classicApp .classicAnalyticsSection.section-sessions, .classicApp .classicAnalyticsSection.section-prompts { grid-column: 1 / -1; }
-@media (max-width: 780px) {
-  .nativeApp .toolbarAddAccount > span { display: none; }
-}

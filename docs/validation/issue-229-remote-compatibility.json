@@ -1,0 +1,172 @@
+{
+  "upstream_differs_from_login": true,
+  "checks": {
+    "normal_identity": {
+      "type": "chatgpt",
+      "requiresOpenaiAuth": true
+    },
+    "normal_new": {
+      "status": "completed",
+      "text": "NORMAL229",
+      "error": null,
+      "errors": []
+    },
+    "proxy_identity": {
+      "type": "chatgpt",
+      "requiresOpenaiAuth": true
+    },
+    "remote_control_status": {
+      "status": "disabled",
+      "note": "Isolated host was intentionally not paired; no phone validation performed."
+    },
+    "proxy_new": {
+      "status": "completed",
+      "text": "POOL229",
+      "error": null,
+      "errors": []
+    },
+    "proxy_read": {
+      "id_matches": true,
+      "turn_count": 1
+    },
+    "proxy_list": {
+      "contains_test": true
+    },
+    "proxy_default_list": {
+      "contains_proxy": true,
+      "contains_normal": false
+    },
+    "second_process_read": {
+      "id_matches": true,
+      "turn_count": 1
+    },
+    "second_process_resume_while_owner_alive": {
+      "accepted": false,
+      "message": "thread/resume: thread [TEST_THREAD] already has an active writer"
+    },
+    "proxy_resume_after_restart": {
+      "status": "completed",
+      "text": "POOL229",
+      "error": null,
+      "errors": []
+    },
+    "restored_identity": {
+      "type": "chatgpt",
+      "requiresOpenaiAuth": true
+    },
+    "restored_default_list": {
+      "contains_proxy": false,
+      "contains_normal": true
+    },
+    "restored_normal_resume": {
+      "status": "completed",
+      "text": "NORMAL229",
+      "error": null,
+      "errors": []
+    },
+    "restored_pool_resume": {
+      "status": "completed",
+      "text": "POOL229",
+      "error": null,
+      "errors": []
+    },
+    "live_files_unchanged": true,
+    "isolated_auth_unchanged": true
+  },
+  "test_threads": {
+    "note": "Disposable test thread IDs omitted; temporary session data will be deleted."
+  },
+  "shared_server_checks": {
+    "resumed_provider": {
+      "provider": "ctc_remote_probe"
+    },
+    "second_client_read_during_turn": {
+      "turn_status": "inProgress",
+      "turn_count": 6,
+      "thread_matches": true
+    },
+    "second_client_resume_same_server": {
+      "accepted": true
+    },
+    "first_client_turn": {
+      "status": "completed",
+      "text": "POOL229 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20",
+      "delta_count": 42,
+      "error": null,
+      "errors": []
+    },
+    "second_client_live_stream": {
+      "delta_count": 42
+    },
+    "second_client_continue": {
+      "status": "completed",
+      "text": "POOL229",
+      "delta_count": 2,
+      "error": null,
+      "errors": []
+    },
+    "observed_proxy_requests": {
+      "count": 2,
+      "all_successful": true,
+      "chatgpt_auth_preserved": true,
+      "separate_proxy_key_present": true
+    },
+    "live_files_unchanged": true
+  },
+  "environment": {
+    "checkedAt": "2026-10-16T20:38:48.533618+08:00",
+    "codexCli": "0.162.0-alpha.17.2",
+    "desktop": "26.1007.71326 (20398)",
+    "codexTools": "3.1.1",
+    "python": "3.12.14",
+    "websockets": "13.1",
+    "sourceCommit": "b5cb995f13f92b13e1c72d025270df0c150f5a45"
+  },
+  "scope": {
+    "realPhoneRemote": "not_tested_user_unavailable",
+    "productionConfigurationChanged": false,
+    "isolatedLoopbackProxy": true
+  },
+  "observedProxyRequests": [
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "chatgpt_authorization_preserved": true,
+      "separate_proxy_key_present": true,
+      "request_bytes": 48782,
+      "request_sha256": "73ce1f0fc7c267a719e1e4c45a7749d5e39805aaa428b38c4cbe5c7ac97f9778",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "chatgpt_authorization_preserved": true,
+      "separate_proxy_key_present": true,
+      "request_bytes": 53712,
+      "request_sha256": "0f26391fb15220f936e3f1416eba31adc7e2d03c2a8aba3be2dc7ab82487afa5",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "chatgpt_authorization_preserved": true,
+      "separate_proxy_key_present": true,
+      "request_bytes": 55180,
+      "request_sha256": "98524fc03ec3cbe97f3f4e86284c4522d4d1e8dbb437730b97f80f649d95b783",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "chatgpt_authorization_preserved": true,
+      "separate_proxy_key_present": true,
+      "request_bytes": 55564,
+      "request_sha256": "1167e84acde69be492fcb124c700cb617d53a80f764903a6c2c44cb58d1f0a66",
+      "status": 200
+    }
+  ],
+  "preliminaryFindings": [
+    "Without NO_PROXY for loopback, local requests failed with HTTP 502 before reaching the observer.",
+    "Original local proxy key does not permit the chosen model. Final tests used a new key only in a disposable proxy store."
+  ]
+}

@@ -1,8 +1,20 @@
 ## 更新日志 / Changelog
 
-### Unreleased
-
 ### Released
+
+- v3.1.2
+
+#### English
+
+1. Fix image generation failures for ChatGPT accounts using the API proxy.
+2. Use the classic interface throughout and simplify layout settings.
+3. Improve account status, plan labels and usage display.
+
+#### 中文
+
+1. 修复 ChatGPT 账号通过 API 反代生成图片失败的问题。
+2. 统一使用经典界面，简化布局设置。
+3. 优化账号状态、套餐标签和用量展示。
 
 - v3.1.1
 

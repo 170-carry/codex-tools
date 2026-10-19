@@ -1,7 +1,6 @@
 import type { CodexCostAnalyticsSnapshot } from "../../types/app";
 import type { AnalyticsCopy } from "./types";
 import { formatNumber, formatUsd } from "./formatting";
-import { useAppLayout } from "../../hooks/useAppLayout";
 
 export function AnalyticsSummary({
   analytics,
@@ -12,7 +11,6 @@ export function AnalyticsSummary({
   text: AnalyticsCopy;
   locale: string;
 }) {
-  const { layout } = useAppLayout();
   const items = [
     [
       text.totalCost,
@@ -32,16 +30,9 @@ export function AnalyticsSummary({
     ],
   ];
   return (
-    <section
-      className={
-        layout === "classic" ? "analyticsStats" : "analyticsSummaryRow"
-      }
-    >
+    <section className="analyticsStats">
       {items.map(([label, value]) => (
-        <div
-          key={label}
-          className={layout === "classic" ? "analyticsStatCard" : undefined}
-        >
+        <div key={label} className="analyticsStatCard">
           <span>{label}</span>
           <strong>{value}</strong>
         </div>

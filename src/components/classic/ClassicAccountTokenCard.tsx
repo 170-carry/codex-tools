@@ -39,50 +39,55 @@ export function ClassicAccountTokenCard({
           </strong>
         </span>
       </div>
-      <div className="accountTokenWindows">
-        {windows.map((item) => (
-          <span key={item.label}>
-            <em>{item.label}</em>
-            <b>{usage ? formatTokenCount(item.value ?? 0, locale) : "—"}</b>
-          </span>
-        ))}
-      </div>
-      <div className="accountTpsRow">
-        <div className="accountTpsHero">
-          <em>{copy.avgTps}</em>
-          <strong>
-            {formatTps(usage?.outputTps24h, locale)}
-            <small>tok/s</small>
-          </strong>
-        </div>
-        <dl className="accountTpsFacts">
-          <div>
-            <dt>{copy.latestTps}</dt>
-            <dd>{formatTps(usage?.latestOutputTps, locale)}</dd>
+      {usage ? (
+        <>
+          <div className="accountTokenWindows">
+            {windows.map((item) => (
+              <span key={item.label}>
+                <em>{item.label}</em>
+                <b>{usage ? formatTokenCount(item.value ?? 0, locale) : "—"}</b>
+              </span>
+            ))}
           </div>
-          <div>
-            <dt>{copy.tps7d}</dt>
-            <dd>{formatTps(usage?.outputTps7d, locale)}</dd>
+          <div className="accountTpsRow">
+            <div className="accountTpsHero">
+              <em>{copy.avgTps}</em>
+              <strong>
+                {formatTps(usage?.outputTps24h, locale)}
+                <small>tok/s</small>
+              </strong>
+            </div>
+            <dl className="accountTpsFacts">
+              <div>
+                <dt>{copy.latestTps}</dt>
+                <dd>{formatTps(usage?.latestOutputTps, locale)}</dd>
+              </div>
+              <div>
+                <dt>{copy.tps7d}</dt>
+                <dd>{formatTps(usage?.outputTps7d, locale)}</dd>
+              </div>
+              <div>
+                <dt>{copy.responses}</dt>
+                <dd>{usage ? usage.responseCount24h : "—"}</dd>
+              </div>
+              <div>
+                <dt>{copy.lastActive}</dt>
+                <dd
+                  title={
+                    usage?.lastActiveAt
+                      ? formatFullDate(usage.lastActiveAt, locale, emptyValue)
+                      : undefined
+                  }
+                >
+                  {formatLastActive(usage?.lastActiveAt, locale, copy)}
+                </dd>
+              </div>
+            </dl>
           </div>
-          <div>
-            <dt>{copy.responses}</dt>
-            <dd>{usage ? usage.responseCount24h : "—"}</dd>
-          </div>
-          <div>
-            <dt>{copy.lastActive}</dt>
-            <dd
-              title={
-                usage?.lastActiveAt
-                  ? formatFullDate(usage.lastActiveAt, locale, emptyValue)
-                  : undefined
-              }
-            >
-              {formatLastActive(usage?.lastActiveAt, locale, copy)}
-            </dd>
-          </div>
-        </dl>
-      </div>
-      {!usage ? <p className="accountTokenEmpty">{copy.noUsage}</p> : null}
+        </>
+      ) : (
+        <p className="accountTokenEmpty">{copy.noUsage}</p>
+      )}
     </section>
   );
 }

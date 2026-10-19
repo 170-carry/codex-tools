@@ -22,9 +22,10 @@ const check = (label, condition) => {
 };
 
 try {
-  for (const layout of ["classic", "compact"]) {
+  for (const preference of [null, "compact"]) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "zh-CN" });
-    await context.addInitScript((layout) => localStorage.setItem("codex-tools-layout", layout), layout);
+    if (preference) await context.addInitScript((value) => localStorage.setItem("codex-tools-layout", value), preference);
+    const layout = preference ? "legacy preference" : "default";
     const page = await context.newPage();
     page.on("pageerror", (error) => errors.push(error.message));
     let releaseModule;
@@ -37,10 +38,8 @@ try {
       await route.continue();
     });
     await page.goto(`${url}?proxy=bound`);
-    await page.locator(layout === "classic" ? ".classicAccountsWorkspace" : ".accountTable").waitFor();
-    const proxyTab = layout === "classic"
-      ? page.locator(".topSegmentedButton").nth(2)
-      : page.locator(".viewTab").nth(2);
+    await page.locator(".classicAccountsWorkspace").waitFor();
+    const proxyTab = page.locator(".topSegmentedButton").nth(2);
     await proxyTab.hover();
     await moduleStarted;
     check(`${layout}: approaching a tab preloads its view`, true);
@@ -59,7 +58,7 @@ try {
     check(`${layout}: catalog sync tells users to restart Codex`,
       (await page.locator("body").innerText()).includes("请重启 Codex"));
     await page.screenshot({ path: path.join(output, `${layout}-proxy.png`) });
-    if (layout === "classic") {
+    {
       await page.locator(".topSegmentedButton").nth(0).click();
       await page.locator(".accountsPage").waitFor();
       await page.waitForFunction(() => {

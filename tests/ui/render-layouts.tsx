@@ -1,20 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import postcss from "postcss";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { I18nProvider } from "../../src/i18n/I18nProvider";
-import { AppLayoutProvider } from "../../src/components/layout/AppLayoutProvider";
-import { LayoutPicker } from "../../src/components/layout/LayoutPicker";
-import {
-  LAYOUT_STORAGE_KEY,
-  type AppLayout,
-} from "../../src/utils/layoutPreference";
 import { ClassicAccountsGrid } from "../../src/components/classic/ClassicAccountsGrid";
 import { ClassicMetaStrip } from "../../src/components/classic/ClassicMetaStrip";
 import { ClassicAccountActions } from "../../src/components/classic/ClassicAccountActions";
 import { ClassicTopBar } from "../../src/components/classic/ClassicTopBar";
-import { AppTopBar } from "../../src/components/AppTopBar";
 import { SettingsPanel } from "../../src/components/SettingsPanel";
 import { ApiProxyPanel } from "../../src/components/ApiProxyPanel";
 import { AnalyticsPanel } from "../../src/components/AnalyticsPanel";
@@ -23,25 +15,19 @@ import { proxyProps } from "./proxyProps";
 import { accounts, analytics, tokenUsage } from "./fixtures";
 import { DEFAULT_SETTINGS } from "./defaults";
 
-let savedLayout: string | null = null;
 let locale = "zh-CN";
 const storage = {
-  getItem: (key: string) =>
-    key === LAYOUT_STORAGE_KEY
-      ? savedLayout
-      : key === "codex-tools-locale"
-        ? locale
-        : null,
+  getItem: (key: string) => key === "codex-tools-locale" ? locale : null,
   setItem: () => {},
   removeItem: () => {},
 };
 Object.assign(globalThis, {
   window: { localStorage: storage, sessionStorage: storage },
 });
-const render = (content: ReactNode, layout?: AppLayout) =>
+const render = (content: ReactNode) =>
   renderToStaticMarkup(
     <I18nProvider>
-      <AppLayoutProvider initialLayout={layout}>{content}</AppLayoutProvider>
+      {content}
     </I18nProvider>,
   );
 let count = 0;
@@ -84,28 +70,6 @@ const analyticsProps = {
     action();
   },
 };
-const original = render(<LayoutPicker />);
-check(
-  "Default layout picker selects Original",
-  original.includes('<option value="classic" selected="">') &&
-    !original.includes('<option value="compact" selected="">'),
-);
-savedLayout = "compact";
-check(
-  "Saved compact preference is restored",
-  render(<LayoutPicker />).includes('<option value="compact" selected="">'),
-);
-savedLayout = "classic";
-check(
-  "Saved original preference is restored",
-  render(<LayoutPicker />).includes('<option value="classic" selected="">'),
-);
-savedLayout = "outdated-value";
-check(
-  "An invalid saved preference renders Original",
-  render(<LayoutPicker />).includes('<option value="classic" selected="">'),
-);
-savedLayout = null;
 const props = accountProps({ accounts });
 const accountHtml = render(
   <ClassicAccountsGrid
@@ -144,17 +108,17 @@ check(
     accountHtml.includes('class="primary importPrimary"'),
 );
 check(
-  "Original keeps all eight grouped account rows",
-  occurrences(accountHtml, '<article class="accountRow ') === 8,
+  "Original keeps all nine grouped account rows",
+  occurrences(accountHtml, '<article class="accountRow ') === 9,
 );
 check(
   "Original marks exactly one active account",
   occurrences(accountHtml, 'aria-current="true"') === 1,
 );
 check(
-  "Original keeps eight visible proxy switches and reset counts",
-  occurrences(accountHtml, 'class="rowToggle"') === 8 &&
-    occurrences(accountHtml, 'class="accountResetCredits') === 8,
+  "Original keeps nine visible proxy switches and reset counts",
+  occurrences(accountHtml, 'class="rowToggle"') === 9 &&
+    occurrences(accountHtml, 'class="accountResetCredits') === 9,
 );
 check(
   "Original exposes details, membership and full reset-credit dates",
@@ -174,7 +138,7 @@ check(
 );
 check(
   "Original shows local account usage, estimated speed, balances and quota resets",
-  occurrences(accountHtml, 'class="accountStatsCell"') === 8 &&
+  occurrences(accountHtml, 'class="accountStatsCell"') === 9 &&
     accountHtml.includes('42.6') && accountHtml.includes('250') &&
     accountHtml.includes('accountTokenCard') &&
     accountHtml.includes('class="usageMeterReset"'),
@@ -189,7 +153,7 @@ const legacyAccountHtml = render(
 check(
   "Older snapshots keep account controls while displaying unknown local usage",
   legacyAccountHtml.includes('accountTokenEmpty') &&
-    occurrences(legacyAccountHtml, 'class="rowToggle"') === 8 &&
+    occurrences(legacyAccountHtml, 'class="rowToggle"') === 9 &&
     !legacyAccountHtml.includes('NaN'),
 );
 const empty = render(
@@ -213,8 +177,8 @@ check(
     occurrences(classicSettings, 'class="classicSettingsGroup"') === 5,
 );
 check(
-  "Settings expose the layout picker",
-  classicSettings.includes('aria-label="界面布局"'),
+  "Settings no longer expose layout selection",
+  !classicSettings.includes("layoutPicker"),
 );
 check(
   "Analytics default to the original overview",
@@ -234,16 +198,6 @@ check(
   render(<ApiProxyPanel {...proxyProps()} />).includes("classicProxyPage") &&
     !render(<ApiProxyPanel {...proxyProps()} />).includes('role="tabpanel"'),
 );
-for (const [name, component, expected] of [
-  ["Settings", <SettingsPanel {...settingsProps} />, 5],
-  ["Analytics", <AnalyticsPanel {...analyticsProps} />, 4],
-  ["Proxy", <ApiProxyPanel {...proxyProps()} />, 5],
-] as const) {
-  check(
-    `${name} still offers compact page sections`,
-    occurrences(render(component, "compact"), 'role="tabpanel"') === expected,
-  );
-}
 const shared = {
   activeTab: "accounts" as const,
   onSelectTab: action,
@@ -252,59 +206,24 @@ const shared = {
   showRefresh: true,
 };
 check(
-  "Both title bars offer layout selection",
-  render(
-    <ClassicTopBar
-      {...shared}
-      themeMode="light"
-      onToggleTheme={action}
-      onGoHome={action}
-    />,
-  ).includes('class="layoutPicker"') &&
-    render(
-      <AppTopBar
-        {...shared}
-        searchOpen={false}
-        onSearch={action}
-        onAddAccount={action}
-      />,
-      "compact",
-    ).includes('class="layoutPicker"'),
+  "The title bar keeps navigation and theme controls without layout selection",
+  !render(<ClassicTopBar {...shared} themeMode="light" onToggleTheme={action} onGoHome={action} />).includes("layoutPicker"),
 );
 for (const code of ["en-US", "ja-JP", "ko-KR", "ru-RU"]) {
   locale = code;
   check(
-    `Both layout options are available in ${code}`,
-    occurrences(render(<LayoutPicker />), "<option value=") === 2 &&
-      !render(<LayoutPicker />).includes("undefined"),
+    `Settings render without layout options in ${code}`,
+    !render(<SettingsPanel {...settingsProps} />).includes("layoutPicker") &&
+      !render(<SettingsPanel {...settingsProps} />).includes("undefined"),
   );
 }
 check(
   "Choosing a presentation never starts business actions during render",
   actionsCalled === 0,
 );
-for (const file of fs
-  .readdirSync("src/styles/native")
-  .filter((file) => file.endsWith(".css"))) {
-  postcss
-    .parse(fs.readFileSync(`src/styles/native/${file}`, "utf8"))
-    .walkRules((rule) => {
-      if (
-        rule.parent?.type === "atrule" &&
-        rule.parent.name.endsWith("keyframes")
-      )
-        return;
-      assert.ok(
-        rule.selectors.every(
-          (selector) =>
-            selector.includes('html[data-layout="compact"]') ||
-            selector.startsWith(':root[data-layout="compact"]'),
-        ),
-        `Unscoped compact style in ${file}: ${rule.selector}`,
-      );
-    });
-}
-check("Compact CSS cannot override the original palette or layout", true);
+check("Retired layout styles and preference provider are removed",
+  !fs.existsSync("src/styles/native") &&
+  !fs.existsSync("src/components/layout/AppLayoutProvider.tsx"));
 const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
 check(
   "The initial window restores the original dimensions",

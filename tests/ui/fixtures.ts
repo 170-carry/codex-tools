@@ -98,7 +98,8 @@ alternatePlanExample.usage!.resetCredits = {
 
 export const accounts = [
   fixtureAccount("daily", "daily@example.com", 37, 63, { isCurrent: true }),
-  fixtureAccount("studio", "studio@example.com", 5, 12),
+  fixtureAccount("studio", "studio@example.com", 5, 12, { planType: "prolite" }),
+  fixtureAccount("max", "max@example.com", 59, 59, { planType: "promax" }),
   fixtureAccount("backup", "backup@example.com", 22, 41, { planType: "plus" }),
   fixtureAccount("team", "team@example.com", 14, 55, { planType: "team" }),
   alternatePlanExample,

@@ -1,4 +1,4 @@
-:where(html[data-layout="classic"]) .accountsWorkspace {
+.accountsWorkspace {
   min-height: 0;
   height: 100%;
   display: grid;
@@ -9,24 +9,24 @@
   scrollbar-color: color-mix(in srgb, var(--line) 78%, var(--subtle) 22%) transparent;
 }
 
-:where(html[data-layout="classic"]) .accountsWorkspace::-webkit-scrollbar {
+.accountsWorkspace::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-:where(html[data-layout="classic"]) .accountsWorkspace::-webkit-scrollbar-thumb {
+.accountsWorkspace::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: color-mix(in srgb, var(--line) 78%, var(--subtle) 22%);
 }
 
-:where(html[data-layout="classic"]) .accountListStack,
-:where(html[data-layout="classic"]) .accountListPanel,
-:where(html[data-layout="classic"]) .accountDetailPanel {
+.accountListStack,
+.accountListPanel,
+.accountDetailPanel {
   min-width: 0;
   min-height: 0;
 }
 
-:where(html[data-layout="classic"]) .accountListStack {
+.accountListStack {
   height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -34,25 +34,25 @@
   overflow: hidden;
 }
 
-:where(html[data-layout="classic"]) .accountListLeading {
+.accountListLeading {
   min-width: 0;
 }
 
-:where(html[data-layout="classic"]) .accountListPanel,
-:where(html[data-layout="classic"]) .accountDetailPanel {
+.accountListPanel,
+.accountDetailPanel {
   border: 1px solid var(--section-line);
   border-radius: 16px;
   background: var(--section-card-surface);
   box-shadow: none;
 }
 
-:where(html[data-layout="classic"]) .accountListPanel {
+.accountListPanel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
-:where(html[data-layout="classic"]) .accountToolbar {
+.accountToolbar {
   display: grid;
   grid-template-columns: minmax(220px, 260px) auto minmax(0, 1fr) auto;
   gap: 10px;
@@ -62,7 +62,7 @@
   background: color-mix(in srgb, var(--surface-tint) 72%, transparent);
 }
 
-:where(html[data-layout="classic"]) .accountSearch {
+.accountSearch {
   min-width: 0;
   height: 40px;
   display: grid;
@@ -76,7 +76,7 @@
   box-shadow: inset 0 1px var(--surface-highlight-strong);
 }
 
-:where(html[data-layout="classic"]) .searchIcon {
+.searchIcon {
   width: 18px;
   height: 18px;
   color: var(--muted);
@@ -87,7 +87,7 @@
   stroke-linejoin: round;
 }
 
-:where(html[data-layout="classic"]) .accountSearch input {
+.accountSearch input {
   min-width: 0;
   width: 100%;
   border: 0;
@@ -97,18 +97,18 @@
   font: 600 0.86rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .accountSearch input::placeholder {
+.accountSearch input::placeholder {
   color: var(--muted);
 }
 
-:where(html[data-layout="classic"]) .accountFilters {
+.accountFilters {
   display: flex;
   flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .accountFilters select {
+.accountFilters select {
   height: 40px;
   min-width: 104px;
   border: 1px solid var(--line);
@@ -124,25 +124,25 @@
   appearance: none;
 }
 
-:where(html[data-layout="classic"]) .accountToolbarActions {
+.accountToolbarActions {
   min-width: 0;
 }
 
-:where(html[data-layout="classic"]) .accountToolbarActions .importBar {
+.accountToolbarActions .importBar {
   align-self: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .accountToolbarActions .importSmartSwitch,
-:where(html[data-layout="classic"]) .accountToolbarActions .importPrimary {
+.accountToolbarActions .importSmartSwitch,
+.accountToolbarActions .importPrimary {
   min-width: 112px;
   min-height: 40px;
   padding: 0 14px;
   font-size: 0.78rem;
 }
 
-:where(html[data-layout="classic"]) .accountListFrame {
+.accountListFrame {
   --account-row-columns: minmax(190px, 1.3fr) minmax(112px, 0.72fr) minmax(112px, 0.72fr) minmax(184px, 1fr) 46px max-content;
   min-height: 0;
   display: grid;
@@ -150,7 +150,7 @@
   overflow: hidden;
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageStrip {
+.accountTokenUsageStrip {
   min-width: 0;
   min-height: 42px;
   display: grid;
@@ -162,20 +162,20 @@
   background: color-mix(in srgb, var(--bg-0) 82%, var(--surface-tint) 18%);
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageStrip > strong {
+.accountTokenUsageStrip > strong {
   color: var(--ink);
   font: 850 0.76rem/1 var(--font-ui);
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageItems {
+.accountTokenUsageItems {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageItem {
+.accountTokenUsageItem {
   min-height: 24px;
   display: inline-flex;
   align-items: center;
@@ -186,24 +186,24 @@
   background: color-mix(in srgb, var(--brand) 6%, var(--surface-tint) 94%);
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageItem em {
+.accountTokenUsageItem em {
   color: var(--subtle);
   font: 800 0.62rem/1 var(--font-ui);
   font-style: normal;
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageItem b {
+.accountTokenUsageItem b {
   color: var(--ink);
   font: 850 0.68rem/1 var(--font-mono);
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageError {
+.accountTokenUsageError {
   color: var(--danger);
   font: 750 0.66rem/1 var(--font-ui);
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .accountTokenUsageActions {
+.accountTokenUsageActions {
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -211,7 +211,7 @@
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) button.accountTokenExportButton {
+button.accountTokenExportButton {
   min-width: 112px;
   min-height: 32px;
   display: inline-flex;
@@ -224,12 +224,12 @@
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .accountTokenExportButton .actionIconGlyph {
+.accountTokenExportButton .actionIconGlyph {
   width: 15px;
   height: 15px;
 }
 
-:where(html[data-layout="classic"]) .accountRows {
+.accountRows {
   min-height: 0;
   padding: 8px 12px 12px;
   display: grid;
@@ -241,16 +241,16 @@
   scrollbar-color: color-mix(in srgb, var(--line) 80%, var(--subtle) 20%) transparent;
 }
 
-:where(html[data-layout="classic"]) .accountRows::-webkit-scrollbar {
+.accountRows::-webkit-scrollbar {
   width: 8px;
 }
 
-:where(html[data-layout="classic"]) .accountRows::-webkit-scrollbar-thumb {
+.accountRows::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: color-mix(in srgb, var(--line) 76%, var(--subtle) 24%);
 }
 
-:where(html[data-layout="classic"]) .accountListHeader {
+.accountListHeader {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -265,15 +265,15 @@
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .accountListHeader span:nth-child(5) {
+.accountListHeader span:nth-child(5) {
   text-align: center;
 }
 
-:where(html[data-layout="classic"]) .accountListHeader span:last-child {
+.accountListHeader span:last-child {
   text-align: right;
 }
 
-:where(html[data-layout="classic"]) .accountRow {
+.accountRow {
   position: relative;
   min-width: 0;
   min-height: 68px;
@@ -294,49 +294,49 @@
     box-shadow 160ms ease;
 }
 
-:where(html[data-layout="classic"]) .accountRow:hover {
+.accountRow:hover {
   border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
   background: color-mix(in srgb, var(--brand) 2%, var(--card));
   box-shadow: none;
 }
 
-:where(html[data-layout="classic"]) .accountRow:focus-visible {
+.accountRow:focus-visible {
   border-color: var(--brand);
   outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
   outline-offset: 2px;
 }
 
-:where(html[data-layout="classic"]) .accountRow.isSelected {
+.accountRow.isSelected {
   border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
   background: color-mix(in srgb, var(--brand) 4%, var(--card));
   box-shadow: inset 2px 0 0 var(--brand);
 }
 
-:where(html[data-layout="classic"]) .accountRow.isMenuOpen {
+.accountRow.isMenuOpen {
   z-index: 20;
 }
 
-:where(html[data-layout="classic"]) .accountIdentityCell {
+.accountIdentityCell {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
 }
 
-:where(html[data-layout="classic"]) .accountIdentityText {
+.accountIdentityText {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-:where(html[data-layout="classic"]) .accountTitleLine {
+.accountTitleLine {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 7px;
 }
 
-:where(html[data-layout="classic"]) .accountNameButton {
+.accountNameButton {
   flex: 1;
   min-width: 0;
   width: 100%;
@@ -355,15 +355,15 @@
   text-align: left;
 }
 
-:where(html[data-layout="classic"]) .accountNameButton:hover,
-:where(html[data-layout="classic"]) .accountNameButton:focus-visible {
+.accountNameButton:hover,
+.accountNameButton:focus-visible {
   transform: none;
   background: transparent;
   box-shadow: none;
   color: var(--brand);
 }
 
-:where(html[data-layout="classic"]) .statusText {
+.statusText {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -372,7 +372,7 @@
   font: 700 0.76rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .accountStateLine {
+.accountStateLine {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -380,15 +380,15 @@
   gap: 6px 8px;
 }
 
-:where(html[data-layout="classic"]) .accountStateLine > .statusText {
+.accountStateLine > .statusText {
   flex: 0 0 7.5rem;
 }
 
-:where(html[data-layout="classic"]) :root:lang(zh-CN) .accountStateLine > .statusText {
+:root:lang(zh-CN) .accountStateLine > .statusText {
   flex-basis: 4.5rem;
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessBadge {
+.usageFreshnessBadge {
   min-width: 0;
   max-width: 100%;
   min-height: 20px;
@@ -404,13 +404,13 @@
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessBadge > span:last-child {
+.usageFreshnessBadge > span:last-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessDot {
+.usageFreshnessDot {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
@@ -418,13 +418,13 @@
   background: var(--subtle);
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-refreshing {
+.usageFreshnessBadge.tone-refreshing {
   border-color: color-mix(in srgb, var(--brand) 18%, transparent 82%);
   color: color-mix(in srgb, var(--brand) 72%, var(--ink) 28%);
   background: color-mix(in srgb, var(--brand-soft) 58%, transparent 42%);
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-refreshing .usageFreshnessDot {
+.usageFreshnessBadge.tone-refreshing .usageFreshnessDot {
   width: 8px;
   height: 8px;
   border: 1.5px solid color-mix(in srgb, var(--brand) 28%, transparent 72%);
@@ -433,21 +433,21 @@
   animation: iconSpin 800ms linear infinite;
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-error {
+.usageFreshnessBadge.tone-error {
   border-color: color-mix(in srgb, var(--danger) 18%, transparent 82%);
   color: color-mix(in srgb, var(--danger) 76%, var(--ink) 24%);
   background: color-mix(in srgb, var(--danger) 8%, transparent 92%);
 }
 
-:where(html[data-layout="classic"]) .usageFreshnessBadge.tone-error .usageFreshnessDot {
+.usageFreshnessBadge.tone-error .usageFreshnessDot {
   background: var(--danger);
 }
 
-:where(html[data-layout="classic"]) .statusLabel {
+.statusLabel {
   flex: 0 0 auto;
 }
 
-:where(html[data-layout="classic"]) .statusReason {
+.statusReason {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -456,7 +456,7 @@
   opacity: 0.78;
 }
 
-:where(html[data-layout="classic"]) .statusDot {
+.statusDot {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
@@ -464,98 +464,98 @@
   background: var(--ok);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-using .statusDot {
+.statusText.status-using .statusDot {
   background: var(--brand);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-available .statusDot {
+.statusText.status-available .statusDot {
   background: var(--ok);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-low .statusDot {
+.statusText.status-low .statusDot {
   background: var(--warning);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-exhausted .statusDot {
+.statusText.status-exhausted .statusDot {
   background: #b91c1c;
 }
 
-:where(html[data-layout="classic"]) .statusText.status-issue .statusDot {
+.statusText.status-issue .statusDot {
   background: #e11d48;
 }
 
-:where(html[data-layout="classic"]) .statusDot.status-using {
+.statusDot.status-using {
   background: var(--brand);
 }
 
-:where(html[data-layout="classic"]) .statusDot.status-available {
+.statusDot.status-available {
   background: var(--ok);
 }
 
-:where(html[data-layout="classic"]) .statusDot.status-low {
+.statusDot.status-low {
   background: var(--warning);
 }
 
-:where(html[data-layout="classic"]) .statusDot.status-exhausted {
+.statusDot.status-exhausted {
   background: #b91c1c;
 }
 
-:where(html[data-layout="classic"]) .statusDot.status-issue {
+.statusDot.status-issue {
   background: #e11d48;
 }
 
-:where(html[data-layout="classic"]) .statusText.status-using {
+.statusText.status-using {
   color: color-mix(in srgb, var(--brand) 78%, var(--ink) 22%);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-available {
+.statusText.status-available {
   color: color-mix(in srgb, var(--ok) 72%, var(--ink) 28%);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-low {
+.statusText.status-low {
   color: color-mix(in srgb, var(--warning) 74%, var(--ink) 26%);
 }
 
-:where(html[data-layout="classic"]) .statusText.status-exhausted {
+.statusText.status-exhausted {
   color: #b91c1c;
 }
 
-:where(html[data-layout="classic"]) .statusText.status-issue {
+.statusText.status-issue {
   color: #e11d48;
 }
 
-:where(html[data-layout="classic"]) .usageMeter {
+.usageMeter {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-:where(html[data-layout="classic"]) .usageMeterHead,
-:where(html[data-layout="classic"]) .usageMeterFoot {
+.usageMeterHead,
+.usageMeterFoot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-:where(html[data-layout="classic"]) .usageMeterHead span {
+.usageMeterHead span {
   color: var(--subtle);
   font: 700 0.68rem/1 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .usageMeterHead strong {
+.usageMeterHead strong {
   color: var(--ink);
   font: 800 0.78rem/1 var(--font-mono);
 }
 
-:where(html[data-layout="classic"]) .usageBar {
+.usageBar {
   height: 6px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--bar-track);
 }
 
-:where(html[data-layout="classic"]) .usageBar span {
+.usageBar span {
   display: block;
   height: 100%;
   min-width: 4px;
@@ -564,21 +564,21 @@
   transition: width 220ms ease;
 }
 
-:where(html[data-layout="classic"]) .usageMeter.tone-warning .usageBar span {
+.usageMeter.tone-warning .usageBar span {
   background: var(--warning);
 }
 
-:where(html[data-layout="classic"]) .usageMeter.tone-danger .usageBar span {
+.usageMeter.tone-danger .usageBar span {
   background: var(--danger);
 }
 
-:where(html[data-layout="classic"]) .usageMeterFoot span {
+.usageMeterFoot span {
   color: var(--subtle);
   font: 650 0.62rem/1 var(--font-ui);
   white-space: nowrap;
 }
 
-:where(html[data-layout="classic"]) .usageMeterFoot .usageMeterReset {
+.usageMeterFoot .usageMeterReset {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -586,7 +586,7 @@
 }
 
 /* Per-account figures: three equal label/value pairs on a soft tile. */
-:where(html[data-layout="classic"]) .accountStatsCell {
+.accountStatsCell {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.15fr);
@@ -596,7 +596,7 @@
   background: color-mix(in srgb, var(--bar-track) 38%, transparent);
 }
 
-:where(html[data-layout="classic"]) .accountStat {
+.accountStat {
   min-width: 0;
   display: grid;
   align-content: center;
@@ -604,15 +604,15 @@
   padding: 0 7px;
 }
 
-:where(html[data-layout="classic"]) .accountStat:last-child {
+.accountStat:last-child {
   padding-right: 4px;
 }
 
-:where(html[data-layout="classic"]) .accountStat + .accountStat {
+.accountStat + .accountStat {
   border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 
-:where(html[data-layout="classic"]) .accountStat em {
+.accountStat em {
   color: var(--subtle);
   font: 700 0.6rem/1 var(--font-ui);
   font-style: normal;
@@ -621,7 +621,7 @@
   text-overflow: ellipsis;
 }
 
-:where(html[data-layout="classic"]) .accountStat b {
+.accountStat b {
   min-width: 0;
   color: var(--ink);
   font: 800 0.78rem/1 var(--font-mono);
@@ -631,12 +631,12 @@
   text-overflow: ellipsis;
 }
 
-:where(html[data-layout="classic"]) .accountStat b.isEmpty {
+.accountStat b.isEmpty {
   color: var(--subtle);
   font-weight: 650;
 }
 
-:where(html[data-layout="classic"]) .rowToggle {
+.rowToggle {
   width: 42px;
   height: 24px;
   position: relative;
@@ -646,13 +646,13 @@
   cursor: pointer;
 }
 
-:where(html[data-layout="classic"]) .rowToggle input {
+.rowToggle input {
   position: absolute;
   opacity: 0;
   pointer-events: none;
 }
 
-:where(html[data-layout="classic"]) .rowToggle span {
+.rowToggle span {
   width: 42px;
   height: 24px;
   border-radius: 999px;
@@ -660,7 +660,7 @@
   transition: background 140ms ease;
 }
 
-:where(html[data-layout="classic"]) .rowToggle span::before {
+.rowToggle span::before {
   content: "";
   position: absolute;
   top: 3px;
@@ -673,15 +673,15 @@
   transition: transform 140ms ease;
 }
 
-:where(html[data-layout="classic"]) .rowToggle input:checked + span {
+.rowToggle input:checked + span {
   background: var(--surface-switch-track-active);
 }
 
-:where(html[data-layout="classic"]) .rowToggle input:checked + span::before {
+.rowToggle input:checked + span::before {
   transform: translateX(18px);
 }
 
-:where(html[data-layout="classic"]) .rowActions {
+.rowActions {
   position: relative;
   display: flex;
   align-items: center;
@@ -690,7 +690,7 @@
   gap: 6px;
 }
 
-:where(html[data-layout="classic"]) .rowSwitchButton {
+.rowSwitchButton {
   min-width: 58px;
   min-height: 34px;
   padding: 0 12px;
@@ -701,7 +701,7 @@
   box-shadow: none;
 }
 
-:where(html[data-layout="classic"]) .rowMoreButton {
+.rowMoreButton {
   width: 32px;
   height: 32px;
   padding: 0;
@@ -712,21 +712,21 @@
   color: var(--subtle);
 }
 
-:where(html[data-layout="classic"]) .rowSwitchButton:hover:not(:disabled),
-:where(html[data-layout="classic"]) .rowMoreButton:hover:not(:disabled) {
+.rowSwitchButton:hover:not(:disabled),
+.rowMoreButton:hover:not(:disabled) {
   border-color: var(--line);
   background: var(--surface-hover-bg);
   box-shadow: none;
   transform: none;
 }
 
-:where(html[data-layout="classic"]) .rowMoreButton.isPending {
+.rowMoreButton.isPending {
   border-color: color-mix(in srgb, var(--danger) 36%, var(--line) 64%);
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 10%, var(--surface-tint) 90%);
 }
 
-:where(html[data-layout="classic"]) .rowActionMenu {
+.rowActionMenu {
   position: absolute;
   top: 50%;
   right: 38px;
@@ -742,7 +742,7 @@
   transform: translateY(-50%);
 }
 
-:where(html[data-layout="classic"]) .rowActionMenuPortal {
+.rowActionMenuPortal {
   position: fixed;
   top: auto;
   right: auto;
@@ -750,7 +750,7 @@
   transform: none;
 }
 
-:where(html[data-layout="classic"]) .rowActionMenu button {
+.rowActionMenu button {
   min-height: 34px;
   border: 0;
   border-radius: 8px;
@@ -767,17 +767,17 @@
   text-align: left;
 }
 
-:where(html[data-layout="classic"]) .rowActionMenu button:hover,
-:where(html[data-layout="classic"]) .rowActionMenu button:focus-visible {
+.rowActionMenu button:hover,
+.rowActionMenu button:focus-visible {
   transform: none;
   background: color-mix(in srgb, var(--brand-soft) 54%, transparent);
 }
 
-:where(html[data-layout="classic"]) .rowActionMenu .dangerMenuItem {
+.rowActionMenu .dangerMenuItem {
   color: var(--danger);
 }
 
-:where(html[data-layout="classic"]) .rowIcon {
+.rowIcon {
   width: 18px;
   height: 18px;
   stroke: currentColor;
@@ -786,7 +786,7 @@
   stroke-linecap: round;
 }
 
-:where(html[data-layout="classic"]) .actionIconGlyph {
+.actionIconGlyph {
   width: 19px;
   height: 19px;
   stroke: currentColor;
@@ -796,8 +796,8 @@
   stroke-linejoin: round;
 }
 
-:where(html[data-layout="classic"]) .detailEmpty,
-:where(html[data-layout="classic"]) .accountEmptyState {
+.detailEmpty,
+.accountEmptyState {
   min-height: 260px;
   display: grid;
   align-content: center;
@@ -808,15 +808,15 @@
   color: var(--subtle);
 }
 
-:where(html[data-layout="classic"]) .detailEmpty h3,
-:where(html[data-layout="classic"]) .accountEmptyState h3 {
+.detailEmpty h3,
+.accountEmptyState h3 {
   margin: 0;
   color: var(--ink);
   font: 850 1rem/1.2 var(--font-ui);
 }
 
-:where(html[data-layout="classic"]) .detailEmpty p,
-:where(html[data-layout="classic"]) .accountEmptyState p {
+.detailEmpty p,
+.accountEmptyState p {
   margin: 0;
   max-width: 32ch;
   font: 600 0.84rem/1.55 var(--font-ui);

@@ -35,12 +35,12 @@ async function filterRows(page, value, expected) {
 }
 
 try {
-  for (const layout of ["classic", "compact"]) {
+  {
+    const layout = "classic";
     const samples = { cached: [], uncached: [] };
     for (let run = 0; run < 10; run++) {
       const cached = run % 2 === 0;
       const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "zh-CN" });
-      await context.addInitScript((layout) => localStorage.setItem("codex-tools-layout", layout), layout);
       const page = await context.newPage();
       if (!cached) {
         await page.route("**/src/utils/intlFormatters.ts*", (route) => route.fulfill({
@@ -52,19 +52,17 @@ try {
       }
       await page.goto(`${baseUrl}?accounts=100`);
       await page.waitForFunction(() => document.querySelectorAll(".accountRow").length === 100);
-      await page.waitForTimeout(500); // Let the initial row animation finish in both modes.
+      await page.waitForTimeout(500); // Let the initial row animation finish to finish.
       const commands = await page.evaluate(() => window.__previewCommands.reduce(
         (counts, command) => ({ ...counts, [command]: (counts[command] ?? 0) + 1 }), {},
       ));
       for (const command of ["list_accounts", "get_api_proxy_status", "get_cloudflared_status", "get_codex_token_usage"]) {
         assert.equal(commands[command], 1, `${layout}: ${command} must run once during startup`);
       }
-      if (layout === "compact") await page.locator(".accountSearchButton").click();
       await filterRows(page, "synthetic-000", 1);
       samples[cached ? "cached" : "uncached"].push(await filterRows(page, "", 100));
       if (run === 0) {
-        if (layout === "classic") await page.locator(".topSegmentedButton").nth(3).click();
-        else await page.locator(".settingsButton").click();
+        await page.locator(".topSegmentedButton").nth(3).click();
         await page.locator(".settingsPage").waitFor();
         const maxOuterScroll = await page.evaluate(() => {
           let max = 0;

@@ -1,4 +1,3 @@
-import { AppLayoutProvider } from "../../src/components/layout/AppLayoutProvider";
 /* eslint-disable react-refresh/only-export-components -- Node SSR test entry; no Fast Refresh runtime. */
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,13 +7,9 @@ import { I18nProvider } from "../../src/i18n/I18nProvider";
 import { AnalyticsPanel } from "../../src/components/AnalyticsPanel";
 import { ApiProxyPanel } from "../../src/components/ApiProxyPanel";
 import { SettingsPanel } from "../../src/components/SettingsPanel";
-import { AccountsGrid } from "../../src/components/AccountsGrid";
-import { PageSections } from "../../src/components/workspace/PageSections";
 import { QuotaSettings } from "../../src/components/settings/QuotaSettings";
 import { useSettingsWorkspace } from "../../src/components/settings/useSettingsWorkspace";
 import type { SettingsPanelProps } from "../../src/components/settings/types";
-import { TokenUsageStrip } from "../../src/components/accounts/TokenUsageStrip";
-import { getUiCopy } from "../../src/components/accounts/accountCopy";
 import { accounts, analytics, tokenUsage, now } from "./fixtures";
 import {
   DEFAULT_SETTINGS,
@@ -24,6 +19,11 @@ import {
 import { proxyProps } from "./proxyProps";
 import { accountProps } from "./accountProps";
 import { fixtureAccount } from "./fixtures";
+import { ClassicAccountsGrid } from "../../src/components/classic/ClassicAccountsGrid";
+import type { AccountsGridProps } from "../../src/components/accounts/types";
+function AccountsGrid(props: AccountsGridProps) {
+  return <ClassicAccountsGrid {...props} tokenUsage={tokenUsage} tokenUsageError={null} />;
+}
 
 let locale = "zh-CN";
 const storage = {
@@ -37,7 +37,7 @@ Object.assign(globalThis, {
 const render = (node: ReactNode) =>
   renderToStaticMarkup(
     <I18nProvider>
-      <AppLayoutProvider initialLayout="compact">{node}</AppLayoutProvider>
+      {node}
     </I18nProvider>,
   );
 let count = 0;
@@ -46,32 +46,10 @@ const check = (name: string, value: unknown) => {
   count++;
   console.log(`✓ ${name}`);
 };
-const panel = (html: string, id: string) =>
-  html
-    .split(
-      new RegExp(`<div class="pageSectionPanel" id="[^"]*-${id}-panel"`),
-    )[1]
-    ?.split('<div class="pageSectionPanel"')[0] ?? "";
 const matches = (html: string, pattern: RegExp) => [...html.matchAll(pattern)];
-function sectionChecks(html: string, name: string, total: number) {
-  check(
-    `${name}: only one section is initially selected`,
-    matches(html, /aria-selected="true"/g).length === 1,
-  );
-  check(
-    `${name}: all ${total} sections remain mounted`,
-    matches(html, /role="tabpanel"/g).length === total,
-  );
-  check(
-    `${name}: other sections are hidden`,
-    matches(html, /role="tabpanel"[^>]*hidden=""/g).length === total - 1,
-  );
-  check(
-    `${name}: every tab is connected to its panel`,
-    matches(html, /aria-controls="([^"]+)"/g).every((match) =>
-      html.includes(`id="${match[1]}" role="tabpanel"`),
-    ),
-  );
+function sectionChecks(html: string, name: string) {
+  check(`${name}: all content is available in the main page`,
+    !html.includes('role="tabpanel"') && !html.includes('pageSectionNav'));
 }
 const empty = () => {};
 const imported = [
@@ -130,7 +108,7 @@ const proxyRows = render(
     })}
   />,
 );
-const proxyInputs = matches(proxyRows, /<input[^>]*role="switch"[^>]*>/g).map(
+const proxyInputs = matches(proxyRows, /<label class="rowToggle"[^>]*><input[^>]*>/g).map(
   (match) => match[0],
 );
 check(
@@ -154,7 +132,7 @@ const busyRows = render(
 );
 check(
   "Accounts: auth operations disable the visible proxy switches",
-  matches(busyRows, /<input[^>]*role="switch"[^>]*>/g).every((match) =>
+  matches(busyRows, /<label class="rowToggle"[^>]*><input[^>]*>/g).every((match) =>
     match[0].includes('disabled=""'),
   ),
 );
@@ -162,13 +140,13 @@ check(
   "Accounts: reset credits no longer have a separate column",
   !proxyRows.includes("accountCreditsColumn") &&
     !proxyRows.includes("accountCreditsCell") &&
-    matches(proxyRows, /<th scope="col"/g).length === 5,
+    !proxyRows.includes("accountTable"),
 );
 check(
   "Accounts: reset credit badges follow the plan tags",
   matches(
     proxyRows,
-    /class="accountPlanVariants[^>]*>.*?<span class="accountResetCredits/g,
+    /class="accountStateLine".*?<span class="accountResetCredits/g,
   ).length === 3,
 );
 const unknownAndZero = render(
@@ -212,21 +190,21 @@ const settingsProps: SettingsPanelProps = {
   developerContent: <button>Preview update dialog</button>,
 };
 const settings = render(<SettingsPanel {...settingsProps} />);
-sectionChecks(settings, "Settings", 5);
+sectionChecks(settings, "Settings");
 check(
   "Settings: language and appearance are in General",
-  panel(settings, "general").includes("languagePicker") &&
-    panel(settings, "general").includes(MESSAGES["zh-CN"].settings.theme.label),
+  settings.includes("languagePicker") &&
+    settings.includes(MESSAGES["zh-CN"].settings.theme.label),
 );
 check(
   "Settings: startup, account switching and warm-up controls remain",
-  panel(settings, "general").includes(
+  settings.includes(
     MESSAGES["zh-CN"].settings.launchAtStartup.label,
   ) &&
-    panel(settings, "switching").includes(
+    settings.includes(
       MESSAGES["zh-CN"].settings.launchCodexAfterSwitch.label,
     ) &&
-    panel(settings, "warmup").includes("warmupAccountChoices"),
+    settings.includes("warmupAccountChoices"),
 );
 check(
   "Settings: project/update links and developer action remain",
@@ -268,24 +246,18 @@ const analysisProps = {
   onExport: empty,
   onDeleteSession: empty,
   onUpdateWeeklyBudget: async () => {},
-  tokenUsageContent: (
-    <TokenUsageStrip
-      tokenUsage={tokenUsage}
-      error={null}
-      text={getUiCopy(locale)}
-    />
-  ),
+
 };
 const analysis = render(<AnalyticsPanel {...analysisProps} />);
-sectionChecks(analysis, "Analytics", 4);
+sectionChecks(analysis, "Analytics");
 check(
-  "Analytics: four token periods remain",
-  ["24H", "3D", "7D", "30D"].every((value) => analysis.includes(value)),
+  "Analytics: four summary metrics remain",
+  matches(analysis, /class="analyticsStatCard"/g).length === 4,
 );
 check(
   "Analytics: budgets, projects, sessions, prompts and activity remain",
   [
-    "analyticsBudgetControl",
+    "analyticsBudgetActions",
     "analyticsBlockProjects",
     "analyticsBlockSessions",
     "analyticsBlockPrompts",
@@ -310,7 +282,7 @@ check(
   emptyAnalysis.includes("—") && !emptyAnalysis.includes("NaN"),
 );
 const proxy = render(<ApiProxyPanel {...proxyProps()} />);
-sectionChecks(proxy, "API proxy", 5);
+sectionChecks(proxy, "API proxy");
 check(
   "Proxy: service controls and port input remain",
   proxy.includes("proxyPortInput") && proxy.includes("8787"),
@@ -326,7 +298,7 @@ check(
 );
 check(
   "Proxy: no-account start is disabled",
-  /<button class="primary"[^>]*disabled=""/.test(panel(proxy, "service")),
+  /<button class="primary"[^>]*disabled=""/.test(proxy),
 );
 const configured = proxyProps({
   accountCount: 2,
@@ -383,8 +355,8 @@ check(
     fullProxy.includes('aria-valuetext="80%"'),
 );
 check(
-  "Proxy: key permissions and logs are available in a closed disclosure",
-  fullProxy.includes('<details class="proxyKeyDetails">') &&
+  "Proxy: key permissions and logs are available in an expanded disclosure",
+  fullProxy.includes('<details class="proxyKeyDetails" open="">') &&
     fullProxy.includes("proxyKeyBindingColumns") &&
     fullProxy.includes("proxyKeyLogs"),
 );
@@ -397,22 +369,6 @@ check(
   fullProxy.includes("cloudflaredFormGrid") &&
     fullProxy.includes("proxy.example.com"),
 );
-const chosen = render(
-  <PageSections
-    label="Example"
-    initialId="two"
-    sections={[
-      { id: "one", label: "One", content: <input defaultValue="draft" /> },
-      { id: "two", label: "Two", content: "Two content" },
-    ]}
-  />,
-);
-check(
-  "Section navigation keeps inactive form drafts in the DOM",
-  chosen.includes('value="draft"') &&
-    /one-panel[^>]*hidden/.test(chosen) &&
-    /two-tab[^>]*aria-selected="true"/.test(chosen),
-);
 for (const code of ["en-US", "ja-JP", "ko-KR", "ru-RU"]) {
   locale = code;
   check(
@@ -423,7 +379,7 @@ for (const code of ["en-US", "ja-JP", "ko-KR", "ru-RU"]) {
       render(<ApiProxyPanel {...configured} />),
     ].every(
       (html) =>
-        html.includes('role="tablist"') &&
+        !html.includes('role="tabpanel"') &&
         !html.includes("undefined") &&
         !html.includes("NaN"),
     ),

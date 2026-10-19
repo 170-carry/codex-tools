@@ -24,11 +24,6 @@ export type AccountStatus =
   | "issue";
 export type StatusFilter = AccountStatus | "all";
 
-export type RowActionMenuPosition = {
-  left: number;
-  top: number;
-};
-
 export type UiCopy = {
   searchPlaceholder: string;
   allStatuses: string;
@@ -80,9 +75,6 @@ export type AccountsGridProps = {
   accountOrder?: string[];
   orderingAccounts?: boolean;
   onMoveAccount?: (account: AccountSummary, direction: -1 | 1) => void;
-  searchVisible: boolean;
-  onCloseSearch: () => void;
-  onShowAnalytics: () => void;
   onSmartSwitch: () => void;
   smartSwitching: boolean;
   accounts: AccountSummary[];

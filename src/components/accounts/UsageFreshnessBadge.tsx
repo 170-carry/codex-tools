@@ -78,7 +78,6 @@ export function UsageFreshnessBadge({
   refreshError,
   locale,
   copy,
-  compact = false,
 }: {
   account: AccountSummary;
   refreshing: boolean;
@@ -86,7 +85,6 @@ export function UsageFreshnessBadge({
   refreshError: string | null;
   locale: string;
   copy: UsageFreshnessCopy;
-  compact?: boolean;
 }) {
   const fetchedAt = formatUsageFetchedAt(account.usage?.fetchedAt, locale);
   const error = account.usageError || refreshError;
@@ -119,7 +117,7 @@ export function UsageFreshnessBadge({
       aria-label={label}
     >
       <span className="usageFreshnessDot" aria-hidden="true" />
-      <span>{compact && error ? `${summarizeUsageRefreshError(error, copy)}${fetchedAt ? (locale === "zh-CN" ? " · 缓存" : " · cached") : ""}` : compact && refreshing ? copy.usageRefreshing : label}</span>
+      <span>{label}</span>
     </span>
   );
 }

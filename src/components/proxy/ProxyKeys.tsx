@@ -1,4 +1,3 @@
-import { useAppLayout } from "../../hooks/useAppLayout";
 import { getPageLayoutCopy } from "../../i18n/pageLayoutCopy";
 import { copyText } from "./clipboard";
 import { ProxyHelpTip } from "./ProxyHelpTip";
@@ -8,7 +7,6 @@ import {
 } from "./keyPolicy";
 import type { ApiProxyWorkspace } from "./useApiProxyWorkspace";
 export function ProxyKeys({ workspace }: { workspace: ApiProxyWorkspace }) {
-  const { layout } = useAppLayout();
   const {
     apiProxyKeys,
     apiProxyKeyLogs,
@@ -199,7 +197,7 @@ export function ProxyKeys({ workspace }: { workspace: ApiProxyWorkspace }) {
 
                 <details
                   className="proxyKeyDetails"
-                  open={layout === "classic" ? true : undefined}
+                  open
                 >
                   <summary>{getPageLayoutCopy(locale).keyDetails}</summary>
                   <div>

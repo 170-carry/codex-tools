@@ -22,9 +22,9 @@ export function AccountOrderControls({
   const index = keys.indexOf(account.accountKey);
   const busy = actions.authBusy || actions.orderingAccounts;
   return (
-    <section className="detailCard">
+    <section className="detailCard accountOrderCard">
       <h3>{copy.apiProxy.accountOrderLabel}</h3>
-      <div className="settingActionGroup">
+      <div className="accountOrderStepper">
         <button
           type="button"
           className="ghost"
@@ -33,7 +33,9 @@ export function AccountOrderControls({
         >
           {copy.apiProxy.moveUp}
         </button>
-        <span aria-live="polite">{index + 1} / {keys.length}</span>
+        <span aria-live="polite">
+          <b>{index + 1}</b> / {keys.length}
+        </span>
         <button
           type="button"
           className="ghost"

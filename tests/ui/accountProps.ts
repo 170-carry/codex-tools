@@ -4,9 +4,6 @@ import { accounts } from "./fixtures";
 const noop = () => {};
 export function accountProps(overrides: Partial<AccountsGridProps> = {}): AccountsGridProps {
   return {
-    searchVisible: false,
-    onCloseSearch: noop,
-    onShowAnalytics: noop,
     onSmartSwitch: noop,
     smartSwitching: false,
     accounts,

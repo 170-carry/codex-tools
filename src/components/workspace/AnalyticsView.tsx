@@ -1,20 +1,9 @@
 import { AnalyticsPanel } from "../AnalyticsPanel";
 import type { CodexController } from "../../types/workspace";
-import { TokenUsageStrip } from "../accounts/TokenUsageStrip";
-import { getUiCopy } from "../accounts/accountCopy";
-import { useI18n } from "../../i18n/I18nProvider";
 
 export function AnalyticsView({ c }: { c: CodexController }) {
-  const { locale } = useI18n();
   return (
     <AnalyticsPanel
-      tokenUsageContent={
-        <TokenUsageStrip
-          tokenUsage={c.tokenUsage}
-          error={c.tokenUsageError}
-          text={getUiCopy(locale)}
-        />
-      }
       analytics={c.costAnalytics}
       error={c.costAnalyticsError}
       loading={c.costAnalyticsLoading}
