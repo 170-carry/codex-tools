@@ -135,7 +135,9 @@
     "uploadStartImport": "Начать импорт",
     "apiEditTitle": "Изменить API аккаунт",
     "apiEditHint": "Оставьте API Key пустым, чтобы сохранить ключ. После сохранения переключитесь на этот аккаунт для применения URL или модели.",
-    "apiEditSave": "Сохранить"
+    "apiEditSave": "Сохранить",
+    "launchCodexApp": "Запустить Codex App",
+    "launchingCodexApp": "Запуск…"
   },
   "accountCard": {
     "currentStamp": "Текущий",
@@ -565,6 +567,21 @@
       "checkedText": "Вкл",
       "uncheckedText": "Выкл"
     },
+    "autoSwitchOnExhaustion": {
+      "label": "Автоматически менять аккаунт при исчерпании квоты",
+      "checkedText": "Авто",
+      "uncheckedText": "Вручную"
+    },
+    "autoContinueAfterSwitch": {
+      "label": "Продолжать последнюю задачу Codex после переключения",
+      "checkedText": "Продолжать",
+      "uncheckedText": "Не продолжать"
+    },
+    "autoContinueWindow": {
+      "label": "Возобновлять только сессии, активные за это время",
+      "description": "Более старые задачи считаются историей и не возобновляются.",
+      "unit": "мин"
+    },
     "launchCodexAsAdmin": {
       "label": "Запускать Codex от имени администратора (Windows)",
       "checkedText": "Админ",
@@ -696,6 +713,8 @@
     "settingsUpdated": "Настройки обновлены",
     "updateSettingsFailed": "Не удалось обновить настройки: {{error}}",
     "usageRefreshed": "Данные использования обновлены",
+    "usageRefreshPartial": "Квота обновлена частично (ошибок {{failed}}/{{total}}): {{error}}; для этих аккаунтов сохранён кэш",
+    "usageRefreshAllFailed": "Квота не обновилась для всех {{total}} аккаунтов: {{error}}; сохранён кэш",
     "refreshFailed": "Ошибка обновления: {{error}}",
     "accountWarmupActivated": "Запрос hello отправлен, прогрев завершён, данные обновлены",
     "accountWarmupAlreadyActive": "5-часовое окно уже активно; запрос не отправлен",
@@ -800,7 +819,9 @@
     "cloudflaredStartFailed": "Не удалось запустить публичный доступ cloudflared: {{error}}",
     "cloudflaredStopped": "Публичный доступ cloudflared остановлен",
     "cloudflaredStopFailed": "Не удалось остановить публичный доступ cloudflared: {{error}}",
-    "accountWarmupRequestSent": "Запрос прогрева завершён, но активация окна 5 ч ещё не подтверждена. Обновите квоту позже."
+    "accountWarmupRequestSent": "Запрос прогрева завершён, но активация окна 5 ч ещё не подтверждена. Обновите квоту позже.",
+    "codexAppLaunched": "Codex App запущен ({target})",
+    "codexAppLaunchFailed": "Не удалось запустить Codex App: {error}"
   },
   "resetCredit": {
     "use": "Использовать карту",

@@ -3,7 +3,7 @@ use super::*;
 use windows::core::HSTRING;
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED,
 };
 use windows::Win32::UI::Shell::{
     ApplicationActivationManager, IApplicationActivationManager, AO_NONE,
@@ -110,20 +110,53 @@ pub(super) fn activate_windows_store_codex_by_aumid(app_id: &str) -> Result<u32,
 
 #[cfg(target_os = "windows")]
 pub(super) fn launch_windows_store_target(target: &WindowsStoreCodexTarget) -> Result<(), String> {
-    let process_id = activate_windows_store_codex_by_aumid(&target.aumid)?;
-    log::info!(
-        "CODEX_DESKTOP_LAUNCH aumid={} executable={} activation_pid={process_id}",
-        target.aumid,
-        target.executable.display()
-    );
-    if wait_for_windows_codex_process(&target.executable) {
-        Ok(())
-    } else {
-        Err(format!(
-            "微软商店版 Codex 激活后未检测到当前用户的桌面进程（AUMID={}，程序={}，激活 PID={process_id}，等待 {WINDOWS_STORE_LAUNCH_TIMEOUT_MS} ms）。",
-            target.aumid, target.executable.display()
-        ))
+    // 若 App 已经在运行，直接视为成功：再次激活只会把窗口提到前台。
+    if process_is_running(&target.executable) {
+        log::info!("CODEX_DESKTOP_LAUNCH action=already_running");
+        let _ = activate_windows_store_codex_by_aumid(&target.aumid);
+        return Ok(());
     }
+
+    // 首选 `shell:AppsFolder\<AUMID>`：不依赖 COM 线程模型，
+    // 在 Tauri 的 async 线程上也能稳定工作。
+    let shell_target = format!(r"shell:AppsFolder\{}", target.aumid);
+    let mut command = crate::utils::new_background_command("cmd.exe");
+    command.args(["/c", "start", "", &shell_target]);
+    let spawned = command.spawn().is_ok();
+
+    if !spawned || !wait_for_windows_codex_process(&target.executable) {
+        // 回退到 COM 激活（需要正确的线程模型）。
+        let process_id = activate_windows_store_codex_by_aumid(&target.aumid).map_err(|error| {
+            format!(
+                "启动微软商店版 Codex 失败：explorer 启动未生效，COM 激活也失败（{error}）"
+            )
+        })?;
+        log::info!(
+            "CODEX_DESKTOP_LAUNCH aumid={} executable={} activation_pid={process_id}",
+            target.aumid,
+            target.executable.display()
+        );
+        if !wait_for_windows_codex_process(&target.executable) {
+            return Err(format!(
+                "微软商店版 Codex 激活后未检测到当前用户的桌面进程（AUMID={}，程序={}，激活 PID={process_id}，等待 {WINDOWS_STORE_LAUNCH_TIMEOUT_MS} ms）。",
+                target.aumid, target.executable.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn process_is_running(executable: &Path) -> bool {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes();
+    let expected = executable.to_string_lossy().to_ascii_lowercase();
+    system.processes().values().any(|process| {
+        process
+            .exe()
+            .map(|path| path.to_string_lossy().to_ascii_lowercase() == expected)
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(target_os = "windows")]
@@ -134,7 +167,8 @@ struct WindowsComGuard {
 #[cfg(target_os = "windows")]
 impl WindowsComGuard {
     fn initialize() -> Result<Self, String> {
-        let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        // 调用方可能位于 Tauri 的 async 线程；MTA 更宽松，避免 RPC_E_CHANGED_MODE。
+        let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
         if hr == RPC_E_CHANGED_MODE {
             return Ok(Self {
                 should_uninitialize: false,

@@ -135,7 +135,9 @@
     "uploadStartImport": "가져오기 시작",
     "apiEditTitle": "API 계정 편집",
     "apiEditHint": "API Key를 비워두면 기존 값을 유지합니다. 저장 후 이 계정으로 다시 전환하여 새 URL 또는 모델을 적용하세요.",
-    "apiEditSave": "저장"
+    "apiEditSave": "저장",
+    "launchCodexApp": "Codex App 실행",
+    "launchingCodexApp": "실행 중…"
   },
   "accountCard": {
     "currentStamp": "현재",
@@ -565,6 +567,21 @@
       "checkedText": "켜짐",
       "uncheckedText": "꺼짐"
     },
+    "autoSwitchOnExhaustion": {
+      "label": "할당량 소진 시 계정 자동 전환",
+      "checkedText": "자동",
+      "uncheckedText": "수동"
+    },
+    "autoContinueAfterSwitch": {
+      "label": "전환 후 최근 Codex 작업 계속",
+      "checkedText": "계속",
+      "uncheckedText": "계속 안 함"
+    },
+    "autoContinueWindow": {
+      "label": "이 시간 내에 활동한 세션만 재개",
+      "description": "더 오래된 작업은 기록으로 간주하여 자동 재개하지 않습니다.",
+      "unit": "분"
+    },
     "launchCodexAsAdmin": {
       "label": "관리자 권한으로 Codex 실행(Windows)",
       "checkedText": "관리자",
@@ -696,6 +713,8 @@
     "settingsUpdated": "설정이 업데이트되었습니다",
     "updateSettingsFailed": "설정 업데이트 실패: {{error}}",
     "usageRefreshed": "사용량이 갱신되었습니다",
+    "usageRefreshPartial": "사용량 갱신 일부 실패 ({{failed}}/{{total}}): {{error}}. 실패한 계정은 캐시를 유지합니다",
+    "usageRefreshAllFailed": "계정 {{total}}개 모두 사용량 갱신 실패: {{error}}. 캐시를 유지합니다",
     "refreshFailed": "새로고침 실패: {{error}}",
     "accountWarmupActivated": "hello 요청으로 예열을 완료하고 사용량을 갱신했습니다",
     "accountWarmupAlreadyActive": "5시간 창이 이미 활성화되어 요청을 보내지 않았습니다",
@@ -800,7 +819,9 @@
     "cloudflaredStartFailed": "cloudflared 공개 액세스 시작 실패: {{error}}",
     "cloudflaredStopped": "cloudflared 공개 액세스가 중지되었습니다",
     "cloudflaredStopFailed": "cloudflared 공개 액세스 중지 실패: {{error}}",
-    "accountWarmupRequestSent": "워밍업 요청은 완료되었지만 5h 창 활성화는 아직 확인되지 않았습니다. 잠시 후 사용량을 새로 고치세요."
+    "accountWarmupRequestSent": "워밍업 요청은 완료되었지만 5h 창 활성화는 아직 확인되지 않았습니다. 잠시 후 사용량을 새로 고치세요.",
+    "codexAppLaunched": "Codex App을 실행했습니다({target})",
+    "codexAppLaunchFailed": "Codex App 실행 실패: {error}"
   },
   "resetCredit": {
     "use": "이 카드 사용",

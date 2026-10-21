@@ -44,7 +44,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "gen/remote-build"
+      "gen/remote-build",
+      "WebView2Loader.dll"
     ]
   },
   "plugins": {

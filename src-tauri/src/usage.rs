@@ -1,5 +1,8 @@
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::error::Error as StdError;
+use std::time::Duration;
 
 use crate::app_paths;
 use crate::models::CreditSnapshot;
@@ -15,6 +18,10 @@ const CODEX_USAGE_PATH: &str = "/api/codex/usage";
 const WHAM_USAGE_PATH: &str = "/wham/usage";
 const WHAM_RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
 const BACKEND_API_PREFIX: &str = "/backend-api";
+const USAGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const USAGE_FETCH_BUDGET: Duration = Duration::from_secs(24);
+const RESET_CREDITS_FETCH_BUDGET: Duration = Duration::from_secs(3);
+const USAGE_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Deserialize)]
 struct UsageApiResponse {
@@ -53,54 +60,126 @@ pub(crate) async fn fetch_usage_snapshot(
     access_token: &str,
     account_id: &str,
 ) -> Result<UsageSnapshot, String> {
-    let usage_urls = resolve_usage_urls();
+    let client = create_usage_http_client()?;
+    fetch_usage_snapshot_with_client(&client, access_token, account_id).await
+}
 
-    let client = reqwest::Client::builder()
+pub(crate) fn create_usage_http_client() -> Result<reqwest::Client, String> {
+    // Build once per refresh batch, so all accounts share connections while a new
+    // batch still picks up changes to the Windows/Verge system proxy settings.
+    reqwest::Client::builder()
         .user_agent("codex-tools/0.1")
-        .timeout(std::time::Duration::from_secs(18))
+        .connect_timeout(Duration::from_secs(6))
+        .timeout(USAGE_REQUEST_TIMEOUT)
+        .pool_idle_timeout(Duration::from_secs(15))
+        .pool_max_idle_per_host(4)
         .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))
+}
 
-    let mut errors: Vec<String> = Vec::new();
-    for usage_url in usage_urls {
-        let response = match client
-            .get(&usage_url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("ChatGPT-Account-Id", account_id)
-            .header("Accept", "application/json")
-            .send()
-            .await
+pub(crate) async fn fetch_usage_snapshot_with_client(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+) -> Result<UsageSnapshot, String> {
+    fetch_usage_snapshot_from_urls(
+        client,
+        access_token,
+        account_id,
+        resolve_usage_urls(),
+        resolve_reset_credit_urls(),
+        USAGE_FETCH_BUDGET,
+        RESET_CREDITS_FETCH_BUDGET,
+    )
+    .await
+}
+
+async fn fetch_usage_snapshot_from_urls(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+    usage_urls: Vec<String>,
+    reset_urls: Vec<String>,
+    usage_budget: Duration,
+    reset_budget: Duration,
+) -> Result<UsageSnapshot, String> {
+    let payload = tokio::time::timeout(
+        usage_budget,
+        fetch_json_from_urls(client, access_token, account_id, usage_urls),
+    )
+    .await
+    .map_err(|_| "请求用量接口失败: 网络请求超时（含重试最多 24 秒）".to_string())?
+    .map_err(|error| format!("请求用量接口失败: {error}"))?;
+
+    // Reset cards are optional metadata. Their endpoint must not hold up a
+    // successful quota response for another full sequence of network timeouts.
+    let reset_credits = match tokio::time::timeout(
+        reset_budget,
+        fetch_json_from_urls(client, access_token, account_id, reset_urls),
+    )
+    .await
+    {
+        Ok(Ok(payload)) => Some(map_reset_credits_payload(payload)),
+        Ok(Err(error)) => {
+            log::debug!("获取 Codex 重置卡失败: {error}");
+            None
+        }
+        Err(_) => {
+            log::debug!("获取 Codex 重置卡超时，保留已取得的额度结果");
+            None
+        }
+    };
+    Ok(map_usage_payload(payload, reset_credits))
+}
+
+struct UsageRequestFailure {
+    message: String,
+    transport: bool,
+    retryable: bool,
+}
+
+async fn fetch_json_from_urls<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+    urls: Vec<String>,
+) -> Result<T, String> {
+    let mut errors = Vec::new();
+    let mut failed_origins = HashSet::new();
+    for url in urls {
+        let origin = reqwest::Url::parse(&url)
+            .ok()
+            .map(|url| url.origin().ascii_serialization());
+        if origin
+            .as_ref()
+            .is_some_and(|origin| failed_origins.contains(origin))
         {
-            Ok(response) => response,
-            Err(err) => {
-                errors.push(format!("{usage_url} -> {}", format_reqwest_error(&err)));
-                continue;
-            }
-        };
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            errors.push(format!(
-                "{usage_url} -> {status}: {}",
-                truncate_for_error(&body, 140)
-            ));
             continue;
         }
-
-        let payload: UsageApiResponse = match response.json().await {
-            Ok(payload) => payload,
-            Err(err) => {
-                errors.push(format!("{usage_url} -> 解析返回失败: {err}"));
-                continue;
+        for attempt in 0..2 {
+            match fetch_json_once(client, access_token, account_id, &url).await {
+                Ok(payload) => return Ok(payload),
+                Err(failure) if failure.retryable && attempt == 0 => {
+                    // A failed CONNECT/TLS handshake is unrelated to the API path.
+                    // Retry the correct endpoint before trying legacy addresses.
+                    log::debug!("额度请求暂时失败，重试同一地址: {}", failure.message);
+                    tokio::time::sleep(USAGE_RETRY_DELAY).await;
+                }
+                Err(failure) => {
+                    if failure.transport {
+                        if let Some(origin) = origin.as_ref() {
+                            failed_origins.insert(origin.clone());
+                        }
+                    }
+                    errors.push(format!("{url} -> {}", failure.message));
+                    break;
+                }
             }
-        };
-        let reset_credits = fetch_reset_credits_snapshot(&client, access_token, account_id).await;
-        return Ok(map_usage_payload(payload, reset_credits));
+        }
     }
 
     if errors.is_empty() {
-        return Err("请求用量接口失败: 未命中任何候选地址".to_string());
+        return Err("未命中任何候选地址".to_string());
     }
     let preview = errors
         .iter()
@@ -110,12 +189,52 @@ pub(crate) async fn fetch_usage_snapshot(
         .join(" | ");
     if errors.len() > 2 {
         Err(format!(
-            "请求用量接口失败: {preview} | 另有 {} 个候选地址失败",
+            "{preview} | 另有 {} 个候选地址失败",
             errors.len() - 2
         ))
     } else {
-        Err(format!("请求用量接口失败: {preview}"))
+        Err(preview)
     }
+}
+
+async fn fetch_json_once<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+    url: &str,
+) -> Result<T, UsageRequestFailure> {
+    let transport_failure = |error: reqwest::Error| UsageRequestFailure {
+        message: format_reqwest_error(&error),
+        transport: true,
+        // reqwest reports a truncated HTTP body as a decode error. JSON schema
+        // errors are handled separately below and must not be retried.
+        retryable: error.is_connect() || error.is_timeout() || error.is_request() || error.is_body() || error.is_decode(),
+    };
+    let response = client
+        .get(url)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("ChatGPT-Account-Id", account_id)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(transport_failure)?;
+    let status = response.status();
+    let body = response.bytes().await.map_err(transport_failure)?;
+    if !status.is_success() {
+        return Err(UsageRequestFailure {
+            message: format!(
+                "{status}: {}",
+                truncate_for_error(&String::from_utf8_lossy(&body), 140)
+            ),
+            transport: false,
+            retryable: matches!(status.as_u16(), 408 | 502 | 503 | 504),
+        });
+    }
+    serde_json::from_slice(&body).map_err(|error| UsageRequestFailure {
+        message: format!("解析返回失败: {error}"),
+        transport: false,
+        retryable: false,
+    })
 }
 
 fn resolve_usage_urls() -> Vec<String> {
@@ -210,64 +329,6 @@ fn read_chatgpt_base_url_from_config() -> Option<String> {
         }
     }
 
-    None
-}
-
-async fn fetch_reset_credits_snapshot(
-    client: &reqwest::Client,
-    access_token: &str,
-    account_id: &str,
-) -> Option<ResetCreditsSnapshot> {
-    let mut errors = Vec::new();
-
-    for reset_url in resolve_reset_credit_urls() {
-        let response = match client
-            .get(&reset_url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("ChatGPT-Account-Id", account_id)
-            .header("Accept", "application/json")
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(err) => {
-                errors.push(format!("{reset_url} -> {}", format_reqwest_error(&err)));
-                continue;
-            }
-        };
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            errors.push(format!(
-                "{reset_url} -> {status}: {}",
-                truncate_for_error(&body, 140)
-            ));
-            continue;
-        }
-
-        let payload: serde_json::Value = match response.json().await {
-            Ok(payload) => payload,
-            Err(err) => {
-                errors.push(format!("{reset_url} -> 解析返回失败: {err}"));
-                continue;
-            }
-        };
-
-        return Some(map_reset_credits_payload(payload));
-    }
-
-    if !errors.is_empty() {
-        log::debug!(
-            "获取 Codex 重置卡失败: {}",
-            errors
-                .iter()
-                .take(2)
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .join(" | ")
-        );
-    }
     None
 }
 
@@ -432,12 +493,237 @@ fn to_usage_window(window: UsageWindowRaw) -> UsageWindow {
 
 #[cfg(test)]
 mod tests {
+    use super::fetch_json_from_urls;
+    use super::fetch_usage_snapshot_from_urls;
     use super::map_reset_credits_payload;
     use super::map_usage_payload;
     use super::RateLimitDetails;
     use super::UsageApiResponse;
     use super::UsageWindowRaw;
     use serde_json::json;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    enum MockReply {
+        Disconnect,
+        Json(&'static str),
+        Unauthorized,
+        ServiceUnavailable,
+        TruncatedBody,
+        Stall,
+    }
+
+    async fn mock_server(replies: Vec<MockReply>) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let mut paths = Vec::new();
+            for reply in replies {
+                let (mut stream, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                    .await
+                    .expect("mock request should arrive")
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let mut buffer = [0; 1024];
+                    let read = stream.read(&mut buffer).await.unwrap();
+                    assert!(read > 0, "request headers should be complete");
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                paths.push(request.lines().next().unwrap().to_string());
+                let (status, body) = match reply {
+                    MockReply::Disconnect => continue,
+                    MockReply::Json(body) => ("200 OK", body),
+                    MockReply::Unauthorized => ("401 Unauthorized", "{}"),
+                    MockReply::ServiceUnavailable => ("503 Service Unavailable", "{}"),
+                    MockReply::TruncatedBody => {
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{",
+                            )
+                            .await
+                            .unwrap();
+                        continue;
+                    }
+                    MockReply::Stall => {
+                        std::future::pending::<()>().await;
+                        unreachable!()
+                    }
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+            paths
+        });
+        (url, handle)
+    }
+
+    fn test_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn transient_transport_failure_retries_the_same_usage_endpoint() {
+        let (url, server) = mock_server(vec![
+            MockReply::Disconnect,
+            MockReply::Json(r#"{"plan_type":"plus"}"#),
+        ])
+        .await;
+        let payload: serde_json::Value = fetch_json_from_urls(
+            &test_client(),
+            "test-token",
+            "test-account",
+            vec![format!("{url}/usage"), format!("{url}/legacy")],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(payload["plan_type"], "plus");
+        assert_eq!(server.await.unwrap(), vec!["GET /usage HTTP/1.1"; 2]);
+    }
+
+    #[tokio::test]
+    async fn transient_http_failure_retries_the_same_usage_endpoint() {
+        let (url, server) = mock_server(vec![
+            MockReply::ServiceUnavailable,
+            MockReply::Json(r#"{"plan_type":"plus"}"#),
+        ])
+        .await;
+        let payload: serde_json::Value = fetch_json_from_urls(
+            &test_client(),
+            "test-token",
+            "test-account",
+            vec![format!("{url}/usage"), format!("{url}/legacy")],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(payload["plan_type"], "plus");
+        assert_eq!(server.await.unwrap(), vec!["GET /usage HTTP/1.1"; 2]);
+    }
+
+    #[tokio::test]
+    async fn interrupted_response_body_retries_the_same_usage_endpoint() {
+        let (url, server) = mock_server(vec![
+            MockReply::TruncatedBody,
+            MockReply::Json(r#"{"plan_type":"plus"}"#),
+        ])
+        .await;
+        let payload: serde_json::Value = fetch_json_from_urls(
+            &test_client(),
+            "test-token",
+            "test-account",
+            vec![format!("{url}/usage"), format!("{url}/legacy")],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(payload["plan_type"], "plus");
+        assert_eq!(server.await.unwrap(), vec!["GET /usage HTTP/1.1"; 2]);
+    }
+
+    #[tokio::test]
+    async fn authorization_failure_does_not_retry_before_endpoint_fallback() {
+        let (url, server) = mock_server(vec![
+            MockReply::Unauthorized,
+            MockReply::Json(r#"{"plan_type":"plus"}"#),
+        ])
+        .await;
+        let _: serde_json::Value = fetch_json_from_urls(
+            &test_client(),
+            "test-token",
+            "test-account",
+            vec![format!("{url}/usage"), format!("{url}/legacy")],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            server.await.unwrap(),
+            vec!["GET /usage HTTP/1.1", "GET /legacy HTTP/1.1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn transport_failure_skips_other_paths_on_the_same_origin() {
+        let (unavailable, failing_server) =
+            mock_server(vec![MockReply::Disconnect, MockReply::Disconnect]).await;
+        let (fallback, fallback_server) =
+            mock_server(vec![MockReply::Json(r#"{"plan_type":"plus"}"#)]).await;
+        let _: serde_json::Value = fetch_json_from_urls(
+            &test_client(),
+            "test-token",
+            "test-account",
+            vec![
+                format!("{unavailable}/usage"),
+                format!("{unavailable}/legacy"),
+                format!("{fallback}/usage"),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(failing_server.await.unwrap(), vec!["GET /usage HTTP/1.1"; 2]);
+        assert_eq!(fallback_server.await.unwrap(), vec!["GET /usage HTTP/1.1"]);
+    }
+
+    #[tokio::test]
+    async fn usage_budget_bounds_a_stalled_request_before_the_client_timeout() {
+        let (url, server) = mock_server(vec![MockReply::Stall]).await;
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            fetch_usage_snapshot_from_urls(
+                &test_client(),
+                "test-token",
+                "test-account",
+                vec![format!("{url}/usage")],
+                vec![format!("{url}/reset")],
+                Duration::from_millis(30),
+                Duration::from_secs(1),
+            ),
+        )
+        .await
+        .expect("the overall usage budget should bound a stalled request");
+        server.abort();
+
+        assert!(result.unwrap_err().contains("网络请求超时"));
+    }
+
+    #[tokio::test]
+    async fn optional_reset_cards_cannot_block_a_successful_usage_snapshot() {
+        let (url, server) = mock_server(vec![
+            MockReply::Json(r#"{"plan_type":"plus"}"#),
+            MockReply::Stall,
+        ])
+        .await;
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            fetch_usage_snapshot_from_urls(
+                &test_client(),
+                "test-token",
+                "test-account",
+                vec![format!("{url}/usage")],
+                vec![format!("{url}/reset")],
+                Duration::from_secs(1),
+                Duration::from_millis(30),
+            ),
+        )
+        .await
+        .expect("quota should be returned without waiting for optional reset cards")
+        .unwrap();
+        server.abort();
+
+        assert_eq!(result.plan_type.as_deref(), Some("plus"));
+        assert!(result.reset_credits.is_none());
+    }
 
     #[test]
     fn zero_five_hour_window_remains_independent_from_weekly_usage() {

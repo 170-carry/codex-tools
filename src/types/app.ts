@@ -478,6 +478,9 @@ export type AppSettings = {
   macosQuotaOnboardingCompleted: boolean;
   launchCodexAfterSwitch: boolean;
   smartSwitchIncludeApi: boolean;
+  autoSwitchOnExhaustion: boolean;
+  autoContinueAfterSwitch: boolean;
+  autoContinueWindowMinutes: number;
   launchCodexAsAdmin: boolean;
   codexLaunchPath: string | null;
   syncOpencodeOpenaiAuth: boolean;
@@ -499,6 +502,28 @@ export type AppSettings = {
   remoteServers: RemoteServerConfig[];
   locale: AppLocale;
   skippedUpdateVersion: string | null;
+};
+
+export type AutoSwitchStatus = {
+  stage:
+    | "idle"
+    | "checking"
+    | "switching"
+    | "switched"
+    | "continuing"
+    | "continued"
+    | "skipped"
+    | "failed";
+  message: string;
+  fromAccountId: string | null;
+  fromAccountLabel: string | null;
+  toAccountId: string | null;
+  toAccountLabel: string | null;
+  threadId: string | null;
+  threadName: string | null;
+  continued: boolean;
+  usedHeadlessFallback: boolean;
+  updatedAt: number;
 };
 
 export type AccountWarmupStatus =

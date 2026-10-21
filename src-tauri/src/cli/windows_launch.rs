@@ -59,8 +59,7 @@ pub(crate) fn prepare_windows_codex_launch(
         .as_ref()
         .map(|target| target.executable().to_path_buf());
     if as_admin && matches!(desktop, Some(WindowsDesktopTarget::Store(_))) {
-        discovery_error = Some("微软商店版 ChatGPT/Codex 不支持以管理员身份启动，请关闭管理员启动或指定可用的桌面版/CLI。".to_string());
-        desktop = None;
+        log::warn!("微软商店版 ChatGPT/Codex 不支持以管理员身份启动，自动使用普通权限启动。");
     }
     let plan = WindowsCodexLaunchPlan {
         desktop,

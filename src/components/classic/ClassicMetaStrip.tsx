@@ -1,11 +1,12 @@
 import { useI18n } from "../../i18n/I18nProvider";
-import type { AccountSummary } from "../../types/app";
+import type { AccountSummary, AutoSwitchStatus } from "../../types/app";
 import { remainingPercent } from "../../utils/usage";
 
 type MetaStripProps = {
   accounts: AccountSummary[];
   exportingAccounts: boolean;
   onExportAccounts: () => void;
+  autoSwitchStatus?: AutoSwitchStatus | null;
 };
 
 type MetricTone = "blue" | "green" | "amber" | "red";
@@ -92,6 +93,7 @@ export function ClassicMetaStrip({
   accounts,
   exportingAccounts,
   onExportAccounts,
+  autoSwitchStatus,
 }: MetaStripProps) {
   const { copy, locale } = useI18n();
   const isChinese = locale === "zh-CN";
@@ -163,6 +165,15 @@ export function ClassicMetaStrip({
       >
         {copy.metaStrip.exportAll}
       </button>
+      {autoSwitchStatus && autoSwitchStatus.stage !== "idle" ? (
+        <span
+          className={`autoSwitchBadge stage-${autoSwitchStatus.stage}`}
+          role="status"
+          title={autoSwitchStatus.message}
+        >
+          {autoSwitchStatus.message}
+        </span>
+      ) : null}
     </section>
   );
 }

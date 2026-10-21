@@ -82,7 +82,27 @@ fn tighten_windows_private_file_acl(path: &Path) -> Result<(), String> {
     windows_private_acl::tighten(path)
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) fn configure_webview2_proxy_bypass() {
+    const BYPASS_ARG: &str = "--proxy-bypass-list=<-loopback>;*.localhost;tauri.localhost;127.0.0.1";
+    match env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        Ok(existing) => {
+            if !existing.contains("proxy-bypass-list") {
+                env::set_var(
+                    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                    format!("{existing} {BYPASS_ARG}"),
+                );
+            }
+        }
+        Err(_) => {
+            env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", BYPASS_ARG);
+        }
+    }
+}
+
 pub(crate) fn prepare_process_path() {
+    #[cfg(target_os = "windows")]
+    configure_webview2_proxy_bypass();
     let mut merged = preferred_executable_dirs();
     if let Some(current_path) = env::var_os("PATH") {
         for dir in env::split_paths(&current_path) {

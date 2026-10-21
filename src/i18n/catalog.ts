@@ -116,6 +116,8 @@ export type MessageCatalog = {
     smartSwitch: string;
     exportButton: string;
     startButton: string;
+    launchCodexApp: string;
+    launchingCodexApp: string;
     dialogAriaLabel: string;
     dialogTitle: string;
     dialogSubtitle: string;
@@ -585,6 +587,21 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    autoSwitchOnExhaustion: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+    };
+    autoContinueAfterSwitch: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+    };
+    autoContinueWindow: {
+      label: string;
+      description: string;
+      unit: string;
+    };
     launchCodexAsAdmin: {
       label: string;
       checkedText: string;
@@ -704,7 +721,11 @@ export type MessageCatalog = {
   notices: {
     settingsUpdated: string;
     updateSettingsFailed: (error: string) => string;
+    codexAppLaunched: (target: string) => string;
+    codexAppLaunchFailed: (error: string) => string;
     usageRefreshed: string;
+    usageRefreshPartial: (failed: number, total: number, error: string) => string;
+    usageRefreshAllFailed: (total: number, error: string) => string;
     refreshFailed: (error: string) => string;
     accountWarmupActivated: string;
     accountWarmupRequestSent: string;
@@ -909,10 +930,18 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
     },
     notices: {
       ...raw.notices,
+      codexAppLaunched: (target) =>
+        fillTemplate(raw.notices.codexAppLaunched, { target }),
+      codexAppLaunchFailed: (error) =>
+        fillTemplate(raw.notices.codexAppLaunchFailed, { error }),
       updateSettingsFailed: (error) =>
         fillTemplate(raw.notices.updateSettingsFailed, { error }),
       refreshFailed: (error) =>
         fillTemplate(raw.notices.refreshFailed, { error }),
+      usageRefreshPartial: (failed, total, error) =>
+        fillTemplate(raw.notices.usageRefreshPartial, { failed, total, error }),
+      usageRefreshAllFailed: (total, error) =>
+        fillTemplate(raw.notices.usageRefreshAllFailed, { total, error }),
       accountWarmupFailed: (error) =>
         fillTemplate(raw.notices.accountWarmupFailed, { error }),
       reloginRequired: (label) =>

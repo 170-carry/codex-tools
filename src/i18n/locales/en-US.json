@@ -135,7 +135,9 @@
     "uploadStartImport": "Start import",
     "apiEditTitle": "Edit API account",
     "apiEditHint": "Leave API Key blank to keep it. Switch to this account again after saving to apply its new URL or model.",
-    "apiEditSave": "Save"
+    "apiEditSave": "Save",
+    "launchCodexApp": "Launch Codex App",
+    "launchingCodexApp": "Launching…"
   },
   "accountCard": {
     "currentStamp": "Current",
@@ -565,6 +567,21 @@
       "checkedText": "On",
       "uncheckedText": "Off"
     },
+    "autoSwitchOnExhaustion": {
+      "label": "Switch accounts automatically when quota runs out",
+      "checkedText": "Auto",
+      "uncheckedText": "Manual"
+    },
+    "autoContinueAfterSwitch": {
+      "label": "Continue the latest Codex task after switching",
+      "checkedText": "Continue",
+      "uncheckedText": "Don't continue"
+    },
+    "autoContinueWindow": {
+      "label": "Only resume sessions active within this window",
+      "description": "Older tasks are treated as history and are not resumed automatically.",
+      "unit": "minutes"
+    },
     "launchCodexAsAdmin": {
       "label": "Launch Codex as administrator (Windows)",
       "checkedText": "Admin",
@@ -696,6 +713,8 @@
     "settingsUpdated": "Settings updated",
     "updateSettingsFailed": "Failed to update settings: {{error}}",
     "usageRefreshed": "Usage refreshed",
+    "usageRefreshPartial": "Usage refresh partially failed ({{failed}}/{{total}}): {{error}}; failed accounts retain cached usage",
+    "usageRefreshAllFailed": "Usage refresh failed for all {{total}} accounts: {{error}}; cached usage retained",
     "refreshFailed": "Refresh failed: {{error}}",
     "accountWarmupActivated": "Sent hello and completed warm-up; usage was refreshed",
     "accountWarmupAlreadyActive": "The 5h window is already active; no request was sent",
@@ -800,7 +819,9 @@
     "cloudflaredStartFailed": "Failed to start cloudflared public access: {{error}}",
     "cloudflaredStopped": "cloudflared public access stopped",
     "cloudflaredStopFailed": "Failed to stop cloudflared public access: {{error}}",
-    "accountWarmupRequestSent": "Warm-up request completed; 5h activation is not yet confirmed. Quota may update later; refresh shortly."
+    "accountWarmupRequestSent": "Warm-up request completed; 5h activation is not yet confirmed. Quota may update later; refresh shortly.",
+    "codexAppLaunched": "Codex App launched ({target})",
+    "codexAppLaunchFailed": "Failed to launch Codex App: {error}"
   },
   "resetCredit": {
     "use": "Use this card",

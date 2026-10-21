@@ -22,6 +22,7 @@ import type {
   ApiProxyUsageStats,
   AppSettings,
   AuthJsonImportInput,
+  AutoSwitchStatus,
   CloudflaredStatus,
   CodexCostAnalyticsProgress,
   CodexCostAnalyticsSnapshot,
@@ -54,6 +55,8 @@ import {
   getUnreleasedChangelogEntry,
 } from "../utils/changelog";
 
+import { buildUsageRefreshNotice } from "../utils/usageRefreshNotice";
+
 const COST_ANALYTICS_STALE_MS = 30 * 60 * 1000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
@@ -61,6 +64,7 @@ const API_PROXY_USAGE_POLL_MS = 15_000;
 const CLOUDFLARED_POLL_MS = 3_000;
 const MAIN_WINDOW_VISIBILITY_CHANGED_EVENT = "main-window-visibility-changed";
 const PERIODIC_USAGE_REFRESHED_EVENT = "periodic-usage-refreshed";
+const AUTO_SWITCH_STATUS_EVENT = "auto-switch-status";
 const DEFAULT_API_PROXY_USAGE_RANGE: ApiProxyUsageRange = "24h";
 const DEFAULT_API_PROXY_USAGE_METRIC: ApiProxyUsageMetric = "calls";
 const API_PROXY_USAGE_RANGE_SECONDS: Record<ApiProxyUsageRange, number> = {
@@ -84,6 +88,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   macosQuotaOnboardingCompleted: false,
   launchCodexAfterSwitch: true,
   smartSwitchIncludeApi: false,
+  autoSwitchOnExhaustion: false,
+  autoContinueAfterSwitch: true,
+  autoContinueWindowMinutes: 30,
   launchCodexAsAdmin: false,
   codexLaunchPath: null,
   syncOpencodeOpenaiAuth: false,
@@ -330,6 +337,8 @@ export function useCodexController(
   );
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [autoSwitchStatus, setAutoSwitchStatus] = useState<AutoSwitchStatus | null>(null);
+  const [launchingCodexApp, setLaunchingCodexApp] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -690,7 +699,7 @@ export function useCodexController(
   const refreshUsage = useCallback(
     async (
       quiet = false,
-      forceAuthRefresh = !quiet,
+      forceAuthRefresh = false,
       initialRefresh = false,
       source: "startup" | "account-import" | "manual" =
         "manual",
@@ -714,7 +723,7 @@ export function useCodexController(
           setUsageRefreshError(null);
         }
         if (!quiet && !promptedRelogin) {
-          setNotice({ type: "ok", message: copy.notices.usageRefreshed });
+          setNotice(buildUsageRefreshNotice(data, copy));
         }
       } catch (error) {
         const localizedError = localizeError(String(error));
@@ -743,7 +752,7 @@ export function useCodexController(
         }
       }
     },
-    [applyAccounts, copy.notices, localizeError],
+    [applyAccounts, copy, localizeError],
   );
 
   const refreshTokenUsage = useCallback(
@@ -1157,6 +1166,40 @@ export function useCodexController(
       }
     };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+
+    void listen<AutoSwitchStatus>(AUTO_SWITCH_STATUS_EVENT, (event) => {
+      if (disposed) return;
+      setAutoSwitchStatus(event.payload);
+      if (event.payload.stage === "switched" || event.payload.stage === "continued") {
+        void loadAccounts();
+      }
+    })
+      .then((fn) => {
+        if (disposed) {
+          void fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch(() => {});
+
+    void invoke<AutoSwitchStatus>("get_auto_switch_status")
+      .then((status) => {
+        if (!disposed) setAutoSwitchStatus(status);
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        void unlisten();
+      }
+    };
+  }, [loadAccounts]);
 
   useEffect(() => {
     let disposed = false;
@@ -3067,6 +3110,27 @@ export function useCodexController(
     ],
   );
 
+  const onLaunchCodexApp = useCallback(async () => {
+    if (launchingCodexApp) {
+      return;
+    }
+    setLaunchingCodexApp(true);
+    try {
+      const target = await invoke<string>("launch_codex_desktop");
+      setNotice({
+        type: "ok",
+        message: copy.notices.codexAppLaunched(target),
+      });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: copy.notices.codexAppLaunchFailed(localizeError(String(error))),
+      });
+    } finally {
+      setLaunchingCodexApp(false);
+    }
+  }, [copy.notices, launchingCodexApp, localizeError]);
+
   const onSmartSwitch = useCallback(async () => {
     if (authBusy) {
       return;
@@ -3179,6 +3243,9 @@ export function useCodexController(
     updateDialogOpen,
     skipPendingUpdateVersion,
     notice,
+    autoSwitchStatus,
+    launchingCodexApp,
+    onLaunchCodexApp,
     openExternalUrl,
     settings,
     settingsLoaded,

@@ -1730,6 +1730,23 @@
   max-width: 220px;
 }
 
+.settingNumberInput {
+  width: 84px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input-bg, transparent);
+  color: inherit;
+  font: 600 0.78rem/1 var(--font-ui);
+  text-align: right;
+}
+
+.settingNumberInput:focus-visible {
+  outline: 2px solid var(--accent, #6aa8ff);
+  outline-offset: 1px;
+}
+
 .modeGroup > button {
   min-height: 30px;
   min-width: 78px;

@@ -649,6 +649,18 @@ fn default_macos_tray_logo_ring_show_percentage() -> bool {
     true
 }
 
+fn default_auto_continue_after_switch() -> bool {
+    true
+}
+
+fn default_auto_continue_window_minutes() -> u32 {
+    30
+}
+
+pub(crate) fn normalize_auto_continue_window_minutes(value: u32) -> u32 {
+    value.clamp(1, 24 * 60)
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum EditorAppId {
@@ -711,6 +723,15 @@ pub(crate) struct AppSettings {
     pub(crate) launch_codex_after_switch: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
+    /// 额度刷新检测到当前账号耗尽时自动切到余量最多的账号。
+    #[serde(default)]
+    pub(crate) auto_switch_on_exhaustion: bool,
+    /// 自动切换成功后，继续 Codex App 里未完成的会话。
+    #[serde(default = "default_auto_continue_after_switch")]
+    pub(crate) auto_continue_after_switch: bool,
+    /// 只续跑最近多少分钟内活动的会话；更早的历史任务不恢复。
+    #[serde(default = "default_auto_continue_window_minutes")]
+    pub(crate) auto_continue_window_minutes: u32,
     #[serde(default)]
     pub(crate) launch_codex_as_admin: bool,
     pub(crate) codex_launch_path: Option<String>,
@@ -766,6 +787,9 @@ impl Default for AppSettings {
             macos_quota_onboarding_completed: false,
             launch_codex_after_switch: true,
             smart_switch_include_api: false,
+            auto_switch_on_exhaustion: false,
+            auto_continue_after_switch: true,
+            auto_continue_window_minutes: default_auto_continue_window_minutes(),
             launch_codex_as_admin: false,
             codex_launch_path: None,
             active_account_id: None,
@@ -814,6 +838,9 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) macos_quota_onboarding_completed: Option<bool>,
     pub(crate) launch_codex_after_switch: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
+    pub(crate) auto_switch_on_exhaustion: Option<bool>,
+    pub(crate) auto_continue_after_switch: Option<bool>,
+    pub(crate) auto_continue_window_minutes: Option<u32>,
     pub(crate) launch_codex_as_admin: Option<bool>,
     pub(crate) codex_launch_path: Option<Option<String>>,
     pub(crate) sync_opencode_openai_auth: Option<bool>,

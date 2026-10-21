@@ -1,4 +1,7 @@
 mod account_switch;
+mod auto_switch;
+mod auto_switch_continue;
+mod auto_switch_local;
 #[cfg(target_os = "macos")]
 mod macos_desktop;
 #[cfg(target_os = "macos")]
@@ -12,6 +15,7 @@ use macos_desktop::{
     },
 };
 mod account_service;
+mod app_control_socket;
 mod app_paths;
 mod auth;
 mod cli;
@@ -794,6 +798,15 @@ async fn refresh_all_usage(
     {
         Ok(summaries) => {
             let _ = tray::update_usage_surfaces_snapshot(&app, &summaries);
+            if auto_switch::should_check_auto_switch(&app, state.inner(), &summaries).await {
+                let app_handle = app.clone();
+                let summaries_for_task = summaries.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app_handle.state::<AppState>();
+                    auto_switch::run_auto_switch(&app_handle, state.inner(), &summaries_for_task)
+                        .await;
+                });
+            }
             Ok(summaries)
         }
         Err(error) => {
@@ -801,6 +814,13 @@ async fn refresh_all_usage(
             Err(error)
         }
     }
+}
+
+#[tauri::command]
+async fn get_auto_switch_status(
+    state: State<'_, AppState>,
+) -> Result<auto_switch::AutoSwitchStatus, String> {
+    Ok(auto_switch::current_status(state.inner()).await)
 }
 
 #[tauri::command]
@@ -1280,6 +1300,74 @@ fn open_windows_taskbar_settings() -> Result<(), String> {
 #[tauri::command]
 fn detect_codex_app() -> Result<Option<String>, String> {
     Ok(cli::find_codex_app_path().map(|path| path.to_string_lossy().to_string()))
+}
+
+/// 启动 Codex App（不切换账号）。
+///
+/// 与切换流程不同，这里不触碰 auth/config，只负责把桌面端拉起来。
+/// 找不到桌面程序时回退到 `codex app`。
+#[tauri::command]
+async fn launch_codex_desktop(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    launch_codex_desktop_internal(&app, state.inner()).await
+}
+
+pub(crate) async fn launch_codex_desktop_internal(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
+    let diag = |message: &str| {
+        if let Ok(dir) = app_paths::codex_dir() {
+            let path = dir.join("codex-tools-launch-diag.log");
+            use std::io::Write as _;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(file, "{message}");
+            }
+        }
+    };
+    diag("launch_codex_desktop invoked");
+    let (configured_path, launch_as_admin) = {
+        let _guard = state.store_lock.lock().await;
+        let store = store::load_store(app)?;
+        (
+            store.settings.codex_launch_path.clone(),
+            store.settings.launch_codex_as_admin,
+        )
+    };
+
+    if let Some(path) = cli::find_configured_codex_app_path(configured_path.as_deref())
+        .or_else(cli::find_codex_app_path)
+    {
+        diag(&format!("resolved path: {}", path.display()));
+        match launch_codex_app(&path, None, launch_as_admin) {
+            Ok(()) => {
+                diag("launch ok");
+                return Ok(path.to_string_lossy().to_string());
+            }
+            Err(error) => {
+                diag(&format!("launch failed: {error}"));
+                return Err(error);
+            }
+        }
+    }
+
+    let mut cmd = cli::new_codex_command(configured_path.as_deref())?;
+    cmd.env("CODEX_HOME", app_paths::codex_dir()?);
+    cmd.arg("app");
+    diag("no desktop path, falling back to codex app");
+    match cmd.spawn() {
+        Ok(_) => Ok("codex app".to_string()),
+        Err(error) => {
+            diag(&format!("codex app failed: {error}"));
+            Err(format!("未检测到 Codex 桌面程序，且 codex app 启动失败: {error}"))
+        }
+    }
 }
 
 #[tauri::command]
@@ -1911,6 +1999,27 @@ async fn switch_account_and_launch(
     restart_editors_on_switch: Option<bool>,
     restart_editor_targets: Option<Vec<EditorAppId>>,
 ) -> Result<SwitchAccountResult, String> {
+    switch_account_internal(
+        &app,
+        state.inner(),
+        id,
+        workspace_path,
+        launch_codex,
+        restart_editors_on_switch,
+        restart_editor_targets,
+    )
+    .await
+}
+
+pub(crate) async fn switch_account_internal(
+    app: &AppHandle,
+    state: &AppState,
+    id: String,
+    workspace_path: Option<String>,
+    launch_codex: Option<bool>,
+    restart_editors_on_switch: Option<bool>,
+    restart_editor_targets: Option<Vec<EditorAppId>>,
+) -> Result<SwitchAccountResult, String> {
     #[cfg(target_os = "windows")]
     let _timing = switch_timing::Phase::start("switch_handler");
     let should_launch_codex = launch_codex.unwrap_or(true);
@@ -1926,10 +2035,10 @@ async fn switch_account_and_launch(
         launch_codex_as_admin,
     ) = {
         let _auth_guard = state.auth_operation_lock.lock().await;
-        ensure_no_pending_auth_operation(state.inner()).await?;
+        ensure_no_pending_auth_operation(state).await?;
         let store = {
             let _guard = state.store_lock.lock().await;
-            store::load_store(&app)?
+            store::load_store(app)?
         };
 
         let mut account = store
@@ -1955,7 +2064,7 @@ async fn switch_account_and_launch(
                 cli::find_configured_codex_app_path(store.settings.codex_launch_path.as_deref())
                     .or_else(cli::find_codex_app_path);
             match launch_target {
-                Some(path) => !is_macos_app_running_with_home(&path, &app_paths::codex_dir()?),
+                Some(path) => !is_macos_app_running_with_home(&path, app_paths::codex_dir()?),
                 None => true,
             }
         } else {
@@ -1979,8 +2088,8 @@ async fn switch_account_and_launch(
         if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
             let account_key = account.account_key();
             let latest_auth = account_service::refresh_latest_auth_json_if_newer(
-                &app,
-                state.inner(),
+                app,
+                state,
                 &account_key,
                 &account.auth_json,
             )
@@ -2007,8 +2116,8 @@ async fn switch_account_and_launch(
                         // stale/reused/revoked 先尝试复用本地较新的快照，避免把并发刷新误判成永久失效。
                         if let Some(recovered) =
                             account_service::recover_refresh_failure_from_latest_snapshot(
-                                &app,
-                                state.inner(),
+                                app,
+                                state,
                                 &account_key,
                                 &account.auth_json,
                                 &error,
@@ -2026,8 +2135,8 @@ async fn switch_account_and_launch(
                             if should_block_refresh {
                                 let blocked_message = "工具保存的授权快照已失效，请重新登录授权。";
                                 if let Err(persist_error) = persist_switch_refresh_blocked(
-                                    &app,
-                                    state.inner(),
+                                    app,
+                                    state,
                                     &account_key,
                                     blocked_message,
                                 )
@@ -2059,24 +2168,18 @@ async fn switch_account_and_launch(
         let launch_codex_as_admin = store.settings.launch_codex_as_admin;
         #[cfg(target_os = "windows")]
         {
+            let plan = cli::prepare_windows_codex_launch(
+                configured_codex_launch_path.as_deref(),
+                launch_codex_as_admin,
+            )?;
+            // 无论是换号后立即启动还是稍后启动，切号前必须停止运行中的 Codex 客户端，
+            // 确保旧会话写锁完全释放且新授权配置能被干净读取。
+            let _ = plan.stop_desktop();
             windows_launch_plan = if should_launch_codex {
-                Some(cli::prepare_windows_codex_launch(
-                    configured_codex_launch_path.as_deref(),
-                    launch_codex_as_admin,
-                )?)
+                Some(plan)
             } else {
                 None
             };
-        }
-        // Stop the desktop client before capturing its final rotated token and
-        // replacing auth.json/config.toml. On macOS this is also required for
-        // "switch only" because the desktop otherwise rewrites the old token.
-        // Project and global desktop state remain shared and untouched.
-        #[cfg(target_os = "windows")]
-        if should_launch_codex {
-            if let Some(plan) = &windows_launch_plan {
-                plan.stop_desktop()?;
-            }
         }
         #[cfg(target_os = "macos")]
         force_stop_running_codex()?;
@@ -2085,14 +2188,14 @@ async fn switch_account_and_launch(
             force_stop_running_codex()?;
         }
         account = account_switch::apply_target_profile(
-            &app,
-            state.inner(),
+            app,
+            state,
             &id,
             account,
             refreshed_auth_updated_at,
         )
         .await?;
-        let _ = tray::refresh_usage_surfaces_snapshot(&app);
+        let _ = tray::refresh_usage_surfaces_snapshot(app);
 
         (
             account,
@@ -2164,12 +2267,14 @@ async fn switch_account_and_launch(
     }
 
     #[cfg(target_os = "windows")]
-    let (launched_app_path, used_fallback_cli) = {
+    let (launched_app_path, used_fallback_cli) = if should_launch_codex {
         let _ = (configured_codex_launch_path, launch_codex_as_admin);
         windows_launch_plan
             .ok_or_else(|| "缺少切换前已验证的 Windows 启动目标。".to_string())?
             .launch(workspace_path.as_deref())
             .map_err(|error| format!("当前账号已切换，但桌面未能启动：{error}"))?
+    } else {
+        (None, false)
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -2338,6 +2443,13 @@ async fn persist_switch_refresh_blocked(
     Ok(())
 }
 
+pub(crate) fn launch_codex_app_public(
+    path: &std::path::Path,
+    launch_as_admin: bool,
+) -> Result<(), String> {
+    launch_codex_app(path, None, launch_as_admin)
+}
+
 fn launch_codex_app(
     path: &std::path::Path,
     workspace_path: Option<&str>,
@@ -2354,10 +2466,7 @@ fn launch_codex_app(
         if cli::is_windows_store_codex_path(path) {
             let _ = workspace_path;
             if launch_as_admin {
-                return Err(
-                    "微软商店版 Codex 不支持以管理员身份启动，请在设置里指定桌面版 Codex.exe 或安装 Codex CLI。"
-                        .to_string(),
-                );
+                log::warn!("微软商店版 Codex 不支持以管理员身份启动，自动降级为普通权限启动。");
             }
             return cli::launch_windows_store_codex();
         }
@@ -2675,6 +2784,7 @@ fn force_stop_running_codex() -> Result<(), String> {
 }
 
 fn handle_window_close_to_background(window: &tauri::Window, event: &WindowEvent) {
+    #[cfg(target_os = "macos")]
     if let WindowEvent::CloseRequested { api, .. } = event {
         api.prevent_close();
         if let Err(err) = window.hide() {
@@ -2684,14 +2794,13 @@ fn handle_window_close_to_background(window: &tauri::Window, event: &WindowEvent
                 .app_handle()
                 .emit(MAIN_WINDOW_VISIBILITY_CHANGED_EVENT, false);
         }
-        #[cfg(target_os = "macos")]
-        {
-            // 仅隐藏主窗口到后台时，同时隐藏 Dock 图标；
-            // 应用仍继续运行，可从状态栏再次打开。
-            if let Err(err) = window.app_handle().set_dock_visibility(false) {
-                log::warn!("隐藏 Dock 图标失败: {err}");
-            }
+        if let Err(err) = window.app_handle().set_dock_visibility(false) {
+            log::warn!("隐藏 Dock 图标失败: {err}");
         }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, event);
     }
 }
 
@@ -2765,6 +2874,19 @@ fn start_periodic_usage_refresh_loop(app: AppHandle) {
                     }
                     if let Err(error) = app.emit(PERIODIC_USAGE_REFRESHED_EVENT, &summaries) {
                         log::warn!("发送周期额度刷新事件失败: {error}");
+                    }
+                    if auto_switch::should_check_auto_switch(&app, state.inner(), &summaries).await {
+                        let app_handle = app.clone();
+                        let summaries_for_task = summaries.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = app_handle.state::<AppState>();
+                            auto_switch::run_auto_switch(
+                                &app_handle,
+                                state.inner(),
+                                &summaries_for_task,
+                            )
+                            .await;
+                        });
                     }
                 }
                 Err(error) => {
@@ -2987,13 +3109,20 @@ pub fn run() {
         .setup(|app| {
             utils::prepare_process_path();
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Release builds need the same diagnostics as development builds;
+            // otherwise a failed background continuation leaves no evidence.
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .clear_targets()
+                    .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("codex-tools".to_string()),
+                    }))
+                    .max_file_size(2_000_000)
+                    .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+                    .build(),
+            )?;
+            log::info!("APP_START version={} patch=20261021.4 log_dir={:?}", env!("CARGO_PKG_VERSION"), app.path().app_log_dir());
 
             #[cfg(debug_assertions)]
             auth::log_current_auth_parse_diagnostic("startup");
@@ -3006,6 +3135,11 @@ pub fn run() {
             setup_macos_app_menu(app.handle())?;
             tray::setup_system_tray(app.handle())?;
             start_periodic_usage_refresh_loop(app.handle().clone());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                restore_main_window(&handle);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3021,6 +3155,7 @@ pub fn run() {
             update_account_label,
             update_account_api_proxy_enabled,
             refresh_all_usage,
+            get_auto_switch_status,
             warmup_account,
             use_reset_credit,
             get_codex_token_usage,
@@ -3034,6 +3169,7 @@ pub fn run() {
             get_windows_widgets_enabled,
             open_windows_taskbar_settings,
             detect_codex_app,
+            launch_codex_desktop,
             list_installed_editor_apps,
             is_opencode_desktop_app_installed,
             open_external_url,

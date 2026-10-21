@@ -32,8 +32,20 @@ use crate::usage;
 use crate::utils;
 
 const CLI_COMMANDS: &[&str] = &[
-    "list", "switch", "login", "import", "export", "delete", "usage", "provider", "doctor",
-    "report", "tui",
+    "list",
+    "switch",
+    "login",
+    "import",
+    "export",
+    "delete",
+    "usage",
+    "provider",
+    "doctor",
+    "report",
+    "tui",
+    // 内部子命令：由自动切换流程派生的续跑进程使用。
+    "continue-worker",
+    "continue-preview",
 ];
 
 #[derive(Debug, Parser)]
@@ -111,6 +123,20 @@ enum CliCommand {
     Provider {
         #[command(subcommand)]
         command: ProviderCommand,
+    },
+    /// Preview which Codex App sessions would be resumed after a switch.
+    ContinuePreview {
+        /// Only consider sessions active within this many minutes.
+        #[arg(long, default_value_t = 30)]
+        window_minutes: u32,
+    },
+    /// Launch the Codex desktop app without switching accounts.
+    LaunchApp,
+    /// Internal: resume incomplete sessions and wait for them to finish.
+    #[command(hide = true)]
+    ContinueWorker {
+        #[arg(long, default_value_t = 30)]
+        window_minutes: u32,
     },
     /// Check local paths, Codex CLI, auth files, and account store.
     Doctor,
@@ -386,6 +412,38 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
         }
         CliCommand::Provider { command } => {
             run_provider_command(command, args.codex_home.as_deref(), args.json)
+        }
+        CliCommand::LaunchApp => {
+            match crate::cli::find_codex_app_path() {
+                Some(path) => {
+                    println!("resolved: {}", path.display());
+                    crate::launch_codex_app_public(&path, false)?;
+                    println!("launched");
+                }
+                None => {
+                    println!("no desktop path found, trying codex app");
+                    let mut cmd = crate::cli::new_codex_command(None)?;
+                    cmd.env("CODEX_HOME", crate::app_paths::codex_dir()?);
+                    cmd.arg("app");
+                    cmd.spawn()
+                        .map_err(|error| format!("codex app 启动失败: {error}"))?;
+                }
+            }
+            Ok(())
+        }
+        CliCommand::ContinueWorker { window_minutes } => {
+            print!(
+                "{}",
+                crate::auto_switch_continue::run_continue_worker(window_minutes)?
+            );
+            Ok(())
+        }
+        CliCommand::ContinuePreview { window_minutes } => {
+            print!(
+                "{}",
+                crate::auto_switch_continue::describe_preview(window_minutes)
+            );
+            Ok(())
         }
         CliCommand::Doctor => {
             let report = build_doctor_report(&store_path)?;

@@ -70,6 +70,7 @@ use crate::store::save_store;
 use crate::store::save_store_to_path;
 use crate::store::update_account_group_refresh_state_in_path;
 use crate::usage::fetch_usage_snapshot;
+use crate::usage::{create_usage_http_client, fetch_usage_snapshot_with_client};
 use crate::utils::now_unix_seconds;
 use crate::utils::private_create_new_options;
 use crate::utils::set_private_permissions;
@@ -90,6 +91,7 @@ const PLAN_CHANGE_AUTH_REFRESH_COOLDOWN_SECS: i64 = 15 * 60;
 const PENDING_AUTH_OPERATION_MESSAGE: &str = "已有账号授权流程正在进行，请先完成或取消后再操作。";
 // 账号刷新主要等待外部 HTTP 响应，因此按 CPU 给 2 倍并发；同时用可用内存做下限保护。
 const REFRESH_USAGE_WORKERS_PER_CPU: usize = 2;
+const REFRESH_USAGE_MAX_WORKERS: usize = 8;
 const REFRESH_USAGE_MEMORY_PER_WORKER_MIB: u64 = 256;
 const USAGE_REFRESH_REUSE_WINDOW: Duration = Duration::from_secs(25);
 const PERIODIC_FRESHNESS_PERSIST_INTERVAL_SECS: i64 = 5 * 60;
@@ -558,7 +560,7 @@ pub(crate) async fn refresh_all_usage_internal(
     };
 
     let outcomes =
-        refresh_usage_targets_with_workers(app, state, refresh_targets, force_auth_refresh).await;
+        refresh_usage_targets_with_workers(app, state, refresh_targets, force_auth_refresh).await?;
 
     let store = {
         let _auth_guard = state.auth_operation_lock.lock().await;
@@ -617,6 +619,7 @@ pub(crate) async fn refresh_all_usage_internal(
             }
             if let Some(err) = outcome.usage_error.clone() {
                 if auth_snapshot_still_current {
+                    log::warn!("USAGE_REFRESH_ACCOUNT account_id={} error={}", account.id, err);
                     if fallback_auth_plan_type.is_some() {
                         account.plan_type = fallback_auth_plan_type;
                     }
@@ -884,17 +887,21 @@ async fn refresh_usage_targets_with_workers(
     state: &AppState,
     refresh_targets: Vec<RefreshTarget>,
     force_auth_refresh: bool,
-) -> HashMap<String, RefreshOutcome> {
+) -> Result<HashMap<String, RefreshOutcome>, String> {
     let worker_count = refresh_usage_worker_count(refresh_targets.len());
-    stream::iter(refresh_targets)
+    let client = create_usage_http_client()?;
+    let client = &client;
+    let outcomes = stream::iter(refresh_targets)
         .map(|target| async move {
             let account_key = target.account_key.clone();
-            let outcome = refresh_usage_for_target(app, state, &target, force_auth_refresh).await;
+            let outcome =
+                refresh_usage_for_target(app, state, &target, force_auth_refresh, client).await;
             (account_key, outcome)
         })
         .buffer_unordered(worker_count)
         .collect::<HashMap<_, _>>()
-        .await
+        .await;
+    Ok(outcomes)
 }
 
 fn refresh_usage_worker_count(target_count: usize) -> usize {
@@ -929,7 +936,11 @@ fn refresh_usage_worker_count_from_resources(
         .unwrap_or(usize::MAX)
         .max(1);
 
-    target_limit.min(cpu_limit).min(memory_limit).max(1)
+    target_limit
+        .min(cpu_limit)
+        .min(memory_limit)
+        .min(REFRESH_USAGE_MAX_WORKERS)
+        .max(1)
 }
 
 fn available_system_memory_mib() -> Option<u64> {
@@ -1264,6 +1275,7 @@ async fn refresh_usage_for_target(
     state: &AppState,
     target: &RefreshTarget,
     force_auth_refresh: bool,
+    usage_client: &reqwest::Client,
 ) -> RefreshOutcome {
     let mut working_auth_json = target.auth_json.clone();
     let mut refresh_error: Option<String> = None;
@@ -1318,7 +1330,9 @@ async fn refresh_usage_for_target(
 
     let mut extracted = extract_auth(&working_auth_json);
     let mut fetch_result = match &extracted {
-        Ok(auth) => fetch_usage_snapshot(&auth.access_token, &auth.account_id).await,
+        Ok(auth) => {
+            fetch_usage_snapshot_with_client(usage_client, &auth.access_token, &auth.account_id).await
+        }
         Err(err) => Err(err.clone()),
     };
 
@@ -1341,7 +1355,14 @@ async fn refresh_usage_for_target(
                 }
                 extracted = extract_auth(&working_auth_json);
                 fetch_result = match &extracted {
-                    Ok(auth) => fetch_usage_snapshot(&auth.access_token, &auth.account_id).await,
+                    Ok(auth) => {
+                        fetch_usage_snapshot_with_client(
+                            usage_client,
+                            &auth.access_token,
+                            &auth.account_id,
+                        )
+                        .await
+                    }
                     Err(err) => Err(err.clone()),
                 };
             }
@@ -3090,11 +3111,11 @@ mod tests {
         );
         assert_eq!(
             refresh_usage_worker_count_from_resources(1000, 64, Some(1024 * 1024)),
-            128
+            8
         );
         assert_eq!(
             refresh_usage_worker_count_from_resources(10, 64, Some(1024 * 1024)),
-            10
+            8
         );
     }
 

@@ -135,7 +135,9 @@
     "uploadStartImport": "开始导入",
     "apiEditTitle": "编辑 API 账号",
     "apiEditHint": "API Key 留空保留原值。保存后再次切换到此账号以应用新地址或模型。",
-    "apiEditSave": "保存"
+    "apiEditSave": "保存",
+    "launchCodexApp": "启动 Codex App",
+    "launchingCodexApp": "正在启动…"
   },
   "accountCard": {
     "currentStamp": "当前",
@@ -565,6 +567,21 @@
       "checkedText": "开启",
       "uncheckedText": "关闭"
     },
+    "autoSwitchOnExhaustion": {
+      "label": "额度耗尽时自动切换账号",
+      "checkedText": "自动",
+      "uncheckedText": "手动"
+    },
+    "autoContinueAfterSwitch": {
+      "label": "切换后继续最近的 Codex 任务",
+      "checkedText": "继续",
+      "uncheckedText": "不继续"
+    },
+    "autoContinueWindow": {
+      "label": "只续跑最近多少分钟内活动的会话",
+      "description": "超出该时间的任务视为历史任务，不自动恢复。",
+      "unit": "分钟"
+    },
     "launchCodexAsAdmin": {
       "label": "以管理员身份启动 Codex（Windows）",
       "checkedText": "管理员",
@@ -696,6 +713,8 @@
     "settingsUpdated": "设置已更新",
     "updateSettingsFailed": "更新设置失败：{{error}}",
     "usageRefreshed": "用量已刷新",
+    "usageRefreshPartial": "用量刷新部分失败（{{failed}}/{{total}}）：{{error}}；失败账号保留已有缓存",
+    "usageRefreshAllFailed": "用量刷新失败（{{total}} 个账号）：{{error}}；保留已有缓存",
     "refreshFailed": "刷新失败：{{error}}",
     "accountWarmupActivated": "已发送 hello 并完成预热，用量已刷新",
     "accountWarmupAlreadyActive": "5h 窗口已经激活，没有发送请求",
@@ -800,7 +819,9 @@
     "cloudflaredStartFailed": "启动 cloudflared 公网访问失败：{{error}}",
     "cloudflaredStopped": "cloudflared 公网访问已停止",
     "cloudflaredStopFailed": "停止 cloudflared 公网访问失败：{{error}}",
-    "accountWarmupRequestSent": "预热请求已完成，尚未确认 5h 窗口激活；额度可能延迟更新，请稍后刷新。"
+    "accountWarmupRequestSent": "预热请求已完成，尚未确认 5h 窗口激活；额度可能延迟更新，请稍后刷新。",
+    "codexAppLaunched": "已启动 Codex App（{target}）",
+    "codexAppLaunchFailed": "启动 Codex App 失败：{error}"
   },
   "resetCredit": {
     "use": "使用此卡",

@@ -95,6 +95,16 @@ pub(crate) async fn update_app_settings_internal(
         if let Some(value) = patch.smart_switch_include_api {
             store.settings.smart_switch_include_api = value;
         }
+        if let Some(value) = patch.auto_switch_on_exhaustion {
+            store.settings.auto_switch_on_exhaustion = value;
+        }
+        if let Some(value) = patch.auto_continue_after_switch {
+            store.settings.auto_continue_after_switch = value;
+        }
+        if let Some(value) = patch.auto_continue_window_minutes {
+            store.settings.auto_continue_window_minutes =
+                crate::models::normalize_auto_continue_window_minutes(value);
+        }
         if let Some(value) = patch.launch_codex_as_admin {
             store.settings.launch_codex_as_admin = value;
         }

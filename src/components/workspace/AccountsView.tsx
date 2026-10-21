@@ -52,13 +52,16 @@ export function AccountsView({
             accounts={c.accounts}
             exportingAccounts={c.exportingAccounts}
             onExportAccounts={actions.onExportAll}
+            autoSwitchStatus={c.autoSwitchStatus}
           />
         }
         toolbarActions={
           <ClassicAccountActions
             onOpenAddDialog={c.onOpenAddDialog}
             onSmartSwitch={actions.onSmartSwitch}
+            onLaunchCodexApp={() => void c.onLaunchCodexApp()}
             smartSwitching={c.smartSwitching || c.authBusy}
+            launchingCodexApp={c.launchingCodexApp}
           />
         }
       />

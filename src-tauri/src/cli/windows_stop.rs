@@ -98,5 +98,20 @@ pub(super) fn stop_desktop(executable: Option<&Path>) -> Result<(), String> {
             "ChatGPT/Codex 在停止期间重新启动，未更改当前账号，请关闭该桌面后重试。".to_string(),
         );
     }
+    cleanup_thread_writer_locks();
     Ok(())
+}
+
+pub(crate) fn cleanup_thread_writer_locks() {
+    if let Ok(dir) = crate::app_paths::codex_dir() {
+        let locks_dir = dir.join("thread-writer-locks");
+        if let Ok(entries) = std::fs::read_dir(&locks_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("lock") {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
 }

@@ -87,6 +87,48 @@
   display: none;
 }
 
+.classicApp .autoSwitchBadge {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--meta-bg);
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.classicApp .autoSwitchBadge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.classicApp .autoSwitchBadge.stage-switching,
+.classicApp .autoSwitchBadge.stage-checking,
+.classicApp .autoSwitchBadge.stage-continuing {
+  color: var(--accent, #6aa8ff);
+}
+
+.classicApp .autoSwitchBadge.stage-continued {
+  color: var(--ok, #3fb950);
+}
+
+.classicApp .autoSwitchBadge.stage-failed {
+  color: var(--danger, #f85149);
+}
+
+.classicApp .autoSwitchBadge.stage-skipped {
+  color: var(--warn, #d29922);
+}
+
 @media (max-width: 1280px) {
   .classicApp .metaPill {
     gap: 8px;

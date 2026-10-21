@@ -3,8 +3,23 @@ import { useI18n } from "../../i18n/I18nProvider";
 type AddAccountSectionProps = {
   onOpenAddDialog: () => void;
   onSmartSwitch: () => void;
+  onLaunchCodexApp: () => void;
   smartSwitching: boolean;
+  launchingCodexApp: boolean;
 };
+
+function PlayIcon() {
+  return (
+    <svg
+      className="buttonIcon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M7 4.5v15l12-7.5z" />
+    </svg>
+  );
+}
 
 function SparkIcon() {
   return (
@@ -43,7 +58,9 @@ function PlusIcon() {
 export function ClassicAccountActions({
   onOpenAddDialog,
   onSmartSwitch,
+  onLaunchCodexApp,
   smartSwitching,
+  launchingCodexApp,
 }: AddAccountSectionProps) {
   const { copy } = useI18n();
 
@@ -58,6 +75,18 @@ export function ClassicAccountActions({
       >
         <SparkIcon />
         {copy.addAccount.smartSwitch}
+      </button>
+      <button
+        className="ghost launchCodexButton"
+        onClick={onLaunchCodexApp}
+        disabled={launchingCodexApp}
+        title={copy.addAccount.launchCodexApp}
+        aria-label={copy.addAccount.launchCodexApp}
+      >
+        <PlayIcon />
+        {launchingCodexApp
+          ? copy.addAccount.launchingCodexApp
+          : copy.addAccount.launchCodexApp}
       </button>
       <button className="primary importPrimary" onClick={onOpenAddDialog}>
         <PlusIcon />

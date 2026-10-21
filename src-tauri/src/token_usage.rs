@@ -205,6 +205,8 @@ struct ParsedTokenEvent {
     duration_ms: Option<i64>,
     last: Option<CodexTokenTotals>,
     total: Option<CodexTokenTotals>,
+    /// 该次请求实际使用的 provider（来自最近的 thread_settings_applied）。
+    provider: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,6 +420,8 @@ fn build_codex_token_usage_snapshot(
             snapshot.unresolved_fork_count += 1;
             continue;
         }
+        // 子代理（guardian）同样消耗账号额度，保留计入；
+        // 自定义 provider（中转）的消耗在下面按事件级过滤。
         let delta_result =
             derive_confirmed_token_deltas(&session.events, ownership.inherited_record_end);
         snapshot.unresolved_usage_event_count += delta_result.unresolved_event_count;
@@ -427,6 +431,15 @@ fn build_codex_token_usage_snapshot(
                 .or_insert_with(|| CodexAccountTokenUsage::new(account_id.clone()))
         });
         for event in &delta_result.events {
+            // 历史日志里可能出现“先用自定义 provider、后切回 openai”的会话，
+            // 按事件级 provider 过滤，避免把中转消耗算进 ChatGPT 额度。
+            if event
+                .provider
+                .as_deref()
+                .is_some_and(|provider| provider != "openai")
+            {
+                continue;
+            }
             if let Some(account) = account.as_deref_mut() {
                 account.observe(event, last_24h_start, last_7d_start, last_30d_start);
             }
@@ -466,6 +479,7 @@ struct ConfirmedTokenDelta {
     timestamp: i64,
     duration_ms: Option<i64>,
     total: CodexTokenTotals,
+    provider: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -519,6 +533,7 @@ fn derive_confirmed_token_deltas(
             timestamp: event.timestamp,
             duration_ms: event.duration_ms,
             total: delta,
+            provider: event.provider.clone(),
         });
     }
     result
@@ -1097,6 +1112,14 @@ struct ParsedTokenSessionFile {
     parent_session_id: Option<String>,
     parent_thread_id: Option<String>,
     creator_account_id: Option<String>,
+    /// 会话使用的模型 provider；`None` 表示日志里没有该字段。
+    model_provider: Option<String>,
+    /// Codex 内部线程来源，例如 `guardian_review`、`user`。
+    thread_source: Option<String>,
+    /// 子代理会话（guardian 等）不是用户任务，不能计入账号用量。
+    is_subagent: bool,
+    /// 会话当前使用的 provider；`thread_settings_applied` 变化时更新。
+    current_provider: Option<String>,
     identity_trusted: bool,
     header_checked: bool,
     record_hashes: Vec<u64>,
@@ -1729,6 +1752,10 @@ fn parse_token_session_file(path: &Path) -> Result<CachedTokenUsageFile, String>
         parent_session_id: None,
         parent_thread_id: None,
         creator_account_id: None,
+        model_provider: None,
+        thread_source: None,
+        is_subagent: false,
+        current_provider: None,
         identity_trusted: false,
         header_checked: false,
         record_hashes: Vec::new(),
@@ -1843,9 +1870,18 @@ fn parse_token_session_lines<R: BufRead>(
                 parsed.parent_session_id = metadata.forked_from_id;
                 parsed.parent_thread_id = metadata.parent_thread_id;
                 parsed.creator_account_id = metadata.creator_account_id;
+                parsed.model_provider = metadata.model_provider;
+                parsed.thread_source = metadata.thread_source;
+                parsed.is_subagent = metadata.is_subagent;
+                parsed.current_provider = parsed.model_provider.clone();
                 parsed.response_boundary_ms = line_timestamp_ms(&line);
             }
             continue;
+        }
+        if line.contains("\"thread_settings_applied\"") {
+            if let Some(provider) = thread_settings_provider(&line) {
+                parsed.current_provider = Some(provider);
+            }
         }
         if is_response_boundary_line(&line) {
             if let Some(timestamp_ms) = line_timestamp_ms(&line) {
@@ -1854,6 +1890,7 @@ fn parse_token_session_lines<R: BufRead>(
             continue;
         }
         if let Some(mut event) = parse_token_event_line_at(&line, record_index) {
+            event.provider = parsed.current_provider.clone();
             if let Some(timestamp_ms) = line_timestamp_ms(&line) {
                 event.duration_ms = response_duration_ms(parsed.response_boundary_ms, timestamp_ms);
                 parsed.response_boundary_ms = Some(timestamp_ms);
@@ -1896,6 +1933,9 @@ struct ParsedSessionMetadata {
     forked_from_id: Option<String>,
     parent_thread_id: Option<String>,
     creator_account_id: Option<String>,
+    model_provider: Option<String>,
+    thread_source: Option<String>,
+    is_subagent: bool,
 }
 
 fn parse_session_metadata_payload(payload: &Value) -> ParsedSessionMetadata {
@@ -1922,6 +1962,21 @@ fn parse_session_metadata_payload(payload: &Value) -> ParsedSessionMetadata {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
+        model_provider: payload
+            .get("model_provider")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        thread_source: payload
+            .get("thread_source")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        is_subagent: payload.get("source").and_then(Value::as_object).is_some_and(|source| {
+            source.contains_key("subagent")
+        }),
     }
 }
 
@@ -2172,6 +2227,20 @@ fn session_id_from_rollout_filename(path: &Path) -> Option<String> {
     }
 }
 
+fn thread_settings_provider(line: &str) -> Option<String> {
+    let root = serde_json::from_str::<Value>(line).ok()?;
+    if root.get("type").and_then(Value::as_str) != Some("event_msg") {
+        return None;
+    }
+    root.get("payload")?
+        .get("thread_settings")?
+        .get("model_provider_id")?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 fn parse_token_event_line(line: &str) -> Option<ParsedTokenEvent> {
     parse_token_event_line_at(line, 0)
@@ -2217,6 +2286,7 @@ fn parse_token_event_root(
         duration_ms: None,
         last,
         total,
+        provider: None,
     })
 }
 
@@ -2779,6 +2849,21 @@ mod tests {
         .to_string()
     }
 
+    fn thread_settings_line(timestamp: &str, provider: &str) -> String {
+        serde_json::json!({
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": {
+                "type": "thread_settings_applied",
+                "thread_settings": {
+                    "model": "deepseek-v4.1-flash",
+                    "model_provider_id": provider,
+                }
+            }
+        })
+        .to_string()
+    }
+
     fn analytics_token_line(timestamp: &str, input: u64, cached: u64, output: u64) -> String {
         serde_json::json!({
             "timestamp": timestamp,
@@ -2820,6 +2905,42 @@ mod tests {
             "payload": payload,
         })
         .to_string()
+    }
+
+    #[test]
+    fn non_openai_provider_events_are_excluded_from_totals() {
+        let root = unique_temp_dir();
+        let sessions = root.join("sessions").join("2026").join("10").join("20");
+        fs::create_dir_all(&sessions).expect("create sessions dir");
+        fs::write(
+            sessions.join("rollout-provider-filter.jsonl"),
+            [
+                session_meta_line(
+                    "2026-10-20T06:00:00Z",
+                    "provider-filter",
+                    None,
+                    "/tmp/provider-project",
+                    "gpt-6.1-sol",
+                ),
+                event_line("2026-10-20T06:01:00Z", 100, 100),
+                thread_settings_line("2026-10-20T06:02:00Z", "custom"),
+                event_line("2026-10-20T06:03:00Z", 900, 800),
+                thread_settings_line("2026-10-20T06:04:00Z", "openai"),
+                event_line("2026-10-20T06:05:00Z", 1_000, 100),
+            ]
+            .join("
+"),
+        )
+        .expect("write provider log");
+
+        let roots = [root.join("sessions"), root.join("archived_sessions")];
+        let snapshot = scan_codex_token_usage_roots(&roots, 1_792_500_000);
+
+        // 100 (openai) + 800 (custom, skipped) + 100 (openai)
+        assert_eq!(snapshot.last_24h.total_tokens, 200);
+        assert_eq!(snapshot.event_count, 2);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

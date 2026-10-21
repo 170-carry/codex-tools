@@ -51,6 +51,8 @@ use windows_process::*;
 #[cfg(target_os = "windows")]
 mod windows_stop;
 #[cfg(target_os = "windows")]
+pub(crate) use windows_stop::cleanup_thread_writer_locks;
+#[cfg(target_os = "windows")]
 mod windows_store;
 #[cfg(target_os = "windows")]
 use windows_store::{

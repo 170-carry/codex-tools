@@ -135,7 +135,9 @@
     "uploadStartImport": "取り込み開始",
     "apiEditTitle": "API アカウントを編集",
     "apiEditHint": "API Key が空欄の場合は現在の値を保持します。保存後に再度切り替えて新しい URL やモデルを適用してください。",
-    "apiEditSave": "保存"
+    "apiEditSave": "保存",
+    "launchCodexApp": "Codex App を起動",
+    "launchingCodexApp": "起動中…"
   },
   "accountCard": {
     "currentStamp": "現在",
@@ -565,6 +567,21 @@
       "checkedText": "オン",
       "uncheckedText": "オフ"
     },
+    "autoSwitchOnExhaustion": {
+      "label": "クォータ枯渇時にアカウントを自動切り替え",
+      "checkedText": "自動",
+      "uncheckedText": "手動"
+    },
+    "autoContinueAfterSwitch": {
+      "label": "切り替え後に最新の Codex タスクを続行",
+      "checkedText": "続行",
+      "uncheckedText": "続行しない"
+    },
+    "autoContinueWindow": {
+      "label": "この時間内に活動したセッションのみ再開",
+      "description": "それより古いタスクは履歴として扱い、自動再開しません。",
+      "unit": "分"
+    },
     "launchCodexAsAdmin": {
       "label": "管理者として Codex を起動（Windows）",
       "checkedText": "管理者",
@@ -696,6 +713,8 @@
     "settingsUpdated": "設定を更新しました",
     "updateSettingsFailed": "設定の更新に失敗しました: {{error}}",
     "usageRefreshed": "使用量を更新しました",
+    "usageRefreshPartial": "使用量の更新が一部失敗しました（{{failed}}/{{total}}）: {{error}}。失敗したアカウントはキャッシュを保持します",
+    "usageRefreshAllFailed": "{{total}} 件すべてのアカウントで使用量の更新に失敗しました: {{error}}。キャッシュを保持します",
     "refreshFailed": "更新に失敗しました: {{error}}",
     "accountWarmupActivated": "hello を送信してウォームアップを完了し、使用量を更新しました",
     "accountWarmupAlreadyActive": "5時間枠は既に有効です。リクエストは送信していません",
@@ -800,7 +819,9 @@
     "cloudflaredStartFailed": "cloudflared 公開アクセスの開始に失敗しました: {{error}}",
     "cloudflaredStopped": "cloudflared 公開アクセスを停止しました",
     "cloudflaredStopFailed": "cloudflared 公開アクセスの停止に失敗しました: {{error}}",
-    "accountWarmupRequestSent": "ウォームアップ要求は完了しましたが、5h 枠の有効化は未確認です。しばらくして使用量を更新してください。"
+    "accountWarmupRequestSent": "ウォームアップ要求は完了しましたが、5h 枠の有効化は未確認です。しばらくして使用量を更新してください。",
+    "codexAppLaunched": "Codex App を起動しました（{target}）",
+    "codexAppLaunchFailed": "Codex App の起動に失敗しました：{error}"
   },
   "resetCredit": {
     "use": "このカードを使用",

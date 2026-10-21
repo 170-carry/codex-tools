@@ -54,6 +54,70 @@ export function SwitchingSettings({
         disabled={savingSettings}
       />
 
+      <SwitchField
+        checked={settings.autoSwitchOnExhaustion}
+        onChange={(checked) =>
+          onUpdateSettings({ autoSwitchOnExhaustion: checked })
+        }
+        label={copy.settings.autoSwitchOnExhaustion.label}
+        checkedText={copy.settings.autoSwitchOnExhaustion.checkedText}
+        uncheckedText={copy.settings.autoSwitchOnExhaustion.uncheckedText}
+        disabled={savingSettings}
+      />
+
+      {settings.autoSwitchOnExhaustion ? (
+        <SwitchField
+          checked={settings.autoContinueAfterSwitch}
+          onChange={(checked) =>
+            onUpdateSettings({ autoContinueAfterSwitch: checked })
+          }
+          label={copy.settings.autoContinueAfterSwitch.label}
+          checkedText={copy.settings.autoContinueAfterSwitch.checkedText}
+          uncheckedText={copy.settings.autoContinueAfterSwitch.uncheckedText}
+          disabled={savingSettings}
+          rowClassName="settingRowCompact settingRowNested"
+        />
+      ) : null}
+
+      {settings.autoSwitchOnExhaustion && settings.autoContinueAfterSwitch ? (
+        <div className="settingRow settingRowCompact settingRowNested">
+          <div className="settingMeta">
+            <strong>{copy.settings.autoContinueWindow.label}</strong>
+            <span className="settingValueMuted">
+              {copy.settings.autoContinueWindow.description}
+            </span>
+          </div>
+          <div className="settingFieldGroup">
+            <input
+              className="settingNumberInput"
+              type="number"
+              min={1}
+              max={1440}
+              step={5}
+              value={settings.autoContinueWindowMinutes}
+              disabled={savingSettings}
+              aria-label={copy.settings.autoContinueWindow.label}
+              onChange={(event) => {
+                const next = Number(event.currentTarget.value);
+                if (!Number.isFinite(next)) return;
+                onUpdateSettings(
+                  {
+                    autoContinueWindowMinutes: Math.min(
+                      1440,
+                      Math.max(1, Math.round(next)),
+                    ),
+                  },
+                  { silent: true, keepInteractive: true },
+                );
+              }}
+            />
+            <span className="settingValueMuted">
+              {copy.settings.autoContinueWindow.unit}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       <div className="settingRow">
         <div className="settingMeta">
           <strong>{copy.settings.codexLaunchPath.label}</strong>
