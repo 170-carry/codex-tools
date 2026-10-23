@@ -3122,7 +3122,7 @@ pub fn run() {
                     .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
                     .build(),
             )?;
-            log::info!("APP_START version={} patch=20261021.5 log_dir={:?}", env!("CARGO_PKG_VERSION"), app.path().app_log_dir());
+            log::info!("APP_START version={} patch=20261023.6 log_dir={:?}", env!("CARGO_PKG_VERSION"), app.path().app_log_dir());
 
             #[cfg(debug_assertions)]
             auth::log_current_auth_parse_diagnostic("startup");

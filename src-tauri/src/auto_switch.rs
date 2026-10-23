@@ -1,7 +1,8 @@
 //! 额度耗尽后的自动切换，以及切换成功后的任务续跑。
 //!
 //! 触发点：每次首页/周期额度刷新完成后先做快速判断，命中再后台执行 `run_auto_switch`。
-//! 条件：当前账号任一窗口已用满 100%，且账号池里存在该窗口仍有剩余的账号。
+//! 条件：当前账号任一窗口已用满 100%，且账号池里存在额度可用的账号；
+//! 候选账号所有已提供的额度窗口都不能耗尽，无候选时不触发切换或冷却。
 //! 续跑：切换成功后重启 App，等待时间窗口内未完成任务加载，
 //! 向目标会话提交“继续”，确认新回合后才报告成功。
 //! 判定细节见 `auto_switch_continue` 模块。
@@ -158,7 +159,18 @@ fn pick_switch_candidate(
         .filter(|account| matches!(account.source_kind, AccountSourceKind::Chatgpt))
         .filter(|account| !account_has_blocking_issue(account))
         .filter(|account| {
-            remaining_score(exhausted.remaining(account)).gt(&0.0)
+            // 两个窗口同时约束使用，另一窗口耗尽也不能作为切换目标。
+            exhausted
+                .remaining(account)
+                .is_some_and(|remaining| remaining > 0.0)
+                && account.usage.as_ref().is_some_and(|usage| {
+                    [usage.five_hour.as_ref(), usage.one_week.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .all(|window| {
+                            window.used_percent.is_finite() && window.used_percent < 100.0
+                        })
+                })
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -173,6 +185,16 @@ fn pick_switch_candidate(
             .then_with(|| left.label.cmp(&right.label))
     });
     candidates.into_iter().next()
+}
+
+// 刷新入口与执行入口共用同一个计划，先确认存在可用目标，再修改运行状态。
+fn auto_switch_plan(
+    summaries: &[AccountSummary],
+) -> Option<(&AccountSummary, WindowKind, AccountSummary)> {
+    let current = summaries.iter().find(|account| account.is_current)?;
+    let exhausted = exhausted_window(current)?;
+    let target = pick_switch_candidate(summaries, exhausted, &current.id)?;
+    Some((current, exhausted, target))
 }
 
 async fn update_status(
@@ -197,7 +219,7 @@ pub(crate) async fn current_status(state: &AppState) -> AutoSwitchStatus {
     state.auto_switch.lock().await.status.clone()
 }
 
-/// 每次额度刷新后调用；只有开启自动切换且当前账号耗尽时才真正执行。
+/// 每次额度刷新后调用；只有开启自动切换、当前账号耗尽且存在可用目标时才执行。
 /// 额度刷新路径只做一次快速判断，真正切换放到后台任务里，
 /// 避免阻塞 `refresh_all_usage` 的返回和首页刷新。
 pub(crate) async fn should_check_auto_switch(
@@ -214,10 +236,7 @@ pub(crate) async fn should_check_auto_switch(
     if !enabled {
         return false;
     }
-    let Some(current) = summaries.iter().find(|account| account.is_current) else {
-        return false;
-    };
-    exhausted_window(current).is_some()
+    auto_switch_plan(summaries).is_some()
 }
 
 pub(crate) async fn run_auto_switch(app: &AppHandle, state: &AppState, summaries: &[AccountSummary]) {
@@ -235,10 +254,7 @@ pub(crate) async fn run_auto_switch(app: &AppHandle, state: &AppState, summaries
         return;
     }
 
-    let Some(current) = summaries.iter().find(|account| account.is_current) else {
-        return;
-    };
-    let Some(exhausted) = exhausted_window(current) else {
+    let Some((current, exhausted, target)) = auto_switch_plan(summaries) else {
         return;
     };
 
@@ -276,20 +292,6 @@ pub(crate) async fn run_auto_switch(app: &AppHandle, state: &AppState, summaries
         status.used_headless_fallback = false;
     })
     .await;
-
-    let Some(target) = pick_switch_candidate(summaries, exhausted, &from_id) else {
-        update_status(app, state, |status| {
-            status.stage = "skipped".to_string();
-            status.message = format!(
-                "{} 额度已耗尽，但账号池里没有 {} 仍有剩余的账号，保持当前账号",
-                from_label,
-                exhausted.label()
-            );
-        })
-        .await;
-        state.auto_switch.lock().await.in_flight = false;
-        return;
-    };
 
     let target_id = target.id.clone();
     let target_label = target.label.clone();
@@ -615,6 +617,105 @@ mod tests {
         let picked = pick_switch_candidate(&summaries, WindowKind::FiveHour, "current")
             .expect("a candidate should remain");
         assert_eq!(picked.id, "best");
+    }
+
+    #[test]
+    fn exhausted_other_window_disqualifies_a_candidate() {
+        for (exhausted, five, week) in [
+            (WindowKind::FiveHour, 20.0, 100.0),
+            (WindowKind::OneWeek, 100.0, 20.0),
+        ] {
+            let summaries = vec![account("unusable", false, Some(five), Some(week))];
+            assert!(pick_switch_candidate(&summaries, exhausted, "current").is_none());
+        }
+    }
+
+    #[test]
+    fn no_switch_is_planned_when_every_account_is_exhausted() {
+        for (five, week) in [(100.0, 20.0), (20.0, 100.0), (100.0, 100.0)] {
+            let summaries = vec![
+                account("current", true, Some(five), Some(week)),
+                account("five-empty", false, Some(100.0), Some(20.0)),
+                account("week-empty", false, Some(20.0), Some(100.0)),
+                account("both-empty", false, Some(100.0), Some(100.0)),
+            ];
+            assert!(auto_switch_plan(&summaries).is_none());
+        }
+    }
+
+    #[test]
+    fn no_switch_is_planned_without_a_usable_alternative() {
+        let mut blocked = account("blocked", false, Some(0.0), Some(0.0));
+        blocked.auth_refresh_blocked = true;
+        let summaries = vec![
+            account("current", true, Some(100.0), Some(0.0)),
+            account("unknown", false, None, None),
+            blocked,
+        ];
+        assert!(auto_switch_plan(&summaries).is_none());
+    }
+
+    #[test]
+    fn switching_becomes_eligible_after_an_alternative_quota_recovers() {
+        let mut summaries = vec![
+            account("current", true, Some(100.0), Some(20.0)),
+            account("target", false, Some(20.0), Some(100.0)),
+        ];
+        assert!(auto_switch_plan(&summaries).is_none());
+        summaries[1]
+            .usage
+            .as_mut()
+            .unwrap()
+            .one_week
+            .as_mut()
+            .unwrap()
+            .used_percent = 99.0;
+        let (_, exhausted, target) = auto_switch_plan(&summaries).expect("quota recovered");
+        assert_eq!(exhausted, WindowKind::FiveHour);
+        assert_eq!(target.id, "target");
+    }
+
+    #[test]
+    fn switching_still_works_when_only_one_alternative_has_usable_quota() {
+        let summaries = vec![
+            account("current", true, Some(20.0), Some(100.0)),
+            account("five-empty", false, Some(100.0), Some(0.0)),
+            account("week-empty", false, Some(0.0), Some(100.0)),
+            account("usable", false, Some(99.0), Some(99.0)),
+        ];
+        let (_, _, target) = auto_switch_plan(&summaries).expect("one usable account");
+        assert_eq!(target.id, "usable");
+    }
+
+    #[test]
+    fn invalid_quota_on_either_window_disqualifies_a_candidate() {
+        for (five, week) in [(20.0, f64::NAN), (f64::INFINITY, 20.0)] {
+            let summaries = vec![account("invalid", false, Some(five), Some(week))];
+            for exhausted in [WindowKind::FiveHour, WindowKind::OneWeek] {
+                assert!(pick_switch_candidate(&summaries, exhausted, "current").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn an_unreported_other_window_does_not_disqualify_a_candidate() {
+        for (exhausted, five, week) in [
+            (WindowKind::FiveHour, Some(20.0), None),
+            (WindowKind::OneWeek, None, Some(20.0)),
+        ] {
+            let summaries = vec![account("usable", false, five, week)];
+            assert!(pick_switch_candidate(&summaries, exhausted, "current").is_some());
+        }
+    }
+
+    #[test]
+    fn no_switch_is_planned_for_an_empty_pool_or_a_current_account_with_quota() {
+        assert!(auto_switch_plan(&[]).is_none());
+        let summaries = vec![
+            account("current", true, Some(20.0), Some(20.0)),
+            account("usable", false, Some(0.0), Some(0.0)),
+        ];
+        assert!(auto_switch_plan(&summaries).is_none());
     }
 
     #[test]
