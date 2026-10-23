@@ -800,7 +800,9 @@
     "cloudflaredStartFailed": "启动 cloudflared 公网访问失败：{{error}}",
     "cloudflaredStopped": "cloudflared 公网访问已停止",
     "cloudflaredStopFailed": "停止 cloudflared 公网访问失败：{{error}}",
-    "accountWarmupRequestSent": "预热请求已完成，尚未确认 5h 窗口激活；额度可能延迟更新，请稍后刷新。"
+    "accountWarmupRequestSent": "预热请求已完成，尚未确认 5h 窗口激活；额度可能延迟更新，请稍后刷新。",
+    "usageRefreshPartial": "用量刷新部分失败（{{failed}}/{{total}}）：{{error}}；失败账号保留已有缓存",
+    "usageRefreshAllFailed": "用量刷新失败（{{total}} 个账号）：{{error}}；保留已有缓存"
   },
   "resetCredit": {
     "use": "使用此卡",
