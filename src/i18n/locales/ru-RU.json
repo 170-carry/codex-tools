@@ -800,7 +800,9 @@
     "cloudflaredStartFailed": "Не удалось запустить публичный доступ cloudflared: {{error}}",
     "cloudflaredStopped": "Публичный доступ cloudflared остановлен",
     "cloudflaredStopFailed": "Не удалось остановить публичный доступ cloudflared: {{error}}",
-    "accountWarmupRequestSent": "Запрос прогрева завершён, но активация окна 5 ч ещё не подтверждена. Обновите квоту позже."
+    "accountWarmupRequestSent": "Запрос прогрева завершён, но активация окна 5 ч ещё не подтверждена. Обновите квоту позже.",
+    "usageRefreshPartial": "Квота обновлена частично (ошибок {{failed}}/{{total}}): {{error}}; для этих аккаунтов сохранён кэш",
+    "usageRefreshAllFailed": "Квота не обновилась для всех {{total}} аккаунтов: {{error}}; сохранён кэш"
   },
   "resetCredit": {
     "use": "Использовать карту",

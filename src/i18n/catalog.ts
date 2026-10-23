@@ -705,6 +705,8 @@ export type MessageCatalog = {
     settingsUpdated: string;
     updateSettingsFailed: (error: string) => string;
     usageRefreshed: string;
+    usageRefreshPartial: (failed: number, total: number, error: string) => string;
+    usageRefreshAllFailed: (total: number, error: string) => string;
     refreshFailed: (error: string) => string;
     accountWarmupActivated: string;
     accountWarmupRequestSent: string;
@@ -913,6 +915,10 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
         fillTemplate(raw.notices.updateSettingsFailed, { error }),
       refreshFailed: (error) =>
         fillTemplate(raw.notices.refreshFailed, { error }),
+      usageRefreshPartial: (failed, total, error) =>
+        fillTemplate(raw.notices.usageRefreshPartial, { failed, total, error }),
+      usageRefreshAllFailed: (total, error) =>
+        fillTemplate(raw.notices.usageRefreshAllFailed, { total, error }),
       accountWarmupFailed: (error) =>
         fillTemplate(raw.notices.accountWarmupFailed, { error }),
       reloginRequired: (label) =>

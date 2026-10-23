@@ -6,12 +6,8 @@ pub(super) fn build_chatgpt_profile_config(current_config: Option<&str>) -> Stri
     codex_catalog::remove_managed_catalog(&mut document);
     let had_base_url = document.get("openai_base_url").is_some();
     document.remove("openai_base_url");
-    if let Some(providers) = document
-        .get_mut("model_providers")
-        .and_then(toml_edit::Item::as_table_mut)
-    {
-        providers.remove(RELAY_PROVIDER);
-    }
+    // Existing sessions and named profiles can still reference the relay ID.
+    // Keep its definition when changing the active provider to OpenAI.
     if had_base_url {
         document.remove("model");
     }
@@ -90,7 +86,16 @@ fn configure_relay_provider(document: &mut DocumentMut, base_url: &str) {
     provider["wire_api"] = value("responses");
     provider["requires_openai_auth"] = value(true);
     provider["supports_websockets"] = value(false);
-    document["model_providers"][RELAY_PROVIDER] = toml_edit::Item::Table(provider);
+    // Normalize inline/dotted forms before adding a named provider. Inserting a
+    // Table under an inline table can otherwise omit it from serialized TOML.
+    let mut providers = document
+        .remove("model_providers")
+        .and_then(|item| item.into_table().ok())
+        .unwrap_or_default();
+    providers.set_dotted(false);
+    providers.set_implicit(true);
+    providers.insert(RELAY_PROVIDER, toml_edit::Item::Table(provider));
+    document["model_providers"] = toml_edit::Item::Table(providers);
 }
 
 pub(crate) fn current_config_matches_account(account: &StoredAccount) -> bool {
@@ -113,8 +118,28 @@ pub(crate) fn current_config_matches_account(account: &StoredAccount) -> bool {
                         && config
                             .get("model_provider")
                             .and_then(toml_edit::Item::as_str)
-                            == Some(RELAY_PROVIDER)))
+                            == Some(RELAY_PROVIDER)
+                        && relay_definition_matches(&config, account.api_base_url.as_deref())))
         })
+}
+
+fn relay_definition_matches(config: &DocumentMut, base_url: Option<&str>) -> bool {
+    let Some(provider) = config
+        .get("model_providers")
+        .and_then(|providers| providers.get(RELAY_PROVIDER))
+    else {
+        return false;
+    };
+    provider.get("base_url").and_then(toml_edit::Item::as_str) == base_url
+        && provider.get("wire_api").and_then(toml_edit::Item::as_str) == Some("responses")
+        && provider
+            .get("requires_openai_auth")
+            .and_then(toml_edit::Item::as_bool)
+            == Some(true)
+        && provider
+            .get("supports_websockets")
+            .and_then(toml_edit::Item::as_bool)
+            == Some(false)
 }
 
 #[cfg(test)]
@@ -150,10 +175,61 @@ mod tests {
             .unwrap();
         assert_eq!(chatgpt["model_provider"].as_str(), Some("openai"));
         assert!(chatgpt.get("openai_base_url").is_none());
-        assert!(chatgpt["model_providers"].get(RELAY_PROVIDER).is_none());
+        assert!(chatgpt["model_providers"].get(RELAY_PROVIDER).is_some());
         assert_eq!(
             chatgpt["model_providers"]["user_provider"]["name"].as_str(),
             Some("untouched")
         );
+    }
+}
+
+#[cfg(test)]
+mod provider_regression_tests {
+    use super::*;
+
+    #[test]
+    fn serialized_provider_survives_inline_and_dotted_configurations() {
+        for original in [
+            "model_providers = {}\n",
+            "model_providers = { other = { name = \"other\", base_url = \"https://other.invalid\" } }\n",
+            "model_providers.other.name = \"other\"\n",
+            "[model_providers.other]\nname = \"other\"\n",
+        ] {
+            let serialized = build_relay_profile_config(Some(original), "https://relay.invalid/v1", "test-model");
+            let parsed = serialized.parse::<DocumentMut>().unwrap();
+            assert!(relay_definition_matches(&parsed, Some("https://relay.invalid/v1")), "{serialized}");
+            if original.contains("other") { assert!(parsed["model_providers"].get("other").is_some()); }
+        }
+    }
+
+    #[test]
+    fn incomplete_or_missing_provider_is_not_a_matching_profile() {
+        for original in [
+            "model_provider = \"codex_tools_relay\"\n",
+            "[model_providers.codex_tools_relay]\nbase_url = \"https://relay.invalid/v1\"\n",
+        ] {
+            let parsed = original.parse::<DocumentMut>().unwrap();
+            assert!(!relay_definition_matches(
+                &parsed,
+                Some("https://relay.invalid/v1")
+            ));
+        }
+    }
+
+    #[test]
+    fn returning_to_chatgpt_keeps_definitions_used_by_saved_profiles() {
+        let relay = build_relay_profile_config(
+            Some("[profiles.work]\nmodel_provider = \"codex_tools_relay\"\n"),
+            "https://relay.invalid/v1",
+            "test-model",
+        );
+        let restored = build_chatgpt_profile_config(Some(&relay))
+            .parse::<DocumentMut>()
+            .unwrap();
+        assert_eq!(restored["model_provider"].as_str(), Some("openai"));
+        assert!(relay_definition_matches(
+            &restored,
+            Some("https://relay.invalid/v1")
+        ));
     }
 }

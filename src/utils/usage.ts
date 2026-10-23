@@ -18,9 +18,18 @@ export function formatTokenCount(value: number | undefined | null, locale?: stri
     return numberFormatter(locale).format(normalized);
   }
 
+  if (normalized < 1_000_000) {
+    return numberFormatter(locale, {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(normalized);
+  }
+
+  // 百万以上保留两位小数，避免 2.43 亿和 2.46 亿都显示成 “2亿”。
   return numberFormatter(locale, {
     notation: "compact",
-    maximumFractionDigits: normalized < 100_000 ? 1 : 0,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
   }).format(normalized);
 }
 

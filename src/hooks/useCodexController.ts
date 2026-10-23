@@ -54,6 +54,8 @@ import {
   getUnreleasedChangelogEntry,
 } from "../utils/changelog";
 
+import { buildUsageRefreshNotice } from "../utils/usageRefreshNotice";
+
 const COST_ANALYTICS_STALE_MS = 30 * 60 * 1000;
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
 const API_PROXY_POLL_MS = 4_000;
@@ -690,7 +692,7 @@ export function useCodexController(
   const refreshUsage = useCallback(
     async (
       quiet = false,
-      forceAuthRefresh = !quiet,
+      forceAuthRefresh = false,
       initialRefresh = false,
       source: "startup" | "account-import" | "manual" =
         "manual",
@@ -714,7 +716,7 @@ export function useCodexController(
           setUsageRefreshError(null);
         }
         if (!quiet && !promptedRelogin) {
-          setNotice({ type: "ok", message: copy.notices.usageRefreshed });
+          setNotice(buildUsageRefreshNotice(data, copy));
         }
       } catch (error) {
         const localizedError = localizeError(String(error));
@@ -743,7 +745,7 @@ export function useCodexController(
         }
       }
     },
-    [applyAccounts, copy.notices, localizeError],
+    [applyAccounts, copy, localizeError],
   );
 
   const refreshTokenUsage = useCallback(

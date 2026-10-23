@@ -2,6 +2,20 @@
 
 ### Released
 
+- v3.1.3
+
+#### English
+
+1. Improve quota refresh reliability and show partial failures clearly.
+2. Remember window size and position, and improve API account and Windows startup compatibility.
+3. Clarify session Token statistics and improve number precision.
+
+#### 中文
+
+1. 提升额度刷新稳定性，明确提示部分账号刷新失败。
+2. 记住窗口大小和位置，改善 API 账号及 Windows 启动兼容性。
+3. 明确会话 Token 统计口径，优化数字精度。
+
 - v3.1.2
 
 #### English

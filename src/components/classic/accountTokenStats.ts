@@ -7,11 +7,11 @@ import { dateFormatter, numberFormatter } from "../../utils/intlFormatters";
 
 const STATS_COPY = {
   "zh-CN": {
-    tokens24h: "24h 用量",
+    tokens24h: "24h 会话",
     tps: "TPS",
     credits: "余额",
-    tokenCardTitle: "Token 与速度",
-    tokenCardHint: "按会话创建账号统计；速度为本地日志耗时估算",
+    tokenCardTitle: "会话 Token 与速度",
+    tokenCardHint: "按会话创建账号归属统计，换号后继续同一会话仍归属原账号；不是实际扣费。速度为本地日志估算",
     last24h: "近 24 小时",
     last7d: "近 7 天",
     last30d: "近 30 天",
@@ -26,18 +26,18 @@ const STATS_COPY = {
     creditsTitle: "Credits 余额",
     tpsTitle: (avg: string, latest: string, week: string) =>
       `近24h平均输出 ${avg} tok/s · 最近一次 ${latest} · 7天 ${week}`,
-    tokenTitle: (week: string, month: string) => `近7天 ${week} · 近30天 ${month}`,
+    tokenTitle: (week: string, month: string) => `会话创建账号归属，非实际扣费 · 近7天 ${week} · 近30天 ${month}`,
     resetAt: (value: string) => `${value} 重置`,
     minutesAgo: (value: number) => `${value} 分钟前`,
     hoursAgo: (value: number) => `${value} 小时前`,
     justNow: "刚刚",
   },
   en: {
-    tokens24h: "24h",
+    tokens24h: "24h sessions",
     tps: "TPS",
     credits: "Credits",
-    tokenCardTitle: "Tokens & speed",
-    tokenCardHint: "Attributed to the session creator; speed estimated from local log timing",
+    tokenCardTitle: "Session tokens & speed",
+    tokenCardHint: "Attributed to the session creator, including after account switches; not billed usage. Speed is estimated from local logs",
     last24h: "Last 24h",
     last7d: "Last 7d",
     last30d: "Last 30d",
@@ -52,7 +52,7 @@ const STATS_COPY = {
     creditsTitle: "Credits balance",
     tpsTitle: (avg: string, latest: string, week: string) =>
       `24h avg output ${avg} tok/s · latest ${latest} · 7d ${week}`,
-    tokenTitle: (week: string, month: string) => `7d ${week} · 30d ${month}`,
+    tokenTitle: (week: string, month: string) => `Session creator attribution, not billing · 7d ${week} · 30d ${month}`,
     resetAt: (value: string) => `resets ${value}`,
     minutesAgo: (value: number) => `${value}m ago`,
     hoursAgo: (value: number) => `${value}h ago`,

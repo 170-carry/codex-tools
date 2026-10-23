@@ -37,6 +37,7 @@ mod tray;
 mod tray_visual;
 mod usage;
 mod utils;
+mod window_state;
 #[cfg(target_os = "windows")]
 mod windows_desktop_lifecycle;
 #[cfg(target_os = "windows")]
@@ -2675,6 +2676,7 @@ fn force_stop_running_codex() -> Result<(), String> {
 }
 
 fn handle_window_close_to_background(window: &tauri::Window, event: &WindowEvent) {
+    window_state::on_event(window, event);
     if let WindowEvent::CloseRequested { api, .. } = event {
         api.prevent_close();
         if let Err(err) = window.hide() {
@@ -2986,6 +2988,7 @@ pub fn run() {
         .on_window_event(handle_window_close_to_background)
         .setup(|app| {
             utils::prepare_process_path();
+            window_state::restore(app.handle());
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -3077,6 +3080,7 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } => window_state::save(app_handle),
         tauri::RunEvent::Ready => {
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {

@@ -800,7 +800,9 @@
     "cloudflaredStartFailed": "Failed to start cloudflared public access: {{error}}",
     "cloudflaredStopped": "cloudflared public access stopped",
     "cloudflaredStopFailed": "Failed to stop cloudflared public access: {{error}}",
-    "accountWarmupRequestSent": "Warm-up request completed; 5h activation is not yet confirmed. Quota may update later; refresh shortly."
+    "accountWarmupRequestSent": "Warm-up request completed; 5h activation is not yet confirmed. Quota may update later; refresh shortly.",
+    "usageRefreshPartial": "Usage refresh partially failed ({{failed}}/{{total}}): {{error}}; failed accounts retain cached usage",
+    "usageRefreshAllFailed": "Usage refresh failed for all {{total}} accounts: {{error}}; cached usage retained"
   },
   "resetCredit": {
     "use": "Use this card",

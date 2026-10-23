@@ -1,5 +1,13 @@
+#[path = "usage/mapping.rs"]
+mod mapping;
+#[path = "usage/transport.rs"]
+mod transport;
+use mapping::{map_reset_credits_payload, map_usage_payload};
+use transport::fetch_json_from_urls;
+
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::error::Error as StdError;
+use std::time::Duration;
 
 use crate::app_paths;
 use crate::models::CreditSnapshot;
@@ -15,6 +23,10 @@ const CODEX_USAGE_PATH: &str = "/api/codex/usage";
 const WHAM_USAGE_PATH: &str = "/wham/usage";
 const WHAM_RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
 const BACKEND_API_PREFIX: &str = "/backend-api";
+const USAGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const USAGE_FETCH_BUDGET: Duration = Duration::from_secs(24);
+const RESET_CREDITS_FETCH_BUDGET: Duration = Duration::from_secs(3);
+const USAGE_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Deserialize)]
 struct UsageApiResponse {
@@ -53,69 +65,76 @@ pub(crate) async fn fetch_usage_snapshot(
     access_token: &str,
     account_id: &str,
 ) -> Result<UsageSnapshot, String> {
-    let usage_urls = resolve_usage_urls();
+    let client = create_usage_http_client()?;
+    fetch_usage_snapshot_with_client(&client, access_token, account_id).await
+}
 
-    let client = reqwest::Client::builder()
+pub(crate) fn create_usage_http_client() -> Result<reqwest::Client, String> {
+    // Build once per refresh batch, so all accounts share connections while a new
+    // batch still picks up changes to the Windows/Verge system proxy settings.
+    reqwest::Client::builder()
         .user_agent("codex-tools/0.1")
-        .timeout(std::time::Duration::from_secs(18))
+        .connect_timeout(Duration::from_secs(6))
+        .timeout(USAGE_REQUEST_TIMEOUT)
+        .pool_idle_timeout(Duration::from_secs(15))
+        .pool_max_idle_per_host(4)
         .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))
+}
 
-    let mut errors: Vec<String> = Vec::new();
-    for usage_url in usage_urls {
-        let response = match client
-            .get(&usage_url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("ChatGPT-Account-Id", account_id)
-            .header("Accept", "application/json")
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(err) => {
-                errors.push(format!("{usage_url} -> {}", format_reqwest_error(&err)));
-                continue;
-            }
-        };
+pub(crate) async fn fetch_usage_snapshot_with_client(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+) -> Result<UsageSnapshot, String> {
+    fetch_usage_snapshot_from_urls(
+        client,
+        access_token,
+        account_id,
+        resolve_usage_urls(),
+        resolve_reset_credit_urls(),
+        USAGE_FETCH_BUDGET,
+        RESET_CREDITS_FETCH_BUDGET,
+    )
+    .await
+}
 
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            errors.push(format!(
-                "{usage_url} -> {status}: {}",
-                truncate_for_error(&body, 140)
-            ));
-            continue;
+async fn fetch_usage_snapshot_from_urls(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+    usage_urls: Vec<String>,
+    reset_urls: Vec<String>,
+    usage_budget: Duration,
+    reset_budget: Duration,
+) -> Result<UsageSnapshot, String> {
+    let payload = tokio::time::timeout(
+        usage_budget,
+        fetch_json_from_urls(client, access_token, account_id, usage_urls),
+    )
+    .await
+    .map_err(|_| "请求用量接口失败: 网络请求超时（含重试最多 24 秒）".to_string())?
+    .map_err(|error| format!("请求用量接口失败: {error}"))?;
+
+    // Reset cards are optional metadata. Their endpoint must not hold up a
+    // successful quota response for another full sequence of network timeouts.
+    let reset_credits = match tokio::time::timeout(
+        reset_budget,
+        fetch_json_from_urls(client, access_token, account_id, reset_urls),
+    )
+    .await
+    {
+        Ok(Ok(payload)) => Some(map_reset_credits_payload(payload)),
+        Ok(Err(error)) => {
+            log::debug!("获取 Codex 重置卡失败: {error}");
+            None
         }
-
-        let payload: UsageApiResponse = match response.json().await {
-            Ok(payload) => payload,
-            Err(err) => {
-                errors.push(format!("{usage_url} -> 解析返回失败: {err}"));
-                continue;
-            }
-        };
-        let reset_credits = fetch_reset_credits_snapshot(&client, access_token, account_id).await;
-        return Ok(map_usage_payload(payload, reset_credits));
-    }
-
-    if errors.is_empty() {
-        return Err("请求用量接口失败: 未命中任何候选地址".to_string());
-    }
-    let preview = errors
-        .iter()
-        .take(2)
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join(" | ");
-    if errors.len() > 2 {
-        Err(format!(
-            "请求用量接口失败: {preview} | 另有 {} 个候选地址失败",
-            errors.len() - 2
-        ))
-    } else {
-        Err(format!("请求用量接口失败: {preview}"))
-    }
+        Err(_) => {
+            log::debug!("获取 Codex 重置卡超时，保留已取得的额度结果");
+            None
+        }
+    };
+    Ok(map_usage_payload(payload, reset_credits))
 }
 
 fn resolve_usage_urls() -> Vec<String> {
@@ -180,19 +199,6 @@ pub(crate) fn resolve_chatgpt_base_origin() -> String {
     base_url.trim_end_matches('/').to_string()
 }
 
-fn format_reqwest_error(err: &reqwest::Error) -> String {
-    let mut parts = vec![err.to_string()];
-    let mut source = err.source();
-    while let Some(next) = source {
-        let text = next.to_string();
-        if !parts.iter().any(|item| item == &text) {
-            parts.push(text);
-        }
-        source = next.source();
-    }
-    parts.join(" -> ")
-}
-
 fn read_chatgpt_base_url_from_config() -> Option<String> {
     let config_path = app_paths::codex_config_path().ok()?;
     let contents = std::fs::read_to_string(config_path).ok()?;
@@ -213,324 +219,6 @@ fn read_chatgpt_base_url_from_config() -> Option<String> {
     None
 }
 
-async fn fetch_reset_credits_snapshot(
-    client: &reqwest::Client,
-    access_token: &str,
-    account_id: &str,
-) -> Option<ResetCreditsSnapshot> {
-    let mut errors = Vec::new();
-
-    for reset_url in resolve_reset_credit_urls() {
-        let response = match client
-            .get(&reset_url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("ChatGPT-Account-Id", account_id)
-            .header("Accept", "application/json")
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(err) => {
-                errors.push(format!("{reset_url} -> {}", format_reqwest_error(&err)));
-                continue;
-            }
-        };
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            errors.push(format!(
-                "{reset_url} -> {status}: {}",
-                truncate_for_error(&body, 140)
-            ));
-            continue;
-        }
-
-        let payload: serde_json::Value = match response.json().await {
-            Ok(payload) => payload,
-            Err(err) => {
-                errors.push(format!("{reset_url} -> 解析返回失败: {err}"));
-                continue;
-            }
-        };
-
-        return Some(map_reset_credits_payload(payload));
-    }
-
-    if !errors.is_empty() {
-        log::debug!(
-            "获取 Codex 重置卡失败: {}",
-            errors
-                .iter()
-                .take(2)
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .join(" | ")
-        );
-    }
-    None
-}
-
-fn map_usage_payload(
-    payload: UsageApiResponse,
-    reset_credits: Option<ResetCreditsSnapshot>,
-) -> UsageSnapshot {
-    let mut windows: Vec<UsageWindowRaw> = Vec::new();
-
-    if let Some(rate_limit) = payload.rate_limit {
-        if let Some(primary) = rate_limit.primary_window {
-            windows.push(primary);
-        }
-        if let Some(secondary) = rate_limit.secondary_window {
-            windows.push(secondary);
-        }
-    }
-
-    if let Some(additional) = payload.additional_rate_limits {
-        for limit in additional {
-            if let Some(rate_limit) = limit.rate_limit {
-                if let Some(primary) = rate_limit.primary_window {
-                    windows.push(primary);
-                }
-                if let Some(secondary) = rate_limit.secondary_window {
-                    windows.push(secondary);
-                }
-            }
-        }
-    }
-
-    let five_hour = pick_nearest_window(&windows, 5 * 60 * 60).map(to_usage_window);
-    let one_week = pick_nearest_window(&windows, 7 * 24 * 60 * 60).map(to_usage_window);
-
-    // A zero percentage is a valid freshly reset window. Keep each API window
-    // independent instead of inferring one window's value from another.
-    UsageSnapshot {
-        fetched_at: now_unix_seconds(),
-        plan_type: payload.plan_type,
-        five_hour,
-        one_week,
-        credits: payload.credits.map(|credit| CreditSnapshot {
-            has_credits: credit.has_credits,
-            unlimited: credit.unlimited,
-            balance: credit.balance,
-        }),
-        reset_credits,
-    }
-}
-
-fn map_reset_credits_payload(payload: serde_json::Value) -> ResetCreditsSnapshot {
-    let available_count = payload
-        .get("available_count")
-        .or_else(|| payload.get("availableCount"))
-        .and_then(parse_optional_i64);
-
-    let credits = payload
-        .get("credits")
-        .and_then(serde_json::Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| ResetCredit {
-                    id: item
-                        .get("id")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string),
-                    status: item
-                        .get("status")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string),
-                    granted_at: get_timestamp_field(
-                        item,
-                        &[
-                            "granted_at",
-                            "grantedAt",
-                            "created_at",
-                            "createdAt",
-                            "obtained_at",
-                            "obtainedAt",
-                        ],
-                    ),
-                    expires_at: get_timestamp_field(
-                        item,
-                        &[
-                            "expires_at",
-                            "expiresAt",
-                            "expiration",
-                            "expire_at",
-                            "expireAt",
-                        ],
-                    ),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    ResetCreditsSnapshot {
-        available_count,
-        credits,
-    }
-}
-
-fn get_timestamp_field(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(parse_optional_i64))
-}
-
-fn parse_optional_i64(value: &serde_json::Value) -> Option<i64> {
-    if let Some(number) = value.as_i64() {
-        return Some(normalize_epoch_seconds(number));
-    }
-
-    if let Some(number) = value.as_u64() {
-        return i64::try_from(number).ok().map(normalize_epoch_seconds);
-    }
-
-    if let Some(text) = value
-        .as_str()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
-        if let Ok(number) = text.parse::<i64>() {
-            return Some(normalize_epoch_seconds(number));
-        }
-        if let Ok(parsed) =
-            time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
-        {
-            return Some(parsed.unix_timestamp());
-        }
-    }
-
-    None
-}
-
-fn normalize_epoch_seconds(value: i64) -> i64 {
-    if value > 10_000_000_000 {
-        value / 1000
-    } else {
-        value
-    }
-}
-
-fn pick_nearest_window(windows: &[UsageWindowRaw], target_seconds: i64) -> Option<UsageWindowRaw> {
-    windows
-        .iter()
-        .min_by_key(|window| (window.limit_window_seconds - target_seconds).abs())
-        .map(|window| UsageWindowRaw {
-            used_percent: window.used_percent,
-            limit_window_seconds: window.limit_window_seconds,
-            reset_at: window.reset_at,
-        })
-}
-
-fn to_usage_window(window: UsageWindowRaw) -> UsageWindow {
-    UsageWindow {
-        used_percent: window.used_percent,
-        window_seconds: window.limit_window_seconds,
-        reset_at: Some(window.reset_at),
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::map_reset_credits_payload;
-    use super::map_usage_payload;
-    use super::RateLimitDetails;
-    use super::UsageApiResponse;
-    use super::UsageWindowRaw;
-    use serde_json::json;
-
-    #[test]
-    fn zero_five_hour_window_remains_independent_from_weekly_usage() {
-        let snapshot = map_usage_payload(
-            UsageApiResponse {
-                plan_type: Some("plus".to_string()),
-                rate_limit: Some(RateLimitDetails {
-                    primary_window: Some(UsageWindowRaw {
-                        used_percent: 0.0,
-                        limit_window_seconds: 5 * 60 * 60,
-                        reset_at: 1_800,
-                    }),
-                    secondary_window: Some(UsageWindowRaw {
-                        used_percent: 37.0,
-                        limit_window_seconds: 7 * 24 * 60 * 60,
-                        reset_at: 604_800,
-                    }),
-                }),
-                additional_rate_limits: None,
-                credits: None,
-            },
-            None,
-        );
-
-        assert_eq!(snapshot.five_hour.unwrap().used_percent, 0.0);
-        assert_eq!(snapshot.one_week.unwrap().used_percent, 37.0);
-    }
-
-    #[test]
-    fn nonzero_five_hour_window_remains_independent_from_weekly_usage() {
-        let snapshot = map_usage_payload(
-            UsageApiResponse {
-                plan_type: Some("plus".to_string()),
-                rate_limit: Some(RateLimitDetails {
-                    primary_window: Some(UsageWindowRaw {
-                        used_percent: 12.0,
-                        limit_window_seconds: 5 * 60 * 60,
-                        reset_at: 1_800,
-                    }),
-                    secondary_window: Some(UsageWindowRaw {
-                        used_percent: 37.0,
-                        limit_window_seconds: 7 * 24 * 60 * 60,
-                        reset_at: 604_800,
-                    }),
-                }),
-                additional_rate_limits: None,
-                credits: None,
-            },
-            None,
-        );
-
-        assert_eq!(snapshot.five_hour.unwrap().used_percent, 12.0);
-        assert_eq!(snapshot.one_week.unwrap().used_percent, 37.0);
-    }
-
-    #[test]
-    fn reset_credits_payload_accepts_common_timestamp_shapes() {
-        let snapshot = map_reset_credits_payload(json!({
-            "available_count": 2,
-            "credits": [
-                {
-                    "granted_at": 1_797_392_400,
-                    "expires_at": 1_799_984_400_000i64
-                },
-                {
-                    "createdAt": "2026-12-15T10:00:00Z",
-                    "expiresAt": "2027-01-14T10:00:00Z"
-                }
-            ]
-        }));
-
-        assert_eq!(snapshot.available_count, Some(2));
-        assert_eq!(snapshot.credits.len(), 2);
-        assert_eq!(snapshot.credits[0].granted_at, Some(1_797_392_400));
-        assert_eq!(snapshot.credits[0].expires_at, Some(1_799_984_400));
-        assert_eq!(snapshot.credits[1].granted_at, Some(1_797_328_800));
-        assert_eq!(snapshot.credits[1].expires_at, Some(1_799_920_800));
-    }
-
-    #[test]
-    fn reset_credits_payload_accepts_camel_case_available_count() {
-        let snapshot = map_reset_credits_payload(json!({
-            "availableCount": "1",
-            "credits": [
-                {
-                    "obtained_at": "1797392400",
-                    "expireAt": null
-                }
-            ]
-        }));
-
-        assert_eq!(snapshot.available_count, Some(1));
-        assert_eq!(snapshot.credits[0].granted_at, Some(1_797_392_400));
-        assert_eq!(snapshot.credits[0].expires_at, None);
-    }
-}
+#[path = "usage/tests.rs"]
+mod tests;
