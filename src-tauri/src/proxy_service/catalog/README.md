@@ -21,3 +21,7 @@ When adding a supported Codex model, update this metadata from upstream too,
 retain its license, and run `scripts/check-codex-model-discovery.py` against the
 desktop-bundled Codex binary. This catalog describes proxy compatibility, not
 the upstream account's model entitlements.
+
+GPT-6.1 Terra metadata was added from the same upstream path, Git blob
+`489ebe3f2483348641a16160ce8491dd077eabca`, retrieved on 2026-11-07.
+Existing models retain their previously verified metadata.

@@ -402,3 +402,27 @@ async fn image_native_bad_response_stream_reports_error_without_completion() {
         assert!(!context.storage.data_dir.exists());
     }
 }
+
+#[tokio::test]
+async fn image_2_5_generation_preserves_requested_model_on_the_wire() {
+    for model in ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"] {
+        let mut mock = ImageMock::start(r#"{"data":[{"b64_json":"image"}]}"#).await;
+        let converted = convert_openai_image_generation_request_to_codex(&json!({
+            "model": model, "prompt": "Draw a circle"
+        }))
+        .unwrap();
+        let response = forward_codex_request_with_candidate(
+            &mock.context(),
+            &image_chatgpt_candidate(),
+            &image_test_headers(),
+            &converted.upstream_payload,
+            CodexUpstreamEndpoint::ImageGeneration,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let request = mock.request().await;
+        assert_eq!(request.path, "/backend-api/codex/images/generations");
+        assert_eq!(request.body["model"], model);
+    }
+}

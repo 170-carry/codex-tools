@@ -2,6 +2,22 @@
 
 ### Released
 
+- v3.1.4
+
+#### English
+
+1. Report interrupted Responses streams explicitly for both HTTP SSE and WebSocket clients, while preserving partial output and successful completion.
+2. Accept incremental tool catalogs at their original conversation positions in Responses Lite.
+3. Add GPT-6.1 Terra and GPT-Image-2.5 Sunburst/Flare to proxy model controls, and include Terra's native Codex model metadata. Existing Key restrictions remain in effect; upstream account access is still required.
+4. Desktop release only; npm CLI packages are not published in this release.
+
+#### 中文
+
+1. HTTP SSE 和 WebSocket 的 Responses 流中断时返回明确失败，保留已有输出并正确区分正常完成。
+2. 修复 Responses Lite 拒绝会话中增量工具目录的问题，保留工具加入顺序。
+3. 反代模型控制新增 GPT-6.1 Terra、GPT-Image-2.5 Sunburst/Flare，并提供 Terra 的原生 Codex 模型目录。已有 Key 权限不变，仍需上游账号具有相应模型权限。
+4. 本次只发布桌面版本，暂不发布 npm CLI 包。
+
 - v3.1.3
 
 #### English

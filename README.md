@@ -156,6 +156,7 @@ Codex Tools 可以启动本地 OpenAI 兼容反代：
 - 默认模型：`gpt-5.6-sol`
 - 默认推理：`xhigh` + `default`（标准速度；客户端仍可显式请求 `fast`）
 - GPT-6 Codex 账号代理模型：`gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-luna`。代理使用 Codex CLI `0.159.0` 标识及 Responses Lite 请求格式；模型能否调用仍由上游账号权限决定。
+- 新增模型：`gpt-6.1-terra`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`（需要上游账号有对应权限）
 - GPT-5.6 模型：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`
 
 `CODEX_TOOLS_PROXY_SERVICE_TIER` 可设置代理默认速度，支持 `auto`、`default` / `standard`、`fast` / `priority`、`flex`。显式请求值优先于环境变量；`fast` / `priority` 转为上游 `priority`。未设置或环境变量非法时使用 `default`，显式非法请求仍会被拒绝，Key 的速度权限继续生效。
@@ -203,7 +204,7 @@ GPT-5.6 可用推理强度为 `none`、`low`、`medium`、`high`、`xhigh`、`ma
 
 反代面板也提供“切到本机反代”和“恢复正常地址”按钮，会自动备份并恢复 `~/.codex/config.toml` 与 `~/.codex/auth.json`。
 
-如果官方 Codex App/CLI 接入反代后看不到 GPT-6.1 Sol，可点击“切到本机反代”（已绑定时为“同步模型目录”），然后重启 Codex App/CLI。API Key 接入下，部分客户端使用内置模型目录，并不会读取反代的 `/v1/models`。绑定时本工具会通过 `model_catalog_json` 提供独立的 Codex 模型目录，按模型开关和当前 Key 白名单筛选；启动代理或修改这些权限时也会同步。原有 Key 的权限不会自动扩大。切换回普通账号或恢复配置后，Codex 继续使用原来的模型目录。
+如果官方 Codex App/CLI 接入反代后看不到 GPT-6.1 Sol / Terra，可点击“切到本机反代”（已绑定时为“同步模型目录”），然后重启 Codex App/CLI。API Key 接入下，部分客户端使用内置模型目录，并不会读取反代的 `/v1/models`。绑定时本工具会通过 `model_catalog_json` 提供独立的 Codex 模型目录，按模型开关和当前 Key 白名单筛选；启动代理或修改这些权限时也会同步。原有 Key 的权限不会自动扩大。切换回普通账号或恢复配置后，Codex 继续使用原来的模型目录。
 
 ### Anthropic Messages
 
