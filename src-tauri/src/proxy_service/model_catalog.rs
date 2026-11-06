@@ -8,6 +8,7 @@ pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.159.0";
 pub(super) const MODELS: &[&str] = &[
     "gpt-6-astra",
     "gpt-6.1-sol",
+    "gpt-6.1-terra",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-5.6-sol",
@@ -16,8 +17,13 @@ pub(super) const MODELS: &[&str] = &[
     "gpt-5.5",
     "gpt-5.4",
     "gpt-image-2",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
 ];
 const MODEL_MAPPINGS: &[(&str, &str)] = &[
+    ("gpt-6.1-terra", "gpt-6.1-terra"),
+    ("gpt6.1-terra", "gpt-6.1-terra"),
+    ("gpt-6-1-terra", "gpt-6.1-terra"),
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt6.1-sol", "gpt-6.1-sol"),
     ("gpt-6-1-sol", "gpt-6.1-sol"),
@@ -74,6 +80,14 @@ pub(super) fn normalize_model_for_permissions(model: &str) -> String {
         .unwrap_or(normalized)
 }
 
+pub(super) fn is_supported_image_model(model: &str) -> bool {
+    let family = normalize_model_for_permissions(model);
+    matches!(
+        family.as_str(),
+        "gpt-image-2" | "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare"
+    )
+}
+
 fn is_dated_snapshot_suffix(suffix: &str) -> bool {
     let bytes = suffix.as_bytes();
     bytes.len() == 11
@@ -105,6 +119,7 @@ pub(super) fn is_responses_lite_model(model: &str) -> bool {
     [
         "gpt-6-astra",
         "gpt-6.1-sol",
+        "gpt-6.1-terra",
         "gpt-6-sol",
         "gpt-6-luna",
         "gpt-5.6-sol",
@@ -149,6 +164,11 @@ pub(super) fn is_gpt6_sol_or_luna_model(model: &str) -> bool {
 pub(super) fn validate_reasoning(model: &str, effort: Option<&str>) -> Result<(), String> {
     let normalized = effort.map(|value| value.trim().to_ascii_lowercase());
     let effort = normalized.as_deref();
+    if (model == "gpt-6.1-terra" || model.starts_with("gpt-6.1-terra-"))
+        && matches!(effort, Some("none" | "minimal"))
+    {
+        return Err("GPT-6.1 Terra 的 Codex 模型目录支持 low、medium、high、xhigh、max 推理强度；ultra 映射为 max".to_string());
+    }
     if (model == "gpt-6.1-sol" || model.starts_with("gpt-6.1-sol-"))
         && matches!(effort, Some("none" | "minimal"))
     {

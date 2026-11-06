@@ -40,19 +40,17 @@ pub(super) fn normalize_responses_lite_payload(
         prepare_responses_lite_images(item);
     }
 
-    let additional_tools_count = input
-        .iter()
-        .filter(|item| item.get("type").and_then(Value::as_str) == Some("additional_tools"))
-        .count();
-    if additional_tools_count > 1
-        || (additional_tools_count == 1
-            && input
-                .first()
-                .and_then(|item| item.get("type"))
-                .and_then(Value::as_str)
-                != Some("additional_tools"))
-    {
-        return Err("Responses Lite 的 additional_tools 必须且只能位于 input 首项".to_string());
+    // Incremental tool catalogs belong at their original conversation positions.
+    // Validate every update, but only merge top-level tools into the prefix.
+    for item in &mut input {
+        if item.get("type").and_then(Value::as_str) == Some("additional_tools") {
+            if !item.get("tools").is_some_and(Value::is_array) {
+                return Err("Responses Lite 的 additional_tools.tools 必须是数组".to_string());
+            }
+            item.as_object_mut()
+                .expect("tool item object")
+                .insert("role".to_string(), Value::String("developer".to_string()));
+        }
     }
 
     let already_has_additional_tools = input
@@ -139,13 +137,12 @@ pub(super) fn normalize_responses_lite_payload(
 
 fn responses_lite_unsupported_hosted_tool(input: &[Value]) -> Option<&str> {
     let tools = input
-        .first()
-        .and_then(Value::as_object)
-        .filter(|item| item.get("type").and_then(Value::as_str) == Some("additional_tools"))?
-        .get("tools")?
-        .as_array()?;
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("additional_tools"))
+        .filter_map(|item| item.get("tools").and_then(Value::as_array))
+        .flatten();
 
-    tools.iter().find_map(|tool| {
+    tools.into_iter().find_map(|tool| {
         let tool_type = tool.get("type").and_then(Value::as_str)?;
         matches!(
             tool_type,

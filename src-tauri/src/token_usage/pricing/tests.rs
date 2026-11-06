@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn terra_6_1_does_not_use_legacy_sol_alias_pricing() {
+    for model in [
+        "gpt-6.1-terra",
+        "GPT-6.1-TERRA",
+        "gpt6.1-terra",
+        "gpt-6-1-terra",
+        "gpt-6.1-terra-2026-10-29",
+    ] {
+        let rate = pricing_rate_for_model_at(model, 1_794_009_600);
+        assert_eq!(rate.input_per_million, 1.0);
+        assert_eq!(rate.cached_input_per_million, 0.05);
+        assert_eq!(rate.output_per_million, 5.0);
+    }
+}
+
+#[test]
 fn sol_6_1_prices_cached_input_without_changing_sol_6_history() {
     let usage = CodexTokenTotals {
         input_tokens: 1_000_000,

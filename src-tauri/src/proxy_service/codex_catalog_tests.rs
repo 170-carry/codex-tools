@@ -13,7 +13,7 @@ fn slugs(catalog: &Value) -> Vec<&str> {
 #[test]
 fn native_catalog_exposes_sol_6_1_with_full_agent_metadata() {
     let catalog = catalog_for_key(&AppSettings::default(), &ApiProxyKey::default());
-    assert_eq!(slugs(&catalog).len(), 8);
+    assert_eq!(slugs(&catalog).len(), 9);
     assert!(!slugs(&catalog).contains(&"gpt-image-2"));
     let model = catalog["models"]
         .as_array()

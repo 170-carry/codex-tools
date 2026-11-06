@@ -1,5 +1,17 @@
+#[path = "proxy_service/responses_stream.rs"]
+mod responses_stream;
+use responses_stream::{build_passthrough_sse_response, relay_responses_sse_to_websocket};
+#[cfg(test)]
+#[path = "proxy_service/incremental_tools_tests.rs"]
+mod incremental_tools_tests;
+#[cfg(test)]
+#[path = "proxy_service/new_models_tests.rs"]
+mod new_models_tests;
 #[path = "proxy_service/priority.rs"]
 mod priority;
+#[cfg(test)]
+#[path = "proxy_service/responses_stream_tests.rs"]
+mod responses_stream_tests;
 #[path = "proxy_service/warmup.rs"]
 mod warmup;
 #[cfg(test)]
@@ -2390,52 +2402,6 @@ fn normalize_responses_websocket_create(bytes: &[u8]) -> Result<Value, String> {
     normalize_openai_responses_request(request).map(|(payload, _)| payload)
 }
 
-async fn relay_responses_sse_to_websocket(
-    socket: &mut AxumWebSocket,
-    upstream: CodexUpstreamResponse,
-    usage_storage: ProxyStorageContext,
-    usage_metadata: ApiProxyUsageMetadata,
-) -> Result<(), String> {
-    let (_, mut upstream_stream) = upstream.into_stream();
-    let mut decoder = SseDecoder::default();
-    let mut recorded_usage = false;
-
-    while let Some(chunk) = upstream_stream.next().await {
-        let chunk = chunk?;
-        for event in decoder.push(&chunk) {
-            maybe_record_stream_usage_tokens(
-                &usage_storage,
-                &usage_metadata,
-                &event,
-                &mut recorded_usage,
-            )
-            .await;
-            let done = is_responses_terminal_event(&event);
-            send_responses_websocket_event(socket, &event).await?;
-            if done {
-                return Ok(());
-            }
-        }
-    }
-
-    for event in decoder.finish() {
-        maybe_record_stream_usage_tokens(
-            &usage_storage,
-            &usage_metadata,
-            &event,
-            &mut recorded_usage,
-        )
-        .await;
-        let done = is_responses_terminal_event(&event);
-        send_responses_websocket_event(socket, &event).await?;
-        if done {
-            return Ok(());
-        }
-    }
-
-    Ok(())
-}
-
 async fn send_responses_websocket_event(
     socket: &mut AxumWebSocket,
     event: &SseEvent,
@@ -3844,7 +3810,7 @@ fn convert_image_request_parts_to_codex(
 }
 
 fn is_supported_image_model(model: &str) -> bool {
-    model == DEFAULT_IMAGE_TOOL_MODEL
+    model_catalog::is_supported_image_model(model)
 }
 
 fn bool_field(object: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -7703,65 +7669,6 @@ fn build_sse_bytes_response(
         .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建 SSE 响应失败"))
 }
 
-fn build_passthrough_sse_response(
-    upstream: CodexUpstreamResponse,
-    usage_storage: ProxyStorageContext,
-    usage_metadata: ApiProxyUsageMetadata,
-) -> Response<Body> {
-    let (upstream_headers, mut upstream_stream) = upstream.into_stream();
-    let output = stream! {
-        let mut decoder = SseDecoder::default();
-        let mut recorded_usage = false;
-
-        while let Some(chunk) = upstream_stream.next().await {
-            match chunk {
-                Ok(chunk) => {
-                    for event in decoder.push(&chunk) {
-                        maybe_record_stream_usage_tokens(
-                            &usage_storage,
-                            &usage_metadata,
-                            &event,
-                            &mut recorded_usage,
-                        )
-                        .await;
-                        yield Ok::<Bytes, Infallible>(serialize_sse_event(
-                            event.event.as_deref(),
-                            &rewrite_sse_event_data_models_for_client(&event.data),
-                        ));
-                    }
-                }
-                Err(_) => return,
-            }
-        }
-
-        for event in decoder.finish() {
-            maybe_record_stream_usage_tokens(
-                &usage_storage,
-                &usage_metadata,
-                &event,
-                &mut recorded_usage,
-            )
-            .await;
-            yield Ok::<Bytes, Infallible>(serialize_sse_event(
-                event.event.as_deref(),
-                &rewrite_sse_event_data_models_for_client(&event.data),
-            ));
-        }
-    };
-    let mut response = Response::builder().status(StatusCode::OK);
-    for (name, value) in &upstream_headers {
-        if should_forward_response_header(name.as_str()) {
-            response = response.header(name, value);
-        }
-    }
-
-    response
-        .header("content-type", "text/event-stream; charset=utf-8")
-        .header("cache-control", "no-cache")
-        .body(Body::from_stream(output))
-        .unwrap_or_else(|_| json_error_response(StatusCode::BAD_GATEWAY, "构建流式代理响应失败"))
-}
-
 fn build_chat_streaming_response(
     upstream: CodexUpstreamResponse,
     usage_storage: ProxyStorageContext,
@@ -9983,6 +9890,7 @@ mod tests {
             vec![
                 "gpt-6-astra",
                 "gpt-6.1-sol",
+                "gpt-6.1-terra",
                 "gpt-6-sol",
                 "gpt-6-luna",
                 "gpt-5.6-sol",
@@ -9991,6 +9899,8 @@ mod tests {
                 "gpt-5.5",
                 "gpt-5.4",
                 "gpt-image-2",
+                "gpt-image-2.5-sunburst",
+                "gpt-image-2.5-flare",
             ]
         );
     }

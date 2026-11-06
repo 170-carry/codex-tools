@@ -145,6 +145,7 @@ def main():
             ids = [model["id"] for model in models]
             if name in ("fresh_binding", "stale_cache"):
                 assert "gpt-6.1-sol" in ids, (name, ids)
+                assert "gpt-6.1-terra" in ids, (name, ids)
                 assert set(ids) == {model["slug"] for model in seed["models"]}
                 sol = next(model for model in models if model["id"] == "gpt-6.1-sol")
                 assert sol["defaultReasoningEffort"] == "low", sol
