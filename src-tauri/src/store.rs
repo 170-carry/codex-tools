@@ -55,15 +55,22 @@ pub(crate) fn sync_current_auth_account_on_startup(app: &AppHandle) -> Result<()
 }
 
 pub(crate) fn load_store_from_path(path: &Path) -> Result<AccountsStore, String> {
+    crate::store_lock::ensure_store_available(path)?;
     if !path.exists() {
         return Ok(AccountsStore::default());
     }
 
+    let guard = acquire_store_guard(path)?;
     let raw = fs::read_to_string(path)
         .map_err(|e| format!("读取账号存储文件失败 {}: {e}", path.display()))?;
 
     match serde_json::from_str::<AccountsStore>(&raw) {
-        Ok(store) => Ok(normalize_loaded_store(path, store)),
+        Ok(store) => {
+            store
+                .loaded_revision
+                .set(Some(crate::store_lock::digest(raw.as_bytes())));
+            Ok(normalize_loaded_store(path, store, &guard))
+        }
         Err(primary_err) => {
             if let Some((recovered, recovered_sources)) =
                 recover_store_from_available_sources(path, &raw)
@@ -81,7 +88,10 @@ pub(crate) fn load_store_from_path(path: &Path) -> Result<AccountsStore, String>
                         backup_err
                     );
                 }
-                if let Err(repair_err) = write_store_file(path, &recovered) {
+                recovered
+                    .loaded_revision
+                    .set(Some(crate::store_lock::digest(raw.as_bytes())));
+                if let Err(repair_err) = save_store_with_guard(path, &recovered, &guard) {
                     return Err(format!(
                         "账号存储文件恢复后重写失败 {}: {}; {}",
                         path.display(),
@@ -89,7 +99,7 @@ pub(crate) fn load_store_from_path(path: &Path) -> Result<AccountsStore, String>
                         repair_err
                     ));
                 }
-                return Ok(normalize_loaded_store(path, recovered));
+                return Ok(normalize_loaded_store(path, recovered, &guard));
             }
 
             if let Err(backup_err) = backup_corrupted_store_file(path, &raw) {
@@ -101,7 +111,10 @@ pub(crate) fn load_store_from_path(path: &Path) -> Result<AccountsStore, String>
             }
 
             let fallback = AccountsStore::default();
-            if let Err(repair_err) = write_store_file(path, &fallback) {
+            fallback
+                .loaded_revision
+                .set(Some(crate::store_lock::digest(raw.as_bytes())));
+            if let Err(repair_err) = save_store_with_guard(path, &fallback, &guard) {
                 return Err(format!(
                     "账号存储文件格式无效且修复失败 {}: {}; {}",
                     path.display(),
@@ -115,7 +128,7 @@ pub(crate) fn load_store_from_path(path: &Path) -> Result<AccountsStore, String>
                 path.display(),
                 primary_err
             );
-            Ok(normalize_loaded_store(path, fallback))
+            Ok(normalize_loaded_store(path, fallback, &guard))
         }
     }
 }
@@ -125,6 +138,7 @@ pub(crate) fn save_store_to_path(path: &Path, store: &AccountsStore) -> Result<(
 }
 
 pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Result<(), String> {
+    crate::store_lock::ensure_store_available(path)?;
     let auth_json = match read_current_codex_auth_optional()? {
         Some(value) => value,
         None => return Ok(()),
@@ -133,10 +147,11 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
     sync_current_auth_account_on_startup_with_auth(path, auth_json)
 }
 
-fn sync_current_auth_account_on_startup_with_auth(
+pub(crate) fn sync_current_auth_account_on_startup_with_auth(
     path: &Path,
     auth_json: serde_json::Value,
 ) -> Result<(), String> {
+    crate::store_lock::ensure_store_available(path)?;
     let extracted = match extract_auth(&auth_json) {
         Ok(value) => value,
         Err(err) => {
@@ -147,6 +162,7 @@ fn sync_current_auth_account_on_startup_with_auth(
     let now = now_unix_seconds();
 
     let mut store = load_store_from_path(path)?;
+    let guard = begin_store_write(path, &store)?;
     let extracted_account_key = account_group_key(&extracted.principal_id, &extracted.account_id);
     let has_matching_account = store
         .accounts
@@ -235,7 +251,7 @@ fn sync_current_auth_account_on_startup_with_auth(
         }
 
         if changed {
-            save_store_to_path(path, &store)?;
+            save_store_with_guard(path, &store, &guard)?;
         }
         return Ok(());
     }
@@ -276,7 +292,7 @@ fn sync_current_auth_account_on_startup_with_auth(
     let mut stored = stored;
     let _ = profile_files::sync_account_profile_in_store_path(path, &mut stored);
     store.accounts.push(stored);
-    save_store_to_path(path, &store)?;
+    save_store_with_guard(path, &store, &guard)?;
     Ok(())
 }
 
@@ -290,6 +306,7 @@ pub(crate) fn update_account_group_refresh_state_in_path(
     sync_current_auth: bool,
 ) -> Result<bool, String> {
     let mut store = load_store_from_path(path)?;
+    let guard = begin_store_write(path, &store)?;
     let mut changed = false;
 
     for account in store
@@ -310,7 +327,7 @@ pub(crate) fn update_account_group_refresh_state_in_path(
         return Ok(false);
     }
 
-    save_store_to_path(path, &store)?;
+    save_store_with_guard(path, &store, &guard)?;
 
     if sync_current_auth
         && !auth_refresh_blocked
@@ -335,23 +352,61 @@ pub(crate) fn account_store_path_from_data_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("accounts.json")
 }
 
-fn write_store_file(path: &Path, store: &AccountsStore) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("无法解析存储目录 {}", path.display()))?;
-    fs::create_dir_all(parent)
-        .map_err(|e| format!("创建存储目录失败 {}: {e}", parent.display()))?;
-
+pub(crate) struct StoreWriteGuard {
+    path: PathBuf,
+    _lock: crate::store_lock::FileLock,
+}
+fn acquire_store_guard(path: &Path) -> Result<StoreWriteGuard, String> {
+    let parent = path.parent().ok_or("PROJECT_SHARING_INVALID_STATE")?;
+    fs::create_dir_all(parent).map_err(|_| "PROJECT_SHARING_IO")?;
+    let guard = StoreWriteGuard {
+        path: path.to_path_buf(),
+        _lock: crate::store_lock::FileLock::acquire(&parent.join(".accounts-store.lock"))?,
+    };
+    crate::store_lock::ensure_store_available(path)?;
+    Ok(guard)
+}
+pub(crate) fn begin_store_write(
+    path: &Path,
+    store: &AccountsStore,
+) -> Result<StoreWriteGuard, String> {
+    let guard = acquire_store_guard(path)?;
+    if crate::store_lock::fingerprint(path)? != store.loaded_revision.get() {
+        return Err("PROJECT_SHARING_STALE_STORE".into());
+    }
+    Ok(guard)
+}
+pub(crate) fn save_store_with_guard(
+    path: &Path,
+    store: &AccountsStore,
+    guard: &StoreWriteGuard,
+) -> Result<(), String> {
+    crate::store_lock::ensure_store_available(path)?;
+    if path != guard.path || crate::store_lock::fingerprint(path)? != store.loaded_revision.get() {
+        return Err("PROJECT_SHARING_STALE_STORE".into());
+    }
     let serialized =
         serde_json::to_string_pretty(store).map_err(|e| format!("序列化账号存储失败: {e}"))?;
     write_file_atomically(path, serialized.as_bytes())?;
+    store
+        .loaded_revision
+        .set(Some(crate::store_lock::digest(serialized.as_bytes())));
     if let Err(err) = write_store_shadow_backups(path, serialized.as_bytes()) {
         log::warn!("写入账号存储滚动备份失败 {}: {}", path.display(), err);
     }
     Ok(())
 }
 
-fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStore {
+fn write_store_file(path: &Path, store: &AccountsStore) -> Result<(), String> {
+    let guard = begin_store_write(path, store)?;
+    save_store_with_guard(path, store, &guard)
+}
+
+fn normalize_loaded_store(
+    path: &Path,
+    mut store: AccountsStore,
+    guard: &StoreWriteGuard,
+) -> AccountsStore {
     let mut changed = false;
 
     #[cfg(target_os = "windows")]
@@ -395,7 +450,7 @@ fn normalize_loaded_store(path: &Path, mut store: AccountsStore) -> AccountsStor
     }
 
     if changed {
-        if let Err(repair_err) = write_store_file(path, &store) {
+        if let Err(repair_err) = save_store_with_guard(path, &store, guard) {
             log::warn!(
                 "修正账号存储后重写文件失败 {}: {}",
                 path.display(),
@@ -668,6 +723,7 @@ fn parse_store_candidates_from_text(
                 modified_at,
                 store: AccountsStore {
                     version: 1,
+                    loaded_revision: Default::default(),
                     accounts,
                     settings: Default::default(),
                 },
@@ -745,6 +801,7 @@ mod tests {
     fn sample_store(label: &str, account_id: &str, updated_at: i64) -> AccountsStore {
         AccountsStore {
             version: 1,
+            loaded_revision: Default::default(),
             accounts: vec![StoredAccount {
                 id: format!("id-{label}"),
                 label: label.to_string(),
@@ -1174,7 +1231,8 @@ mod tests {
         let latest_backup = dir.join(LAST_GOOD_BACKUP_FILE_NAME);
         assert!(latest_backup.exists());
 
-        let second = sample_store("second", "workspace-2", 20);
+        let mut second = load_store_from_path(&store_path).expect("read before replacement");
+        second.accounts = sample_store("second", "workspace-2", 20).accounts;
         save_store_to_path(&store_path, &second).expect("save second");
 
         let previous_backup = dir.join(PREVIOUS_GOOD_BACKUP_FILE_NAME);
@@ -1192,11 +1250,84 @@ mod tests {
     }
 
     #[test]
+    fn project_sharing_store_guard_covers_active_file_write_window() {
+        let path = temp_dir().join("accounts.json");
+        let mut store = AccountsStore::default();
+        save_store_to_path(&path, &store).unwrap();
+        let other = load_store_from_path(&path).unwrap();
+        let guard = super::begin_store_write(&path, &store).unwrap();
+        assert!(
+            save_store_to_path(&path, &other).is_err(),
+            "background writers must be blocked before active profile writes"
+        );
+        store.settings.active_account_id = Some("synthetic-target".into());
+        super::save_store_with_guard(&path, &store, &guard).unwrap();
+        drop(guard);
+        assert!(
+            save_store_to_path(&path, &other).is_err(),
+            "old background snapshot cannot overwrite the committed switch later"
+        );
+    }
+
+    #[test]
+    fn project_sharing_store_rejects_stale_clone_after_commit() {
+        let path = temp_dir().join("accounts.json");
+        let initial = AccountsStore::default();
+        save_store_to_path(&path, &initial).unwrap();
+        let mut first = load_store_from_path(&path).unwrap();
+        let mut stale = first.clone();
+        first.settings.active_account_id = Some("target".into());
+        save_store_to_path(&path, &first).unwrap();
+        stale.settings.active_account_id = Some("obsolete".into());
+        assert!(
+            save_store_to_path(&path, &stale).is_err(),
+            "stale writer must not replace committed active account"
+        );
+        assert_eq!(
+            load_store_from_path(&path)
+                .unwrap()
+                .settings
+                .active_account_id
+                .as_deref(),
+            Some("target")
+        );
+    }
+
+    #[test]
+    fn project_sharing_store_rejects_unloaded_overwrite() {
+        let path = temp_dir().join("accounts.json");
+        save_store_to_path(&path, &AccountsStore::default()).unwrap();
+        let untouched = fs::read(&path).unwrap();
+        assert!(save_store_to_path(&path, &AccountsStore::default()).is_err());
+        assert_eq!(fs::read(path).unwrap(), untouched);
+    }
+
+    #[test]
+    fn project_sharing_store_allows_successive_saves_on_same_snapshot() {
+        let path = temp_dir().join("accounts.json");
+        let mut value = AccountsStore::default();
+        save_store_to_path(&path, &value).unwrap();
+        value.settings.active_account_id = Some("a".into());
+        save_store_to_path(&path, &value).unwrap();
+        value.settings.active_account_id = Some("b".into());
+        save_store_to_path(&path, &value).unwrap();
+        assert_eq!(
+            load_store_from_path(&path)
+                .unwrap()
+                .settings
+                .active_account_id
+                .as_deref(),
+            Some("b")
+        );
+    }
+
+    #[test]
     fn load_store_backfills_missing_principal_id() {
         let dir = temp_dir();
         let store_path = dir.join("accounts.json");
         let legacy_store = AccountsStore {
             version: 1,
+            loaded_revision: Default::default(),
             accounts: vec![StoredAccount {
                 id: "legacy".to_string(),
                 label: "legacy".to_string(),

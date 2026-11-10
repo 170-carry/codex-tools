@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   windowsQuotaOnboardingCompleted: true,
   macosQuotaOnboardingCompleted: true,
   launchCodexAfterSwitch: true,
+  preserveLocalProjects: true,
   smartSwitchIncludeApi: false,
   launchCodexAsAdmin: false,
   codexLaunchPath: null,

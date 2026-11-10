@@ -34,6 +34,7 @@ pub(crate) const PROXYD_BUILD_SOURCE_FILES: &[&str] = &[
     "src/proxy_service/sol_6_1_tests.rs",
     "src/state.rs",
     "src/store.rs",
+    "src/store_lock.rs",
     "src/usage.rs",
     "src/usage/mapping.rs",
     "src/usage/transport.rs",

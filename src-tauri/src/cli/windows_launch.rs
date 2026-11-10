@@ -94,6 +94,20 @@ impl WindowsCodexLaunchPlan {
         Ok(())
     }
 
+    pub(crate) fn assert_stopped(&self) -> Result<(), String> {
+        let mut system = sysinfo::System::new();
+        refresh_windows_switch_processes(&mut system);
+        let expected = self
+            .selected_desktop_path
+            .clone()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if !running_windows_desktop_process_ids(&system, &expected)?.is_empty() {
+            return Err("PROJECT_SHARING_DESKTOP_RUNNING".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn stop_desktop(&self) -> Result<(), String> {
         super::windows_stop::stop_desktop(self.selected_desktop_path.as_deref())
     }

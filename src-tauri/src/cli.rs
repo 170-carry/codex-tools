@@ -32,9 +32,9 @@ pub(crate) use windows_elevated::launch_elevated_process;
 #[cfg(target_os = "windows")]
 mod windows_launch;
 #[cfg(target_os = "windows")]
-pub(crate) use windows_launch::prepare_windows_codex_launch;
+pub(crate) use windows_launch::{prepare_windows_codex_launch, WindowsCodexLaunchPlan};
 #[cfg(all(test, target_os = "windows"))]
-use windows_launch::{windows_launch_failure, WindowsCodexLaunchPlan, WindowsDesktopTarget};
+use windows_launch::{windows_launch_failure, WindowsDesktopTarget};
 #[cfg(target_os = "windows")]
 mod windows_paths;
 #[cfg(target_os = "windows")]

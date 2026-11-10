@@ -195,7 +195,26 @@ export type AccountSummary = {
   isCurrent: boolean;
 };
 
+export type LocalProjectSwitchPreview = {
+  projectCount: number;
+  threadLinkCount: number;
+  unassignedThreadCount: number;
+  retainedTargetProjectCount: number;
+  requiresMergeConfirmation: boolean;
+  previewFingerprint: string;
+  noOp: boolean;
+};
+
+export type LocalProjectPreservation = {
+  status: "prepared" | "verified" | "pending" | "noOp";
+  projectCount: number;
+  threadLinkCount: number;
+  unassignedThreadCount: number;
+  warning: string | null;
+};
+
 export type SwitchAccountResult = {
+  localProjectPreservation?: LocalProjectPreservation | null;
   accountId: string;
   noOp?: boolean;
   launchedAppPath: string | null;
@@ -477,6 +496,7 @@ export type AppSettings = {
   windowsQuotaOnboardingCompleted: boolean;
   macosQuotaOnboardingCompleted: boolean;
   launchCodexAfterSwitch: boolean;
+  preserveLocalProjects: boolean;
   smartSwitchIncludeApi: boolean;
   launchCodexAsAdmin: boolean;
   codexLaunchPath: string | null;

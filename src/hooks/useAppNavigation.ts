@@ -19,8 +19,10 @@ export function useAppNavigation(
     mainWindowVisible,
     loading,
     tokenUsage,
+    recoveryRequired,
   } = c;
   useEffect(() => {
+    if (recoveryRequired) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         document.querySelector(
@@ -61,6 +63,7 @@ export function useAppNavigation(
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    recoveryRequired,
     activeTab,
     onSelectTab,
     onOpenAddDialog,
@@ -71,6 +74,7 @@ export function useAppNavigation(
     loadApiProxyStatus,
   ]);
   useEffect(() => {
+    if (recoveryRequired) return;
     let disposed = false;
     const unlisteners: UnlistenFn[] = [];
     const register = async () => {
@@ -97,9 +101,10 @@ export function useAppNavigation(
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [checkForAppUpdate, onSelectTab, updateSettings]);
+  }, [checkForAppUpdate, onSelectTab, updateSettings, recoveryRequired]);
   useEffect(() => {
     if (
+      recoveryRequired ||
       loading ||
       (activeTab !== "accounts" && activeTab !== "analytics") ||
       !mainWindowVisible
@@ -108,5 +113,5 @@ export function useAppNavigation(
     const updatedAtMs = (tokenUsage?.updatedAt ?? 0) * 1000;
     if (updatedAtMs > 0 && Date.now() < updatedAtMs + 5 * 60 * 1000) return;
     void refreshTokenUsage(true);
-  }, [activeTab, loading, mainWindowVisible, refreshTokenUsage, tokenUsage]);
+  }, [activeTab, loading, mainWindowVisible, refreshTokenUsage, tokenUsage, recoveryRequired]);
 }

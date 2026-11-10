@@ -141,7 +141,7 @@
     "currentStamp": "현재",
     "currentBadge": "현재 계정",
     "launch": "전환 후 실행",
-    "launching": "실행 중",
+    "launching": "처리 중…",
     "apiBadge": "API",
     "profileIncomplete": "Profile incomplete",
     "validationFailed": "Validation failed",
@@ -662,6 +662,12 @@
     "proxyPoolDisplay": {
       "label": "메뉴 막대에 프록시 풀 표시",
       "description": "유효한 ChatGPT 계정의 평균 할당량과 개수이며 총 토큰 수가 아닙니다. API 계정, 중복 및 10분이 지난 데이터는 제외합니다."
+    },
+    "preserveLocalProjects": {
+      "label": "전환할 때 로컬 프로젝트 유지",
+      "checkedText": "켜짐",
+      "uncheckedText": "꺼짐",
+      "description": "기본값은 켜짐이며 로컬 ChatGPT 계정만 지원합니다. 전환 전에 Codex를 종료합니다. 대상에 프로젝트가 있으면 병합 확인이 필요합니다."
     }
   },
   "editorPicker": {
@@ -815,5 +821,53 @@
     "alreadyRedeemed": "이미 사용한 카드입니다. 최신 할당량을 확인하세요",
     "unknown": "결과를 알 수 없습니다. 사용량을 새로 고치세요",
     "refreshFailed": "요청 완료 후 사용량 갱신에 실패했습니다. 수동으로 갱신하세요"
+  },
+  "localProjects": {
+    "title": "로컬 프로젝트 병합 확인",
+    "description": "“{{label}}” 계정에 로컬 프로젝트를 유지합니다.",
+    "mergeDetails": "대상에 기존 프로젝트가 있습니다. 확인하면 Codex를 종료한 뒤 병합하며 기존 대상 프로젝트도 유지합니다. 승인은 이번 미리보기에만 적용됩니다. 취소하면 계정이 전환되지 않습니다.",
+    "projectCount": "유지할 프로젝트",
+    "threadLinkCount": "프로젝트 내 대화 연결",
+    "unassignedThreadCount": "미분류 상태로 유지할 대화",
+    "retainedTargetProjectCount": "유지할 대상의 기존 프로젝트",
+    "cancel": "취소",
+    "confirm": "병합 후 전환",
+    "recoveryTitle": "완료되지 않은 로컬 프로젝트 전환이 있습니다",
+    "recoveryDescription": "복구 데이터를 보호하기 위해 계정 작업과 설정 저장을 중지했습니다. 복구 전에 Codex를 종료합니다. 완료 후 직접 Codex를 다시 열거나 전환을 재시도할 수 있습니다.",
+    "recoveryButton": "미완료 전환 복구",
+    "recoveryConfirm": "Codex 종료 후 복구",
+    "recovering": "복구 중…",
+    "recovered": "미완료 전환을 복구하고 설정과 계정을 다시 불러왔습니다. Codex를 다시 열거나 전환을 재시도할 수 있습니다.",
+    "noRecovery": "복구할 미완료 전환이 없습니다. 설정과 계정을 다시 불러왔습니다. Codex를 다시 열거나 전환을 재시도할 수 있습니다.",
+    "statuses": {
+      "prepared": "프로젝트 {{projectCount}}개, 프로젝트 대화 연결 {{threadLinkCount}}개, 미분류 대화 {{unassignedThreadCount}}개를 유지할 준비를 마쳤습니다. 실행 후 상태는 아직 확인하지 않았습니다.",
+      "verified": "복원 상태를 확인했습니다: 프로젝트 {{projectCount}}개, 프로젝트 대화 연결 {{threadLinkCount}}개, 미분류 대화 {{unassignedThreadCount}}개.",
+      "pending": "프로젝트 상태가 준비되었습니다: 프로젝트 {{projectCount}}개, 프로젝트 대화 연결 {{threadLinkCount}}개, 미분류 대화 {{unassignedThreadCount}}개. Codex에 로드되었는지는 아직 확인되지 않았습니다. 앱 시작이 완료되면 프로젝트 목록을 확인하거나 다시 미리보세요.",
+      "noOp": "이미 현재 계정입니다. 로컬 프로젝트를 이전하지 않았습니다."
+    },
+    "errors": {
+      "generic": "로컬 프로젝트 유지가 완료되지 않았습니다. 상태를 확인한 뒤 재시도하세요.",
+      "authRefreshFailed": "인증 갱신에 실패하여 프로젝트 유지 전환을 중지했습니다.",
+      "busy": "다른 로컬 프로젝트 작업이 진행 중입니다. 나중에 재시도하세요.",
+      "confirmationRequired": "대상에 프로젝트가 있습니다. 미리보고 병합을 명시적으로 확인하세요.",
+      "databaseBusy": "로컬 데이터베이스가 사용 중입니다. Codex를 종료한 뒤 재시도하세요.",
+      "databaseMismatch": "로컬 데이터베이스가 미리보기와 달라 작업을 거부했습니다.",
+      "desktopRunning": "Codex가 완전히 종료되지 않았습니다. 종료한 뒤 재시도하세요.",
+      "desktopUnavailable": "Codex 데스크톱 프로세스를 제어할 수 없어 작업을 중지했습니다.",
+      "disabled": "로컬 프로젝트 유지가 꺼져 있습니다.",
+      "externalChange": "외부 변경이 감지되어 덮어쓰기를 거부했습니다. 기존 파일을 유지하고 충돌을 확인하세요.",
+      "identityChanged": "계정 식별 정보가 변경되었습니다. 다시 미리보세요.",
+      "invalidState": "지원하지 않는 로컬 상태 형식 또는 내용이므로 변경을 거부했습니다.",
+      "io": "로컬 프로젝트 읽기 또는 쓰기에 실패했습니다. 권한과 디스크 상태를 확인하세요.",
+      "launchFailed": "Codex를 실행하지 못했습니다. 상태를 확인한 뒤 직접 재시도하세요.",
+      "previewChanged": "미리보기 후 로컬 상태가 변경되었습니다. 다시 미리보고 확인하세요.",
+      "recoveryRequired": "미완료 전환을 먼저 복구해야 합니다.",
+      "restorePending": "프로젝트 상태가 준비되었습니다. Codex에 로드되었는지는 아직 확인되지 않았습니다. 앱 시작이 완료되면 프로젝트 목록을 확인하거나 다시 미리보세요.",
+      "staleStore": "계정 저장소가 변경되었습니다. 다시 불러온 뒤 미리보세요.",
+      "unsupportedHome": "이 Codex 데이터 디렉터리는 지원하지 않습니다.",
+      "unsupportedIdentity": "로컬 ChatGPT 식별 정보를 확인할 수 없어 변경을 거부했습니다.",
+      "unsupportedPlatform": "이 플랫폼은 로컬 프로젝트 유지를 지원하지 않습니다.",
+      "unsupportedRoute": "로컬 프로젝트 유지는 ChatGPT 계정만 지원하며 API/중계 계정은 지원하지 않습니다."
+    }
   }
 }

@@ -8,7 +8,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import {
   DEFAULT_LOCALE,
   getNextLocale,
@@ -93,7 +92,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     }
-    void invoke("update_app_settings", { patch: { locale } }).catch(() => {});
   }, [locale]);
 
   const value = useMemo<I18nContextValue>(() => {
