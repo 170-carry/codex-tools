@@ -130,11 +130,18 @@ impl DesktopLifecycle for FakeLifecycle {
     }
 }
 fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    tree_with_locks(root, true)
+}
+fn tree_with_locks(root: &Path, include_locks: bool) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut out = BTreeMap::new();
     for e in fs::read_dir(root).unwrap() {
         let p = e.unwrap().path();
+        // Windows lock handles deny reads. Filter them before opening files.
+        if !include_locks && p.file_name().unwrap().to_string_lossy().ends_with(".lock") {
+            continue;
+        }
         if p.is_dir() {
-            out.extend(tree(&p));
+            out.extend(tree_with_locks(&p, include_locks));
         } else {
             out.insert(p.clone(), fs::read(p).unwrap());
         }
@@ -286,10 +293,7 @@ fn refusing_stop_leaves_active_files_untouched() {
     );
 }
 fn tracked_tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    tree(root)
-        .into_iter()
-        .filter(|(p, _)| !p.file_name().unwrap().to_string_lossy().ends_with(".lock"))
-        .collect()
+    tree_with_locks(root, false)
 }
 // Independent simulation of the observed desktop archive/restore protocol.
 fn desktop_restore(paths: &SwitchPaths, target: &str) {

@@ -23,3 +23,9 @@ and keyed lookups, without modifying the user's source SQLite database.
 
 No real account switch or native Windows lifecycle acceptance was performed.
 Release CI must validate macOS and Windows and build all desktop installers.
+
+The first release CI passed macOS validation and found a Windows-only test
+helper issue: the timeout test read exclusive lock files before filtering them
+out of its file snapshot. Filtering now happens before opening files; the
+production lock lifecycle is unchanged. Both platforms are revalidated in the
+replacement release run.
