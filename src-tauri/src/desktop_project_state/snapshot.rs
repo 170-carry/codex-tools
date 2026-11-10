@@ -153,8 +153,34 @@ pub(super) fn validate_unresolved_assignment_scope(
     owner_baseline: Option<&LocalSnapshot>,
     managed_projects: &BTreeSet<String>,
     managed_threads: &BTreeSet<String>,
+    host: &str,
+    deleted_projects: &BTreeSet<String>,
 ) -> Result<(), StateError> {
     let projects = map(globals, PROJECTS)?;
+    // Old desktop versions leave project IDs in cosmetic metadata and server
+    // mappings after removing their definitions. Keep those records with their
+    // owner, but do not overwrite them by importing a colliding project ID.
+    let mut metadata_ids: BTreeSet<_> = list(globals, ORDER)?
+        .into_iter()
+        .chain(list(globals, PINNED)?)
+        .collect();
+    for key in [APPEARANCES, THREAD_ORDER] {
+        metadata_ids.extend(map(globals, key)?.into_iter().map(|(id, _)| id));
+    }
+    if let Some(mappings) = map(globals, MAPPINGS)?.get(host) {
+        metadata_ids.extend(object(mappings, MAPPINGS)?.keys().cloned());
+    }
+    for id in metadata_ids {
+        if !projects.contains_key(&id)
+            && managed_projects.contains(&id)
+            && !deleted_projects.contains(&id)
+            && !owner_baseline.is_some_and(|base| base.projects.contains_key(&id))
+        {
+            return Err(invalid(
+                "unresolved project metadata collides with the shared scope",
+            ));
+        }
+    }
     for (thread, assignment) in map(globals, ASSIGNMENTS)? {
         let id = nonempty(&assignment["projectId"], "assignment.projectId")?;
         let previously_managed = owner_baseline.is_some_and(|baseline| {
@@ -186,13 +212,6 @@ pub(super) fn read(
 ) -> Result<LocalSnapshot, StateError> {
     object(globals, "globals")?;
     let raw_projects = map(globals, PROJECTS)?;
-    let require_project = |id: &str| {
-        if raw_projects.contains_key(id) || known_projects.contains(id) {
-            Ok(())
-        } else {
-            Err(invalid("metadata references an unknown project"))
-        }
-    };
     let mut result = LocalSnapshot::default();
     for (id, value) in &raw_projects {
         if let Some(project) = pure_project(id, value)? {
@@ -208,9 +227,6 @@ pub(super) fn read(
         nonempty(host, HOSTS)?;
     }
     let unassigned: BTreeSet<_> = list(globals, UNASSIGNED)?.into_iter().collect();
-    let mut referenced_threads = known_threads.clone();
-    referenced_threads.extend(assignments.keys().cloned());
-    referenced_threads.extend(unassigned.iter().cloned());
     for (thread, value) in &assignments {
         if thread.is_empty() {
             return Err(invalid("empty thread ID"));
@@ -278,9 +294,6 @@ pub(super) fn read(
     }
     let order = list(globals, ORDER)?;
     let pinned = list(globals, PINNED)?;
-    for id in order.iter().chain(&pinned) {
-        require_project(id)?;
-    }
     result.project_order = order
         .into_iter()
         .filter(|id| result.projects.contains_key(id))
@@ -290,22 +303,14 @@ pub(super) fn read(
         .filter(|id| result.projects.contains_key(id))
         .collect();
     for (id, value) in map(globals, APPEARANCES)? {
-        require_project(&id)?;
         object(&value, APPEARANCES)?;
         if result.projects.contains_key(&id) {
             result.project_appearances.insert(id, value);
         }
     }
     for (id, value) in map(globals, THREAD_ORDER)? {
-        require_project(&id)?;
         let entry = object(&value, THREAD_ORDER)?;
         let threads = strings(entry.get("threadIds").unwrap_or(&Value::Null), "threadIds")?;
-        if threads
-            .iter()
-            .any(|thread| !referenced_threads.contains(thread))
-        {
-            return Err(invalid("project thread order references an unknown thread"));
-        }
         if result.projects.contains_key(&id) {
             let threads = threads
                 .into_iter()
@@ -322,9 +327,6 @@ pub(super) fn read(
     for (mapping_host, mappings) in map(globals, MAPPINGS)? {
         for (id, value) in object(&mappings, MAPPINGS)? {
             let server_id = nonempty(value, MAPPINGS)?;
-            if mapping_host == host {
-                require_project(id)?;
-            }
             if mapping_host == host && result.projects.contains_key(id) {
                 result.app_server_project_ids.insert(id.clone(), server_id);
             }

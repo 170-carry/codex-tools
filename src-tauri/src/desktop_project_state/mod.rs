@@ -158,12 +158,19 @@ pub fn plan_share(
     );
     // Importing a project must not revive an unresolved relationship, and an
     // unrelated orphan must not be overwritten by the other account's thread.
+    let deleted_projects = registry
+        .deletions
+        .get("projects")
+        .cloned()
+        .unwrap_or_default();
     for (globals, owner) in [(document, source_owner), (target, target_owner)] {
         snapshot::validate_unresolved_assignment_scope(
             globals,
             registry.baselines.get(owner),
             &known_projects,
             &known_threads,
+            host_id,
+            &deleted_projects,
         )?;
     }
     let source_base = registry.baselines.get(source_owner).cloned();

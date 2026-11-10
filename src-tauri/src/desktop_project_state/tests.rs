@@ -2,6 +2,9 @@ use super::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::json;
 
+#[path = "stale_metadata_tests.rs"]
+mod stale_metadata_tests;
+
 fn token(claims: Value) -> String {
     format!(
         "e30.{}.synthetic",
@@ -932,7 +935,7 @@ fn initial_order_merge_keeps_source_order_then_independent_target_order() {
 }
 
 #[test]
-fn unknown_project_and_thread_references_fail_instead_of_disappearing() {
+fn historical_metadata_stays_with_its_owner_without_blocking_live_projects() {
     let original = document(globals("p", "Alpha", "t1"), vec![]);
     for (key, value) in [
         ("project-order", json!(["p", "never-known"])),
@@ -954,12 +957,12 @@ fn unknown_project_and_thread_references_fail_instead_of_disappearing() {
             json!({HOST:{"never-known":"server-unknown"}}),
         ),
     ] {
-        let mut invalid = original.clone();
-        invalid[key] = value;
-        assert!(
-            plan_share(&invalid, &owner('a'), &owner('b'), HOST, None).is_err(),
-            "{key}"
-        );
+        let mut source = original.clone();
+        source[key] = value;
+        let plan = plan_share(&source, &owner('a'), &owner('b'), HOST, None).unwrap();
+        assert_eq!(plan.document[key], source[key], "{key}");
+        assert_eq!(plan.registry.canonical.projects.len(), 1, "{key}");
+        assert_eq!(plan.registry.canonical.thread_memberships.len(), 1, "{key}");
     }
 }
 
