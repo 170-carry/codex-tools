@@ -1,0 +1,56 @@
+.higApp .panel { background: var(--bg-1); box-shadow: none; }
+.higApp .workspaceMain {
+  display: grid;
+  grid-template-columns: var(--ui-sidebar-width) minmax(0, 1fr);
+  grid-template-rows: var(--ui-toolbar-height) minmax(0, 1fr);
+  grid-template-areas: "sidebar toolbar" "sidebar content";
+}
+.higApp .appSidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 20px 12px 16px;
+  border-right: 1px solid var(--line);
+  background: var(--ui-sidebar-bg);
+  position: relative;
+}
+.higApp.isMacos .appSidebar { padding-top: 48px; }
+.sidebarDragRegion { position: absolute; inset: 0 0 auto; height: 36px; }
+.higApp .sidebarBrand {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 36px; padding: 0 8px; margin-bottom: 24px;
+  background: transparent; border: 0; box-shadow: none;
+  color: var(--ink); font-size: 15px; font-weight: 650; text-align: left;
+}
+.sidebarBrand img { width: 28px; height: 28px; border-radius: 7px; }
+.higApp .appSidebar .providerSwitch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-hover-bg); }
+.higApp .appSidebar .providerSwitch button { width: auto; height: 32px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 4px; border-radius: 5px; font-size: 11px; font-weight: 550; color: var(--subtle); }
+.higApp .appSidebar .providerSwitch img { width: 18px; height: 18px; }
+.higApp .appSidebar .providerSwitch button.isActive { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px #0000000d; }
+.sidebarNavigation { display: flex; flex: 1; flex-direction: column; gap: 4px; margin-top: 24px; }
+.higApp .sidebarItem { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; color: var(--subtle); background: transparent; border: 0; border-radius: 7px; box-shadow: none; font-size: 13px; font-weight: 450; text-align: left; }
+.higApp .sidebarItem:hover { background: var(--surface-hover-bg); color: var(--ink); }
+.higApp .sidebarItem.isActive { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+.sidebarItem.isSettings { margin-top: auto; }
+.higApp .appToolbar { grid-area: toolbar; display: flex; align-items: center; gap: 20px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--bg-1); min-width: 0; }
+.toolbarHeading { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.toolbarHeading > span { color: var(--subtle); font-size: 12px; padding-right: 10px; border-right: 1px solid var(--line); }
+.toolbarHeading h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.toolbarDragRegion { align-self: stretch; flex: 1; min-width: 20px; }
+.higApp .appToolbar .topActions { display: flex; gap: 6px; }
+.higApp .appToolbar .iconButton { width: 32px; height: 32px; min-height: 32px; padding: 7px; color: var(--subtle); background: transparent; box-shadow: none; border: 0; border-radius: 7px; }
+.higApp .appToolbar .iconButton:hover { color: var(--ink); background: var(--surface-hover-bg); }
+.higApp .viewStage { grid-area: content; min-width: 0; --page-shell-width: 1240px; }
+@media (max-width: 1050px) {
+  .higApp { --ui-sidebar-width: 176px; }
+  .higApp .appSidebar { padding-inline: 8px; }
+}
+@media (max-width: 780px) {
+  .higApp { --ui-sidebar-width: 64px; }
+  .higApp .sidebarBrand { justify-content: center; padding: 0; }
+  .sidebarBrand span, .sidebarItem span, .higApp .appSidebar .providerSwitch span { display: none; }
+  .higApp .appSidebar .providerSwitch { grid-template-columns: 1fr; }
+  .higApp .sidebarItem { justify-content: center; padding: 8px; }
+  .higApp .appToolbar { padding-inline: 16px; }
+}

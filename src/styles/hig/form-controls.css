@@ -1,0 +1,17 @@
+.higApp .uiFormMessage { margin: 8px 0 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; line-height: 1.6; background: var(--bg-1); color: var(--subtle); overflow-wrap: anywhere; }
+.higApp .uiFormMessage.isError { color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, var(--card)); }
+.higApp .utilityDialog form { display: grid; gap: 16px; }
+.higApp .utilityDialog .addOauthField { display: grid; gap: 6px; margin: 0; }
+.higApp .uiImportBody > label { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+.higApp .uiImportBody > label > :is(input, textarea, select) { margin: 0; }
+.higApp .uiFeedback { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+:root .higApp.classicApp .modeGroup:not(.trayIconStyleGroup) { display: flex; flex-wrap: wrap; gap: 2px; max-width: 100%; padding: 3px; }
+:root .higApp.classicApp .modeGroup:not(.trayIconStyleGroup) > button { flex: 0 1 auto; min-width: 0; width: auto; height: auto; min-height: 28px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.higApp :is(.settingControl, .uiSettingsControl, .authorizationAppControl, .editorPicker) { min-width: 0; max-width: 100%; }
+.higApp select { max-width: 100%; text-overflow: ellipsis; }
+.higApp .uiButton { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.higApp .uiBusyIndicator { width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; flex-shrink: 0; animation: ui-busy-spin .8s linear infinite; }
+@keyframes ui-busy-spin { to { transform: rotate(360deg); } }
+:root .higApp.classicApp .utilityDialogActions button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.higApp .utilityDialog .addApiErrorBox, .higApp .utilityDialog .addApiSuccessBox { padding: 10px 12px; border: 0; border-radius: 6px; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .higApp .uiBusyIndicator { animation: none; } }

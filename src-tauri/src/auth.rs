@@ -1199,7 +1199,7 @@ fn update_last_refresh(auth_json: &mut Value) -> Result<(), String> {
     Ok(())
 }
 
-fn write_auth_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn write_auth_file_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("无法解析 auth 目录 {}", path.display()))?;

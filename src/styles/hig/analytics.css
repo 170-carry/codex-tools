@@ -1,0 +1,69 @@
+.higApp .analyticsShell { gap: 20px; max-width: 1440px; }
+.higApp .analyticsHeader { align-items: center; }
+.higApp .analyticsOverview, .higApp .sectionTabs { border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
+.analyticsMetrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.higApp .analyticsMetric { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 20px 24px; min-width: 0; border: 0; border-radius: 0; background: transparent; color: var(--subtle); text-align: left; box-shadow: none; }
+.higApp .analyticsMetric[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 -2px var(--ink); }
+.higApp .analyticsMetric:hover { background: var(--bg-1); }
+.analyticsMetric span { font-size: 12px; }
+.analyticsMetric strong { font-size: clamp(20px, 2.5vw, 30px); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; white-space: nowrap; }
+.analyticsChartToolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 0; }
+.analyticsChartToolbar h3 { margin: 0; font-size: 13px; font-weight: 550; }
+.analyticsChartToolbar p { margin: 6px 0 0; font-size: 11px; color: var(--subtle); }
+.analyticsHourlyChart { position: relative; padding: 8px 20px 4px 8px; }
+.analyticsHourlyChart svg { width: 100%; display: block; max-height: 280px; }
+.analyticsHourlyChart text { fill: var(--subtle); font: 11px var(--font-ui); }
+.chartGrid { stroke: var(--line); stroke-width: 1; }
+.chartBar { fill: #139bb2; }
+.chartBar:hover { fill: #087b93; }
+.chartEmpty { position: absolute; inset: 30% 0 auto; text-align: center; color: var(--subtle); font-size: 12px; }
+.sectionTabList { display: flex; align-items: stretch; gap: 8px; padding: 0 16px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.higApp .sectionTabList button { min-height: 48px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 0; color: var(--subtle); background: transparent; box-shadow: none; white-space: nowrap; }
+.higApp .sectionTabList button[aria-selected="true"] { color: var(--ink); box-shadow: inset 0 -2px var(--ink); }
+.sectionTabList button span { background: var(--bg-2); border-radius: 4px; font-size: 11px; padding: 2px 5px; font-variant-numeric: tabular-nums; }
+.higApp .sectionTabs .analyticsBlock { padding: 20px; border: 0; box-shadow: none; border-radius: 0; }
+.higApp .sectionTabs .analyticsBlock > h3 { display: none; }
+.higApp .sectionTabs .analyticsTable { border-collapse: collapse; width: 100%; }
+.higApp .analyticsTable th { background: var(--bg-1); color: var(--subtle); font-weight: 500; padding: 12px; white-space: nowrap; }
+.higApp .analyticsTable td { padding: 14px 12px; border-bottom: 1px solid var(--line); font-weight: 400; font-variant-numeric: tabular-nums; }
+.higApp .analyticsTable tbody tr:hover { background: var(--bg-1); }
+.higApp .sectionTabs .analyticsBudget { border: 0; padding: 24px; }
+.higApp .analyticsTableWrap { overflow: auto; }
+.higApp .analyticsFoot { font-size: 11px; color: var(--muted); }
+@media (max-width: 780px) {
+  .analyticsMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .higApp .analyticsMetric { padding: 16px; }
+  .analyticsChartToolbar { padding: 16px 16px 0; align-items: flex-start; }
+  .analyticsChartToolbar select { max-width: 140px; }
+  .higApp .sectionTabs .analyticsBlock { padding: 12px; }
+  .higApp .analyticsHeader { flex-wrap: wrap; gap: 12px; }
+}
+
+.higApp .analyticsHourlyChart svg { height: 236px; max-height: none; }
+.higApp .analyticsSessionTools > span { white-space: nowrap; font-size: 12px; color: var(--subtle); }
+.higApp .analyticsProjectList, .higApp .analyticsPromptList { gap: 0; }
+.higApp :is(.analyticsProjectRow, .analyticsPromptRow) { padding: 16px 4px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
+.higApp :is(.analyticsProjectRow, .analyticsPromptRow):last-child { border-bottom: 0; }
+.higApp .analyticsProjectBar { height: 5px; }
+.higApp .analyticsProjectBar i { background: #139bb2; }
+.higApp :is(.analyticsProjectMetrics b, .analyticsPromptBody strong) { color: var(--ink); font-weight: 600; }
+.higApp :is(.analyticsProjectRow small, .analyticsProjectRow span, .analyticsPromptBody span) { font-size: 12px; font-weight: 400; color: var(--subtle); }
+.higApp .analyticsPromptRank { color: var(--subtle); background: var(--bg-1); border: 0; }
+.higApp .analyticsPage { width: min(1440px, 100%); }
+
+.higApp .analyticsMetrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .higApp .analyticsMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .higApp .analyticsMetricStatic { grid-column: 1 / -1; flex-direction: row; align-items: baseline; }
+}
+.higApp .analyticsMetric { color: var(--ink); }
+.higApp .analyticsMetric:hover { background: transparent; }
+.higApp .analyticsMetric > span { color: var(--subtle); }
+.analyticsChartControls { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.higApp .analyticsChartControls .modeGroup { width: auto; flex: none; }
+.higApp .analyticsChartControls button { white-space: nowrap; }
+.higApp .analyticsSessionTools .uiSearchField { width: min(360px, 100%); }
+@media (max-width: 640px) {
+ .analyticsChartToolbar { flex-wrap: wrap; }
+ .analyticsChartControls { width: 100%; justify-content: space-between; }
+}

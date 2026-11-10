@@ -1,3 +1,5 @@
+import { trayPreviews } from "./trayPreviews";
+import { createClaudeMockBackend } from "./claudeMockBackend";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { accounts as fixtures, analytics, tokenUsage, now } from "./fixtures";
 import {
@@ -39,6 +41,7 @@ export function installPreviewBackend() {
     codexAnalyticsWeeklyBudgetUsd: 50,
     preserveLocalProjects: params.get("preserve") !== "0",
   };
+  const claudeCommand = createClaudeMockBackend();
   const commands: string[] = [];
   const calls: { command: string; payload: unknown }[] = [];
   const proxyStatus = params.get("proxy") === "bound"
@@ -58,6 +61,8 @@ export function installPreviewBackend() {
   mockIPC(
     async (command, payload) => {
       commands.push(command);
+      const claudeResult = claudeCommand(command, payload);
+      if (claudeResult !== undefined) return claudeResult;
       calls.push({ command, payload: structuredClone(payload) });
       if (command === "recover_local_project_switch") {
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -98,8 +103,21 @@ export function installPreviewBackend() {
       if (
         command === "get_cached_codex_cost_analytics" ||
         command === "refresh_codex_cost_analytics"
-      )
+      ) {
+        if (new URLSearchParams(location.search).get("scenario") === "pagination") {
+          return {
+            ...analytics,
+            sessions: Array.from({length: 53}, (_, index) => ({
+              ...analytics.sessions[0], sessionId: `session-${String(index + 1).padStart(3, "0")}`,
+              projectName: `Project ${index + 1}`,
+            })),
+            projects: Array.from({length: 13}, (_, index) => ({
+              ...analytics.projects[0], projectName: `Project ${index + 1}`, projectPath: `/preview/project-${index + 1}`,
+            })),
+          };
+        }
         return analytics;
+      }
       if (command === "get_api_proxy_status" || command === "bind_codex_to_api_proxy") return proxyStatus;
       if (command === "get_cloudflared_status")
         return DEFAULT_CLOUDFLARED_STATUS;
@@ -128,8 +146,8 @@ export function installPreviewBackend() {
       if (command === "plugin:app|version") return version;
       if (command === "plugin:app|name") return "Codex Tools Preview";
       if (command === "get_runtime_platform") return params.get("platform") ?? "macos";
-      if (command === "get_tray_visual_previews") return [];
-      if (command === "is_debug_build") return false;
+      if (command === "get_tray_visual_previews") return trayPreviews;
+      if (command === "is_debug_build") return params.get("debug") === "1";
       if (command === "plugin:updater|check") return null;
       if (command === "update_account_label") {
         accounts.forEach((a) => {

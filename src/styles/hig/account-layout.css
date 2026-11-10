@@ -1,0 +1,46 @@
+.higApp .uiAccountRow { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(100px, 1fr) minmax(100px, 1fr) 32px max-content; grid-template-areas: "identity five week proxy actions"; gap: 8px 14px; padding: 12px 12px; min-height: 68px; align-items: center; }
+.higApp .uiAccountRow .accountIdentityCell { grid-area: identity; min-width: 0; position: relative; }
+.higApp .uiAccountRow .accountUsageFive { grid-area: five; }
+.higApp .uiAccountRow .accountUsageWeek { grid-area: week; }
+.higApp .uiAccountRow .accountProxyControl { grid-area: proxy; display: flex; flex-direction: column; align-items: center; gap: 0; font-size: 10px; color: var(--subtle); }
+.higApp .uiAccountRow .rowActions { grid-area: actions; }
+.higApp .accountSource { color: var(--subtle); font-size: 11px; }
+.higApp .uiAccountRow .accountNameButton { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.higApp .accountListHeader { display: none; }
+.higApp .accountListPanel { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.higApp .accountRows { overflow: auto; scrollbar-gutter: stable; }
+.higApp .accountToolbar { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 8px; border-bottom: 1px solid var(--line); }
+.higApp .accountSearch { flex: 1 1 180px; min-width: 140px; max-width: none; }
+.higApp .accountToolbarActions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.higApp .accountEmptyState { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; gap: 12px; padding: 40px 24px; text-align: center; }
+.higApp .accountEmptyState h3 { font-size: 16px; margin: 0; }
+.higApp .accountEmptyState p { color: var(--subtle); margin: 0 0 8px; max-width: 360px; }
+.higApp .accountRow.isCurrent:not(.isSelected) { background: var(--bg-1); }
+@container account-list (max-width: 720px) {
+ .higApp .uiAccountRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content; grid-template-areas: "identity identity actions" "five week proxy"; gap: 10px 14px; padding: 12px; }
+ .higApp .uiAccountRow .rowActions { justify-self: end; }
+ .higApp .accountToolbar > .accountSearch { flex-basis: 100%; }
+}
+@container account-list (max-width: 440px) {
+ .higApp .uiAccountRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "identity identity" "five week" "proxy actions"; }
+ .higApp .uiAccountRow .accountProxyControl { flex-direction: row; gap: 6px; justify-self: start; }
+ .higApp .uiAccountRow .accountTitleLine { padding-right: 0; flex-wrap: wrap; }
+}
+
+/* Keep the name on its own line; secondary metadata shares the line below. */
+.higApp .uiAccountRow .accountTitleLine { padding-right: 0; }
+.higApp .uiAccountRow .accountStateLine { gap: 4px 8px; }
+.higApp .accountRowMetrics { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-width: 0; color: var(--subtle); font-size: 10px; }
+.higApp .accountRowMetrics > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.higApp .accountRowMetrics b { font-weight: 550; font-variant-numeric: tabular-nums; }
+.higApp .accountPlanBadges { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.higApp .accountPlanBadges .planChip { min-width: 0; width: auto; min-height: 16px; height: 16px; padding: 0 4px; font-size: 8px; border-radius: 3px; }
+.higApp .accountPlanBadges .statusDot { width: 6px; height: 6px; }
+.higApp .accountStateLine > .usageFreshnessBadge { flex-basis: 100%; }
+
+
+.higApp .uiAccountRow .accountIdentityText { padding-top: 0; gap: 4px; }
+.higApp .uiAccountRow .accountNameButton { min-height: 20px; }
+:root:lang(zh-CN) .higApp .uiAccountRow .accountStateLine > .statusText,
+.higApp .uiAccountRow .accountStateLine > .statusText { flex: 0 0 auto; }
+.higApp .uiAccountRow .accountStateLine > .statusText .statusDot { width: 6px; height: 6px; }

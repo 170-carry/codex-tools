@@ -43,7 +43,7 @@ export function UsageMeter({
         <strong>{percent(value)}</strong>
       </div>
       <div className="usageBar" aria-hidden="true">
-        <span style={{ width: toProgressWidth(value) }} />
+        <span style={{ width: value === null ? "0%" : toProgressWidth(value) }} />
       </div>
       <div className="usageMeterFoot">
         <span>{text.remainingSuffix(percent(remaining))}</span>

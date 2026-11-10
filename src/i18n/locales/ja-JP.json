@@ -197,7 +197,7 @@
     "usageUnavailable": "使用量データなし"
   },
   "bottomDock": {
-    "ariaLabel": "下部ナビゲーション",
+    "ariaLabel": "メインナビゲーション",
     "accounts": "アカウント",
     "analytics": "Analytics",
     "proxy": "API プロキシ",
@@ -640,10 +640,10 @@
       "description": "有効な ChatGPT アカウントの平均残量と件数です。総トークン数ではありません。API アカウント、重複、10 分以上前のデータは除外します。"
     },
     "preserveLocalProjects": {
-      "label": "切り替え時にローカルプロジェクトを保持",
+      "label": "切り替え時にローカル会話を上書き",
       "checkedText": "有効",
       "uncheckedText": "無効",
-      "description": "初期状態は有効です。ローカルの ChatGPT アカウントのみ対応。切り替え前に Codex を終了し、切り替え先にプロジェクトがある場合は統合の確認が必要です。"
+      "description": "現在のプロジェクト、会話の分類、下書きを保存してから切替先のローカル状態を上書きします。切替先の元の状態はバックアップされます。"
     }
   },
   "editorPicker": {
@@ -799,15 +799,15 @@
     "refreshFailed": "送信完了後の使用量更新に失敗しました。手動で更新してください"
   },
   "localProjects": {
-    "title": "ローカルプロジェクトの統合を確認",
-    "description": "アカウント「{{label}}」にローカルプロジェクトを保持します。",
-    "mergeDetails": "切り替え先に既存のプロジェクトがあります。確認後、Codex を終了して統合し、既存のプロジェクトも保持します。承認は今回のプレビューのみ有効です。キャンセルしてもアカウントは切り替わりません。",
+    "title": "ローカル会話を上書き",
+    "description": "現在のローカル会話状態を「{{label}}」にコピーします。",
+    "mergeDetails": "現在のローカル状態で切替先を上書きします。元の状態は先にバックアップされます。",
     "projectCount": "保持するプロジェクト",
     "threadLinkCount": "プロジェクト内の会話リンク",
     "unassignedThreadCount": "未分類のまま保持する会話",
-    "retainedTargetProjectCount": "保持する切り替え先の既存プロジェクト",
+    "retainedTargetProjectCount": "上書きされる切替先のプロジェクト",
     "cancel": "キャンセル",
-    "confirm": "統合して切り替え",
+    "confirm": "上書きして切り替え",
     "recoveryTitle": "未完了のローカルプロジェクト切り替えがあります",
     "recoveryDescription": "復旧用データを保護するため、アカウント操作と設定の保存を停止しています。復旧前に Codex を終了します。完了後は自分で Codex を再度開くか、切り替えを再試行できます。",
     "recoveryButton": "未完了の切り替えを復旧",

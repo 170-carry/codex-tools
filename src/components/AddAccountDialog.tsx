@@ -1,5 +1,8 @@
+import { Presence } from "./ui/Presence";
+import { AuthorizationAppPicker } from "./accounts/import/AuthorizationAppPicker";
 import {
   useCallback,
+  useId,
   useEffect,
   useMemo,
   useRef,
@@ -64,6 +67,7 @@ export function AddAccountDialog({
   onClose,
 }: AddAccountDialogProps) {
   const { copy, locale } = useI18n();
+  const apiErrorId = useId();
   const importCopy = getAccountImportCopy(locale);
   const [activeRoute, setActiveRoute] = useState<AddAccountRoute>("oauth");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -288,9 +292,7 @@ export function AddAccountDialog({
     void handlePrepareOauth().catch(() => {});
   }, [activeRoute, busy, handlePrepareOauth, oauthLogin, open, preparingOauth]);
 
-  if (!open) {
-    return null;
-  }
+
 
   const mergeSelectedFiles = (incomingFiles: File[]) => {
     setSelectedFiles((current) => {
@@ -456,8 +458,94 @@ export function AddAccountDialog({
     }
   };
 
+  const footer = <>
+    <button type="button" className="ghost" onClick={onClose} disabled={closeBlocked}>{copy.accountDeleteDialog.cancel}</button>
+    {activeRoute === "current" && (<button
+            type="button"
+            className="primary addAccountPrimaryAction"
+            onClick={() => void handleImportCurrentAuth()}
+            disabled={actionLocked}
+          >
+            {pendingRoute === "current"
+              ? copy.addAccount.currentImporting
+              : copy.addAccount.currentStart}
+          </button>)}
+    {activeRoute === "upload" && (<button
+            type="button"
+            className="primary addAccountPrimaryAction"
+            onClick={() => void handleImportFiles()}
+            disabled={actionLocked || selectedFiles.length === 0}
+          >
+            {pendingRoute === "upload" || importingAccounts || readingFiles
+              ? copy.addAccount.uploadImporting
+              : copy.addAccount.uploadStartImport}
+          </button>)}
+    {activeRoute === "session" && (<button
+            type="button"
+            className="primary addAccountPrimaryAction"
+            onClick={() => void handleImportSessionJson()}
+            disabled={actionLocked || sessionJsonText.trim() === ""}
+          >
+            {pendingRoute === "session" || importingAccounts
+              ? copy.addAccount.sessionImporting
+              : copy.addAccount.sessionStartImport}
+          </button>)}
+    {activeRoute === "oauth" && (oauthCallbackUrl.trim() ? (<button
+                type="button"
+                className="primary addAccountPrimaryAction"
+                onClick={() => void handleCompleteOauth()}
+                disabled={actionLocked || oauthCallbackUrl.trim() === ""}
+              >
+                {pendingRoute === "oauth" || importingAccounts
+                  ? copy.addAccount.oauthCallbackSubmitting
+                  : reauthorizeAccount
+                    ? copy.addAccount.reauthorizeParseCallback
+                    : copy.addAccount.oauthParseCallback}
+              </button>) : (<button
+              type="button"
+              className="primary addAccountPrimaryAction"
+              onClick={() => void handleOpenOauthPage()}
+              disabled={actionLocked || !oauthLogin}
+            >
+              {copy.addAccount.oauthOpenBrowser}
+            </button>))}
+    {activeRoute === "api" && (          <>
+            <button
+              type="button"
+              className="ghost addAccountSecondaryAction"
+              onClick={() => void handleTestApiConnection()}
+              disabled={
+                actionLocked || testingApiConnection || apiRequiredMissing
+              }
+            >
+              {testingApiConnection
+                ? copy.addAccount.apiTestingConnection
+                : copy.addAccount.apiTestConnection}
+            </button>
+            <button
+              type="button"
+              className="primary addAccountPrimaryAction"
+              onClick={() => void handleCreateApiAccount(false)}
+              disabled={apiSubmitDisabled}
+            >
+              {pendingRoute === "api"
+                ? copy.addAccount.apiSaving
+                : copy.addAccount.apiValidateAndSave}
+            </button>
+            {apiCanForceSave ? (
+              <button
+                type="button"
+                className="ghost addAccountSecondaryAction"
+                onClick={() => void handleCreateApiAccount(true)}
+                disabled={actionLocked}
+              >
+                {copy.addAccount.apiForceSave}
+              </button>
+            ) : null}
+          </>)}
+  </>;
   return (
-    <AccountImportFrame
+    <Presence present={open}><AccountImportFrame
       title={dialogTitle}
       subtitle={dialogSubtitle}
       routes={routeOptions}
@@ -467,18 +555,13 @@ export function AddAccountDialog({
       routeSwitchBlocked={routeSwitchBlocked}
       onSelectRoute={setActiveRoute}
       onClose={onClose}
+      actions={footer}
     >
       {activeRoute === "oauth" ? (
         <div className="addAccountPanelBody addOauthSection">
           <div className="addOauthActionRow">
-            <button
-              type="button"
-              className="primary addAccountPrimaryAction"
-              onClick={() => void handleOpenOauthPage()}
-              disabled={actionLocked || !oauthLogin}
-            >
-              {copy.addAccount.oauthOpenBrowser}
-            </button>
+            <AuthorizationAppPicker disabled={actionLocked} />
+
             {oauthWaitingForCallback ? (
               <span className="addOauthListening">
                 {copy.addAccount.oauthListening}
@@ -514,18 +597,7 @@ export function AddAccountDialog({
                 />
               </label>
 
-              <button
-                type="button"
-                className="primary addAccountPrimaryAction"
-                onClick={() => void handleCompleteOauth()}
-                disabled={actionLocked || oauthCallbackUrl.trim() === ""}
-              >
-                {pendingRoute === "oauth" || importingAccounts
-                  ? copy.addAccount.oauthCallbackSubmitting
-                  : reauthorizeAccount
-                    ? copy.addAccount.reauthorizeParseCallback
-                    : copy.addAccount.oauthParseCallback}
-              </button>
+
             </div>
           </details>
           {!oauthLogin ? (
@@ -538,16 +610,7 @@ export function AddAccountDialog({
 
       {activeRoute === "current" ? (
         <div className="addAccountPanelBody addCurrentSection">
-          <button
-            type="button"
-            className="primary addAccountPrimaryAction"
-            onClick={() => void handleImportCurrentAuth()}
-            disabled={actionLocked}
-          >
-            {pendingRoute === "current"
-              ? copy.addAccount.currentImporting
-              : copy.addAccount.currentStart}
-          </button>
+
         </div>
       ) : null}
 
@@ -598,16 +661,7 @@ export function AddAccountDialog({
             )}
           </div>
 
-          <button
-            type="button"
-            className="primary addAccountPrimaryAction"
-            onClick={() => void handleImportFiles()}
-            disabled={actionLocked || selectedFiles.length === 0}
-          >
-            {pendingRoute === "upload" || importingAccounts || readingFiles
-              ? copy.addAccount.uploadImporting
-              : copy.addAccount.uploadStartImport}
-          </button>
+
         </div>
       ) : null}
 
@@ -627,22 +681,13 @@ export function AddAccountDialog({
             />
           </label>
 
-          <button
-            type="button"
-            className="primary addAccountPrimaryAction"
-            onClick={() => void handleImportSessionJson()}
-            disabled={actionLocked || sessionJsonText.trim() === ""}
-          >
-            {pendingRoute === "session" || importingAccounts
-              ? copy.addAccount.sessionImporting
-              : copy.addAccount.sessionStartImport}
-          </button>
+
         </div>
       ) : null}
 
       {activeRoute === "api" ? (
         <div className="addAccountPanelBody addApiSection">
-          <div className="addApiFieldGrid">
+          <div className="addApiFieldGrid" role="group" aria-describedby={apiInlineError ? apiErrorId : undefined}>
             <label className="addOauthField">
               <span className="addOauthFieldLabel">
                 {copy.addAccount.apiNameLabel}
@@ -701,12 +746,12 @@ export function AddAccountDialog({
           </div>
 
           {apiInlineError ? (
-            <div className="addApiErrorBox">
+            <div className="addApiErrorBox uiFormMessage isError" id={apiErrorId} role="alert">
               <strong>{copy.addAccount.apiValidationFailed}</strong>
               <p>{apiInlineError}</p>
             </div>
           ) : apiInlineSuccess ? (
-            <div className="addOauthStatus addApiStatus addApiSuccessBox">
+            <div className="addOauthStatus addApiStatus addApiSuccessBox" role="status">
               <strong>{copy.addAccount.apiTestSucceeded}</strong>
               <p>{apiInlineSuccess}</p>
             </div>
@@ -714,40 +759,7 @@ export function AddAccountDialog({
             <p className="addFieldHint">{copy.addAccount.apiValidationTitle}</p>
           )}
 
-          <div className="addApiActionRow">
-            <button
-              type="button"
-              className="ghost addAccountSecondaryAction"
-              onClick={() => void handleTestApiConnection()}
-              disabled={
-                actionLocked || testingApiConnection || apiRequiredMissing
-              }
-            >
-              {testingApiConnection
-                ? copy.addAccount.apiTestingConnection
-                : copy.addAccount.apiTestConnection}
-            </button>
-            <button
-              type="button"
-              className="primary addAccountPrimaryAction"
-              onClick={() => void handleCreateApiAccount(false)}
-              disabled={apiSubmitDisabled}
-            >
-              {pendingRoute === "api"
-                ? copy.addAccount.apiSaving
-                : copy.addAccount.apiValidateAndSave}
-            </button>
-            {apiCanForceSave ? (
-              <button
-                type="button"
-                className="ghost addAccountSecondaryAction"
-                onClick={() => void handleCreateApiAccount(true)}
-                disabled={actionLocked}
-              >
-                {copy.addAccount.apiForceSave}
-              </button>
-            ) : null}
-          </div>
+
         </div>
       ) : null}
 
@@ -772,6 +784,6 @@ export function AddAccountDialog({
         onChange={handleFilesPicked}
         {...folderPickerAttributes}
       />
-    </AccountImportFrame>
+    </AccountImportFrame></Presence>
   );
 }

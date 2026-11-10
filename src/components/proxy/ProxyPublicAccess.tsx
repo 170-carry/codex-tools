@@ -1,4 +1,8 @@
-import { copyText } from "./clipboard";
+import { Switch } from "../ui/Switch";
+import { PublicTunnelSettings } from "./PublicTunnelSettings";
+import { PublicAccessStatus } from "./PublicAccessStatus";
+import { SetupProgress } from "../ui/SetupProgress";
+import { uiCopy } from "../../i18n/uiCopy";
 import type { ApiProxyWorkspace } from "./useApiProxyWorkspace";
 export function ProxyPublicAccess({
   workspace,
@@ -19,45 +23,28 @@ export function ProxyPublicAccess({
     cloudflaredBusy,
     publicAccessEnabled,
     setPublicAccessEnabled,
-    tunnelMode,
-    setTunnelMode,
     useHttp2,
     setUseHttp2,
-    namedInput,
-    setNamedInput,
     cloudflaredEnabled,
     canStartCloudflared,
     cloudflaredInput,
   } = workspace;
 
+  const text = uiCopy(workspace.locale);
   return (
     <div className="proxySectionContent">
       <div className="proxySectionHeader">
         <h3>{proxyCopy.cloudflaredTitle}</h3>
         <div className="proxySwitchRow proxySectionToggle">
-          <label
-            className="themeSwitch"
-            aria-label={proxyCopy.cloudflaredToggle}
-          >
-            <input
-              type="checkbox"
+          <Switch label={proxyCopy.cloudflaredToggle}
               checked={publicAccessEnabled}
-              onChange={(event) => setPublicAccessEnabled(event.target.checked)}
-            />
-            <span className="themeSwitchTrack" aria-hidden="true">
-              <span className="themeSwitchThumb" />
-            </span>
-            <span className="themeSwitchText">
-              {publicAccessEnabled
-                ? proxyCopy.defaultStartEnabled
-                : proxyCopy.defaultStartDisabled}
-            </span>
-          </label>
+              onChange={(checked) => setPublicAccessEnabled(checked)} />
         </div>
       </div>
 
       {cloudflaredEnabled ? (
         <div className="cloudflaredContent">
+          <SetupProgress steps={[text.installation, text.configuration, text.service]} current={!cloudflaredStatus.installed ? 0 : cloudflaredStatus.running ? 2 : 1} />
           {!status.running ? (
             <article className="cloudflaredCallout">
               <strong>{proxyCopy.startLocalProxyFirstTitle}</strong>
@@ -81,117 +68,17 @@ export function ProxyPublicAccess({
             </article>
           ) : (
             <>
-              <div className="cloudflaredModeGrid">
-                <button
-                  className={`cloudflaredModeCard${tunnelMode === "quick" ? " isActive" : ""}`}
-                  onClick={() => setTunnelMode("quick")}
-                  disabled={cloudflaredBusy || cloudflaredStatus.running}
-                >
-                  <strong>{proxyCopy.quickModeLabel}</strong>
-                  <p>{proxyCopy.quickModeDescription}</p>
-                </button>
-                <button
-                  className={`cloudflaredModeCard${tunnelMode === "named" ? " isActive" : ""}`}
-                  onClick={() => setTunnelMode("named")}
-                  disabled={cloudflaredBusy || cloudflaredStatus.running}
-                >
-                  <strong>{proxyCopy.namedModeLabel}</strong>
-                  <p>{proxyCopy.namedModeDescription}</p>
-                </button>
-              </div>
-
-              {tunnelMode === "quick" ? (
-                <article className="cloudflaredCallout">
-                  <p>{proxyCopy.quickNoteBody}</p>
-                </article>
-              ) : null}
-
-              {tunnelMode === "named" ? (
-                <div className="cloudflaredFormGrid">
-                  <label className="cloudflaredInputField">
-                    <span>{proxyCopy.apiTokenLabel}</span>
-                    <input
-                      type="password"
-                      value={namedInput.apiToken}
-                      onChange={(event) =>
-                        setNamedInput((current) => ({
-                          ...current,
-                          apiToken: event.target.value,
-                        }))
-                      }
-                      placeholder={proxyCopy.apiTokenPlaceholder}
-                      disabled={cloudflaredBusy || cloudflaredStatus.running}
-                    />
-                  </label>
-                  <label className="cloudflaredInputField">
-                    <span>{proxyCopy.accountIdLabel}</span>
-                    <input
-                      value={namedInput.accountId}
-                      onChange={(event) =>
-                        setNamedInput((current) => ({
-                          ...current,
-                          accountId: event.target.value,
-                        }))
-                      }
-                      placeholder={proxyCopy.accountIdPlaceholder}
-                      disabled={cloudflaredBusy || cloudflaredStatus.running}
-                    />
-                  </label>
-                  <label className="cloudflaredInputField">
-                    <span>{proxyCopy.zoneIdLabel}</span>
-                    <input
-                      value={namedInput.zoneId}
-                      onChange={(event) =>
-                        setNamedInput((current) => ({
-                          ...current,
-                          zoneId: event.target.value,
-                        }))
-                      }
-                      placeholder={proxyCopy.zoneIdPlaceholder}
-                      disabled={cloudflaredBusy || cloudflaredStatus.running}
-                    />
-                  </label>
-                  <label className="cloudflaredInputField">
-                    <span>{proxyCopy.hostnameLabel}</span>
-                    <input
-                      value={namedInput.hostname}
-                      onChange={(event) =>
-                        setNamedInput((current) => ({
-                          ...current,
-                          hostname: event.target.value,
-                        }))
-                      }
-                      placeholder={proxyCopy.hostnamePlaceholder}
-                      disabled={cloudflaredBusy || cloudflaredStatus.running}
-                    />
-                  </label>
-                </div>
-              ) : null}
+              <PublicTunnelSettings workspace={workspace} />
 
               <div className="cloudflaredToolbar">
                 <div className="proxySwitchRow cloudflaredToolbarMeta">
                   <div className="settingMeta">
                     <strong>{proxyCopy.useHttp2}</strong>
                   </div>
-                  <label
-                    className="themeSwitch"
-                    aria-label={proxyCopy.useHttp2}
-                  >
-                    <input
-                      type="checkbox"
+                  <Switch label={proxyCopy.useHttp2}
                       checked={useHttp2}
-                      onChange={(event) => setUseHttp2(event.target.checked)}
-                      disabled={cloudflaredBusy || cloudflaredStatus.running}
-                    />
-                    <span className="themeSwitchTrack" aria-hidden="true">
-                      <span className="themeSwitchThumb" />
-                    </span>
-                    <span className="themeSwitchText">
-                      {useHttp2
-                        ? proxyCopy.defaultStartEnabled
-                        : proxyCopy.defaultStartDisabled}
-                    </span>
-                  </label>
+                      onChange={(checked) => setUseHttp2(checked)}
+                      disabled={cloudflaredBusy || cloudflaredStatus.running} />
                 </div>
 
                 <div className="cloudflaredToolbarActions">
@@ -232,55 +119,7 @@ export function ProxyPublicAccess({
                 </div>
               </div>
 
-              <div className="proxyDetailGrid">
-                <article className="proxyDetailCard">
-                  <span className="proxyLabel">
-                    {proxyCopy.publicStatusLabel}
-                  </span>
-                  <strong
-                    className={`proxyStatus${cloudflaredStatus.running ? " isRunning" : ""}`}
-                  >
-                    {cloudflaredStatus.running
-                      ? proxyCopy.publicStatusRunning
-                      : proxyCopy.publicStatusStopped}
-                  </strong>
-                </article>
-
-                <article className="proxyDetailCard">
-                  <div className="proxyDetailHeader">
-                    <span className="proxyLabel">
-                      {proxyCopy.publicUrlLabel}
-                    </span>
-                    <button
-                      className="ghost proxyCopyButton"
-                      onClick={() => copyText(cloudflaredStatus.publicUrl)}
-                      disabled={!cloudflaredStatus.publicUrl}
-                    >
-                      {proxyCopy.copy}
-                    </button>
-                  </div>
-                  <code>
-                    {cloudflaredStatus.publicUrl ??
-                      proxyCopy.baseUrlPlaceholder}
-                  </code>
-                </article>
-
-                <article className="proxyDetailCard">
-                  <span className="proxyLabel">
-                    {proxyCopy.installPathLabel}
-                  </span>
-                  <code>
-                    {cloudflaredStatus.binaryPath ?? proxyCopy.notDetected}
-                  </code>
-                </article>
-
-                <article className="proxyDetailCard">
-                  <span className="proxyLabel">{proxyCopy.lastErrorLabel}</span>
-                  <p className="proxyErrorText">
-                    {cloudflaredStatus.lastError ?? proxyCopy.none}
-                  </p>
-                </article>
-              </div>
+              <PublicAccessStatus workspace={workspace} />
             </>
           )}
         </div>

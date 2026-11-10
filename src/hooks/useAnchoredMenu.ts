@@ -98,7 +98,7 @@ export function useAnchoredMenu() {
     };
   }, [open, close, reposition]);
   const toggle = () => {
-    setPortalContainer(triggerRef.current?.closest("dialog") ?? document.body);
+    setPortalContainer(triggerRef.current?.closest<HTMLElement>('[role="dialog"], [role="alertdialog"], dialog') ?? document.body);
     setOpen((value) => !value);
   };
   return {

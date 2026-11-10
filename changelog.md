@@ -2,6 +2,24 @@
 
 ### Released
 
+- v3.2.0
+
+#### English
+
+1. Add Claude account management, OAuth and credential import, usage refresh and session maintenance, with a choice of app for authorization links.
+2. Preserve local workspaces when switching accounts and improve project/session recovery and switch input handling.
+3. Unify account, analytics, proxy, settings and dialog layouts; add responsive account details, consistent controls and concise operation feedback.
+4. Refine account rows with colored plan stamps, credit balances and 24-hour token usage. Keep large layouts stationary and use short transitions only for overlays and feedback.
+5. Desktop release for macOS and Windows. npm CLI packages are not published in this release.
+
+#### 中文
+
+1. 新增 Claude 账号管理、OAuth 与凭据导入、用量刷新和会话维护，授权链接支持选择打开应用。
+2. 完善账号切换时的本地工作区保留、项目与会话恢复，以及切换输入处理。
+3. 统一账号、分析、API 反代、设置及弹窗布局，完善响应式详情面板、公共控件和操作反馈。
+4. 账号行采用彩色套餐标识，集中展示余额和近 24 小时 Token；大面积布局保持静止，仅浮层和提示保留短过渡。
+5. 本次发布 macOS 与 Windows 桌面安装包，不发布 npm CLI 包。
+
 - v3.1.5
 
 #### English

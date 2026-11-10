@@ -1,0 +1,35 @@
+.higApp button { font-family: var(--font-ui); font-weight: 500; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
+.higApp button:hover { transform: none; }
+.higApp button:active:not(:disabled) { filter: brightness(.94); }
+.higApp button:disabled { opacity: .45; cursor: default; }
+.higApp :is(button.primary, button.ghost, button.danger, .importPrimary, .importSmartSwitch) {
+  min-height: var(--ui-control-height); padding: 6px 12px;
+  border-radius: var(--ui-radius-control); font-size: 12px; line-height: 18px;
+  box-shadow: none; font-weight: 550;
+}
+.higApp :is(button.primary, .importPrimary) { background: var(--brand); border: 1px solid var(--brand); color: white; }
+.higApp :is(button.ghost, .importSmartSwitch) { background: var(--card); border: 1px solid var(--line); color: var(--ink); }
+.higApp :is(button.ghost, .importSmartSwitch):hover { background: var(--bg-2); border-color: var(--line-strong); }
+.higApp button.danger { background: transparent; color: var(--danger); border: 1px solid var(--line); }
+.higApp :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.higApp :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea) {
+  font-family: var(--font-ui); font-size: 13px; font-weight: 400;
+  border-radius: var(--ui-radius-control); border-color: var(--line); color: var(--ink); background-color: var(--card); box-shadow: none;
+}
+.higApp :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select) { min-height: var(--ui-control-height); }
+.higApp ::placeholder { color: var(--muted); font-weight: 400; }
+.higApp :is(.settingsDialog:not(.settingsPage), .addAuthDialog, .claudeImportDialog, .utilityDialog) {
+  border-radius: 12px; border-color: var(--line); box-shadow: var(--panel-shadow); background: var(--card);
+}
+.higApp :is(.settingsHeader h2, .addAuthDialog .settingsHeader h2, .claudeImportDialog h2, .utilityDialogHeader h2) { font-size: 18px; font-weight: 600; line-height: 1.4; }
+.higApp :is(.addAccountDialogSubtitle, .settingDescription, .utilityDialogHeader p, .claudeImportDialog p) { font-size: 12px; line-height: 1.6; color: var(--subtle); font-weight: 400; }
+.higApp .addAccountLead { background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; box-shadow: none; }
+.higApp :is(.modeGroup, .claudeImportTabs) { border-radius: 8px; background: var(--bg-2); box-shadow: none; }
+.higApp .modeGroup > button { min-height: 32px; border-radius: 6px; font-size: 12px; padding: 6px 10px; box-shadow: none; }
+.higApp .modeGroup > button.primary { background: var(--card); color: var(--ink); border-color: var(--line); }
+.higApp .modeGroup > button.ghost { background: transparent; color: var(--subtle); border-color: transparent; }
+.higApp :is(.closeButton, .claudeDialogClose) { color: var(--subtle); box-shadow: none; }
+.higApp :is(.rowToggle, .settingSwitch) { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .higApp *, .higApp *::before, .higApp *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

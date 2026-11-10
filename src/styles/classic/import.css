@@ -18,7 +18,7 @@
 .classicApp .addAuthDialog .addAccountRouteDescription { margin: 0; color: var(--subtle); font: 400 11px/1.5 var(--font-ui); }
 .classicApp .addAuthDialog .addAccountPanelBody { gap: 12px; }
 .classicApp .addAuthDialog .addOauthActionRow { flex-direction: row; align-items: center; gap: 8px; }
-.classicApp .addAuthDialog .addAccountPrimaryAction, .classicApp .addAuthDialog .addAccountSecondaryAction { justify-self: start; width: auto; min-width: 0; min-height: 28px; padding: 5px 11px; border-radius: 6px; font: 500 12px/1.4 var(--font-ui); }
+.classicApp .addAuthDialog .addAccountPrimaryAction, .classicApp .addAuthDialog .addAccountSecondaryAction { justify-self: start; width: auto; min-width: 0; min-height: var(--ui-control-height, 32px); padding: 5px 12px; border-radius: var(--ui-radius-control, 6px); font: 500 12px/20px var(--font-ui); }
 .classicApp .addAuthDialog .addOauthField { gap: 5px; }
 .classicApp .addAuthDialog .addOauthFieldLabel { font: 500 11px/1.4 var(--font-ui); color: var(--ink); }
 .classicApp .addAuthDialog .addOauthInput { min-height: 30px; padding: 5px 8px; border-radius: 5px; background: var(--bg-0); font: 400 12px/1.5 var(--font-ui); box-shadow: none; }

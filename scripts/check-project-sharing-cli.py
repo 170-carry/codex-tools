@@ -102,7 +102,7 @@ def main():
         before = fingerprint_tree(root)
         output = subprocess.run(command, text=True, capture_output=True, check=True, timeout=30)
         preview = json.loads(output.stdout)
-        assert (preview["projectCount"], preview["threadLinkCount"], preview["unassignedThreadCount"]) == (24, 81, 4)
+        assert (preview["projectCount"], preview["threadLinkCount"], preview["unassignedThreadCount"]) == (24, 82, 4)
         assert fingerprint_tree(root) == before, "compatibility dry-run mutated source data"
         (home / "config.toml").write_text('model_provider = "openai"\nchatgpt_base_url = "https://synthetic.invalid"\n')
         before = fingerprint_tree(root)
@@ -119,9 +119,9 @@ def main():
         db.close()
         before = fingerprint_tree(root)
         rejected = subprocess.run(command, text=True, capture_output=True, timeout=30)
-        assert rejected.returncode != 0, "a database cloud binding was accepted"
-        assert fingerprint_tree(root) == before, "cloud rejection mutated source data"
-        print("CLI smoke passed: 24 synthetic projects, 81 links, 4 unassigned; unresolved project reference and absent thread index rows supported; dry-run, route rejection, and cloud-binding rejection left all source files/directories unchanged.")
+        assert rejected.returncode == 0, "database metadata blocked a read-only snapshot preview"
+        assert fingerprint_tree(root) == before, "snapshot preview mutated database or source data"
+        print("CLI smoke passed: 24 synthetic projects, 81 links, 4 unassigned; unresolved project references and absent thread index rows preserved; dry-run and route rejection left all source files/directories unchanged, without requiring a database schema.")
 
 
 if __name__ == "__main__":

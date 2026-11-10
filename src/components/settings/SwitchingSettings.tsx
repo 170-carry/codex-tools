@@ -62,7 +62,7 @@ export function SwitchingSettings({
         disabled={savingSettings}
       />
 
-      <div className="settingRow">
+      <div className="settingRow uiSettingsRow-stacked">
         <div className="settingMeta">
           <strong>{copy.settings.codexLaunchPath.label}</strong>
         </div>

@@ -33,7 +33,7 @@ Codex Tools 面向同时使用多个 Codex 账号的场景，提供桌面 GUI、
 - 账号优先级：支持调整账号组顺序，API 反代可按优先级使用账号，额度恢复后重新优先选择；也保留平均和逐个策略。
 - 重置卡：在账号详情中选择可用卡片并确认使用，提交前重新读取卡片状态，重试同一张卡复用持久化请求 ID。
 - 快速切换：切换 `~/.codex/auth.json` 和 `config.toml`，可联动启动新版 ChatGPT App，并兼容旧 Codex App 与 `codex app` 回退。
-- 本地项目保留：默认开启，保留已有显式关闭设置；本地 ChatGPT 账号切换时保留项目与对话归属，目标已有项目时先预览并确认合并。详见[本地项目保留与恢复](docs/local-project-sharing.md)。
+- 本地项目保留：默认开启，保留已有显式关闭设置；本地 ChatGPT 账号切换时先保存最终会话快照，再覆盖同步到目标账号；目标原状态会备份。详见[本地项目保留与恢复](docs/local-project-sharing.md)。
 - CLI/TUI：通过 `ctc` 执行 `list/switch/login/import/export/delete/usage/provider/doctor/report/tui`。
 - API 反代：本地提供 OpenAI 兼容 `/v1` 接口，支持运行中账号轮换。
 - App/CLI 绑定：可一键把 Codex App/CLI 切到本机反代地址，也可一键恢复原配置。

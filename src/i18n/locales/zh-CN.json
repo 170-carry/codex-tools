@@ -197,14 +197,14 @@
     "usageUnavailable": "暂无用量数据"
   },
   "bottomDock": {
-    "ariaLabel": "底部导航",
+    "ariaLabel": "主导航",
     "accounts": "账号",
     "analytics": "分析",
     "proxy": "API 反代",
     "settings": "设置"
   },
   "analytics": {
-    "title": "本地用量统计",
+    "title": "用量统计",
     "refresh": "刷新分析",
     "exportCsv": "导出 CSV",
     "exportJson": "导出 JSON",
@@ -640,10 +640,10 @@
       "description": "显示有效 ChatGPT 账号的平均额度和样本数，不代表 Token 总量。排除 API 账号、重复账号和超过 10 分钟的快照。"
     },
     "preserveLocalProjects": {
-      "label": "切换时保留本地项目",
+      "label": "切换时覆盖同步本地会话",
       "checkedText": "已开启",
       "uncheckedText": "已关闭",
-      "description": "默认开启，仅支持本地 ChatGPT 账号。开启后切换会先关闭 Codex；目标已有项目时须确认合并。"
+      "description": "先保存当前账号的项目、会话分组和草稿，再覆盖目标账号的本地状态。覆盖前会备份目标状态。"
     }
   },
   "editorPicker": {
@@ -799,15 +799,15 @@
     "refreshFailed": "重置请求已完成，但用量刷新失败，请手动刷新"
   },
   "localProjects": {
-    "title": "确认合并本地项目",
-    "description": "将本地项目保留到账号“{{label}}”。",
-    "mergeDetails": "目标已有本地项目。确认后会先关闭 Codex，再合并并保留目标已有项目。仅此次预览有效；取消不会切换账号。",
+    "title": "确认覆盖本地会话",
+    "description": "将当前本地会话状态复制到账号“{{label}}”。",
+    "mergeDetails": "当前账号的本地状态将覆盖目标账号；目标原状态会先备份。",
     "projectCount": "要保留的项目",
     "threadLinkCount": "项目中的会话关联",
     "unassignedThreadCount": "保持未分组的会话",
-    "retainedTargetProjectCount": "保留的目标已有项目",
+    "retainedTargetProjectCount": "目标原有项目（将被覆盖）",
     "cancel": "取消",
-    "confirm": "确认合并并切换",
+    "confirm": "覆盖并切换",
     "recoveryTitle": "有未完成的本地项目切换",
     "recoveryDescription": "为保护恢复依据，账号操作和设置保存已暂停。恢复会先关闭 Codex；完成后可自行重新打开 Codex 或重试切换。",
     "recoveryButton": "恢复未完成切换",
@@ -816,9 +816,9 @@
     "recovered": "未完成的切换已恢复，设置和账号已重新读取。可以重新打开 Codex 或重试切换。",
     "noRecovery": "没有待恢复的切换，设置和账号已重新读取。可以重新打开 Codex 或重试切换。",
     "statuses": {
-      "prepared": "已准备保留 {{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联和 {{unassignedThreadCount}} 条未分组会话；尚未验证启动后的状态。",
+      "prepared": "已保存并复制本地会话状态：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话；等待 Codex 加载。",
       "verified": "已核对恢复状态：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话。",
-      "pending": "项目状态已准备：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话；尚未确认 Codex 已加载。请待应用启动完成后检查项目列表，或重新预览。",
+      "pending": "本地会话状态已复制：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话；尚未确认 Codex 已加载，请待应用启动后检查。",
       "noOp": "当前账号无需切换，本地项目未迁移。"
     },
     "errors": {
@@ -833,10 +833,10 @@
       "disabled": "本地项目保留未开启。",
       "externalChange": "检测到外部修改，已拒绝覆盖。请保留现有文件并检查冲突。",
       "identityChanged": "账号身份已变化，请重新预览。",
-      "invalidState": "本地状态格式或内容不受支持，已拒绝修改。",
+      "invalidState": "无法解析本地状态文件，请查看日志中的具体原因。",
       "io": "读取或写入本地项目失败，请检查文件权限和磁盘状态。",
       "launchFailed": "启动 Codex 失败，请检查状态后手动重试。",
-      "previewChanged": "预览后本地状态已变化，请重新预览并确认。",
+      "previewChanged": "账号或路由配置已变化，请重新选择目标账号。",
       "recoveryRequired": "存在未完成的切换，请先恢复。",
       "restorePending": "项目状态已准备，尚未确认 Codex 已加载。请待应用启动完成后检查项目列表，或重新预览。",
       "staleStore": "账号存储已变化，请重新载入后预览。",

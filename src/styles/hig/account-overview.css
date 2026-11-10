@@ -1,0 +1,34 @@
+/* A compact status summary keeps the account list as the primary surface. */
+.higApp .accountsSummary .metaStrip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px;
+  min-height: 36px; padding: 0 4px; border: 0; background: transparent;
+}
+.higApp .accountsSummary .metaPill {
+  min-height: 32px; padding: 0; gap: 7px; border: 0;
+  border-radius: 0; background: transparent; box-shadow: none;
+}
+.higApp .accountsSummary .metricIcon { width: 18px; height: 18px; background: transparent; border-radius: 0; }
+.higApp .accountsSummary .metricIconGlyph { width: 15px; height: 15px; }
+.higApp .accountsSummary .metricCopy { flex-direction: row; align-items: baseline; gap: 8px; }
+.higApp .accountsSummary .metricCopy span { font-size: 12px; font-weight: 400; }
+.higApp .accountsSummary .metricCopy strong { font-size: 14px; font-weight: 600; }
+.higApp .accountTokenUsageStrip { padding: 10px 14px; gap: 12px; background: var(--bg-1); }
+.higApp .accountTokenUsageStrip > strong { font-size: 11px; font-weight: 500; color: var(--subtle); }
+.higApp .accountTokenUsageItems { gap: 16px; }
+.higApp .accountTokenUsageItem { gap: 6px; padding: 0; min-height: 24px; background: transparent; border: 0; box-shadow: none; border-radius: 0; }
+.higApp .accountTokenUsageItem em { font-size: 10px; font-weight: 500; color: var(--subtle); }
+.higApp .accountTokenUsageItem b { font-size: 12px; font-weight: 550; }
+.higApp .accountStatsCell { background: transparent; }
+.higApp .accountStat + .accountStat { border-left-color: var(--line); }
+.higApp .accountRow .accountNameButton { font-weight: 550; }
+@media (max-width: 780px) {
+  .higApp .accountsSummary .metaStrip { gap: 4px 16px; }
+  .higApp .accountTokenUsageItems { gap: 8px 16px; }
+}
+
+@media (max-width: 900px) {
+  .higApp .accountTokenUsageStrip { display: flex; flex-wrap: wrap; align-items: center; }
+  .higApp .accountTokenUsageItems { display: flex; flex-wrap: wrap; flex: 1 1 300px; gap: 8px 16px; }
+  .higApp .accountTokenUsageActions { width: auto; margin-left: auto; }
+  .higApp button.accountTokenExportButton { width: auto; }
+}

@@ -7,8 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 mod identity;
 mod merge;
 mod snapshot;
+mod session;
 
 pub use identity::owner_from_auth;
+pub(crate) use session::{plan_session_overwrite, SessionPlan, SessionSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateError(pub String);

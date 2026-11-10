@@ -115,7 +115,13 @@ pub(super) fn target(paths: &SwitchPaths, key: &str) -> Result<PathBuf, String> 
             if bits.len() != 3
                 || bits[0] != "profile"
                 || !safe_id(bits[1])
-                || !matches!(bits[2], "auth.json" | "config.toml")
+                || !matches!(
+                    bits[2],
+                    "auth.json"
+                        | "config.toml"
+                        | "desktop-state.json"
+                        | "desktop-state.previous.json"
+                )
             {
                 return Err("PROJECT_SHARING_INVALID_STATE".into());
             }

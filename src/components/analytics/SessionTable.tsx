@@ -1,3 +1,7 @@
+import { ActionMenu } from "../ui/ActionMenu";
+import { uiCopy } from "../../i18n/uiCopy";
+import { Pagination } from "../ui/Pagination";
+import { usePagination } from "../../hooks/usePagination";
 import { getPageLayoutCopy } from "../../i18n/pageLayoutCopy";
 import type { CodexSessionCostBreakdown } from "../../types/app";
 import type { AnalyticsCopy } from "./types";
@@ -12,7 +16,6 @@ export function SessionTable({
   sessions,
   locale,
   text,
-  pendingDeleteSessionId,
   deletingSessionId,
   onDeleteSession,
 }: {
@@ -23,8 +26,10 @@ export function SessionTable({
   deletingSessionId: string | null;
   onDeleteSession: (session: CodexSessionCostBreakdown) => void;
 }) {
+  const pagination = usePagination(sessions);
   const layout = getPageLayoutCopy(locale);
   return (
+    <>
     <div className="analyticsTableWrap">
       <table className="analyticsTable">
         <thead>
@@ -39,7 +44,7 @@ export function SessionTable({
           </tr>
         </thead>
         <tbody>
-          {sessions.slice(0, 80).map((session) => (
+          {pagination.items.map((session) => (
             <tr key={session.sessionId}>
               <td>
                 <strong title={session.sessionId}>
@@ -58,23 +63,18 @@ export function SessionTable({
                 <small>{formatDuration(session.durationSeconds, locale)}</small>
               </td>
               <td>
-                <button
-                  type="button"
-                  className="analyticsDeleteButton"
-                  disabled={deletingSessionId !== null}
-                  onClick={() => onDeleteSession(session)}
-                >
-                  {deletingSessionId === session.sessionId
-                    ? text.sessionDeleting
-                    : pendingDeleteSessionId === session.sessionId
-                      ? text.sessionDeleteConfirm
-                      : text.sessionDelete}
-                </button>
+                <ActionMenu label={`${session.sessionId} · ${uiCopy(locale).more}`} items={[{
+                  label: deletingSessionId === session.sessionId ? text.sessionDeleting : text.sessionDelete,
+                  danger: true, disabled: deletingSessionId !== null,
+                  action: () => onDeleteSession(session),
+                }]} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+    <Pagination {...pagination} locale={locale} />
+    </>
   );
 }

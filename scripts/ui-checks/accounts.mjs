@@ -9,7 +9,7 @@ export async function checkAccounts({ page, check, snap }) {
     await page.locator(".metaPill").count() === 4 &&
     await page.locator(".accountFilters").isVisible() && await detail.isVisible());
   check("All account groups retain proxy switches and reset-credit counts",
-    await page.locator(".rowToggle input").count() === 9 &&
+    await page.locator(".accountProxyControl input").count() === 9 &&
     await page.locator(".accountResetCredits").count() === 9);
   check("Per-account token statistics and quota reset times remain",
     (await row("daily@example.com").locator(".accountStatsCell").innerText()).includes("42.6") &&
@@ -29,9 +29,9 @@ export async function checkAccounts({ page, check, snap }) {
   await page.waitForFunction(() => document.querySelector(".accountRow.isCurrent")?.textContent?.includes("备用工作账号"));
   check("Switching keeps exactly one active account and records history",
     await page.locator(".accountRow.isCurrent").count() === 1 && await detail.locator(".recentSwitchList li").count() > 0);
-  await row("备用工作账号").locator(".rowToggle").click();
-  await page.waitForFunction(() => ![...document.querySelectorAll(".accountRow")].find(el=>el.textContent.includes("备用工作账号"))?.querySelector(".rowToggle input")?.checked);
-  check("Proxy participation remains directly editable", !await row("备用工作账号").locator(".rowToggle input").isChecked());
+  await row("备用工作账号").locator(".accountProxyControl").click();
+  await page.waitForFunction(() => ![...document.querySelectorAll(".accountRow")].find(el=>el.textContent.includes("备用工作账号"))?.querySelector(".accountProxyControl input")?.checked);
+  check("Proxy participation remains directly editable", !await row("备用工作账号").locator(".accountProxyControl input").isChecked());
   await detail.locator(".resetCreditItem button").first().click();
   await detail.locator(".resetCreditConfirmation").waitFor();
   await detail.locator(".resetCreditConfirmation").getByRole("button", { name: "取消", exact:true }).click();

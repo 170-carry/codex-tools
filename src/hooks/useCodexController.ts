@@ -1,3 +1,4 @@
+import { savedAuthorizationApp } from "../utils/authorizationApp";
 import { useApiAccountEditor } from "./useApiAccountEditor";
 import { useConfirmation } from "./useConfirmation";
 import type { LocalProjectMergeRequest } from "../components/LocalProjectDialogs";
@@ -1748,7 +1749,7 @@ export function useCodexController(
     async (url: string) => {
       setOauthWaitingForCallback(true);
       try {
-        await projectCommands.current.invoke<void>("open_external_url", { url });
+        await projectCommands.current.invoke<void>("open_authorization_url", { url, application: savedAuthorizationApp()?.path ?? null });
       } catch (error) {
         setOauthWaitingForCallback(false);
         setNotice({

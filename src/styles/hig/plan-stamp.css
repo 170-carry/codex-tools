@@ -1,0 +1,25 @@
+:root .higApp .accountPlanBadges .accountPlanStamp { height: 24px; min-height: 24px; padding: 0; border: 0; background: transparent; color: var(--stamp-ink, var(--subtle)); opacity: 1; }
+.higApp .accountPlanStamp .planStamp { display: block; height: 24px; transform: none; overflow: visible; }
+:root .higApp .accountPlanBadges .accountPlanStamp[aria-pressed="true"] { opacity: 1; }
+:root .higApp .accountPlanBadges .accountPlanStamp:hover { color: var(--stamp-ink, var(--ink)); opacity: 1; }
+.higApp .accountPlanStamp:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+
+.higApp .accountPlanStamp.tone-pro { --stamp-ink: #316bb1; }
+.higApp .accountPlanStamp.tone-promax { --stamp-ink: #8750ad; }
+.higApp .accountPlanStamp.tone-plus { --stamp-ink: #287c81; }
+.higApp .accountPlanStamp.tone-team { --stamp-ink: #a16b21; }
+.higApp .accountPlanStamp.tone-business { --stamp-ink: #996146; }
+.higApp .accountPlanStamp.tone-enterprise { --stamp-ink: #6656a9; }
+.higApp .accountPlanStamp.tone-api { --stamp-ink: #53774a; }
+.higApp .accountPlanStamp.tone-free { --stamp-ink: #6d7582; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-pro { --stamp-ink: #81b0ec; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-promax { --stamp-ink: #c69ae8; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-plus { --stamp-ink: #79c1c5; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-team { --stamp-ink: #dab47a; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-business { --stamp-ink: #d8a18b; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-enterprise { --stamp-ink: #b4a2ed; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-api { --stamp-ink: #a1c78f; }
+[data-theme="dark"] .higApp .accountPlanStamp.tone-free { --stamp-ink: #a7afbd; }
+
+.higApp .uiAccountRow .accountStateLine { min-height: 14px; padding-right: 0; }
+.higApp .uiAccountRow .accountPlanBadges { position: static; margin: 0; gap: 4px; flex: 0 0 auto; }

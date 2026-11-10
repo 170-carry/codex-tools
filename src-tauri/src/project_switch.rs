@@ -1,6 +1,6 @@
 //! Opt-in project-preserving account switching with explicit input paths.
 use crate::{
-    desktop_project_state::{self as engine, LocalSnapshot},
+    desktop_project_state::{self as engine, SessionSnapshot},
     models::{AccountsStore, StoredAccount},
     store_lock,
 };
@@ -62,7 +62,7 @@ pub(crate) struct PreparedSwitch {
     pub account: StoredAccount,
     pub result: PreservationResult,
     target_owner: String,
-    expected: LocalSnapshot,
+    expected: SessionSnapshot,
     _locks: Option<persistence::Locks>,
 }
 pub(crate) fn strict_store(path: &Path) -> Result<AccountsStore, String> {
@@ -72,8 +72,10 @@ pub(crate) fn strict_store(path: &Path) -> Result<AccountsStore, String> {
     store.loaded_revision.set(Some(store_lock::digest(&bytes)));
     Ok(store)
 }
+mod inputs;
 mod lifecycle;
 mod persistence;
+mod session_files;
 pub(crate) use lifecycle::NativeLifecycle;
 
 struct Plan {
@@ -84,11 +86,12 @@ struct Plan {
     source_id: Option<String>,
     auth: Value,
     config: String,
-    sharing: engine::SharingPlan,
+    sharing: engine::SessionPlan,
     preview: ProjectSwitchPreview,
-    inputs: Vec<(PathBuf, Option<Vec<u8>>)>,
+    inputs: inputs::PlanInputs,
 }
-fn state_error(_: engine::StateError) -> String {
+fn state_error(error: engine::StateError) -> String {
+    log::warn!("PROJECT_SHARING_INVALID_STATE reason={error}");
     "PROJECT_SHARING_INVALID_STATE".into()
 }
 fn json_file(path: &Path) -> Result<Value, String> {
@@ -97,10 +100,8 @@ fn json_file(path: &Path) -> Result<Value, String> {
     )
     .map_err(|_| "PROJECT_SHARING_INVALID_STATE".into())
 }
-fn config(paths: &SwitchPaths) -> Result<String, String> {
-    let bytes =
-        store_lock::read_optional(&paths.codex_home.join("config.toml"))?.unwrap_or_default();
-    let text = String::from_utf8(bytes).map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
+fn config(bytes: &[u8]) -> Result<String, String> {
+    let text = std::str::from_utf8(bytes).map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
     let mut doc = text
         .parse::<toml_edit::DocumentMut>()
         .map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
@@ -126,21 +127,28 @@ fn make_plan(
     target: &str,
     auth_override: Option<&Value>,
 ) -> Result<Plan, String> {
+    make_plan_with_reader(paths, target, auth_override, &mut store_lock::read_optional)
+}
+fn make_plan_with_reader(
+    paths: &SwitchPaths,
+    target: &str,
+    auth_override: Option<&Value>,
+    read: &mut impl FnMut(&Path) -> Result<Option<Vec<u8>>, String>,
+) -> Result<Plan, String> {
     store_lock::ensure_store_available(&paths.store_path)?;
     if paths.journal().exists() {
         return Err("PROJECT_SHARING_RECOVERY_REQUIRED".into());
     }
-    let mut inputs = [
-        paths.store_path.clone(),
-        paths.codex_home.join("auth.json"),
-        paths.codex_home.join("config.toml"),
-        paths.global(),
-        paths.registry(),
-    ]
-    .into_iter()
-    .map(|path| store_lock::read_optional(&path).map(|bytes| (path, bytes)))
-    .collect::<Result<Vec<_>, _>>()?;
-    let store = strict_store(&paths.store_path)?;
+    let mut inputs = inputs::PlanInputs::capture(
+        [
+            paths.store_path.clone(),
+            paths.codex_home.join("auth.json"),
+            paths.codex_home.join("config.toml"),
+            paths.global(),
+        ],
+        read,
+    )?;
+    let store = inputs.store(&paths.store_path)?;
     let mut account = store
         .accounts
         .iter()
@@ -163,7 +171,7 @@ fn make_plan(
         }
         account.auth_json = auth.clone();
     }
-    let auth = json_file(&paths.codex_home.join("auth.json"))?;
+    let auth = inputs.json(&paths.codex_home.join("auth.json"))?;
     let source_owner =
         engine::owner_from_auth(&auth).map_err(|_| "PROJECT_SHARING_UNSUPPORTED_IDENTITY")?;
     let candidates = store
@@ -191,74 +199,43 @@ fn make_plan(
     if let Some(id) = &source_id {
         persistence::target(paths, &format!("profile/{id}/auth.json"))?;
     }
-    let config = config(paths)?;
-    let document = json_file(&paths.global())?;
-    let registry: Option<engine::SharingRegistry> = store_lock::read_optional(&paths.registry())?
-        .map(|b| {
-            serde_json::from_slice(&b).map_err(|_| "PROJECT_SHARING_INVALID_STATE".to_string())
-        })
-        .transpose()?;
-    let sharing = engine::plan_share(
-        &document,
-        &source_owner,
-        &target_owner,
-        &paths.host(),
-        registry.as_ref(),
-    )
-    .map_err(state_error)?;
-    validate_database(paths, &sharing.registry.canonical)?;
-    let snapshot = &sharing.registry.canonical;
-    let thread_link_count = snapshot
-        .thread_memberships
-        .values()
-        .filter(|m| m.project_id.is_some())
-        .count();
-    let retained = sharing.summary.retained_target_project_ids.len();
-    let target_globals =
-        &document["electron-account-renderer-state-v1"]["inactive"][&target_owner]["globals"];
-    let has_target_data = [
-        "local-projects",
-        "thread-project-assignments",
-        "projectless-thread-ids",
-    ]
-    .iter()
-    .any(|key| {
-        target_globals.get(*key).is_some_and(|v| {
-            v.as_object().is_some_and(|m| !m.is_empty())
-                || v.as_array().is_some_and(|a| !a.is_empty())
-        })
-    });
-    let requires = registry
-        .as_ref()
-        .map_or(true, |r| !r.baselines.contains_key(&target_owner))
-        && has_target_data;
+    let config = config(
+        inputs
+            .optional(&paths.codex_home.join("config.toml"))
+            .unwrap_or_default(),
+    )?;
+    let document = if inputs.optional(&paths.global()).is_some() {
+        inputs.json(&paths.global())?
+    } else {
+        serde_json::json!({})
+    };
+    let sharing = engine::plan_session_overwrite(&document, &source_owner, &target_owner)
+        .map_err(state_error)?;
+    let (project_count, thread_link_count, unassigned_thread_count) = sharing.source.counts();
     let fingerprint = store_lock::digest(
-        &serde_json::to_vec(&serde_json::json!([
-            source_owner,
-            target_owner,
-            snapshot,
-            retained,
-            config
-        ]))
-        .map_err(|_| "PROJECT_SHARING_INVALID_STATE")?,
+        &serde_json::to_vec(&serde_json::json!([source_owner, target_owner, config]))
+            .map_err(|_| "PROJECT_SHARING_INVALID_STATE")?,
     );
     let preview = ProjectSwitchPreview {
-        project_count: snapshot.projects.len(),
+        project_count,
         thread_link_count,
-        unassigned_thread_count: snapshot.thread_memberships.len() - thread_link_count,
-        retained_target_project_count: retained,
-        requires_merge_confirmation: requires,
+        unassigned_thread_count,
+        retained_target_project_count: 0,
+        requires_merge_confirmation: false,
         preview_fingerprint: fingerprint,
-        no_op: sharing.summary.no_op,
+        no_op: sharing.no_op,
     };
     for key in [
         format!("profile/{target}/auth.json"),
         format!("profile/{target}/config.toml"),
+        format!("profile/{target}/desktop-state.json"),
+        format!("profile/{target}/desktop-state.previous.json"),
     ] {
         let path = persistence::target(paths, &key)?;
-        inputs.push((path.clone(), store_lock::read_optional(&path)?));
+        inputs.track(path, read)?;
     }
-    check_inputs(&inputs)?;
+    // The desktop keeps updating globals while a read-only preview is built.
+    // Replan after it exits, then compare the captured bytes before writing.
     Ok(Plan {
         store,
         account,
@@ -271,128 +248,6 @@ fn make_plan(
         preview,
         inputs,
     })
-}
-fn check_inputs(inputs: &[(PathBuf, Option<Vec<u8>>)]) -> Result<(), String> {
-    for (path, bytes) in inputs {
-        if &store_lock::read_optional(path)? != bytes {
-            return Err("PROJECT_SHARING_EXTERNAL_CHANGE".into());
-        }
-    }
-    Ok(())
-}
-/// Owns only a synthetic validation copy; never opens the source with SQLite.
-struct DatabaseSnapshot(PathBuf);
-impl Drop for DatabaseSnapshot {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-impl DatabaseSnapshot {
-    fn capture(file: &Path) -> Result<Self, String> {
-        let wal = file.with_file_name("state_5.sqlite-wal");
-        let journal = file.with_file_name("state_5.sqlite-journal");
-        for _ in 0..3 {
-            if store_lock::read_optional(&journal)?.is_some_and(|b| !b.is_empty()) {
-                return Err("PROJECT_SHARING_DATABASE_BUSY".into());
-            }
-            let main =
-                store_lock::read_optional(file)?.ok_or("PROJECT_SHARING_DATABASE_MISMATCH")?;
-            let wal_bytes = store_lock::read_optional(&wal)?;
-            if store_lock::fingerprint(file)?.as_deref() != Some(store_lock::digest(&main).as_str())
-                || store_lock::fingerprint(&wal)?
-                    != wal_bytes.as_ref().map(|b| store_lock::digest(b))
-            {
-                continue;
-            }
-            let copy = Self(
-                std::env::temp_dir()
-                    .join(format!("codex-project-validation-{}", uuid::Uuid::new_v4())),
-            );
-            store_lock::private_dir(&copy.0)?;
-            store_lock::atomic_write(&copy.0.join("state_5.sqlite"), &main)?;
-            if let Some(bytes) = wal_bytes {
-                store_lock::atomic_write(&copy.0.join("state_5.sqlite-wal"), &bytes)?;
-            }
-            return Ok(copy);
-        }
-        Err("PROJECT_SHARING_DATABASE_BUSY".into())
-    }
-}
-fn validate_database(paths: &SwitchPaths, snapshot: &LocalSnapshot) -> Result<(), String> {
-    use rusqlite::{Connection, OpenFlags, OptionalExtension};
-    let file = paths.codex_home.join("state_5.sqlite");
-    if snapshot.thread_memberships.is_empty() && snapshot.app_server_project_ids.is_empty() {
-        return Ok(());
-    }
-    // Read source bytes only. SQLite may create SHM bookkeeping even with
-    // READ_ONLY, so open a private consistent DB+WAL copy instead.
-    let copy = DatabaseSnapshot::capture(&file)?;
-    let db = Connection::open_with_flags(
-        copy.0.join("state_5.sqlite"),
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|_| "PROJECT_SHARING_DATABASE_MISMATCH")?;
-    db.pragma_update(None, "query_only", true)
-        .map_err(|_| "PROJECT_SHARING_DATABASE_MISMATCH")?;
-    let check = (|| -> rusqlite::Result<bool> {
-        // The supported app-server schema always has metadata. Desktop startup
-        // can rehydrate cloud bindings from it even when renderer JSON is stale.
-        db.prepare("SELECT metadata FROM projects LIMIT 0")?;
-        // Renderer relationships can outlive an indexed thread row. Keep the
-        // saved assignment/unassignment: an index miss is not a user deletion,
-        // and projecting metadata never creates or edits a conversation row.
-        db.prepare("SELECT id FROM threads LIMIT 0")?;
-        for (legacy, server) in &snapshot.app_server_project_ids {
-            let Some((id, metadata)) = db
-                .query_row(
-                    "SELECT id, metadata FROM projects WHERE id=?1",
-                    [server],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-                )
-                .optional()?
-            else {
-                return Ok(false);
-            };
-            if &id != server {
-                return Ok(false);
-            }
-            let Ok(Value::Object(metadata)) = serde_json::from_str::<Value>(&metadata) else {
-                return Ok(false);
-            };
-            if [
-                "codex.chatGptBacking",
-                "codex.chatGptBackingCreation",
-                "codex.retiredChatGptBacking",
-            ]
-            .iter()
-            .any(|key| metadata.get(*key).is_some_and(|value| !value.is_null()))
-                || metadata
-                    .get("codex.localProjectId")
-                    .is_some_and(|value| value.as_str() != Some(legacy.as_str()))
-            {
-                return Ok(false);
-            }
-            let mut stmt =
-                db.prepare("SELECT path FROM project_roots WHERE project_id=?1 ORDER BY position")?;
-            let roots = stmt
-                .query_map([server], |r| r.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            let expected: Vec<_> = snapshot.projects[legacy]["rootPaths"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_owned())
-                .collect();
-            if roots != expected {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    })();
-    if check != Ok(true) {
-        return Err("PROJECT_SHARING_DATABASE_MISMATCH".into());
-    }
-    Ok(())
 }
 pub(crate) fn preview(paths: &SwitchPaths, target: &str) -> Result<ProjectSwitchPreview, String> {
     Ok(make_plan(paths, target, None)?.preview)
@@ -408,7 +263,7 @@ fn prepared(plan: &Plan, status: &str) -> PreparedSwitch {
             warning: None,
         },
         target_owner: plan.target_owner.clone(),
-        expected: plan.sharing.registry.canonical.clone(),
+        expected: plan.sharing.source.clone(),
         _locks: None,
     }
 }
@@ -507,7 +362,7 @@ fn persist_refreshed_target(
     changes.push(persistence::change(paths, "store", serialized)?);
     for change in &mut changes {
         let path = persistence::target(paths, &change.key)?;
-        if let Some((_, before)) = plan.inputs.iter().find(|(p, _)| p == &path) {
+        if let Some(before) = plan.inputs.before(&path) {
             change.before = before.clone();
         }
     }
@@ -520,7 +375,7 @@ fn apply_stopped_plan(
     lifecycle: &mut impl DesktopLifecycle,
     locks: persistence::Locks,
 ) -> Result<PreparedSwitch, String> {
-    let mut changes = Vec::new();
+    let mut changes = session_files::checkpoint_changes(paths, target, &plan)?;
     // Capture the exact final active credentials/config only after desktop exit.
     if let Some(id) = plan.source_id.clone() {
         let source = plan
@@ -541,19 +396,21 @@ fn apply_stopped_plan(
                 .into_owned(),
         );
         source.profile_auth_ready = true;
-        source.profile_config_ready =
-            store_lock::read_optional(&paths.codex_home.join("config.toml"))?.is_some();
+        source.profile_config_ready = plan
+            .inputs
+            .optional(&paths.codex_home.join("config.toml"))
+            .is_some();
         source.profile_integrity_error = None;
         changes.push(persistence::change(
             paths,
             format!("profile/{id}/auth.json"),
             serde_json::to_vec_pretty(&plan.auth).map_err(|_| "PROJECT_SHARING_INVALID_STATE")?,
         )?);
-        if let Some(config) = store_lock::read_optional(&paths.codex_home.join("config.toml"))? {
+        if let Some(config) = plan.inputs.optional(&paths.codex_home.join("config.toml")) {
             changes.push(persistence::change(
                 paths,
                 format!("profile/{id}/config.toml"),
-                config,
+                config.to_vec(),
             )?);
         }
     }
@@ -597,12 +454,6 @@ fn apply_stopped_plan(
     changes.push(persistence::change(paths, "global-backup", global)?);
     changes.push(persistence::change(
         paths,
-        "registry",
-        serde_json::to_vec_pretty(&plan.sharing.registry)
-            .map_err(|_| "PROJECT_SHARING_INVALID_STATE")?,
-    )?);
-    changes.push(persistence::change(
-        paths,
         "config",
         plan.config.as_bytes().to_vec(),
     )?);
@@ -622,7 +473,7 @@ fn apply_stopped_plan(
     if store_lock::fingerprint(&paths.store_path)? != plan.store.loaded_revision.get() {
         return Err("PROJECT_SHARING_STALE_STORE".into());
     }
-    check_inputs(&plan.inputs)?;
+    plan.inputs.ensure_unchanged()?;
     persistence::apply(paths, changes, lifecycle)?;
     let mut result = prepared(&plan, "prepared");
     result._locks = Some(locks);
@@ -646,15 +497,9 @@ pub(crate) async fn verify_after_launch(paths: &SwitchPaths, prepared: &mut Prep
             .and_then(|auth| engine::owner_from_auth(&auth).ok())
             .as_deref()
             == Some(prepared.target_owner.as_str())
-            && json_file(&paths.global()).ok().is_some_and(|doc| {
-                engine::verify_restored(
-                    &doc,
-                    &prepared.target_owner,
-                    &paths.host(),
-                    &prepared.expected,
-                )
-                .is_ok()
-            })
+            && json_file(&paths.global())
+                .ok()
+                .is_some_and(|doc| prepared.expected.is_restored(&doc, &prepared.target_owner))
         {
             prepared.result.status = "verified".into();
             return;

@@ -1,3 +1,4 @@
+import { uiCopy } from "../../i18n/uiCopy";
 import { ClassicQuickActions } from "./ClassicQuickActions";
 import { ClassicAccountDetailHeader } from "./ClassicAccountDetailHeader";
 import { ClassicRecentSwitches } from "./ClassicRecentSwitches";
@@ -70,6 +71,7 @@ export function ClassicAccountDetail({
             emptyValue={text.emptyValue}
           />
 
+          <details className="inspectorSecondary"><summary>{uiCopy(locale).accountManagement}</summary>
           <section className="detailMetaGrid">
             <MembershipExpiry
               account={selectedRow.account}
@@ -100,6 +102,7 @@ export function ClassicAccountDetail({
             text={text}
           />
 
+          </details>
           <ClassicQuickActions workspace={workspace} />
         </>
       ) : (

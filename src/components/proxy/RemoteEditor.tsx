@@ -1,3 +1,5 @@
+import { ActionMenu } from "../ui/ActionMenu";
+import { uiCopy } from "../../i18n/uiCopy";
 import { EditorMultiSelect } from "../EditorMultiSelect";
 import {
   DEFAULT_REMOTE_SSH_PORT,
@@ -42,13 +44,7 @@ export function RemoteEditor({ workspace }: { workspace: ApiProxyWorkspace }) {
               >
                 {proxyCopy.remoteSave}
               </button>
-              <button
-                className="ghost"
-                onClick={() => removeRemoteDraft(selectedRemoteDraft.id)}
-                disabled={selectedRemoteBusy}
-              >
-                {proxyCopy.remoteRemove}
-              </button>
+              <ActionMenu label={uiCopy(workspace.locale).more} items={[{ label: proxyCopy.remoteRemove, danger: true, disabled: selectedRemoteBusy, action: () => removeRemoteDraft(selectedRemoteDraft.id) }]} />
             </div>
           </div>
 

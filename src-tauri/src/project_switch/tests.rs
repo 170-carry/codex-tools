@@ -2,6 +2,12 @@ use super::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::json;
 use std::{collections::BTreeMap, fs};
+
+#[path = "force_tests.rs"]
+mod force_tests;
+#[path = "input_tests.rs"]
+mod input_tests;
+
 struct Fixture {
     paths: SwitchPaths,
     owners: Vec<String>,
@@ -480,7 +486,7 @@ fn stale_active_label_never_contaminates_another_profile() {
     );
 }
 #[test]
-fn nonempty_target_requires_acceptance_of_current_preview() {
+fn nonempty_target_is_backed_up_and_overwritten_without_merge_confirmation() {
     let f = fixture(2, 4, 0);
     let mut doc = json_file(&f.paths.global()).unwrap();
     let mut target_project = doc["local-projects"]["synthetic-project-0"].clone();
@@ -488,11 +494,9 @@ fn nonempty_target_requires_acceptance_of_current_preview() {
     doc["electron-account-renderer-state-v1"]["inactive"][&f.owners[1]] = json!({"atoms":{"private":"preserved"},"globals":{"local-projects":{"target-only":target_project}}});
     fs::write(f.paths.global(), serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
     let p = preview(&f.paths, "b").unwrap();
-    assert!(p.requires_merge_confirmation);
-    assert_eq!(p.retained_target_project_count, 1);
+    assert!(!p.requires_merge_confirmation);
+    assert_eq!(p.retained_target_project_count, 0);
     let mut fake = FakeLifecycle::default();
-    assert!(execute(&f.paths, "b", SwitchOptions::default(), &mut fake).is_err());
-    assert_eq!(fake.stops, 0);
     assert!(execute(
         &f.paths,
         "b",
@@ -519,21 +523,35 @@ fn nonempty_target_requires_acceptance_of_current_preview() {
         .unwrap()
         .result
         .project_count,
-        3
+        2
+    );
+    let written = json_file(&f.paths.global()).unwrap();
+    assert_eq!(
+        written["electron-account-renderer-state-v1"]["inactive"][&f.owners[1]]["globals"]
+            ["local-projects"],
+        doc["local-projects"]
+    );
+    assert_eq!(
+        json_file(&persistence::target(&f.paths, "profile/b/desktop-state.previous.json").unwrap())
+            .unwrap(),
+        doc["electron-account-renderer-state-v1"]["inactive"][&f.owners[1]]
     );
 }
 #[test]
-fn invalid_database_mapping_fails_before_any_process_or_write() {
+fn renderer_snapshot_is_copied_without_database_root_validation() {
     let f = fixture(2, 4, 0);
     let db = rusqlite::Connection::open(f.paths.codex_home.join("state_5.sqlite")).unwrap();
     db.execute("UPDATE project_roots SET path='/synthetic-wrong'", [])
         .unwrap();
     drop(db);
-    let before = tracked_tree(f.paths.codex_home.parent().unwrap());
+    let before = fs::read(f.paths.codex_home.join("state_5.sqlite")).unwrap();
     let mut fake = FakeLifecycle::default();
-    assert!(execute(&f.paths, "b", SwitchOptions::default(), &mut fake).is_err());
-    assert_eq!(fake.stops, 0);
-    assert_eq!(before, tracked_tree(f.paths.codex_home.parent().unwrap()));
+    assert!(execute(&f.paths, "b", SwitchOptions::default(), &mut fake).is_ok());
+    assert_eq!(fake.stops, 1);
+    assert_eq!(
+        before,
+        fs::read(f.paths.codex_home.join("state_5.sqlite")).unwrap()
+    );
 }
 #[test]
 fn persisted_external_profile_paths_are_not_trusted() {
@@ -1058,19 +1076,22 @@ fn pending_marker_is_bound_to_the_explicit_home_and_store() {
     assert!(store_lock::ensure_store_available(&f.paths.store_path).is_ok());
 }
 
-fn assert_database_scope_rejected_without_writes(f: &Fixture) {
+fn assert_session_copy_ignores_database_contents(f: &Fixture) {
     let before = tree(f.paths.codex_home.parent().unwrap());
-    assert!(matches!(preview(&f.paths,"b"),Err(ref e) if e=="PROJECT_SHARING_DATABASE_MISMATCH"));
-    let mut lifecycle = FakeLifecycle::default();
-    assert!(
-        matches!(execute(&f.paths,"b",SwitchOptions::default(),&mut lifecycle),Err(ref e) if e=="PROJECT_SHARING_DATABASE_MISMATCH")
-    );
-    assert_eq!(lifecycle.stops, 0);
+    assert!(preview(&f.paths, "b").is_ok());
     assert_eq!(before, tree(f.paths.codex_home.parent().unwrap()));
+    let database = fs::read(f.paths.codex_home.join("state_5.sqlite")).unwrap();
+    let mut lifecycle = FakeLifecycle::default();
+    assert!(execute(&f.paths, "b", SwitchOptions::default(), &mut lifecycle).is_ok());
+    assert_eq!(lifecycle.stops, 1);
+    assert_eq!(
+        database,
+        fs::read(f.paths.codex_home.join("state_5.sqlite")).unwrap()
+    );
 }
 
 #[test]
-fn missing_database_projects_and_unknown_thread_schema_still_fail_closed() {
+fn missing_database_projects_and_unknown_thread_schema_do_not_block_snapshot_copy() {
     for sql in [
         "DELETE FROM projects WHERE id='synthetic-server-0'",
         "ALTER TABLE threads RENAME COLUMN id TO unsupported_id",
@@ -1080,11 +1101,11 @@ fn missing_database_projects_and_unknown_thread_schema_still_fail_closed() {
         let db = rusqlite::Connection::open(f.paths.codex_home.join("state_5.sqlite")).unwrap();
         db.execute_batch(sql).unwrap();
         drop(db);
-        assert_database_scope_rejected_without_writes(&f);
+        assert_session_copy_ignores_database_contents(&f);
     }
 }
 #[test]
-fn database_cloud_metadata_cannot_rehydrate_bindings_into_a_pure_json_project() {
+fn database_cloud_metadata_does_not_override_the_copied_renderer_snapshot() {
     for key in [
         "codex.chatGptBacking",
         "codex.chatGptBackingCreation",
@@ -1102,11 +1123,11 @@ fn database_cloud_metadata_cannot_rehydrate_bindings_into_a_pure_json_project() 
         let project =
             &json_file(&f.paths.global()).unwrap()["local-projects"]["synthetic-project-0"];
         assert!(project.get("chatGptBacking").is_none());
-        assert_database_scope_rejected_without_writes(&f);
+        assert_session_copy_ignores_database_contents(&f);
     }
 }
 #[test]
-fn database_metadata_requires_known_object_schema_and_matching_legacy_id() {
+fn unknown_database_metadata_does_not_block_snapshot_copy() {
     for metadata in [
         "{synthetic broken JSON",
         "[]",
@@ -1121,14 +1142,14 @@ fn database_metadata_requires_known_object_schema_and_matching_legacy_id() {
         )
         .unwrap();
         drop(db);
-        assert_database_scope_rejected_without_writes(&f);
+        assert_session_copy_ignores_database_contents(&f);
     }
     let f = fixture(2, 4, 1);
     let db = rusqlite::Connection::open(f.paths.codex_home.join("state_5.sqlite")).unwrap();
     db.execute("ALTER TABLE projects DROP COLUMN metadata", [])
         .unwrap();
     drop(db);
-    assert_database_scope_rejected_without_writes(&f);
+    assert_session_copy_ignores_database_contents(&f);
 }
 #[test]
 fn matching_local_id_and_cosmetic_database_metadata_remain_unchanged() {

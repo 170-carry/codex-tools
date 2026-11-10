@@ -1,0 +1,267 @@
+.providerBrand {
+  grid-area: brand;
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2vw, 32px);
+  z-index: 1;
+}
+.providerSwitch {
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  flex-shrink: 0;
+}
+.providerSwitch button {
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--subtle);
+  font-weight: 650;
+  box-shadow: none;
+}
+.providerSwitch button.isActive {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.authorizationAppPicker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.authorizationAppPicker select {
+  max-width: 220px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--card);
+}
+.claudeAccountsView {
+  padding: 20px 24px;
+  overflow: auto;
+  height: 100%;
+  color: var(--ink);
+}
+.claudeSummary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+.claudeSummary span {
+  color: var(--subtle);
+}
+.claudeSummary strong {
+  margin-right: 24px;
+}
+.claudeAccountPanel {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  min-height: 320px;
+  padding: 16px;
+}
+.claudeToolbar,
+.claudeImportDialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.claudeToolbar input {
+  max-width: 420px;
+}
+.claudeAccountList {
+  display: grid;
+  gap: 10px;
+}
+.claudeAccountRow {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.claudeAccountRow.isCurrent {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.claudeAccountIdentity {
+  display: grid;
+  gap: 5px;
+  min-width: 180px;
+  flex: 1;
+}
+.claudeAccountIdentity strong {
+  overflow-wrap: anywhere;
+}
+.claudeAccountIdentity small,
+.claudeUsage small {
+  color: var(--subtle);
+}
+.claudePlan {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #b26946;
+}
+.claudeUsageGrid {
+  display: flex;
+  flex: 2;
+  gap: 20px;
+  min-width: 300px;
+}
+.claudeUsage {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  font-size: 12px;
+}
+.claudeUsage span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.claudeUsage progress {
+  width: 100%;
+  height: 7px;
+  accent-color: var(--brand);
+}
+.claudeRowActions,
+.claudeOauthActions,
+.claudeImportDialog footer,
+.claudeImportTabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.claudeRowActions button {
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.claudeEmpty {
+  padding: 80px 20px;
+  color: var(--subtle);
+  text-align: center;
+}
+.claudeImportDialog {
+  width: min(680px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 20px 70px #0003;
+  display: grid;
+  gap: 18px;
+}
+.claudeImportDialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.claudeImportDialog header {
+  margin: 0;
+}
+.claudeImportDialog p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--subtle);
+}
+.claudeImportDialog label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.claudeImportDialog input,
+.claudeImportDialog textarea,
+.claudeToolbar input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+}
+.claudeImportDialog textarea {
+  resize: vertical;
+}
+.claudeImportDialog .authorizationAppPicker {
+  display: flex;
+}
+.claudeImportDialog footer {
+  justify-content: flex-end;
+}
+.claudeImportDialog .claudeError,
+.claudeError {
+  color: #d94350;
+  padding-block: 8px;
+}
+@media (max-width: 1180px) {
+  .providerBrand {
+    gap: 10px;
+  }
+  .providerBrand .brandLine h1 {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .claudeAccountsView {
+    padding: 12px;
+  }
+  .claudeUsageGrid {
+    min-width: 100%;
+  }
+  .claudeSummary {
+    flex-wrap: wrap;
+  }
+}
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: #10182866;
+  backdrop-filter: blur(4px);
+}
+.providerSwitch button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 34px;
+}
+.providerSwitch img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+[data-theme="dark"] .providerSwitch button:first-child img {
+  filter: invert(1);
+}
+
+.claudeAccountHealth {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 220px;
+  color: var(--subtle);
+  font-size: 12px;
+}

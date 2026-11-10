@@ -1,0 +1,117 @@
+/* Shared control contract. Structural navigation, metric cells and switches keep their own geometry. */
+.higApp {
+  --ui-control-height: 32px;
+  --ui-radius-control: 6px;
+  --ui-action-bg: #29292e;
+  --ui-action-fg: #ffffff;
+  --ui-field-border: #d0d0d7;
+}
+[data-theme="dark"] .higApp {
+  --ui-action-bg: #e3e3e8;
+  --ui-action-fg: #222227;
+  --ui-field-border: #53535d;
+}
+:root .higApp.classicApp button:not(:where(.sidebarBrand, .sidebarItem, .providerSwitch button, .analyticsMetric, .sectionTabList button, .planChip, .accountNameButton, .accountRow, [role="switch"], .settingSwitch, .trayIconStyleOption, .trayLogoRingVariant, .membershipHelpButton, .proxyHelpButton)) {
+  min-height: var(--ui-control-height);
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-radius-control);
+  padding: 5px 12px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: none;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+:root .higApp.classicApp button:not(:disabled):hover { filter: none; }
+:root .higApp.classicApp :is(button.primary, button.importPrimary) {
+  background: var(--ui-action-bg);
+  border-color: var(--ui-action-bg);
+  color: var(--ui-action-fg);
+}
+:root .higApp.classicApp :is(button.danger, .analyticsDeleteButton) { color: var(--danger); }
+:root .higApp.classicApp :is(button.ghost, .rowSwitchButton, .detailEditButton):not(:disabled):hover { background: var(--bg-2); }
+:root .higApp.classicApp :is(.uiIconButton, .iconButton, .rowMoreButton, .claudeDialogClose, .closeButton) {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 6px; flex-shrink: 0;
+  background: transparent; border-color: transparent; color: var(--subtle);
+}
+:root .higApp.classicApp .uiIconButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+:root .higApp.classicApp :is(.iconButton, .uiIconButton, .rowMoreButton):hover { background: var(--bg-2); }
+:root .higApp.classicApp :is(.modeGroup, .claudeImportTabs) > button {
+  border-color: transparent; background: transparent; color: var(--subtle); min-height: 28px; padding: 4px 10px;
+}
+:root .higApp.classicApp :is(.modeGroup > button.primary, .claudeImportTabs > button[aria-pressed="true"]) {
+  background: var(--card); color: var(--ink); box-shadow: 0 1px 3px #0000000c;
+}
+:root .higApp.classicApp :is(input, select, textarea):not(:where([type=checkbox], [type=radio], [type=range], [type=file])) {
+  box-sizing: border-box;
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-radius-control);
+  background-color: var(--card);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  padding: 5px 10px;
+  box-shadow: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+:root .higApp.classicApp :is(input, select):not(:where([type=checkbox], [type=radio], [type=range], [type=file])) { height: 32px; min-height: 32px; }
+:root .higApp.classicApp select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23777782' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center; background-size: 16px;
+}
+:root .higApp.classicApp select[multiple] { height: auto; background-image: none; padding-right: 10px; }
+:root .higApp.classicApp textarea { min-height: 84px; resize: vertical; }
+:root .higApp.classicApp :is(input, textarea, select):focus {
+  outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft);
+}
+:root .higApp.classicApp :is(input, textarea, select)[aria-invalid="true"] { border-color: var(--danger); }
+:root .higApp.classicApp :is(input, textarea, select):disabled { opacity: .5; cursor: not-allowed; }
+:root .higApp.classicApp .accountSearch { height: 32px; padding: 0 10px; border: 1px solid var(--ui-field-border); border-radius: 6px; box-shadow: none; background: var(--card); }
+:root .higApp.classicApp .accountSearch:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+:root .higApp.classicApp .accountSearch input { height: 30px; min-height: 0; padding: 0; border: 0; box-shadow: none; outline: none; background: transparent; }
+:root .higApp.classicApp .claudeSearch input { padding-left: 34px; }
+:root .higApp.classicApp .authorizationAppControl select { padding-left: 34px; padding-right: 32px; }
+:root .higApp.classicApp .authorizationAppChevron { display: none; }
+:root .higApp.classicApp .accountToolbar { background: var(--card); }
+:root .higApp.classicApp .sidebarItem.isActive { color: var(--ink); background: var(--bg-2); }
+:root .higApp.classicApp .sidebarItem:hover { color: var(--ink); background: var(--bg-2); }
+
+:root .higApp.classicApp .sidebarItem.isActive { background: color-mix(in srgb, var(--ink) 9%, var(--ui-sidebar-bg)); }
+:root .higApp.classicApp :is(.proxyUsageChip[aria-pressed="true"], .cloudflaredModeCard.isActive) { background: var(--bg-2); border-color: var(--ink); color: var(--ink); }
+:root .higApp.classicApp .accountFilters select { min-width: 110px; }
+:root .higApp.classicApp .analyticsChartToolbar select { min-width: 126px; }
+
+:root .higApp.classicApp .proxyUsageGroup { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-1); }
+:root .higApp.classicApp button.proxyUsageChip { min-height: 26px; padding: 2px 10px; border-color: transparent; background: transparent; color: var(--subtle); }
+:root .higApp.classicApp button.proxyUsageChip[aria-pressed="true"] { color: var(--ink); background: var(--card); border-color: var(--line); box-shadow: 0 1px 2px #00000008; }
+:root .higApp.classicApp button.addAccountTab { border-color: transparent; background: transparent; text-align: left; }
+:root .higApp.classicApp button.addAccountTab.isActive { background: var(--bg-2); color: var(--ink); }
+:root .higApp.classicApp .secretInput input { padding-right: 64px; }
+:root .higApp.classicApp button.secretVisibilityButton { min-height: 24px; padding: 0 6px; border: 0; background: transparent; color: var(--subtle); }
+:root .higApp.classicApp :is(button[role="menuitem"], button[role="option"]) { display: flex; align-items: center; gap: 8px; width: 100%; border-color: transparent; background: transparent; text-align: left; }
+:root .higApp.classicApp :is(button[role="menuitem"], button[role="option"]):hover,
+:root .higApp.classicApp button[role="option"][aria-selected="true"] { background: var(--bg-2); }
+:root .higApp.classicApp button.dangerMenuItem { color: var(--danger); }
+:root .higApp.classicApp :is(.accountActionMenu, .editorPickerMenu) { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: var(--panel-shadow); }
+:root .higApp.classicApp input[type="file"] { color: var(--subtle); font: 12px var(--font-ui); }
+:root .higApp.classicApp input[type="file"]::file-selector-button { height: 32px; margin-right: 10px; padding: 5px 12px; color: var(--ink); font: 500 12px var(--font-ui); background: var(--card); border: 1px solid var(--ui-field-border); border-radius: 6px; cursor: pointer; }
+:root .higApp.classicApp :is(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--brand); }
+:root .higApp.classicApp select.editorPickerTrigger { display: block; text-align: left; }
+:root .higApp.classicApp .accountSearch input { align-self: center; border-radius: 0; }
+:root .higApp.classicApp .accountSearch input:not([type="checkbox"]) {
+ height: 28px; min-height: 0; background: transparent; border: 0; padding: 0; border-radius: 0; box-shadow: none;
+}
+
+.higApp .uiSearchField { display: flex; align-items: center; gap: 8px; min-width: 0; height: 32px; padding: 0 10px; background: var(--card); border: 1px solid var(--ui-field-border); border-radius: var(--ui-radius-control); }
+.higApp .uiSearchField > svg { flex: 0 0 16px; width: 16px; height: 16px; fill: none; stroke: var(--subtle); stroke-width: 1.8; }
+:root .higApp.classicApp .uiSearchField input { flex: 1; width: 100%; min-width: 0; height: 28px; min-height: 0; border: 0; border-radius: 0; box-shadow: none; padding: 0; background: transparent; outline: none; }
+.higApp .uiSearchField:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+:root .higApp.classicApp .uiSearchField .uiIconButton { width: 24px; min-height: 24px; height: 24px; padding: 0; }

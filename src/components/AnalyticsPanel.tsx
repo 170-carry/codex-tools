@@ -1,9 +1,15 @@
+import { Presence } from "./ui/Presence";
+import { SearchField } from "./ui/SearchField";
+import { UtilityDialog } from "./workspace/UtilityDialog";
+import { uiCopy } from "../i18n/uiCopy";
+import { PageFrame } from "./ui/PageFrame";
 import { ClassicAnalyticsHeader } from "./classic/ClassicAnalyticsHeader";
 import { ClassicProjectRows } from "./classic/ClassicProjectRows";
 import { useMemo, useState } from "react";
 import { useI18n } from "../i18n/I18nProvider";
 import { getPageLayoutCopy } from "../i18n/pageLayoutCopy";
-import { AnalyticsSummary } from "./analytics/AnalyticsSummary";
+import { AnalyticsOverview } from "./analytics/AnalyticsOverview";
+import { SectionTabs } from "./ui/SectionTabs";
 import { AnalyticsBudget } from "./analytics/AnalyticsBudget";
 import { UsageHeatmap } from "./analytics/UsageHeatmap";
 import { SessionTable } from "./analytics/SessionTable";
@@ -59,27 +65,32 @@ export function AnalyticsPanel({
   const sections = [
     {
       id: "projects",
+      count: analytics?.projects.length ?? 0,
       label: layout.projects,
       content: (
         <section className="analyticsBlock analyticsBlockProjects">
           <h3>{text.projectsTitle}</h3>
-          <ClassicProjectRows projects={analytics?.projects ?? []} locale={locale} />
+          <ClassicProjectRows
+            projects={analytics?.projects ?? []}
+            locale={locale}
+          />
         </section>
       ),
     },
     {
       id: "sessions",
+      count: analytics?.sessions.length ?? 0,
       label: layout.sessions,
       content: (
         <section className="analyticsBlock analyticsBlockSessions">
           <h3>{text.sessionsTitle}</h3>
           <div className="analyticsSessionTools">
-            <input
+            <SearchField
               className="analyticsSearch"
               aria-label={layout.searchSessions}
               placeholder={layout.searchSessions}
               value={sessionQuery}
-              onChange={(event) => setSessionQuery(event.target.value)}
+              onValueChange={setSessionQuery}
             />
             <span>
               {sessions.length} {layout.sessions}
@@ -104,7 +115,7 @@ export function AnalyticsPanel({
       label: layout.activity,
       content: (
         <section className="analyticsBlock analyticsBlockHeatmap">
-          <h3>{text.heatmapTitle}</h3>
+          <h3>{uiCopy(locale).history}</h3>
           <UsageHeatmap
             buckets={analytics?.heatmap ?? []}
             locale={locale}
@@ -128,7 +139,7 @@ export function AnalyticsPanel({
     },
   ];
   return (
-    <section className="analyticsPage classicAnalyticsPage">
+    <PageFrame kind="analysis" className="analyticsPage classicAnalyticsPage">
       <div className="analyticsShell">
         <ClassicAnalyticsHeader
           text={text}
@@ -162,27 +173,44 @@ export function AnalyticsPanel({
             ) : null}
           </div>
         ) : null}
-        <AnalyticsSummary analytics={analytics} text={text} locale={locale} />
-        <AnalyticsBudget
-          analytics={analytics}
-          weeklyBudgetUsd={weeklyBudgetUsd}
-          saving={savingSettings}
-          onUpdate={onUpdateWeeklyBudget}
-          text={text}
-        />
-          <div className="analyticsGrid">
-            {[sections[0], sections[2], sections[1], sections[3]].map(
-              (section) => (
-                <div
-                  key={section.id}
-                  className={`classicAnalyticsSection section-${section.id}`}
-                >
-                  {section.content}
-                </div>
+        <AnalyticsOverview analytics={analytics} text={text} locale={locale} />
+        <SectionTabs
+          label={text.title}
+          initial="sessions"
+          sections={[
+            sections[1],
+            sections[0],
+            sections[2],
+            sections[3],
+            {
+              id: "budget",
+              label: text.budgetTitle,
+              content: (
+                <AnalyticsBudget
+                  analytics={analytics}
+                  weeklyBudgetUsd={weeklyBudgetUsd}
+                  saving={savingSettings}
+                  onUpdate={onUpdateWeeklyBudget}
+                  text={text}
+                />
               ),
-            )}
-          </div>
+            },
+          ]}
+        />
 
+        <Presence present={!!sessionActions.pendingSession}>{sessionActions.pendingSession && (
+          <UtilityDialog
+            role="alertdialog"
+            title={text.sessionDeleteConfirm}
+            description={sessionActions.pendingSession.projectName + " · " + sessionActions.pendingSession.sessionId}
+            closeLabel={uiCopy(locale).close}
+            onClose={sessionActions.cancelDelete}
+            dismissible={!sessionActions.deletingSessionId}
+            showClose={false}
+            actions={<><button type="button" disabled={!!sessionActions.deletingSessionId} onClick={sessionActions.cancelDelete}>{uiCopy(locale).close}</button><button type="button" className="danger" disabled={!!sessionActions.deletingSessionId} onClick={() => void sessionActions.confirmDelete()}>{sessionActions.deletingSessionId ? text.sessionDeleting : text.sessionDeleteConfirm}</button></>}
+          />
+        )}
+        </Presence>
         {!loading && (!analytics || analytics.eventCount === 0) ? (
           <p className="analyticsNoResults">{text.emptyDescription}</p>
         ) : null}
@@ -213,6 +241,6 @@ export function AnalyticsPanel({
           </footer>
         ) : null}
       </div>
-    </section>
+    </PageFrame>
   );
 }

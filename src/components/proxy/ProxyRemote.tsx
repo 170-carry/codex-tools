@@ -56,7 +56,7 @@ export function ProxyRemote({ workspace }: { workspace: ApiProxyWorkspace }) {
           {selectedRemoteDraft ? (
             <div className="remoteWorkbench">
               <article className="remoteWorkbenchCard">
-                <div className="remoteWorkbenchHeader">
+                <div className="remoteWorkbenchHeader" hidden={editingSelectedRemote}>
                   <div className="remoteServerSummary">
                     <div className="remoteServerIdentity">
                       <strong>{selectedRemoteIdentity}</strong>
@@ -178,7 +178,7 @@ export function ProxyRemote({ workspace }: { workspace: ApiProxyWorkspace }) {
                   </div>
                 </div>
 
-                <div className="remoteServerStatus">
+                {!editingSelectedRemote && <div className="remoteServerStatus">
                   <div className="remoteServerMeta">
                     <span>{proxyCopy.remoteInstalledLabel}</span>
                     <strong>{selectedRemoteInstalledText}</strong>
@@ -199,59 +199,16 @@ export function ProxyRemote({ workspace }: { workspace: ApiProxyWorkspace }) {
                     <span>{proxyCopy.remotePidLabel}</span>
                     <strong>{selectedRemoteStatus?.pid ?? "--"}</strong>
                   </div>
-                </div>
+                </div>}
               </article>
 
-              <article className="proxyDetailCard remoteGuideCard">
+              {!editingSelectedRemote && <article className="proxyDetailCard remoteGuideCard">
                 {!selectedRemoteStatus?.running ? (
                   <>
                     <strong>{remoteGuideTitle}</strong>
                     {remoteGuideDescription ? <p>{remoteGuideDescription}</p> : null}
                   </>
                 ) : null}
-                <div className="remoteGuideActions">
-                  {selectedRemoteConfigured ? (
-                    selectedRemoteStatus?.running ? (
-                      <>
-                        <button
-                          className="ghost"
-                          onClick={() => copyText(selectedRemoteStatus.baseUrl)}
-                          disabled={!selectedRemoteStatus.baseUrl}
-                        >
-                          {proxyCopy.remoteBaseUrlLabel}
-                        </button>
-                        <button
-                          className="ghost"
-                          onClick={() =>
-                            copyText(selectedRemoteStatus.apiKey ?? null)
-                          }
-                          disabled={!selectedRemoteStatus.apiKey}
-                        >
-                          {proxyCopy.remoteApiKeyLabel}
-                        </button>
-                        <button
-                          className="ghost"
-                          onClick={toggleSelectedDiagnostics}
-                          disabled={selectedReadingLogs}
-                        >
-                          {diagnosticsOpen
-                            ? proxyCopy.remoteCollapse
-                            : selectedReadingLogs
-                              ? proxyCopy.remoteReadingLogs
-                              : proxyCopy.remoteReadLogs}
-                        </button>
-                      </>
-                    ) : null
-                  ) : (
-                    <button
-                      className="ghost"
-                      onClick={() => setEditingRemoteId(selectedRemoteDraft.id)}
-                    >
-                      {proxyCopy.remoteExpand}
-                    </button>
-                  )}
-                </div>
-
                 <div className="proxyDetailGrid remoteProxyDetailGrid">
                   <article className="proxyDetailCard">
                     <div className="proxyDetailHeader">
@@ -307,7 +264,7 @@ export function ProxyRemote({ workspace }: { workspace: ApiProxyWorkspace }) {
                     </code>
                   </article>
                 </div>
-              </article>
+              </article>}
 
               <RemoteEditor workspace={workspace} />
 

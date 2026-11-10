@@ -1,0 +1,120 @@
+.classicApp.isClaude .topbar {
+  grid-template-columns: minmax(240px, 1fr) 236px minmax(120px, 1fr);
+  min-height: 96px;
+  padding-bottom: 18px;
+}
+.classicApp.isClaude .topSegmentedNav {
+  width: 236px;
+  max-width: 236px;
+  border-radius: 10px;
+  box-shadow: none;
+  padding: 4px;
+  background: color-mix(in srgb, var(--subtle) 7%, var(--card));
+}
+.classicApp.isClaude .topSegmentedButton {
+  min-height: 30px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.classicApp.isClaude .topSegmentedIndicator {
+  top: 4px; bottom: 4px; left: 4px;
+  width: calc((100% - 12px) / 2);
+  border-radius: 7px;
+  background: var(--card);
+  box-shadow: 0 1px 3px #0000000d;
+}
+.classicApp.isClaude .providerBrand { gap: 20px; }
+.classicApp.isClaude .providerSwitch { border-radius: 9px; padding: 2px; }
+.classicApp.isClaude .providerSwitch button { width: 36px; height: 32px; padding: 5px; }
+.classicApp.isClaude .providerSwitch img { width: 22px; height: 22px; }
+.isClaude .claudeAccountsView {
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+  padding: 36px 32px 48px;
+  box-sizing: border-box;
+}
+.claudePageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+.claudePageTitle { display: flex; align-items: center; gap: 14px; }
+.claudePageTitle > img { width: 36px; height: 36px; }
+.claudePageTitle h1 { font-size: 23px; line-height: 1.3; letter-spacing: -.5px; margin: 0 0 6px; }
+.claudePageTitle p { color: var(--subtle); font-size: 12px; margin: 0; }
+.claudePageStats { display: flex; gap: 26px; }
+.claudePageStats > div { display: grid; gap: 6px; min-width: 58px; border-left: 1px solid var(--line); padding-left: 26px; }
+.claudePageStats span { color: var(--subtle); font-size: 11px; }
+.claudePageStats strong { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.isClaude .claudeAccountPanel { padding: 0; border-radius: 14px; overflow: hidden; min-height: 0; }
+.isClaude .claudeToolbar { padding: 16px 20px; margin: 0; border-bottom: 1px solid var(--line); gap: 20px; }
+.claudeToolbarActions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.isClaude .claudeSearch { position: relative; display: flex; align-items: center; flex: 1; max-width: 340px; }
+.claudeSearch svg { position: absolute; left: 12px; color: var(--subtle); pointer-events: none; }
+.isClaude .claudeSearch input { height: 36px; padding: 0 12px 0 36px; font-size: 12px; border-radius: 8px; background: color-mix(in srgb, var(--subtle) 3%, var(--card)); }
+.isClaude .claudeAccountsView button.primary,
+.isClaude .claudeAccountsView button.ghost {
+  min-height: 34px;
+  padding: 8px 13px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
+  box-shadow: none;
+  transform: none;
+}
+.isClaude .claudeAccountsView button.primary { background: var(--brand); border: 1px solid var(--brand); color: white; }
+.isClaude .claudeAccountsView button.ghost { background: var(--card); color: var(--subtle); border: 1px solid var(--line); }
+.isClaude .claudeAccountsView button.ghost:hover { color: var(--ink); background: color-mix(in srgb, var(--subtle) 6%, var(--card)); }
+.isClaude .claudeAccountsView button.primary:hover { filter: brightness(.96); }
+.isClaude .claudeAccountList { gap: 0; }
+.isClaude .claudeAccountRow { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 22px 20px; gap: 20px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 1.5fr); }
+.isClaude .claudeAccountRow:last-child { border-bottom: 0; }
+.isClaude .claudeAccountRow.isCurrent { background: color-mix(in srgb, var(--brand) 3%, var(--card)); box-shadow: inset 3px 0 var(--brand); }
+.isClaude .claudeAccountIdentity { min-width: 0; gap: 6px; }
+.isClaude .claudeAccountIdentity strong { font-size: 14px; font-weight: 650; }
+.isClaude .claudeAccountIdentity small { font-size: 11px; }
+.isClaude .claudePlan { width: fit-content; background: color-mix(in srgb, #b26946 10%, var(--card)); padding: 3px 7px; border-radius: 5px; font-size: 9px; }
+.isClaude .claudeUsageGrid { gap: 28px; min-width: 0; align-self: center; }
+.isClaude .claudeUsage { font-size: 11px; gap: 8px; }
+.isClaude .claudeUsage span { color: var(--subtle); }
+.isClaude .claudeUsage b { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+.isClaude .claudeUsage small { font-size: 10px; }
+.isClaude .claudeUsage progress { appearance: none; border: 0; height: 5px; border-radius: 8px; overflow: hidden; }
+.isClaude .claudeUsage progress::-webkit-progress-bar { background: color-mix(in srgb, var(--subtle) 13%, var(--card)); }
+.isClaude .claudeUsage progress::-webkit-progress-value { background: var(--brand); border-radius: 8px; }
+.isClaude .claudeAccountHealth { max-width: none; flex-direction: row; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; align-self: center; }
+.isClaude .claudeRowActions { justify-content: flex-end; gap: 6px; }
+.isClaude .claudeRowActions button.ghost { min-height: 30px; font-size: 11px; padding: 5px 10px; }
+.isClaude .claudeRowActions button:last-child { border-color: transparent; }
+.isClaude .claudeAccountPanel > p { margin: 12px 20px; font-size: 12px; }
+.claudeEmptyState { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 76px 24px 86px; }
+.claudeEmptyMark { width: 64px; height: 64px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, #b26946 15%, var(--line)); background: color-mix(in srgb, #b26946 5%, var(--card)); border-radius: 18px; margin-bottom: 22px; }
+.claudeEmptyMark img { width: 36px; height: 36px; }
+.claudeEmptyState h2 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
+.claudeEmptyState p { font-size: 12px; color: var(--subtle); line-height: 1.7; margin: 0 0 24px; max-width: 340px; }
+.claudeEmptyState button { display: flex; align-items: center; gap: 18px; }
+@media (max-width: 900px) {
+  .classicApp.isClaude .topbar { grid-template-columns: minmax(150px, 1fr) 200px auto; gap: 12px; }
+  .classicApp.isClaude .topSegmentedNav { width: 200px; }
+  .isClaude .claudeAccountsView { padding: 28px 20px; }
+  .claudePageStats { gap: 14px; }
+  .claudePageStats > div { padding-left: 14px; }
+}
+@media (max-width: 680px) {
+  .classicApp.isClaude .topbar { grid-template-columns: 1fr auto; }
+  .classicApp.isClaude .topSegmentedNav { width: 200px; }
+  .claudePageHeader { flex-wrap: wrap; gap: 22px; }
+  .claudePageStats { width: 100%; gap: 28px; }
+  .claudePageStats > div { border: 0; padding: 0; }
+  .isClaude .claudeToolbar { flex-wrap: wrap; padding: 14px; gap: 12px; }
+  .isClaude .claudeSearch { max-width: none; min-width: 100%; }
+  .claudeToolbarActions { margin-left: auto; }
+  .isClaude .claudeAccountRow { grid-template-columns: 1fr; }
+  .isClaude .claudeAccountHealth { order: 3; }
+  .isClaude .claudeRowActions { justify-content: flex-start; }
+}

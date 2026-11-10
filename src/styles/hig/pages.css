@@ -1,0 +1,81 @@
+.higApp :is(.accountsPage, .analyticsPage, .proxyPage, .settingsPage, .claudeAccountsView) { padding-top: 24px; padding-bottom: 24px; }
+.higApp :is(.analyticsShell, .proxyShell, .settingsShell) { gap: 24px; padding-inline: 24px; }
+.higApp .claudeAccountsView { max-width: 1240px; padding-inline: 24px; }
+.higApp :is(.analyticsHeader, .settingsHeader, .proxyHeader) { background: transparent; border: 0; padding: 0; box-shadow: none; }
+.higApp :is(.analyticsHeader h2, .settingsPage .settingsHeader h2, .proxyHeader h2, .claudePageTitle h1) { font-size: 22px; line-height: 1.3; font-weight: 600; }
+.higApp :is(.classicSectionTitle, .analyticsBlock h3, .proxySection h3) { font-size: 14px; font-weight: 600; }
+.higApp :is(.settingsGroup, .analyticsBlock, .analyticsBudget, .analyticsStatCard, .proxySection, .accountListPanel, .accountDetailPanel, .claudeAccountPanel) { border-radius: var(--ui-radius-panel); border: 1px solid var(--line); background: var(--card); box-shadow: none; }
+.higApp .settingsGroup { padding: 4px 16px; }
+.higApp .settingRow { padding-block: 14px; gap: 20px; }
+.higApp :is(.settingLabel, .settingMeta > strong) { font-size: 13px; font-weight: 550; }
+.higApp .settingRow + .settingRow { border-color: var(--line); }
+.higApp :is(.analyticsStatCard strong, .metricCopy strong, .claudePageStats strong) { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.higApp :is(.analyticsStatCard span, .metricCopy span) { font-size: 11px; font-weight: 450; }
+.higApp .analyticsStatCard { padding: 16px; }
+.higApp .metaPill { min-height: 64px; border-radius: 9px; padding: 12px; }
+.higApp .metricCopy { align-items: flex-start; flex-direction: column; gap: 4px; }
+.higApp .metricIcon { background: transparent; }
+.higApp .accountToolbar { padding: 12px; gap: 8px; grid-template-columns: minmax(150px, 1fr) auto auto auto; }
+.higApp :is(.accountSearch, .accountFilterControl) { height: 32px; border-radius: 7px; }
+.higApp .accountSearch { padding-inline: 10px; gap: 8px; }
+.higApp .accountSearch input { min-height: 0; font-size: 12px; padding: 0; }
+.higApp .accountRows { gap: 0; padding: 0 12px; }
+.higApp .accountRow { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding-block: 12px; min-height: 76px; box-shadow: none; animation: none; }
+.higApp .accountRow.isSelected { background: var(--brand-soft); box-shadow: inset 3px 0 var(--brand); }
+.higApp .accountRow:last-child { border-bottom: 0; }
+.higApp :is(.accountIdentityText strong, .accountName, .accountLabel) { font-size: 13px; font-weight: 600; }
+.higApp .accountStatsCell { background: var(--bg-1); border-radius: 6px; }
+.higApp .accountDetailPanel { padding: 20px; }
+.higApp .proxyPage { --proxy-nested-card-radius: 8px; --proxy-nested-card-shadow: none; --proxy-nested-card-surface: var(--bg-1); }
+.higApp .claudePageHeader { margin-bottom: 24px; }
+.higApp .claudePageTitle > img { width: 28px; height: 28px; }
+.higApp .claudePageStats > div { gap: 6px; }
+.higApp .claudeAccountRow { padding: 20px; }
+.higApp .claudeEmptyState { padding-block: 64px; }
+.higApp .claudeEmptyMark { border: 0; background: var(--bg-1); }
+.higApp .claudeAccountRow.isCurrent { background: var(--brand-soft); }
+.higApp .claudePlan { color: var(--subtle); background: var(--bg-2); }
+@media (max-width: 1050px) {
+  .higApp .accountToolbar { display: flex; flex-wrap: wrap; }
+  .higApp .accountSearch { flex: 1 1 180px; }
+  .higApp .accountToolbarActions { margin-left: auto; }
+  .higApp .analyticsStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .higApp .claudePageHeader { flex-wrap: wrap; gap: 20px; }
+  .higApp .claudePageStats { gap: 16px; }
+  .higApp .claudePageStats > div { padding-left: 16px; }
+  .higApp .claudeAccountRow { grid-template-columns: minmax(0, 1fr); }
+  .higApp .claudeRowActions { justify-content: flex-start; }
+  .higApp .claudeAccountHealth { order: 3; }
+}
+@media (max-width: 780px) {
+  .higApp :is(.analyticsShell, .proxyShell, .settingsShell) { padding-inline: 16px; }
+  .higApp .claudeAccountsView { padding-inline: 16px; }
+  .higApp .settingRow { flex-wrap: wrap; gap: 12px; }
+  .higApp .metaStrip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .higApp .claudeToolbar { flex-wrap: wrap; gap: 12px; }
+  .higApp .claudeSearch { min-width: 100%; max-width: none; }
+}
+.higApp .planChip {
+  color: var(--subtle); background: var(--bg-2); border: 1px solid var(--line);
+  box-shadow: none; text-shadow: none; font-size: 10px; font-weight: 600;
+  min-height: 22px; border-radius: 5px;
+  --plan-shadow: none;
+  --plan-inactive-background: var(--bg-1);
+  --plan-inactive-color: var(--subtle);
+  --plan-inactive-border: var(--line);
+}
+.higApp .planChip[aria-pressed="true"] { border-color: var(--line-strong); }
+.higApp .accountDetailPanel :is(h2, h3, strong) { font-weight: 600; }
+.higApp .settingsPage { max-width: 1040px; }
+
+.higApp :is(.proxySectionCard, .proxyUsageCard) {
+  border: 1px solid var(--line);
+  border-radius: var(--ui-radius-panel);
+  background: var(--card);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.higApp :is(.analyticsBudgetMeter, .analyticsProjectBar, .analyticsProgressMeter) i { background: var(--brand); }
+.higApp .analyticsBudget.tone-warning .analyticsBudgetMeter i { background: var(--warning); }
+.higApp .analyticsBudget.tone-danger .analyticsBudgetMeter i { background: var(--danger); }

@@ -1,0 +1,9 @@
+.higApp .uiSwitch { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 28px; flex: 0 0 32px; cursor: pointer; }
+.higApp .uiSwitch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.higApp .uiSwitchTrack { display: block; width: 32px; height: 20px; border-radius: 10px; background: #aeb8c6; pointer-events: none; }
+.higApp .uiSwitchTrack > span { display: block; width: 16px; height: 16px; margin: 2px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0003; }
+.higApp .uiSwitch input:checked + .uiSwitchTrack { background: var(--brand); }
+.higApp .uiSwitch input:checked + .uiSwitchTrack > span { transform: translateX(12px); }
+.higApp .uiSwitch input:focus-visible + .uiSwitchTrack { outline: 2px solid var(--brand); outline-offset: 3px; }
+.higApp .uiSwitch:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+[data-theme="dark"] .higApp .uiSwitchTrack { background: #555c67; }

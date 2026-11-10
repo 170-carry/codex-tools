@@ -1,3 +1,4 @@
+import { Presence } from "./ui/Presence";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider";
 import type { LocalProjectSwitchPreview, Notice } from "../types/app";
@@ -12,8 +13,7 @@ export function LocalProjectMergeDialog({ request, onAnswer }: {
 }) {
   const { copy } = useI18n();
   const text = copy.localProjects;
-  if (!request) return null;
-  return <UtilityDialog
+  return <Presence present={!!request}>{request && <UtilityDialog
     title={text.title}
     description={formatLocalProjectText(text.description, { label: request.label })}
     closeLabel={copy.common.close}
@@ -27,7 +27,7 @@ export function LocalProjectMergeDialog({ request, onAnswer }: {
     {(["projectCount", "threadLinkCount", "unassignedThreadCount", "retainedTargetProjectCount"] as const).map((key) =>
       <div className="settingRow" key={key}><span>{text[key]}</span><strong>{request.preview[key]}</strong></div>,
     )}
-  </UtilityDialog>;
+  </UtilityDialog>}</Presence>;
 }
 
 export function LocalProjectRecoveryDialog({ open, onAnswer }: {
@@ -36,8 +36,7 @@ export function LocalProjectRecoveryDialog({ open, onAnswer }: {
 }) {
   const { copy } = useI18n();
   const text = copy.localProjects;
-  if (!open) return null;
-  return <UtilityDialog
+  return <Presence present={open}><UtilityDialog
     title={text.recoveryTitle}
     description={text.recoveryDescription}
     closeLabel={copy.common.close}
@@ -46,7 +45,7 @@ export function LocalProjectRecoveryDialog({ open, onAnswer }: {
       <button type="button" className="ghost" onClick={() => onAnswer(false)}>{text.cancel}</button>
       <button type="button" className="primary" onClick={() => onAnswer(true)}>{text.recoveryConfirm}</button>
     </>}
-  />;
+  /></Presence>;
 }
 
 export function LocalProjectRecoveryGate({ blocked, confirmationOpen, onAnswer, children }: {

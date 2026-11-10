@@ -1,3 +1,7 @@
+import { ActionMenu } from "../ui/ActionMenu";
+import { useI18n } from "../../i18n/I18nProvider";
+import { getPageLayoutCopy } from "../../i18n/pageLayoutCopy";
+import { PageHeader } from "../ui/PageFrame";
 import type { AnalyticsCopy } from "../analytics/types";
 export function ClassicAnalyticsHeader({
   text,
@@ -12,12 +16,10 @@ export function ClassicAnalyticsHeader({
   onRefresh?: () => void;
   onExport: (format: "csv" | "json") => void;
 }) {
+  const { locale } = useI18n();
+  const layout = getPageLayoutCopy(locale);
   return (
-    <header className="analyticsHeader">
-      <div>
-        <h2>{text.title}</h2>
-      </div>
-      <div className="analyticsActions">
+    <PageHeader title={text.title} actions={<>
         {onRefresh ? (
           <button
             type="button"
@@ -28,23 +30,8 @@ export function ClassicAnalyticsHeader({
             {text.refresh}
           </button>
         ) : null}
-        <button
-          type="button"
-          className="ghost"
-          disabled={exporting !== null}
-          onClick={() => onExport("csv")}
-        >
-          {exporting === "csv" ? text.exporting : text.exportCsv}
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={exporting !== null}
-          onClick={() => onExport("json")}
-        >
-          {exporting === "json" ? text.exporting : text.exportJson}
-        </button>
-      </div>
-    </header>
+        <ActionMenu label={layout.export} triggerLabel={exporting ? text.exporting : layout.export} disabled={exporting !== null}
+          items={[{label: text.exportCsv, action: () => onExport("csv")}, {label: text.exportJson, action: () => onExport("json")}]} />
+      </>} />
   );
 }

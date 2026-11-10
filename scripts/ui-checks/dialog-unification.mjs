@@ -1,0 +1,35 @@
+import { pathToFileURL } from "node:url";
+const { chromium } = await import(process.env.CODEX_TOOLS_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.CODEX_TOOLS_PLAYWRIGHT_MODULE).href : "playwright");
+import assert from 'node:assert/strict';import {mkdir,writeFile} from 'node:fs/promises';
+const out='.codex-verification/dialog-unification';await mkdir(out,{recursive:true});
+const browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+const p=await browser.newPage({viewport:{width:1280,height:900}});const errors=[],checks=[];p.on('pageerror',e=>errors.push(e.message));
+const check=(s,c)=>{assert.ok(c,s);checks.push(s);};
+const snap=n=>p.screenshot({path:`${out}/${n}.png`,animations:'disabled'});
+const close=async()=>{await p.keyboard.press('Escape');await p.locator('.utilityDialog').waitFor({state:'detached'});};
+const shell=async(label)=>{await p.locator('.utilityDialog').waitFor();const g=await p.locator('.utilityDialog').evaluate(e=>{const head=e.querySelector('.utilityDialogHeader'),foot=e.querySelector('.utilityDialogActions');return {padding:getComputedStyle(e).padding,header:getComputedStyle(head).padding,footer:foot?getComputedStyle(foot).padding:null,animation:getComputedStyle(e).animationName};});check(`${label}: one shell, no scaling`,g.padding==='0px'&&g.animation==='none');return g;};
+try{
+await p.goto(process.env.CODEX_TOOLS_UI_BASE_URL ?? 'http://127.0.0.1:5199/tests/ui/preview.html');
+await p.getByRole('button',{name:'添加账号',exact:false}).click();const codex=await shell('Codex');await snap('codex');
+check('Codex primary action lives in footer',await p.locator('.utilityDialogActions .primary').count()===1);
+await p.evaluate(()=>{document.querySelector('.utilityDialog .closeButton').click();});
+check('Dialog retains inert surface while exiting',await p.locator('.utilityOverlay[data-exiting=true][inert]').count()===1);
+await p.locator('.utilityDialog').waitFor({state:'detached'});
+check('No page animation',await p.locator('.uiPage').evaluate(e=>getComputedStyle(e).animationName==='none'));
+await p.getByRole('button',{name:'Claude',exact:true}).click();await p.getByRole('button',{name:/添加账号/}).click();const claude=await shell('Claude');check('Both authorization dialogs share header/footer spacing',JSON.stringify(codex)===JSON.stringify(claude));await snap('claude');await close();
+await p.getByRole('button',{name:'Codex',exact:true}).click();await p.getByRole('button',{name:'分析',exact:true}).click();await p.getByRole('button',{name:'导出',exact:true}).click();check('Both export formats remain available',await p.getByRole('menuitem',{name:'导出 CSV',exact:true}).count()===1&&await p.getByRole('menuitem',{name:'导出 JSON',exact:true}).count()===1);await p.keyboard.press('Escape');await p.locator('[role=menu]').waitFor({state:'detached'});
+check('No permanent session delete buttons',await p.locator('.analyticsDeleteButton').count()===0);await p.locator('.analyticsTable .rowMoreButton').first().click();await p.getByRole('menuitem',{name:'删除',exact:true}).click();await shell('Delete');await snap('delete');await close();
+await p.getByRole('button',{name:'API 反代',exact:true}).click();await p.getByRole('tab',{name:'配置',exact:true}).click();await p.getByRole('button',{name:'管理',exact:true}).click();await shell('Model');await snap('model');await close();
+await p.setViewportSize({width:480,height:800});await p.getByRole('button',{name:'账号',exact:true}).click();await p.getByRole('button',{name:/添加账号/}).click();await snap('codex-narrow');check('Narrow dialog remains inside viewport',await p.locator('.utilityDialog').evaluate(e=>{let r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}));await close();
+await p.emulateMedia({reducedMotion:'reduce'});await p.getByRole('button',{name:/添加账号/}).click();await p.evaluate(()=>document.querySelector('.utilityDialog .closeButton').click());check('Reduced motion does not retain exit surface',await p.locator('.utilityDialog').count()===0);
+await p.evaluate(()=>window.dispatchEvent(new CustomEvent('ui-feedback',{detail:'saved'})));await p.locator('.uiFeedback').waitFor();check('Saved feedback has a dismiss control',await p.locator('.uiFeedback button').count()===1);await p.locator('.uiFeedback button').click();await p.locator('.uiFeedback').waitFor({state:'detached'});
+await p.goto((process.env.CODEX_TOOLS_UI_BASE_URL ?? 'http://127.0.0.1:5199/tests/ui/preview.html') + '?debug=1');
+await p.locator('.accountNameButton').first().waitFor();await p.locator('.sidebarItem.isSettings').click();await p.getByRole('button',{name:'打开首屏设置'}).click();
+await p.locator('.quotaOnboardingDialog').waitFor();await snap('quota-narrow');
+check('Quota onboarding shares dialog structure',await p.locator('.quotaOnboardingDialog .utilityDialogHeader').count()===1&&await p.locator('.quotaOnboardingDialog .utilityDialogActions').count()===1);
+check('Narrow quota options do not overflow',await p.locator('.quotaOnboardingDialog').evaluate(e=>e.scrollWidth<=e.clientWidth));
+await p.getByRole('button',{name:'完成设置',exact:true}).click();await p.locator('.quotaOnboardingDialog').waitFor({state:'detached'});
+check('Quota confirmation exits successfully',await p.locator('.quotaOnboardingDialog').count()===0);
+check('No runtime errors',errors.length===0);
+}finally{await writeFile(`${out}/checks.json`,JSON.stringify({checks,errors},null,2));await browser.close();}
+console.log(checks.length,'checks passed');

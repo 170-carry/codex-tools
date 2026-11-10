@@ -15,11 +15,7 @@ export type ClassicAccountsProps = AccountsGridProps & {
 export function useClassicAccounts(props: ClassicAccountsProps) {
   const { copy, locale } = useI18n();
   const workspace = useAccountsWorkspace(props);
-  const text = {
-    ...getUiCopy(locale),
-    fiveHourUsage: locale === "zh-CN" ? "5小时使用率" : "5h usage",
-    weekUsage: locale === "zh-CN" ? "周使用率" : "Weekly usage",
-  };
+  const text = getUiCopy(locale);
   const tokenUsageByAccount = useMemo(
     () => indexAccountTokenUsage(props.tokenUsage),
     [props.tokenUsage],
@@ -74,6 +70,11 @@ export function useClassicAccounts(props: ClassicAccountsProps) {
     locale,
     text,
     selectedRow,
+    inspectorOpen: workspace.inspectedAccount !== null,
+    closeInspector: () => {
+      cancelAliasEdit();
+      workspace.inspect(null);
+    },
     tokenUsageByAccount,
     editingAliasId,
     aliasDraft,

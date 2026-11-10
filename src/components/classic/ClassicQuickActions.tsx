@@ -16,7 +16,6 @@ export function ClassicQuickActions({
     onExport,
     onReauthorize,
     onWarmup,
-    onDelete,
   } = workspace;
   if (!selectedRow) return null;
   return (
@@ -73,14 +72,7 @@ export function ClassicQuickActions({
           <ActionIcon type="export" />
           <span>{text.exportAccount}</span>
         </button>
-        <button
-          type="button"
-          className="dangerAction"
-          onClick={() => onDelete(selectedRow.account)}
-        >
-          <ActionIcon type="delete" />
-          <span>{text.deleteAccount}</span>
-        </button>
+
       </div>
     </section>
   );

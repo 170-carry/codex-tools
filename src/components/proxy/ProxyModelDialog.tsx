@@ -1,3 +1,6 @@
+import { Button } from "../ui/Button";
+import { SearchField } from "../ui/SearchField";
+import { Switch } from "../ui/Switch";
 import type { ApiProxyWorkspace } from "./useApiProxyWorkspace";
 import { UtilityDialog } from "../workspace/UtilityDialog";
 
@@ -41,31 +44,32 @@ export function ProxyModelDialog({
           >
             {proxyCopy.modelMenuCancel}
           </button>
-          <button
+          <Button busy={modelMenuSaving} variant="primary"
             type="button"
             className="primary"
             disabled={modelMenuSaving || !hasModelMenuChanges}
             onClick={() => void handleSaveProxyModels()}
           >
             {proxyCopy.modelMenuSave}
-          </button>
+          </Button>
         </>
       }
     >
       <div className="proxyModelDialogToolbar">
-        <label className="proxyModelSearchField">
+        <div className="proxyModelSearchField">
           <span className="visuallyHidden">
             {proxyCopy.modelMenuSearchLabel}
           </span>
-          <input
+          <SearchField
             className="proxyModelSearchInput"
             type="search"
+            aria-label={proxyCopy.modelMenuSearchLabel}
             value={modelSearchQuery}
-            onChange={(event) => setModelSearchQuery(event.currentTarget.value)}
+            onValueChange={setModelSearchQuery}
             placeholder={proxyCopy.modelMenuSearchPlaceholder}
             spellCheck={false}
           />
-        </label>
+        </div>
         <div className="proxyModelDialogToolbarActions">
           <button
             type="button"
@@ -92,22 +96,11 @@ export function ProxyModelDialog({
           </div>
         ) : (
           filteredProxyModels.map((model) => (
-            <label key={model} className="proxyModelToggleRow">
+            <div key={model} className="proxyModelToggleRow">
               <strong className="proxyModelToggleName">{model}</strong>
-              <span className="themeSwitch proxyModelToggleControl">
-                <input
-                  type="checkbox"
-                  checked={!effectiveModelMenuDraft.includes(model)}
-                  disabled={modelMenuSaving}
-                  onChange={(event) =>
-                    handleToggleProxyModel(model, event.target.checked)
-                  }
-                />
-                <span className="themeSwitchTrack" aria-hidden="true">
-                  <span className="themeSwitchThumb" />
-                </span>
-              </span>
-            </label>
+              <Switch label={model} checked={!effectiveModelMenuDraft.includes(model)}
+                disabled={modelMenuSaving} onChange={checked => handleToggleProxyModel(model, checked)} />
+            </div>
           ))
         )}
       </div>

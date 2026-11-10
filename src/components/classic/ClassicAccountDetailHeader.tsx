@@ -37,12 +37,14 @@ export function ClassicAccountDetailHeader({
           {editing ? (
             <div className="detailAliasEditor">
               <input
+                aria-label={text.edit}
                 value={aliasDraft}
                 onChange={(event) => setAliasDraft(event.currentTarget.value)}
                 disabled={saving}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     event.preventDefault();
+                    event.stopPropagation();
                     cancelAliasEdit();
                   }
                   if (event.key === "Enter") {
@@ -60,7 +62,7 @@ export function ClassicAccountDetailHeader({
               </button>
             </div>
           ) : (
-            <h2 title={account.label}>{account.label}</h2>
+            null
           )}
           <div className="detailPlanStatus">
             <span className={`planChip tone-${planTone(plan)} isStatic`}>

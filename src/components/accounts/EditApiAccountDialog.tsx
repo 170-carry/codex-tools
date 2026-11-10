@@ -1,3 +1,4 @@
+import { Button } from "../ui/Button";
 import { useId, useState } from "react";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { AccountSummary } from "../../types/app";
@@ -41,9 +42,9 @@ export function EditApiAccountDialog({ account, saving, error, onSave, onClose }
           <button type="button" className="ghost" disabled={saving} onClick={onClose}>
             {copy.accountDeleteDialog.cancel}
           </button>
-          <button type="submit" form={formId} className="primary" disabled={saving}>
+          <Button busy={saving} variant="primary" type="submit" form={formId} className="primary" disabled={saving}>
             {text.apiEditSave}
-          </button>
+          </Button>
         </>
       }
     >
@@ -58,6 +59,7 @@ export function EditApiAccountDialog({ account, saving, error, onSave, onClose }
               className="addOauthInput"
               type={key === "apiKey" ? "password" : "text"}
               autoComplete="off"
+              aria-describedby={error ? `${formId}-error` : undefined}
               required={key !== "apiKey"}
               disabled={saving}
               value={draft[key]}
@@ -65,7 +67,7 @@ export function EditApiAccountDialog({ account, saving, error, onSave, onClose }
             />
           </label>
         ))}
-        {error && <p role="alert">{error}</p>}
+        {error && <p id={`${formId}-error`} className="uiFormMessage isError" role="alert">{error}</p>}
       </form>
     </UtilityDialog>
   );

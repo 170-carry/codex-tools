@@ -1,0 +1,19 @@
+.higApp .uiImportWorkspace { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; align-items: start; }
+.higApp .uiImportWorkspace.isSingleRoute { grid-template-columns: minmax(0, 1fr); }
+.higApp .uiImportWorkspace.isSingleRoute .uiImportMethods { display: none; }
+.higApp .uiImportMethods { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.higApp .uiMethodGroup { display: block; font-size: 11px; color: var(--subtle); padding: 8px 10px; }
+.higApp .uiImportMethods > div:nth-child(2) { margin-top: 12px; }
+:root .higApp.classicApp .uiMethodButton { width: 100%; height: auto; text-align: left; border-color: transparent; background: transparent; color: var(--subtle); white-space: normal; }
+:root .higApp.classicApp .uiMethodButton[aria-pressed="true"] { background: var(--bg-2); color: var(--ink); }
+.higApp .uiImportBody { min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 0; border: 0; }
+.higApp .uiImportBody label { font-size: 12px; font-weight: 500; }
+.higApp .uiImportBody :is(input, textarea) { width: 100%; }
+.higApp .uiImportBody .authorizationAppPicker { width: 100%; }
+@media (max-width: 600px) {
+ .higApp .uiImportWorkspace { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+ .higApp .uiImportMethods { flex-direction: row; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+ .higApp .uiImportMethods > div:nth-child(2) { margin-top: 0; }
+ .higApp .uiMethodGroup { display: none; }
+ :root .higApp.classicApp .uiMethodButton { width: auto; padding: 5px 8px; }
+}

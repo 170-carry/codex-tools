@@ -116,7 +116,7 @@ const proxyRows = render(
     })}
   />,
 );
-const proxyInputs = matches(proxyRows, /<label class="rowToggle"[^>]*><input[^>]*>/g).map(
+const proxyInputs = matches(proxyRows, /<label class="uiSwitch "[^>]*><input[^>]*>/g).map(
   (match) => match[0],
 );
 check(
@@ -140,7 +140,7 @@ const busyRows = render(
 );
 check(
   "Accounts: auth operations disable the visible proxy switches",
-  matches(busyRows, /<label class="rowToggle"[^>]*><input[^>]*>/g).every((match) =>
+  matches(busyRows, /<label class="uiSwitch "[^>]*><input[^>]*>/g).every((match) =>
     match[0].includes('disabled=""'),
   ),
 );
@@ -151,7 +151,7 @@ check(
     !proxyRows.includes("accountTable"),
 );
 check(
-  "Accounts: reset credit badges follow the plan tags",
+  "Accounts: reset credits share the metadata line",
   matches(
     proxyRows,
     /class="accountStateLine".*?<span class="accountResetCredits/g,
@@ -268,10 +268,10 @@ const analysisProps = {
 
 };
 const analysis = render(<AnalyticsPanel {...analysisProps} />);
-sectionChecks(analysis, "Analytics");
+check("Analytics: detail sections use accessible tabs", analysis.includes('role="tablist"') && analysis.includes('aria-selected="true"'));
 check(
-  "Analytics: four summary metrics remain",
-  matches(analysis, /class="analyticsStatCard"/g).length === 4,
+  "Analytics: three focused summary metrics remain",
+  matches(analysis, /class="analyticsMetric(?: analyticsMetricStatic)?"/g).length === 3,
 );
 check(
   "Analytics: budgets, projects, sessions, prompts and activity remain",
@@ -311,7 +311,7 @@ await initializeRecoveredProxy({ settingsLoaded: false, recoveryRequired: true }
 await initializeRecoveredProxy({ settingsLoaded: true, recoveryRequired: false }, recoveredProxyTasks);
 const recoveredProxyHtml = render(<ApiProxyPanel {...recoveredProxyProps} />);
 check("Proxy: recovery initializes model controls and finishes key loading", recoveredProxyHtml.includes("2/2") && recoveredProxyHtml.includes(MESSAGES["zh-CN"].apiProxy.keyEmpty) && !recoveredProxyHtml.includes(MESSAGES["zh-CN"].apiProxy.keyLoading));
-sectionChecks(proxy, "API proxy");
+check("Proxy: service stays above accessible configuration tabs", proxy.includes('role="tablist"') && proxy.includes('aria-selected="true"') && proxy.indexOf("proxyLocalControlCard") < proxy.indexOf('role="tablist"'));
 check(
   "Proxy: service controls and port input remain",
   proxy.includes("proxyPortInput") && proxy.includes("8787"),
@@ -408,7 +408,6 @@ for (const code of ["en-US", "ja-JP", "ko-KR", "ru-RU"]) {
       render(<ApiProxyPanel {...configured} />),
     ].every(
       (html) =>
-        !html.includes('role="tabpanel"') &&
         !html.includes("undefined") &&
         !html.includes("NaN"),
     ),

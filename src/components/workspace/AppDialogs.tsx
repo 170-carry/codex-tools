@@ -1,3 +1,4 @@
+import { Presence } from "../ui/Presence";
 import { AddAccountDialog } from "../AddAccountDialog";
 import { EditApiAccountDialog } from "../accounts/EditApiAccountDialog";
 import { DeleteAccountDialog } from "../DeleteAccountDialog";
@@ -29,7 +30,7 @@ export function AppDialogs({
       onAnswer={c.answerLocalProjectRecovery}
     >
       <LocalProjectMergeDialog request={c.localProjectMergeRequest} onAnswer={c.answerLocalProjectMerge} />
-      {c.apiAccountEditor.account ? (
+      <Presence present={!!c.apiAccountEditor.account}>{c.apiAccountEditor.account ? (
         <EditApiAccountDialog
           account={c.apiAccountEditor.account}
           saving={c.apiAccountEditor.saving}
@@ -37,7 +38,7 @@ export function AppDialogs({
           onSave={c.apiAccountEditor.save}
           onClose={c.apiAccountEditor.close}
         />
-      ) : null}
+      ) : null}</Presence>
       <AddAccountDialog
         open={c.addDialogOpen}
         reauthorizeAccount={c.reauthorizeAccount}
@@ -53,16 +54,17 @@ export function AppDialogs({
         onImportFiles={c.onImportAuthFiles}
         onClose={c.onCloseAddDialog}
       />
-      <DeleteAccountDialog
+      <Presence present={!!c.deleteCandidate}><DeleteAccountDialog
         account={c.deleteCandidate}
         deleting={c.deletingAccountId === c.deleteCandidate?.id}
         onCancel={c.onCancelDelete}
         onConfirm={() => void c.onConfirmDelete()}
       />
 
+      </Presence>
       <NoticeBanner notice={c.notice} />
       <RemoteDeployProgressToast progress={c.remoteDeployProgress} />
-      <UpdateBanner
+      <Presence present={c.updateDialogOpen && !!c.pendingUpdate}><UpdateBanner
         open={c.updateDialogOpen}
         pendingUpdate={c.pendingUpdate}
         updateProgress={c.updateProgress}
@@ -72,7 +74,8 @@ export function AppDialogs({
         onSkipVersion={() => void c.skipPendingUpdateVersion()}
         onInstallNow={() => void c.installPendingUpdate()}
       />
-      <QuotaDisplayOnboardingDialog
+      </Presence>
+      <Presence present={shouldOpenQuotaOnboarding({platform: quotaOnboardingPlatform, settingsLoaded: c.settingsLoaded, windowsCompleted: c.settings.windowsQuotaOnboardingCompleted, macosCompleted: c.settings.macosQuotaOnboardingCompleted})}><QuotaDisplayOnboardingDialog
         open={shouldOpenQuotaOnboarding({
           platform: quotaOnboardingPlatform,
           settingsLoaded: c.settingsLoaded,
@@ -94,6 +97,7 @@ export function AppDialogs({
           c.updateSettings(patch, { silent: true, throwOnError: true })
         }
       />
+      </Presence>
     </LocalProjectRecoveryGate>
   );
 }

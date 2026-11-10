@@ -197,7 +197,7 @@
     "usageUnavailable": "No usage data"
   },
   "bottomDock": {
-    "ariaLabel": "Bottom navigation",
+    "ariaLabel": "Main navigation",
     "accounts": "Accounts",
     "analytics": "Analytics",
     "proxy": "API proxy",
@@ -640,10 +640,10 @@
       "description": "Show average quota and sample counts for eligible ChatGPT accounts, not total tokens. Excludes API accounts, duplicates and snapshots older than 10 minutes."
     },
     "preserveLocalProjects": {
-      "label": "Preserve local projects when switching",
+      "label": "Copy local sessions on switch",
       "checkedText": "Enabled",
       "uncheckedText": "Disabled",
-      "description": "On by default; local ChatGPT accounts only. Switching closes Codex first. An existing target project collection requires merge confirmation."
+      "description": "Save the current projects, conversation groups, and drafts, then overwrite the target account’s local state. Its previous state is backed up."
     }
   },
   "editorPicker": {
@@ -799,15 +799,15 @@
     "refreshFailed": "Request completed, but usage refresh failed; refresh manually"
   },
   "localProjects": {
-    "title": "Review local project merge",
-    "description": "Preserve local projects for account “{{label}}”.",
-    "mergeDetails": "The target already has local projects. Confirmation closes Codex before merging and retains existing target projects. Approval applies only to this preview; cancelling does not switch accounts.",
+    "title": "Overwrite local sessions",
+    "description": "Copy the current local session state to “{{label}}”.",
+    "mergeDetails": "The current local state replaces the target account’s state, which is backed up first.",
     "projectCount": "Projects to preserve",
     "threadLinkCount": "Conversation links in projects",
     "unassignedThreadCount": "Conversations kept ungrouped",
-    "retainedTargetProjectCount": "Existing target projects retained",
+    "retainedTargetProjectCount": "Target projects to replace",
     "cancel": "Cancel",
-    "confirm": "Merge and switch",
+    "confirm": "Overwrite and switch",
     "recoveryTitle": "An unfinished local project switch needs recovery",
     "recoveryDescription": "Account operations and settings saves are paused to protect recovery data. Recovery closes Codex first. Afterwards, you can reopen Codex or retry the switch yourself.",
     "recoveryButton": "Recover unfinished switch",

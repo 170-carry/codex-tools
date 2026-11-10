@@ -1,0 +1,345 @@
+/* One workspace surface; all breakpoints follow its available content width. */
+.higApp .proxyPage {
+  width: min(1184px, 100%);
+  padding: 24px;
+  container: proxy-page / inline-size;
+}
+.higApp .proxyShell {
+  gap: 0;
+  padding: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--ui-radius-panel);
+  overflow: clip;
+}
+.higApp .proxyLocalControlCard {
+  padding: 24px;
+  gap: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.higApp .proxyServiceHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.higApp .proxyServiceIdentity {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.higApp .proxyServiceHeading h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.higApp .proxyHeaderStats {
+  justify-content: flex-start;
+  gap: 16px;
+}
+.higApp .proxyHeaderStat {
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 400;
+  gap: 6px;
+}
+.higApp .proxyHeaderStat strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.higApp .proxyStatusDot {
+  width: 7px;
+  height: 7px;
+}
+.higApp .proxyStatusDot.isRunning {
+  background: var(--ok);
+  animation: none;
+  box-shadow: none;
+}
+.higApp .proxyControlActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  width: auto;
+}
+.higApp .proxyControlActions button {
+  flex: 0 0 auto;
+  width: auto;
+}
+.higApp .proxyControlRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.higApp .proxyCompactField {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: auto;
+  min-width: 0;
+}
+.higApp .proxyCompactField .proxyPortInput {
+  width: 88px;
+}
+.higApp .proxyInlineSetting {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  width: auto;
+  min-width: 0;
+}
+.higApp .proxyDetailCard {
+  padding: 16px 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  min-width: 0;
+}
+.higApp .proxyEndpointCard {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 0;
+}
+.higApp .proxyEndpointList {
+  min-width: 0;
+  width: 100%;
+}
+.higApp .proxyEndpointRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 0;
+}
+.higApp .proxyEndpointRow button {
+  width: auto;
+}
+.higApp .proxyEndpointMeta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.higApp .proxyEndpointMeta code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.higApp .proxyClientDisclosure {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.higApp .proxyClientDisclosure > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+}
+.higApp .proxyClientDisclosure > summary > span {
+  margin-left: 12px;
+  font-weight: 400;
+  color: var(--subtle);
+}
+.higApp .proxyClientDisclosure .proxyDetailCard {
+  padding-bottom: 0;
+}
+.higApp .proxyServiceError {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.higApp .proxyPage .sectionTabs {
+  min-width: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.higApp .proxyPage .sectionTabList {
+  padding-inline: 12px;
+  gap: 4px;
+}
+.higApp .proxyTabContent {
+  padding: 8px 24px 24px;
+}
+.higApp .proxyTabContent .proxySectionContent {
+  gap: 0;
+}
+.higApp .proxyPage :is(.proxyLabel, .proxyInlineLabel) {
+  font-size: 12px;
+  font-weight: 550;
+}
+.higApp .proxyPage .proxySectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+}
+.higApp .proxyPage .proxySectionHeader h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.higApp .proxyPage .proxyUsageCard {
+  padding: 24px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  gap: 20px;
+}
+.higApp .proxyUsageHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.higApp .proxyUsageHeading h3 {
+  font-size: 14px;
+  font-weight: 550;
+}
+.higApp .proxyUsageHeaderMeta {
+  justify-content: flex-start;
+}
+.higApp .proxyUsageUpdated {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 400;
+}
+.higApp .proxyUsageStatus {
+  display: none;
+}
+.higApp .proxyUsageControls {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+}
+.higApp .proxyUsageExportGroup {
+  flex: 0 0 100%;
+  width: auto;
+  margin: 0;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.higApp .proxyUsageExportPicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.higApp .proxyUsageFrame {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.higApp .proxyUsageFrame:not(.hasData) {
+  min-height: 200px;
+}
+.higApp .proxyUsageStateOrb {
+  display: none;
+}
+.higApp .proxyUsageState strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.higApp .proxyUsageState p {
+  font-size: 12px;
+  color: var(--subtle);
+}
+.higApp .proxyUsageLegendItem {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+@container proxy-page (max-width: 560px) {
+  .higApp .proxyServiceHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .higApp .proxyControlActions {
+    justify-content: flex-start;
+  }
+  .higApp .proxyLocalControlCard,
+  .higApp .proxyPage .proxyUsageCard {
+    padding: 16px;
+  }
+  .higApp .proxyTabContent {
+    padding: 0 16px 16px;
+  }
+  .higApp .proxyPage .sectionTabList {
+    padding-inline: 4px;
+  }
+  .higApp .proxyEndpointCard {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .higApp .proxyClientDisclosure > summary > span {
+    display: block;
+    margin: 6px 0 0 14px;
+  }
+  .higApp .proxyUsageExportGroup {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 780px) {
+  .higApp .proxyPage {
+    padding: 16px;
+  }
+}
+
+.higApp .proxyServiceFields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.higApp .proxyServiceFields .proxyControlRow {
+  border: 0;
+  padding: 0;
+}
+.higApp .proxyServiceFields .proxyEndpointCard {
+  grid-column: auto;
+  border-left: 1px solid var(--line);
+  padding-left: 24px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+@container proxy-page (max-width: 760px) {
+  .higApp .proxyServiceFields {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .higApp .proxyServiceFields .proxyEndpointCard {
+    border-left: 0;
+    padding-left: 0;
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+}

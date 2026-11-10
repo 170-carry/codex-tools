@@ -1,4 +1,7 @@
-import { useRef } from "react";
+import { useI18n } from "../../i18n/I18nProvider";
+import { uiCopy } from "../../i18n/uiCopy";
+import { notifyFeedback } from "../ui/feedback";
+import { useRef, useState } from "react";
 import type { CodexCostAnalyticsSnapshot } from "../../types/app";
 import type { AnalyticsCopy } from "./types";
 import { alertLabel } from "./formatting";
@@ -16,14 +19,18 @@ export function AnalyticsBudget({
   onUpdate: (value: number | null) => Promise<void>;
   text: AnalyticsCopy;
 }) {
+  const { locale } = useI18n();
+  const [invalid, setInvalid] = useState(false);
+  const ui = uiCopy(locale);
   const input = useRef<HTMLInputElement>(null);
   const budgetValue = weeklyBudgetUsd === null ? "" : String(weeklyBudgetUsd);
   const alert = analytics?.weeklyBudgetAlert ?? "none";
   const save = () => {
     const trimmed = input.current?.value.trim() ?? "";
     const value = trimmed === "" ? null : Number(trimmed);
-    if (value !== null && (!Number.isFinite(value) || value <= 0)) return;
-    void onUpdate(value);
+    if (value !== null && (!Number.isFinite(value) || value <= 0)) { setInvalid(true); input.current?.focus(); return; }
+    setInvalid(false);
+    void onUpdate(value).then(() => notifyFeedback("saved")).catch(() => notifyFeedback("saveFailed"));
   };
   return (
       <section className={`analyticsBudget tone-${alert}`}>
@@ -45,10 +52,14 @@ export function AnalyticsBudget({
             ref={input}
             key={budgetValue}
             defaultValue={budgetValue}
+            aria-invalid={invalid}
+            aria-describedby={invalid ? "budget-error" : undefined}
+            onInput={() => setInvalid(false)}
             inputMode="decimal"
             placeholder={text.budgetPlaceholder}
           />
         </label>
+        {invalid && <p id="budget-error" className="uiInlineError" role="alert">{ui.budgetInvalid}</p>}
         <div className="analyticsBudgetActions">
           <button
             type="button"
@@ -56,7 +67,8 @@ export function AnalyticsBudget({
             disabled={saving}
             onClick={() => {
               if (input.current) input.current.value = "";
-              void onUpdate(null);
+              setInvalid(false);
+              void onUpdate(null).then(() => notifyFeedback("saved")).catch(() => notifyFeedback("saveFailed"));
             }}
           >
             {text.budgetClear}

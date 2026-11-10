@@ -14,6 +14,8 @@ use macos_desktop::{
 mod account_service;
 mod app_paths;
 mod auth;
+mod authorization_apps;
+mod claude;
 mod cli;
 mod cloudflared_service;
 mod command_line;
@@ -3248,6 +3250,7 @@ pub fn run() {
             restore_main_window(app);
         }))
         .manage(AppState::default())
+        .manage(claude::ClaudeState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -3258,6 +3261,7 @@ pub fn run() {
         .on_window_event(handle_window_close_to_background)
         .setup(|app| {
             utils::prepare_process_path();
+            claude::start_maintenance(app.handle().clone());
             window_state::restore(app.handle());
 
             if cfg!(debug_assertions) {
@@ -3313,6 +3317,21 @@ pub fn run() {
             list_installed_editor_apps,
             is_opencode_desktop_app_installed,
             open_external_url,
+            authorization_apps::list_authorization_apps,
+            authorization_apps::choose_authorization_app,
+            authorization_apps::open_authorization_url,
+            claude::claude_list_accounts,
+            claude::claude_import_desktop_account,
+            claude::claude_switch_desktop_account,
+            claude::claude_prepare_oauth,
+            claude::claude_cancel_oauth,
+            claude::claude_complete_oauth,
+            claude::claude_import_accounts,
+            claude::claude_save_api_account,
+            claude::claude_switch_account,
+            claude::claude_refresh_usage,
+            claude::claude_refresh_accounts,
+            claude::claude_delete_account,
             pick_codex_launch_path,
             get_runtime_platform,
             is_debug_build,

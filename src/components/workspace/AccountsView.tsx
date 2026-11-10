@@ -1,3 +1,4 @@
+import { PageFrame } from "../ui/PageFrame";
 import type { CodexController } from "../../types/workspace";
 import type { AccountsGridProps } from "../accounts/types";
 import { ClassicAccountsGrid } from "../classic/ClassicAccountsGrid";
@@ -42,7 +43,7 @@ export function AccountsView({
     onDelete: (account) => void c.onDelete(account),
   };
   return (
-    <div className="accountsPage">
+    <PageFrame kind="list" className="accountsPage">
       <ClassicAccountsGrid
         {...actions}
         tokenUsage={c.tokenUsage}
@@ -62,6 +63,6 @@ export function AccountsView({
           />
         }
       />
-    </div>
+    </PageFrame>
   );
 }

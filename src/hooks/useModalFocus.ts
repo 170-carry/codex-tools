@@ -1,16 +1,20 @@
 import { useLayoutEffect, type RefObject } from "react";
 
+const activeModals: HTMLElement[] = [];
+
 const FOCUSABLE =
   "button:not(:disabled), a[href], summary, input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex='-1'])";
 
-export function useModalFocus(root: RefObject<HTMLElement | null>) {
+export function useModalFocus(root: RefObject<HTMLElement | null>, enabled = true) {
   useLayoutEffect(() => {
+    if (!enabled) return;
     const dialog = root.current;
     if (!dialog) return;
     const previous =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
+    activeModals.push(dialog);
     dialog.focus({ preventScroll: true });
     const focusable = () =>
       Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -33,11 +37,12 @@ export function useModalFocus(root: RefObject<HTMLElement | null>) {
         },
       );
     const containFocus = (event: FocusEvent) => {
+      if (activeModals.at(-1) !== dialog) return;
       if (event.target instanceof Node && !dialog.contains(event.target))
         dialog.focus({ preventScroll: true });
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
+      if (activeModals.at(-1) !== dialog || event.key !== "Tab") return;
       const items = focusable();
       const first = items[0];
       const last = items[items.length - 1];
@@ -61,9 +66,10 @@ export function useModalFocus(root: RefObject<HTMLElement | null>) {
     document.addEventListener("focusin", containFocus);
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
+      activeModals.splice(activeModals.indexOf(dialog), 1);
       document.removeEventListener("focusin", containFocus);
       document.removeEventListener("keydown", onKeyDown, true);
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [root]);
+  }, [root, enabled]);
 }

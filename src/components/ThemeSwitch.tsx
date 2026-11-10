@@ -1,3 +1,4 @@
+import { Switch } from "./ui/Switch";
 import type { ThemeMode } from "../types/app";
 import { useI18n } from "../i18n/I18nProvider";
 
@@ -11,12 +12,6 @@ export function ThemeSwitch({ themeMode, onToggle }: ThemeSwitchProps) {
   const isDark = themeMode === "dark";
 
   return (
-    <label className="themeSwitch" aria-label={copy.settings.theme.switchAriaLabel}>
-      <input type="checkbox" checked={isDark} onChange={onToggle} />
-      <span className="themeSwitchTrack" aria-hidden="true">
-        <span className="themeSwitchThumb" />
-      </span>
-      <span className="themeSwitchText">{isDark ? copy.settings.theme.dark : copy.settings.theme.light}</span>
-    </label>
+    <Switch checked={isDark} onChange={onToggle} label={copy.settings.theme.switchAriaLabel} />
   );
 }

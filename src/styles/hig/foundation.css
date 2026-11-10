@@ -1,0 +1,50 @@
+/* Page templates: one spacing rhythm, explicit content widths. */
+.higApp .uiPage { box-sizing: border-box; width: 100%; margin-inline: auto; padding: 24px; min-width: 0; }
+.higApp .uiPage-list { max-width: none; height: 100%; overflow: hidden; }
+.higApp .uiPage-analysis { max-width: 1440px; }
+.higApp .uiPage-service { max-width: 1240px; }
+.higApp .uiPage-settings { max-width: 880px; }
+.higApp .uiPage > :is(.settingsShell, .analyticsShell, .proxyShell) { padding: 0; width: 100%; max-width: none; }
+.higApp .uiPageHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; padding-bottom: 4px; }
+.higApp .uiPageHeader h2 { font-size: 22px; font-weight: 600; line-height: 1.35; margin: 0; }
+.higApp .uiPageActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.higApp .uiPageContext, .higApp .uiDataScope { color: var(--subtle); font-size: 12px; }
+.higApp .uiDataScope { padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.higApp .uiSection { min-width: 0; }
+.higApp .uiSectionHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 10px; }
+.higApp .uiSectionHeader h3 { margin: 0; color: var(--ink); font-size: 13px; font-weight: 600; }
+.higApp .uiSectionBody { min-width: 0; }
+.higApp .uiSection + .uiSection { margin-top: 24px; }
+.higApp .uiPagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); color: var(--subtle); font-size: 12px; font-variant-numeric: tabular-nums; }
+.higApp .uiPagination > div { display: flex; align-items: center; gap: 12px; }
+.higApp .uiFeedback { position: fixed; z-index: 10000; bottom: 24px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 12px 18px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: var(--card); box-shadow: var(--panel-shadow); font-size: 13px; }
+.higApp .uiFeedback.isError, .higApp .uiFieldError { color: var(--danger); }
+.higApp .uiDetailContent { padding: 20px; }
+.higApp .uiDetailContent h2 { font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; margin: 0 0 6px; }
+.higApp .uiDetailContent > p { color: var(--subtle); overflow-wrap: anywhere; margin: 0 0 24px; }
+.higApp .uiDefinitionList { margin: 0; }
+.higApp .uiDefinitionList > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; border-bottom: 1px solid var(--line); padding: 12px 0; }
+.higApp .uiDefinitionList dt { color: var(--subtle); }
+.higApp .uiDefinitionList dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.higApp .editorPicker select { width: 100%; min-width: 0; }
+@media (max-width: 900px) {
+ .higApp .uiPage { padding: 16px; }
+ .higApp .uiPageHeader { align-items: flex-start; flex-wrap: wrap; }
+}
+@media (max-width: 560px) {
+ .higApp .uiPage { padding: 12px; }
+ .higApp .uiPageHeader h2 { font-size: 19px; }
+ .higApp .uiPageActions { width: 100%; }
+ .higApp .uiPagination { padding: 12px; }
+}
+.higApp .uiSetupProgress { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; padding: 0 0 20px; list-style: none; border-bottom: 1px solid var(--line); }
+.higApp .uiSetupProgress li { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.higApp .uiSetupProgress li > span { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%; font-size: 11px; }
+.higApp .uiSetupProgress .isReached { color: var(--ink); }
+.higApp .uiSetupProgress [aria-current] > span { background: var(--ui-action-bg); color: var(--ui-action-fg); border-color: var(--ui-action-bg); }
+.higApp .uiCaption { color: var(--subtle); font-size: 12px; line-height: 1.5; }
+.higApp .uiInlineError { color: var(--danger); font-size: 12px; }
+.higApp .settingsShell > .uiSection { margin-top: 0; }
+
+
+.higApp .uiInlineNotice { margin: 0; padding: 12px 16px; font-size: 12px; line-height: 1.6; color: var(--subtle); background: var(--bg-1); border-bottom: 1px solid var(--line); }

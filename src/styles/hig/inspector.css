@@ -1,0 +1,35 @@
+.higApp .accountsPage { width: 100%; max-width: none; }
+.higApp .accountsLayout { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 16px; container: accounts / inline-size; }
+.higApp .accountsSummary { min-width: 0; }
+.higApp .accountsSummary .claudePageHeader { margin: 0; }
+.higApp .accountsWorkspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; min-height: 0; overflow: hidden; }
+.higApp .accountListStack { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; overflow: hidden; container: account-list / inline-size; }
+.higApp .accountListPanel { flex: 1; min-height: 0; }
+.higApp .accountInspector { position: absolute; inset: 0 0 0 auto; z-index: 8; width: min(360px, 100%); min-width: 0; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: -8px 0 24px #0002; overflow: hidden; outline: none; }
+.higApp .inspectorBackdrop { position: absolute; inset: 0; z-index: 7; background: #0002; }
+.higApp .inspectorToolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.inspectorToolbar strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.inspectorScroll { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.higApp .accountInspector .accountDetailPanel { border: 0; border-radius: 0; padding: 16px; overflow: visible; }
+.higApp .accountInspector .detailHeader { gap: 12px; align-items: flex-start; }
+.higApp .accountInspector .detailTitleBlock h2 { font-size: 15px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.higApp .accountInspector .accountTokenWindows { grid-template-columns: 1fr; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.higApp .accountInspector .accountTokenWindows > span { display: flex; align-items: center; justify-content: space-between; border-radius: 0; padding: 10px 12px; }
+.higApp .accountInspector .accountTokenWindows > span + span { border-top: 1px solid var(--line); }
+.higApp .accountInspector .accountTokenWindows b { font-size: 15px; }
+.higApp .accountInspector .quickActionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.higApp .inspectorSecondary { border-top: 1px solid var(--line); margin-top: 16px; }
+.higApp .inspectorSecondary > summary { padding: 16px 0; font-size: 13px; font-weight: 550; cursor: pointer; }
+.higApp .accountTokenCard:has(.accountTokenEmpty) { padding-block: 12px; }
+.higApp .accountTokenEmpty { margin-bottom: 0; font-size: 12px; }
+@container accounts (min-width: 1120px) {
+ .higApp .accountsWorkspace:has(.accountInspector) { grid-template-columns: minmax(0, 1fr) 360px; }
+ .higApp .accountInspector { position: relative; inset: auto; width: auto; box-shadow: none; }
+ .higApp .inspectorBackdrop { display: none; }
+}
+@container accounts (max-width: 560px) {
+ .higApp .accountInspector { width: 100%; }
+}
+:root .higApp.classicApp .accountInspector .quickActionGrid button { display: flex; align-items: center; flex-direction: row; justify-content: flex-start; min-height: 32px; gap: 8px; padding: 6px 8px; text-align: left; }
+.higApp .accountInspector .quickActionGrid svg { width: 16px; height: 16px; }
+.higApp .accountInspector .detailHeader { margin-bottom: 12px; }

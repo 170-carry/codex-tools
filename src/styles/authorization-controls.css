@@ -1,0 +1,104 @@
+.claudeImportDialog .claudeImportTabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--subtle) 8%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  border-radius: 11px;
+  overflow-x: auto;
+}
+.claudeImportDialog button.claudeRouteButton {
+  flex: 1 0 auto;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--subtle);
+  box-shadow: none;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
+  white-space: nowrap;
+  transform: none;
+}
+.claudeImportDialog button.claudeRouteButton:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+}
+.claudeImportDialog button.claudeRouteButton[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--line) 65%, transparent);
+  box-shadow: 0 1px 3px #0000000c;
+  font-weight: 650;
+}
+.claudeImportDialog button.claudeDialogClose {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--subtle);
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.claudeImportDialog button.claudeDialogClose:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--subtle) 10%, transparent);
+}
+.authorizationAppPicker .authorizationAppControl {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 200px;
+  max-width: 100%;
+}
+.authorizationAppPicker .authorizationAppControl select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 38px;
+  max-width: none;
+  padding: 0 32px 0 36px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: normal;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px #00000004;
+}
+.authorizationAppIcon,
+.authorizationAppChevron {
+  position: absolute;
+  pointer-events: none;
+  color: var(--subtle);
+}
+.authorizationAppIcon { left: 12px; }
+.authorizationAppChevron { right: 12px; }
+.authorizationAppPicker .authorizationAppControl select:hover {
+  border-color: color-mix(in srgb, var(--subtle) 45%, var(--line));
+}
+.claudeImportDialog button.claudeRouteButton:focus-visible,
+.claudeImportDialog button.claudeDialogClose:focus-visible,
+.authorizationAppPicker .authorizationAppControl select:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.authorizationAppPicker .authorizationAppControl select:disabled {
+  cursor: default;
+  opacity: .55;
+}
+@media (max-width: 600px) {
+  .claudeImportDialog button.claudeRouteButton { padding-inline: 9px; }
+}

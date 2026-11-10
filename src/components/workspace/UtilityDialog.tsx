@@ -1,3 +1,4 @@
+import { useExiting } from "../ui/presenceContext";
 import { useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useModalFocus } from "../../hooks/useModalFocus";
@@ -12,7 +13,7 @@ type UtilityDialogProps = {
   role?: "dialog" | "alertdialog";
   className?: string;
   children?: ReactNode;
-  actions: ReactNode;
+  actions?: ReactNode;
 };
 
 // Render this frame only while open so focus is restored to the opening control.
@@ -28,12 +29,15 @@ export function UtilityDialog({
   children,
   actions,
 }: UtilityDialogProps) {
+  const exiting = useExiting();
   const id = useId();
   const root = useRef<HTMLElement>(null);
   useModalFocus(root);
   const content = (
     <div
       className="settingsOverlay utilityOverlay"
+      data-exiting={exiting || undefined}
+      inert={exiting}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && dismissible) onClose();
       }}
@@ -77,7 +81,7 @@ export function UtilityDialog({
         {children ? (
           <div className="utilityDialogContent">{children}</div>
         ) : null}
-        <footer className="utilityDialogActions">{actions}</footer>
+        {actions && <footer className="utilityDialogActions">{actions}</footer>}
       </section>
     </div>
   );

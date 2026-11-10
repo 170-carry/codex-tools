@@ -1,5 +1,5 @@
 import type { StatusFilter } from "../accounts/types";
-import { SearchIcon } from "./ClassicIcons";
+import { SearchField } from "../ui/SearchField";
 import type { ClassicAccountsWorkspace } from "./useClassicAccounts";
 export function ClassicAccountToolbar({
   workspace,
@@ -19,18 +19,11 @@ export function ClassicAccountToolbar({
 
   return (
     <div className="accountToolbar">
-      <label className="accountSearch">
-        <SearchIcon />
-        <input
-          data-account-search
-          value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder={text.searchPlaceholder}
-          aria-label={text.searchPlaceholder}
-        />
-      </label>
+      <SearchField className="accountSearch" data-account-search value={query} onValueChange={setQuery}
+        placeholder={text.searchPlaceholder} aria-label={text.searchPlaceholder} />
       <div className="accountFilters">
         <select
+          aria-label={text.allStatuses}
           value={statusFilter}
           onChange={(event) =>
             setStatusFilter(event.currentTarget.value as StatusFilter)
@@ -44,6 +37,7 @@ export function ClassicAccountToolbar({
           <option value="issue">{text.statusIssue}</option>
         </select>
         <select
+          aria-label={text.allPlans}
           value={planFilter}
           onChange={(event) => setPlanFilter(event.currentTarget.value)}
         >

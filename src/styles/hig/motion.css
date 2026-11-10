@@ -1,0 +1,14 @@
+.higApp { --motion-fast: 120ms; }
+@keyframes ui-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ui-fade-out { from { opacity: 1; } to { opacity: 0; } }
+/* Large surfaces and data remain stationary, including during filtering. */
+.higApp :is(.uiPage, .uiAccountRow, .sectionTabs > [role="tabpanel"], .utilityDialog, .analyticsTable, details > *) { animation: none; }
+.higApp :is(.utilityOverlay, .accountInspector, .inspectorBackdrop, .accountActionMenu, .uiFeedback) { animation: ui-fade-in 120ms ease-out; }
+.higApp [data-exiting="true"] { animation: ui-fade-out 120ms ease-in forwards; pointer-events: none; }
+.higApp :is(.sidebarItem, .providerSwitch button, .trayIconStyleOption, .sectionTabList button) { transition: background-color var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
+.higApp .uiSwitchTrack { transition: background-color var(--motion-fast); }
+.higApp .uiSwitchTrack > span { transition: transform var(--motion-fast) ease-out; }
+.higApp :is(button.primary, button.ghost):active:not(:disabled) { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+ .higApp *, .higApp *::before, .higApp *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
