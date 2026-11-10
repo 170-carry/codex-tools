@@ -17,11 +17,13 @@ mod auth;
 mod cli;
 mod cloudflared_service;
 mod command_line;
+mod desktop_project_state;
 mod editor_apps;
 mod i18n;
 mod models;
 mod opencode;
 mod profile_files;
+mod project_switch;
 mod provider_sync;
 pub mod proxy_daemon;
 mod proxy_service;
@@ -30,6 +32,7 @@ mod remote_service;
 mod settings_service;
 mod state;
 mod store;
+mod store_lock;
 #[cfg(target_os = "windows")]
 mod switch_timing;
 mod token_usage;
@@ -1902,6 +1905,260 @@ mod tests {
     }
 }
 
+fn local_project_switch_paths(app: &AppHandle) -> Result<project_switch::SwitchPaths, String> {
+    project_switch::SwitchPaths::new(
+        app_paths::codex_dir()?,
+        store::account_store_path_from_data_dir(&app_paths::app_data_dir(app)?),
+    )
+}
+#[tauri::command]
+async fn preview_local_project_switch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<project_switch::ProjectSwitchPreview, String> {
+    let _guard = state.store_lock.lock().await;
+    project_switch::preview(&local_project_switch_paths(&app)?, &id)
+}
+#[tauri::command]
+async fn recover_local_project_switch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    recover_with_tray(
+        state.inner(),
+        || {
+            let paths = local_project_switch_paths(&app)?;
+            let settings = project_switch::strict_store(&paths.store_path)?.settings;
+            let mut lifecycle = project_switch::NativeLifecycle::new(
+                &paths,
+                settings.codex_launch_path.as_deref(),
+                settings.launch_codex_as_admin,
+                false,
+            )?;
+            project_switch::recover(&paths, &mut lifecycle)
+        },
+        || tray::ensure_system_tray(&app),
+    )
+    .await
+}
+
+async fn recover_with_tray(
+    state: &AppState,
+    recover: impl FnOnce() -> Result<bool, String>,
+    ensure_tray: impl FnOnce() -> Result<(), String>,
+) -> Result<bool, String> {
+    let recovered = {
+        let _auth = state.auth_operation_lock.lock().await;
+        ensure_no_pending_auth_operation(state).await?;
+        let _store = state.store_lock.lock().await;
+        // The transaction's OS locks are also released before this call returns.
+        recover()
+    }?;
+    // Tray construction reads the store and may dispatch onto the UI thread.
+    // Keep it outside every recovery lock and independent of the data result.
+    if let Err(error) = ensure_tray() {
+        log::warn!("本地项目恢复后初始化托盘失败: {error}");
+    }
+    Ok(recovered)
+}
+
+#[cfg(test)]
+mod recovery_tray_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn pending_startup_recovery_initializes_tray_only_after_locks_are_released() {
+        let state = AppState::default();
+        let initialized = Cell::new(false);
+        let calls = Cell::new(0);
+        assert!(!startup_store_ready(Err("PROJECT_SHARING_RECOVERY_REQUIRED".into())).unwrap());
+        let result = recover_with_tray(
+            &state,
+            || {
+                assert!(state.auth_operation_lock.try_lock().is_err());
+                assert!(state.store_lock.try_lock().is_err());
+                Ok(true)
+            },
+            || {
+                assert!(state.auth_operation_lock.try_lock().is_ok());
+                assert!(state.store_lock.try_lock().is_ok());
+                tray::ensure_tray_if_missing(
+                    || initialized.get(),
+                    || {
+                        calls.set(calls.get() + 1);
+                        initialized.set(true);
+                        Ok(())
+                    },
+                )
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap(), true);
+        assert!(initialized.get());
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn existing_tray_is_not_initialized_again_after_recovery() {
+        let state = AppState::default();
+        let checks = Cell::new(0);
+        let inits = Cell::new(0);
+        let result = recover_with_tray(
+            &state,
+            || Ok(true),
+            || {
+                tray::ensure_tray_if_missing(
+                    || {
+                        checks.set(checks.get() + 1);
+                        true
+                    },
+                    || {
+                        inits.set(inits.get() + 1);
+                        Ok(())
+                    },
+                )
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(checks.get(), 1);
+        assert_eq!(inits.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn failed_data_recovery_never_initializes_tray() {
+        let state = AppState::default();
+        let called = Cell::new(false);
+        let result = recover_with_tray(
+            &state,
+            || Err("synthetic recovery failure".into()),
+            || {
+                called.set(true);
+                Ok(())
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), "synthetic recovery failure");
+        assert!(!called.get());
+    }
+
+    #[tokio::test]
+    async fn tray_initialization_failure_keeps_successful_recovery_bool() {
+        let state = AppState::default();
+        let called = Cell::new(false);
+        let result = recover_with_tray(
+            &state,
+            || Ok(true),
+            || {
+                called.set(true);
+                Err("synthetic tray failure".into())
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap(), true);
+        assert!(called.get());
+    }
+
+    #[tokio::test]
+    async fn no_pending_data_can_retry_missing_tray_without_changing_false_result() {
+        let state = AppState::default();
+        let initialized = Cell::new(false);
+        let result = recover_with_tray(
+            &state,
+            || Ok(false),
+            || {
+                tray::ensure_tray_if_missing(
+                    || initialized.get(),
+                    || {
+                        initialized.set(true);
+                        Ok(())
+                    },
+                )
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap(), false);
+        assert!(initialized.get());
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn switch_preserving_local_projects(
+    app: &AppHandle,
+    state: &AppState,
+    paths: &project_switch::SwitchPaths,
+    id: &str,
+    workspace: Option<&str>,
+    launch: bool,
+    accept: bool,
+    fingerprint: Option<String>,
+    restart_editors_override: Option<bool>,
+    restart_targets_override: Option<Vec<EditorAppId>>,
+) -> Result<SwitchAccountResult, String> {
+    let _auth = state.auth_operation_lock.lock().await;
+    ensure_no_pending_auth_operation(state).await?;
+    let store_guard = state.store_lock.lock().await;
+    let (mut prepared, mut lifecycle, settings) = {
+        let settings = project_switch::strict_store(&paths.store_path)?.settings;
+        let mut lifecycle = project_switch::NativeLifecycle::new(
+            paths,
+            settings.codex_launch_path.as_deref(),
+            settings.launch_codex_as_admin,
+            launch,
+        )?;
+        let prepared = project_switch::execute_with_refresh(
+            paths,
+            id,
+            project_switch::SwitchOptions {
+                accept_merge: accept,
+                preview_fingerprint: fingerprint,
+                target_auth: None,
+            },
+            &mut lifecycle,
+        )
+        .await?;
+        (prepared, lifecycle, settings)
+    };
+    let mut result = noop_switch_account_result(&prepared.account);
+    result.no_op = prepared.result.status == "noOp";
+    if !result.no_op {
+        let companions = account_switch::run_companions(
+            &prepared.account,
+            settings.sync_opencode_openai_auth,
+            settings.sync_opencode_openai_auth && settings.restart_opencode_desktop_on_switch,
+            restart_editors_override.unwrap_or(settings.restart_editors_on_switch),
+            &restart_targets_override.unwrap_or_else(|| settings.restart_editor_targets.clone()),
+            &mut account_switch::NativeCompanionActions,
+        );
+        result.opencode_synced = companions.opencode_synced;
+        result.opencode_sync_error = companions.opencode_sync_error;
+        result.opencode_desktop_restarted = companions.opencode_desktop_restarted;
+        result.opencode_desktop_restart_error = companions.opencode_desktop_restart_error;
+        result.restarted_editor_apps = companions.restarted_editor_apps;
+        result.editor_restart_error = companions.editor_restart_error;
+    }
+    if launch && !result.no_op {
+        match lifecycle.launch(paths, workspace) {
+            Ok((path, fallback)) => {
+                result.launched_app_path = path;
+                result.used_fallback_cli = fallback;
+                project_switch::verify_after_launch(paths, &mut prepared).await;
+            }
+            Err(_) => {
+                prepared.result.status = "pending".into();
+                prepared.result.warning = Some("PROJECT_SHARING_LAUNCH_FAILED".into());
+            }
+        }
+    }
+    result.local_project_preservation = Some(prepared.result.clone());
+    drop(prepared);
+    drop(store_guard);
+    let _ = tray::refresh_usage_surfaces_snapshot(app);
+    Ok(result)
+}
+
 #[tauri::command]
 async fn switch_account_and_launch(
     app: AppHandle,
@@ -1911,7 +2168,26 @@ async fn switch_account_and_launch(
     launch_codex: Option<bool>,
     restart_editors_on_switch: Option<bool>,
     restart_editor_targets: Option<Vec<EditorAppId>>,
+    accept_local_project_merge: Option<bool>,
+    local_project_preview_fingerprint: Option<String>,
 ) -> Result<SwitchAccountResult, String> {
+    let preserve_paths = local_project_switch_paths(&app)?;
+    if project_switch::enabled_at_path(&preserve_paths.store_path)? {
+        return switch_preserving_local_projects(
+            &app,
+            state.inner(),
+            &preserve_paths,
+            &id,
+            workspace_path.as_deref(),
+            launch_codex.unwrap_or(true),
+            accept_local_project_merge.unwrap_or(false),
+            local_project_preview_fingerprint,
+            restart_editors_on_switch,
+            restart_editor_targets,
+        )
+        .await;
+    }
+    let _desktop_switch_lock = project_switch::legacy_switch_lock(&preserve_paths)?;
     #[cfg(target_os = "windows")]
     let _timing = switch_timing::Phase::start("switch_handler");
     let should_launch_codex = launch_codex.unwrap_or(true);
@@ -2110,42 +2386,21 @@ async fn switch_account_and_launch(
         .err()
         .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
 
-    let mut opencode_synced = false;
-    let mut opencode_sync_error = None;
-    let mut opencode_desktop_restarted = false;
-    let mut opencode_desktop_restart_error = None;
-    if should_sync_opencode {
-        match if matches!(account.source_kind, models::AccountSourceKind::Chatgpt) {
-            opencode::sync_openai_auth_from_codex_auth(&account.auth_json)
-        } else {
-            Err("当前条目为 API 中转站配置，无法同步为 opencode 的 OAuth 登录态。".to_string())
-        } {
-            Ok(()) => {
-                opencode_synced = true;
-                if should_restart_opencode_desktop {
-                    match opencode::restart_opencode_desktop_app() {
-                        Ok(()) => {
-                            opencode_desktop_restarted = true;
-                        }
-                        Err(err) => {
-                            log::warn!("重启 opencode 桌面端失败: {err}");
-                            opencode_desktop_restart_error = Some(err);
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                log::warn!("同步 opencode OpenAI 认证失败: {err}");
-                opencode_sync_error = Some(err);
-            }
-        }
-    }
-
-    let (restarted_editor_apps, editor_restart_error) = if should_restart_editors {
-        editor_apps::restart_selected_editor_apps(&effective_restart_targets)
-    } else {
-        (Vec::new(), None)
-    };
+    let account_switch::CompanionResult {
+        opencode_synced,
+        opencode_sync_error,
+        opencode_desktop_restarted,
+        opencode_desktop_restart_error,
+        restarted_editor_apps,
+        editor_restart_error,
+    } = account_switch::run_companions(
+        &account,
+        should_sync_opencode,
+        should_restart_opencode_desktop,
+        should_restart_editors,
+        &effective_restart_targets,
+        &mut account_switch::NativeCompanionActions,
+    );
 
     // 向后兼容：旧前端未传参数时仍按“切换并启动”处理。
     if !should_launch_codex {
@@ -2161,6 +2416,7 @@ async fn switch_account_and_launch(
             restarted_editor_apps,
             editor_restart_error,
             provider_sync_error,
+            local_project_preservation: None,
         });
     }
 
@@ -2225,6 +2481,7 @@ async fn switch_account_and_launch(
         restarted_editor_apps,
         editor_restart_error,
         provider_sync_error,
+        local_project_preservation: None,
     })
 }
 
@@ -2315,6 +2572,7 @@ fn noop_switch_account_result(account: &StoredAccount) -> SwitchAccountResult {
         restarted_editor_apps: Vec::new(),
         editor_restart_error: None,
         provider_sync_error: None,
+        local_project_preservation: None,
     }
 }
 
@@ -2968,6 +3226,18 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     tray::handle_status_bar_menu_event(app, event);
 }
 
+/// Recovery-required is an interactive startup state, not a fatal setup error.
+fn startup_store_ready(result: Result<(), String>) -> Result<bool, String> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(error) if error == "PROJECT_SHARING_RECOVERY_REQUIRED" => {
+            log::warn!("PROJECT_SHARING_RECOVERY_REQUIRED");
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 // ===== App Bootstrap =====
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -3005,9 +3275,12 @@ pub fn run() {
                 log::warn!("启动时同步开机启动状态失败: {err}");
             }
             // 启动阶段先同步当前本机登录账号，再初始化状态栏，保证首次展示即一致。
-            store::sync_current_auth_account_on_startup(app.handle())?;
+            let store_ready =
+                startup_store_ready(store::sync_current_auth_account_on_startup(app.handle()))?;
             setup_macos_app_menu(app.handle())?;
-            tray::setup_system_tray(app.handle())?;
+            if store_ready {
+                tray::setup_system_tray(app.handle())?;
+            }
             start_periodic_usage_refresh_loop(app.handle().clone());
             Ok(())
         })
@@ -3047,6 +3320,8 @@ pub fn run() {
             complete_oauth_callback_login,
             cancel_oauth_login,
             switch_account_and_launch,
+            preview_local_project_switch,
+            recover_local_project_switch,
             get_api_proxy_status,
             start_api_proxy,
             stop_api_proxy,
@@ -3101,4 +3376,19 @@ pub fn try_run_cli_from_env() -> bool {
 
 pub fn run_cli_from_env() -> ! {
     command_line::run_from_env_or_exit()
+}
+
+#[cfg(test)]
+mod recovery_startup_tests {
+    #[test]
+    fn pending_store_keeps_interactive_startup_available_without_default_store() {
+        assert_eq!(
+            super::startup_store_ready(Err("PROJECT_SHARING_RECOVERY_REQUIRED".into())).unwrap(),
+            false
+        );
+        assert_eq!(super::startup_store_ready(Ok(())).unwrap(), true);
+        assert!(
+            super::startup_store_ready(Err("synthetic unrelated startup failure".into())).is_err()
+        );
+    }
 }

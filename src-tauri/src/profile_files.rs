@@ -116,6 +116,7 @@ pub(crate) fn sync_account_profile_in_store_path(
     store_path: &Path,
     account: &mut StoredAccount,
 ) -> Result<(), String> {
+    crate::store_lock::ensure_store_available(store_path)?;
     let auth_path = profile_auth_path_from_store_path(store_path, &account.id);
     let config_path = profile_config_path_from_store_path(store_path, &account.id);
     let profile_dir = auth_path
@@ -175,6 +176,7 @@ pub(crate) fn capture_current_config_for_profile(
     store_path: &Path,
     account_id: &str,
 ) -> Result<(), String> {
+    crate::store_lock::ensure_store_available(store_path)?;
     let Some(current_config) = read_current_codex_config_optional()? else {
         return Ok(());
     };

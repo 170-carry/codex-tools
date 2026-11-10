@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n/I18nProvider";
 import type { AccountSummary, Notice } from "../types/app";
+import type { ProjectCommandInvoker } from "../utils/localProjectSwitch";
 
 type ResetCreditResult = {
   code: string;
@@ -15,11 +16,13 @@ export function useResetCredits({
   applyAccounts,
   setNotice,
   localizeError,
+  invokeCommand = invoke,
 }: {
   busy: boolean;
   applyAccounts: (accounts: AccountSummary[]) => unknown;
   setNotice: (notice: Notice) => void;
   localizeError: (error: string) => string;
+  invokeCommand?: ProjectCommandInvoker;
 }) {
   const { copy } = useI18n();
   const [resettingAccountId, setResettingAccountId] = useState<string | null>(null);
@@ -31,7 +34,7 @@ export function useResetCredits({
       inFlight.current = true;
       setResettingAccountId(account.id);
       try {
-        const result = await invoke<ResetCreditResult>("use_reset_credit", {
+        const result = await invokeCommand<ResetCreditResult>("use_reset_credit", {
           id: account.id,
           creditId,
         });
@@ -56,7 +59,7 @@ export function useResetCredits({
         setResettingAccountId(null);
       }
     },
-    [applyAccounts, busy, copy.resetCredit, localizeError, setNotice],
+    [applyAccounts, busy, copy.resetCredit, localizeError, setNotice, invokeCommand],
   );
 
   return { resettingAccountId, onUseResetCredit };
