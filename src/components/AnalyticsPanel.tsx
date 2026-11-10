@@ -63,7 +63,6 @@ export function AnalyticsPanel({
       content: (
         <section className="analyticsBlock analyticsBlockProjects">
           <h3>{text.projectsTitle}</h3>
-          <p className="pageSectionDescription">{text.projectsDescription}</p>
           <ClassicProjectRows projects={analytics?.projects ?? []} locale={locale} />
         </section>
       ),
@@ -106,7 +105,6 @@ export function AnalyticsPanel({
       content: (
         <section className="analyticsBlock analyticsBlockHeatmap">
           <h3>{text.heatmapTitle}</h3>
-          <p className="pageSectionDescription">{text.heatmapDescription}</p>
           <UsageHeatmap
             buckets={analytics?.heatmap ?? []}
             locale={locale}
@@ -121,7 +119,6 @@ export function AnalyticsPanel({
       content: (
         <section className="analyticsBlock analyticsBlockPrompts">
           <h3>{text.topPromptsTitle}</h3>
-          <p className="pageSectionDescription">{text.topPromptsDescription}</p>
           <TopPrompts prompts={analytics?.topPrompts ?? []} locale={locale} />
           {!analytics?.topPrompts.length ? (
             <p className="analyticsNoResults">{layout.noResults}</p>

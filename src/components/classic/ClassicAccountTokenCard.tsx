@@ -39,7 +39,6 @@ export function ClassicAccountTokenCard({
           </strong>
         </span>
       </div>
-      <p className="pageSectionDescription">{copy.tokenCardHint}</p>
       {usage ? (
         <>
           <div className="accountTokenWindows">

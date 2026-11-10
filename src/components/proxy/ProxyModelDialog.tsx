@@ -27,7 +27,7 @@ export function ProxyModelDialog({
     <UtilityDialog
       className="proxyModelDialog"
       title={proxyCopy.modelMenuTitle}
-      description={proxyCopy.modelMenuDialogDescription}
+      description={proxyCopy.modelMenuDescription}
       closeLabel={copy.common.close}
       onClose={() => setModelMenuOpen(false)}
       dismissible={!modelMenuSaving}

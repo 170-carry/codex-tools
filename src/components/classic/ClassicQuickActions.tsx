@@ -20,8 +20,7 @@ export function ClassicQuickActions({
   } = workspace;
   if (!selectedRow) return null;
   return (
-    <section className="detailCard quickActionCard">
-      <h3>{text.quickActions}</h3>
+    <section className="detailCard quickActionCard" aria-label={text.quickActions}>
       <div className="quickActionGrid">
         {selectedRow.account.sourceKind === "relay" ? (
           <button

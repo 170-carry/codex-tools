@@ -118,13 +118,10 @@ export type MessageCatalog = {
     startButton: string;
     dialogAriaLabel: string;
     dialogTitle: string;
-    dialogSubtitle: string;
     reauthorizeDialogTitle: string;
     reauthorizeDialogSubtitle: (label: string) => string;
     tabsAriaLabel: string;
     oauthTab: string;
-    oauthDescription: string;
-    reauthorizeOauthDescription: string;
     oauthLinkLabel: string;
     oauthOpenBrowser: string;
     oauthListening: string;
@@ -161,7 +158,6 @@ export type MessageCatalog = {
     apiModelLabel: string;
     apiModelPlaceholder: string;
     apiValidationTitle: string;
-    apiValidationDescription: string;
     apiValidationFailed: string;
     apiTestConnection: string;
     apiTestingConnection: string;
@@ -243,9 +239,7 @@ export type MessageCatalog = {
     settings: string;
   };
   analytics: {
-    kicker: string;
     title: string;
-    description: string;
     refresh: string;
     exportCsv: string;
     exportJson: string;
@@ -263,15 +257,11 @@ export type MessageCatalog = {
     totalTokens: string;
     sessions: string;
     projectsTitle: string;
-    projectsDescription: string;
     sessionsTitle: string;
-    sessionsDescription: string;
     heatmapTitle: string;
-    heatmapDescription: string;
     heatmapAriaLabel: string;
     heatmapTooltip: (weekday: string, time: string, tokens: string) => string;
     topPromptsTitle: string;
-    topPromptsDescription: string;
     budgetTitle: string;
     budgetDescription: string;
     budgetInputLabel: string;
@@ -341,7 +331,6 @@ export type MessageCatalog = {
     modelMenuDescription: string;
     modelMenuOpen: string;
     modelMenuTitle: string;
-    modelMenuDialogDescription: string;
     modelMenuEnableAll: string;
     modelMenuDisableAll: string;
     modelMenuCancel: string;
@@ -387,11 +376,9 @@ export type MessageCatalog = {
     apiKeyPlaceholder: string;
     activeAccountLabel: string;
     activeAccountEmptyTitle: string;
-    activeAccountEmptyDescription: string;
     lastErrorLabel: string;
     none: string;
     keyManagerTitle: string;
-    keyManagerDescription: string;
     keyManagerHelpLabel: string;
     keyManagerHelp: string;
     keyCreateNamePlaceholder: string;
@@ -432,9 +419,7 @@ export type MessageCatalog = {
     serviceTierDefault: string;
     serviceTierFast: string;
     serviceTierFlex: string;
-    remoteKicker: string;
     remoteTitle: string;
-    remoteDescription: string;
     remoteHistoryTitle: string;
     remoteAddServer: string;
     remoteExpand: string;
@@ -512,19 +497,13 @@ export type MessageCatalog = {
     cloudflaredDescription: string;
     cloudflaredToggle: string;
     startLocalProxyFirstTitle: string;
-    startLocalProxyFirstDescription: string;
-    notInstalledLabel: string;
     installTitle: string;
-    installDescription: string;
     installing: string;
     installButton: string;
     quickModeLabel: string;
-    quickModeTitle: string;
     quickModeDescription: string;
     namedModeLabel: string;
-    namedModeTitle: string;
     namedModeDescription: string;
-    quickNoteTitle: string;
     quickNoteBody: string;
     apiTokenLabel: string;
     apiTokenPlaceholder: string;
@@ -543,8 +522,6 @@ export type MessageCatalog = {
     publicStatusLabel: string;
     publicStatusRunning: string;
     publicStatusStopped: string;
-    publicStatusRunningDescription: string;
-    publicStatusStoppedDescription: string;
     publicUrlLabel: string;
     installPathLabel: string;
     notDetected: string;
@@ -648,7 +625,6 @@ export type MessageCatalog = {
     };
     macosQuotaOnboardingPreview: {
       label: string;
-      description: string;
       open: string;
     };
     windowsTaskbarWidget: {

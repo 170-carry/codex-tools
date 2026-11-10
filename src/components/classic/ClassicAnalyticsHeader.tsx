@@ -15,9 +15,7 @@ export function ClassicAnalyticsHeader({
   return (
     <header className="analyticsHeader">
       <div>
-        <span className="analyticsKicker">{text.kicker}</span>
         <h2>{text.title}</h2>
-        <p>{text.description}</p>
       </div>
       <div className="analyticsActions">
         {onRefresh ? (

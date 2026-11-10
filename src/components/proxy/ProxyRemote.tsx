@@ -43,7 +43,6 @@ export function ProxyRemote({ workspace }: { workspace: ApiProxyWorkspace }) {
       <div className="proxySectionHeader">
         <div className="remoteSectionHeading">
           <h3>{proxyCopy.remoteTitle}</h3>
-          <p>{proxyCopy.remoteDescription}</p>
         </div>
         <button className="primary" onClick={addRemoteDraft}>
           {proxyCopy.remoteAddServer}
@@ -204,9 +203,12 @@ export function ProxyRemote({ workspace }: { workspace: ApiProxyWorkspace }) {
               </article>
 
               <article className="proxyDetailCard remoteGuideCard">
-                <span className="proxyLabel">{proxyCopy.remoteKicker}</span>
-                <strong>{remoteGuideTitle}</strong>
-                <p>{remoteGuideDescription}</p>
+                {!selectedRemoteStatus?.running ? (
+                  <>
+                    <strong>{remoteGuideTitle}</strong>
+                    {remoteGuideDescription ? <p>{remoteGuideDescription}</p> : null}
+                  </>
+                ) : null}
                 <div className="remoteGuideActions">
                   {selectedRemoteConfigured ? (
                     selectedRemoteStatus?.running ? (

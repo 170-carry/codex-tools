@@ -29,14 +29,6 @@
   padding: 18px;
 }
 
-.analyticsKicker {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--brand);
-  font: 800 0.72rem/1 var(--font-ui);
-  text-transform: uppercase;
-}
-
 .analyticsHeader h2,
 .analyticsBlock h3 {
   margin: 0;
@@ -47,7 +39,6 @@
   font: 800 1.28rem/1.2 var(--font-ui);
 }
 
-.analyticsHeader p,
 .analyticsBlock p,
 .analyticsBudget p {
   margin: 6px 0 0;

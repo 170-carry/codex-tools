@@ -27,9 +27,6 @@ export function ClassicSettings({
       className="settingsPage classicSettingsPage"
       aria-label={workspace.copy.settings.title}
     >
-      <header className="classicPageHeader">
-        <h2>{workspace.copy.settings.title}</h2>
-      </header>
       <div className="settingsShell">
         {groups.map((group) => (
           <section

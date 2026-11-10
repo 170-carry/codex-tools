@@ -19,10 +19,10 @@ export function AccountImportFrame({
   children,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   routes: AccountImportRouteOption[];
   activeRoute: AccountImportRoute;
-  description: string;
+  description?: string;
   closeBlocked: boolean;
   routeSwitchBlocked: boolean;
   onSelectRoute: (route: AccountImportRoute) => void;
@@ -61,7 +61,7 @@ export function AccountImportFrame({
             <WorkspaceIcon name="close" />
           </button>
         </header>
-        <p className="addAccountDialogSubtitle">{subtitle}</p>
+        {subtitle ? <p className="addAccountDialogSubtitle">{subtitle}</p> : null}
         <div className="addAccountWorkspace">
           {routes.length > 1 ? (
             <nav
@@ -91,7 +91,7 @@ export function AccountImportFrame({
             className="addAccountPanel"
             aria-label={routes.find((route) => route.id === activeRoute)?.label}
           >
-            <p className="addAccountRouteDescription">{description}</p>
+            {description ? <p className="addAccountRouteDescription">{description}</p> : null}
             {children}
           </div>
         </div>

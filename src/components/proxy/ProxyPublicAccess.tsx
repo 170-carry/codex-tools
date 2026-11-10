@@ -35,9 +35,6 @@ export function ProxyPublicAccess({
       <div className="proxySectionHeader">
         <h3>{proxyCopy.cloudflaredTitle}</h3>
         <div className="proxySwitchRow proxySectionToggle">
-          <div className="settingMeta">
-            <strong>{proxyCopy.cloudflaredToggle}</strong>
-          </div>
           <label
             className="themeSwitch"
             aria-label={proxyCopy.cloudflaredToggle}
@@ -64,18 +61,13 @@ export function ProxyPublicAccess({
           {!status.running ? (
             <article className="cloudflaredCallout">
               <strong>{proxyCopy.startLocalProxyFirstTitle}</strong>
-              <p>{proxyCopy.startLocalProxyFirstDescription}</p>
             </article>
           ) : null}
 
           {!cloudflaredStatus.installed ? (
             <article className="cloudflaredInstallCard">
               <div>
-                <span className="proxyLabel">
-                  {proxyCopy.notInstalledLabel}
-                </span>
                 <strong>{proxyCopy.installTitle}</strong>
-                <p>{proxyCopy.installDescription}</p>
               </div>
               <button
                 className="primary"
@@ -95,8 +87,7 @@ export function ProxyPublicAccess({
                   onClick={() => setTunnelMode("quick")}
                   disabled={cloudflaredBusy || cloudflaredStatus.running}
                 >
-                  <span className="proxyLabel">{proxyCopy.quickModeLabel}</span>
-                  <strong>{proxyCopy.quickModeTitle}</strong>
+                  <strong>{proxyCopy.quickModeLabel}</strong>
                   <p>{proxyCopy.quickModeDescription}</p>
                 </button>
                 <button
@@ -104,15 +95,13 @@ export function ProxyPublicAccess({
                   onClick={() => setTunnelMode("named")}
                   disabled={cloudflaredBusy || cloudflaredStatus.running}
                 >
-                  <span className="proxyLabel">{proxyCopy.namedModeLabel}</span>
-                  <strong>{proxyCopy.namedModeTitle}</strong>
+                  <strong>{proxyCopy.namedModeLabel}</strong>
                   <p>{proxyCopy.namedModeDescription}</p>
                 </button>
               </div>
 
               {tunnelMode === "quick" ? (
                 <article className="cloudflaredCallout">
-                  <strong>{proxyCopy.quickNoteTitle}</strong>
                   <p>{proxyCopy.quickNoteBody}</p>
                 </article>
               ) : null}
@@ -255,11 +244,6 @@ export function ProxyPublicAccess({
                       ? proxyCopy.publicStatusRunning
                       : proxyCopy.publicStatusStopped}
                   </strong>
-                  <p>
-                    {cloudflaredStatus.running
-                      ? proxyCopy.publicStatusRunningDescription
-                      : proxyCopy.publicStatusStoppedDescription}
-                  </p>
                 </article>
 
                 <article className="proxyDetailCard">

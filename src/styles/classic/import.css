@@ -1,6 +1,6 @@
 .classicApp .accountImportOverlay { padding: 16px; }
 .classicApp .settingsDialog.addAuthDialog { display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; outline: none; }
-.classicApp .addAuthDialog .settingsHeader { display: flex; flex-direction: row; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 12px; padding: 14px 18px 5px; }
+.classicApp .addAuthDialog .settingsHeader { display: flex; flex-direction: row; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 12px; padding: 14px 18px; }
 .classicApp .addAuthDialog .settingsHeader h2 { margin: 0; font: 600 15px/1.4 var(--font-ui); }
 .classicApp .addAuthDialog .closeButton { flex: 0 0 28px; width: 28px; min-height: 28px; height: 28px; padding: 0; background: transparent; border: 0; box-shadow: none; }
 .classicApp .addAuthDialog .closeButton svg { width: 15px; height: 15px; }

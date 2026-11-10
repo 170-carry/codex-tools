@@ -84,7 +84,6 @@ export function ProxyConfiguration({
             <strong>
               {enabledModelCount}/{apiProxySupportedModels.length || 0}
             </strong>
-            <p>{proxyCopy.modelMenuDescription}</p>
           </div>
           <button
             type="button"
@@ -128,9 +127,7 @@ export function ProxyConfiguration({
           <strong>
             {status.activeAccountLabel ?? proxyCopy.activeAccountEmptyTitle}
           </strong>
-          <p>
-            {status.activeAccountId ?? proxyCopy.activeAccountEmptyDescription}
-          </p>
+          {status.activeAccountId ? <p>{status.activeAccountId}</p> : null}
         </article>
 
         <article className="proxyDetailCard">

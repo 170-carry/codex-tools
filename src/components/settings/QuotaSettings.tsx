@@ -294,9 +294,6 @@ export function QuotaSettings({ workspace }: { workspace: SettingsWorkspace }) {
         <div className="settingRow">
           <div className="settingMeta">
             <strong>{copy.settings.macosQuotaOnboardingPreview.label}</strong>
-            <span className="settingDescription">
-              {copy.settings.macosQuotaOnboardingPreview.description}
-            </span>
           </div>
           <div className="settingActionGroup">
             <button

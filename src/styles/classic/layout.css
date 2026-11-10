@@ -7,14 +7,11 @@
 .classicApp .classicSectionTitle { margin: 0 0 8px; font: 650 16px/1.4 var(--font-ui); }
 .classicApp .classicSettingsGroup { display: grid; gap: 10px; }
 .classicApp .classicSettingsGroup > .settingsGroup { margin: 0; }
-.classicApp .classicPageHeader { padding: 18px 24px; }
-.classicApp .classicPageHeader h2 { margin: 0; font-size: 24px; }
 .classicApp .proxySectionContent { display: grid; gap: 14px; }
 .classicApp .proxyKeyDetails > summary { cursor: pointer; padding: 8px 0; color: var(--subtle); }
 .classicApp .proxyKeyDetails > div { display: grid; gap: 14px; }
 .classicApp .analyticsSessionTools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .classicApp .analyticsNoResults { padding: 18px; color: var(--subtle); text-align: center; }
-.classicApp .pageSectionDescription { font-size: 12px; margin: 0 0 12px; color: var(--subtle); }
 .visuallyHidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 1180px) {
   .classicApp .topbar { grid-template-columns: minmax(160px, 1fr) minmax(260px, 360px) auto; padding-inline: 20px; gap: 12px; }

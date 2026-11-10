@@ -23,7 +23,6 @@ export function UsageChartControls({ chart }: { chart: UsageChartWorkspace }) {
     <>
       <div className="proxyUsageHeader">
         <div className="proxyUsageHeading">
-          <span className="proxyLabel">{copy.chartKicker}</span>
           <h3>{copy.chartTitle}</h3>
         </div>
         <div className="proxyUsageHeaderMeta">

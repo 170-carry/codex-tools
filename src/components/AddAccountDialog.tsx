@@ -17,7 +17,10 @@ import type {
   TestApiAccountConnectionResult,
 } from "../types/app";
 
-import type { AccountImportRoute as AddAccountRoute } from "./accounts/import/types";
+import type {
+  AccountImportRoute as AddAccountRoute,
+  AccountImportRouteOption,
+} from "./accounts/import/types";
 import { AccountImportFrame } from "./accounts/import/AccountImportFrame";
 import { SecretInput } from "./accounts/import/SecretInput";
 import { getAccountImportCopy } from "./accounts/import/copy";
@@ -140,13 +143,10 @@ export function AddAccountDialog({
     };
   }, [closeBlocked, oauthWaitingForCallback, onClose, open, resetOauthState]);
 
-  const routeOptions = useMemo(() => {
+  const routeOptions = useMemo<AccountImportRouteOption[]>(() => {
     const oauthRoute = {
       id: "oauth" as const,
       label: copy.addAccount.oauthTab,
-      description: reauthorizeAccount
-        ? copy.addAccount.reauthorizeOauthDescription
-        : copy.addAccount.oauthDescription,
     };
     if (reauthorizeAccount) {
       return [oauthRoute];
@@ -183,7 +183,7 @@ export function AddAccountDialog({
     : copy.addAccount.dialogTitle;
   const dialogSubtitle = reauthorizeAccount
     ? copy.addAccount.reauthorizeDialogSubtitle(reauthorizeAccount.label)
-    : copy.addAccount.dialogSubtitle;
+    : undefined;
 
   const selectedSummary = useMemo(() => {
     if (selectedFiles.length === 0) {
@@ -531,7 +531,6 @@ export function AddAccountDialog({
           {!oauthLogin ? (
             <div className="addOauthStatus">
               <strong>{copy.addAccount.oauthPreparing}</strong>
-              <p>{activeRouteMeta.description}</p>
             </div>
           ) : null}
         </div>
@@ -712,10 +711,7 @@ export function AddAccountDialog({
               <p>{apiInlineSuccess}</p>
             </div>
           ) : (
-            <div className="addOauthStatus addApiStatus">
-              <strong>{copy.addAccount.apiValidationTitle}</strong>
-              <p>{copy.addAccount.apiValidationDescription}</p>
-            </div>
+            <p className="addFieldHint">{copy.addAccount.apiValidationTitle}</p>
           )}
 
           <div className="addApiActionRow">

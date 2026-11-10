@@ -7,5 +7,5 @@ export type AccountImportRoute =
 export type AccountImportRouteOption = {
   id: AccountImportRoute;
   label: string;
-  description: string;
+  description?: string;
 };

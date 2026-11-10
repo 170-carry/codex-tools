@@ -295,13 +295,12 @@ export function useRemoteServers({
     }
   };
   let remoteGuideTitle = proxyCopy.remoteStatusUnknown;
-  let remoteGuideDescription = proxyCopy.remoteDescription;
+  let remoteGuideDescription: string | undefined;
   if (selectedRemoteDraft && !selectedRemoteConfigured) {
     remoteGuideTitle = proxyCopy.remoteGuideSetupTitle;
     remoteGuideDescription = proxyCopy.remoteGuideSetupDescription;
   } else if (selectedRefreshing) {
     remoteGuideTitle = proxyCopy.remoteRefreshing;
-    remoteGuideDescription = proxyCopy.remoteDescription;
   } else if (selectedRemoteStatus?.running) {
     remoteGuideTitle = proxyCopy.remoteGuideReadyTitle;
     remoteGuideDescription = proxyCopy.remoteGuideReadyDescription;

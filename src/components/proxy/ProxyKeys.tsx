@@ -44,7 +44,6 @@ export function ProxyKeys({ workspace }: { workspace: ApiProxyWorkspace }) {
             </ProxyHelpTip>
           </div>
           <strong>{apiProxyKeys.length}</strong>
-          <p>{proxyCopy.keyManagerDescription}</p>
         </div>
         <div className="proxyKeyCreateRow">
           <input
