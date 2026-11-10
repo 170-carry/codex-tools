@@ -2,6 +2,22 @@
 
 ### Released
 
+- v3.1.5
+
+#### English
+
+1. Preserve local Codex projects and conversation assignments when switching between local ChatGPT accounts. Enabled by default; existing explicit opt-outs remain unchanged.
+2. Preview project merges and recover interrupted switches without overwriting conflicting external changes.
+3. Keep historical project mappings and stale sidebar records from blocking valid project transfers.
+4. Includes desktop, CLI and TUI integration. This release publishes desktop installers; npm CLI packages are not published.
+
+#### 中文
+
+1. 本地 ChatGPT 账号切换时保留 Codex 项目及对话归属，默认开启，已有明确关闭设置保持不变。
+2. 提供项目合并预览及切换中断恢复，避免覆盖存在冲突的外部修改。
+3. 修复历史项目映射及旧侧栏记录阻止有效项目迁移的问题。
+4. 功能覆盖桌面、CLI 和 TUI。本次发布桌面安装包，暂不发布 npm CLI 包。
+
 - v3.1.4
 
 #### English
