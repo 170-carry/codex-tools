@@ -137,7 +137,7 @@
     "currentStamp": "現在",
     "currentBadge": "現在のアカウント",
     "launch": "切替して起動",
-    "launching": "起動中",
+    "launching": "処理中…",
     "apiBadge": "API",
     "profileIncomplete": "Profile incomplete",
     "validationFailed": "Validation failed",
@@ -638,6 +638,12 @@
     "proxyPoolDisplay": {
       "label": "メニューバーにプロキシプールを表示",
       "description": "有効な ChatGPT アカウントの平均残量と件数です。総トークン数ではありません。API アカウント、重複、10 分以上前のデータは除外します。"
+    },
+    "preserveLocalProjects": {
+      "label": "切り替え時にローカルプロジェクトを保持",
+      "checkedText": "有効",
+      "uncheckedText": "無効",
+      "description": "初期状態は有効です。ローカルの ChatGPT アカウントのみ対応。切り替え前に Codex を終了し、切り替え先にプロジェクトがある場合は統合の確認が必要です。"
     }
   },
   "editorPicker": {
@@ -791,5 +797,53 @@
     "alreadyRedeemed": "このカードは使用済みです。使用量を確認してください",
     "unknown": "結果不明です。使用量を更新してください",
     "refreshFailed": "送信完了後の使用量更新に失敗しました。手動で更新してください"
+  },
+  "localProjects": {
+    "title": "ローカルプロジェクトの統合を確認",
+    "description": "アカウント「{{label}}」にローカルプロジェクトを保持します。",
+    "mergeDetails": "切り替え先に既存のプロジェクトがあります。確認後、Codex を終了して統合し、既存のプロジェクトも保持します。承認は今回のプレビューのみ有効です。キャンセルしてもアカウントは切り替わりません。",
+    "projectCount": "保持するプロジェクト",
+    "threadLinkCount": "プロジェクト内の会話リンク",
+    "unassignedThreadCount": "未分類のまま保持する会話",
+    "retainedTargetProjectCount": "保持する切り替え先の既存プロジェクト",
+    "cancel": "キャンセル",
+    "confirm": "統合して切り替え",
+    "recoveryTitle": "未完了のローカルプロジェクト切り替えがあります",
+    "recoveryDescription": "復旧用データを保護するため、アカウント操作と設定の保存を停止しています。復旧前に Codex を終了します。完了後は自分で Codex を再度開くか、切り替えを再試行できます。",
+    "recoveryButton": "未完了の切り替えを復旧",
+    "recoveryConfirm": "Codex を終了して復旧",
+    "recovering": "復旧中…",
+    "recovered": "未完了の切り替えを復旧し、設定とアカウントを再読み込みしました。Codex を再度開くか、切り替えを再試行できます。",
+    "noRecovery": "復旧が必要な切り替えはありません。設定とアカウントを再読み込みしました。Codex を再度開くか、切り替えを再試行できます。",
+    "statuses": {
+      "prepared": "{{projectCount}} 件のプロジェクト、{{threadLinkCount}} 件のプロジェクト会話リンク、{{unassignedThreadCount}} 件の未分類会話を保持する準備ができました。起動後の状態は未確認です。",
+      "verified": "復元状態を確認しました：プロジェクト {{projectCount}} 件、プロジェクト会話リンク {{threadLinkCount}} 件、未分類会話 {{unassignedThreadCount}} 件。",
+      "pending": "プロジェクトの状態を準備しました：プロジェクト {{projectCount}} 件、プロジェクト会話リンク {{threadLinkCount}} 件、未分類会話 {{unassignedThreadCount}} 件。Codex への読み込みはまだ確認できていません。アプリの起動完了後にプロジェクト一覧を確認するか、再度プレビューしてください。",
+      "noOp": "現在のアカウントのため切り替え不要です。ローカルプロジェクトは移行していません。"
+    },
+    "errors": {
+      "generic": "ローカルプロジェクトの保持は完了していません。状態を確認して再試行してください。",
+      "authRefreshFailed": "認証の更新に失敗したため、プロジェクト保持付きの切り替えを中止しました。",
+      "busy": "別のローカルプロジェクト操作が実行中です。後で再試行してください。",
+      "confirmationRequired": "切り替え先にプロジェクトがあります。プレビューして統合を確認してください。",
+      "databaseBusy": "ローカルデータベースは使用中です。Codex を終了して再試行してください。",
+      "databaseMismatch": "ローカルデータベースがプレビューと一致しないため、操作を拒否しました。",
+      "desktopRunning": "Codex が完全に終了していません。終了して再試行してください。",
+      "desktopUnavailable": "Codex のデスクトッププロセスを制御できないため、操作を停止しました。",
+      "disabled": "ローカルプロジェクトの保持は無効です。",
+      "externalChange": "外部の変更を検出したため上書きを拒否しました。既存のファイルを保持し、競合を確認してください。",
+      "identityChanged": "アカウントの識別情報が変わりました。再度プレビューしてください。",
+      "invalidState": "ローカル状態の形式または内容が未対応のため、変更を拒否しました。",
+      "io": "ローカルプロジェクトの読み書きに失敗しました。権限とディスクの状態を確認してください。",
+      "launchFailed": "Codex の起動に失敗しました。状態を確認して手動で再試行してください。",
+      "previewChanged": "プレビュー後にローカル状態が変わりました。再度プレビューして確認してください。",
+      "recoveryRequired": "先に未完了の切り替えを復旧してください。",
+      "restorePending": "プロジェクトの状態を準備しました。Codex への読み込みはまだ確認できていません。アプリの起動完了後にプロジェクト一覧を確認するか、再度プレビューしてください。",
+      "staleStore": "アカウントストアが変わりました。再読み込みしてプレビューしてください。",
+      "unsupportedHome": "この Codex データディレクトリは未対応です。",
+      "unsupportedIdentity": "ローカルの ChatGPT 識別情報を確認できないため、変更を拒否しました。",
+      "unsupportedPlatform": "このプラットフォームではローカルプロジェクトの保持は未対応です。",
+      "unsupportedRoute": "ローカルプロジェクトの保持は ChatGPT アカウントのみ対応し、API・中継アカウントには対応していません。"
+    }
   }
 }

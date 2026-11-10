@@ -20,6 +20,14 @@ export function SwitchingSettings({
   return (
     <div className="settingsGroup">
       <SwitchField
+        checked={settings.preserveLocalProjects}
+        onChange={(checked) => onUpdateSettings({ preserveLocalProjects: checked })}
+        label={copy.settings.preserveLocalProjects.label}
+        checkedText={copy.settings.preserveLocalProjects.checkedText}
+        uncheckedText={copy.settings.preserveLocalProjects.uncheckedText}
+        disabled={savingSettings}
+      />
+      <SwitchField
         checked={settings.launchCodexAfterSwitch}
         onChange={(checked) =>
           onUpdateSettings({ launchCodexAfterSwitch: checked })

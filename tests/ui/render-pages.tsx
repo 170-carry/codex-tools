@@ -6,6 +6,8 @@ import { MESSAGES } from "../../src/i18n/catalog";
 import { I18nProvider } from "../../src/i18n/I18nProvider";
 import { AnalyticsPanel } from "../../src/components/AnalyticsPanel";
 import { ApiProxyPanel } from "../../src/components/ApiProxyPanel";
+import { LocalProjectMergeDialog, LocalProjectRecoveryDialog, LocalProjectRecoveryView, LocalProjectRecoveryGate } from "../../src/components/LocalProjectDialogs";
+import { createDeferredInitialization } from "../../src/utils/deferredInitialization";
 import { SettingsPanel } from "../../src/components/SettingsPanel";
 import { QuotaSettings } from "../../src/components/settings/QuotaSettings";
 import { useSettingsWorkspace } from "../../src/components/settings/useSettingsWorkspace";
@@ -52,6 +54,12 @@ function sectionChecks(html: string, name: string) {
     !html.includes('role="tabpanel"') && !html.includes('pageSectionNav'));
 }
 const empty = () => {};
+for (const [code, processing] of Object.entries({ "zh-CN": "处理中…", "en-US": "Processing…", "ja-JP": "処理中…", "ko-KR": "처리 중…", "ru-RU": "Обработка…" })) {
+  locale = code;
+  const busyRows = render(<AccountsGrid {...accountProps({ switchingId: accounts[1].id, authBusy: true })} />);
+  check(`Accounts: ${code} does not claim launching while merge confirmation is pending`, busyRows.includes(processing));
+}
+locale = "zh-CN";
 const imported = [
   fixtureAccount("second", "second@example.com", 1, 1, {
     addedAt: 20,
@@ -190,6 +198,17 @@ const settingsProps: SettingsPanelProps = {
   developerContent: <button>Preview update dialog</button>,
 };
 const settings = render(<SettingsPanel {...settingsProps} />);
+check("Settings: preservation defaults on", settings.includes(MESSAGES["zh-CN"].settings.preserveLocalProjects.label) && !settings.includes(MESSAGES["zh-CN"].settings.preserveLocalProjects.description) && DEFAULT_SETTINGS.preserveLocalProjects);
+const projectPreview = { projectCount: 24, threadLinkCount: 81, unassignedThreadCount: 4, retainedTargetProjectCount: 3, requiresMergeConfirmation: true, previewFingerprint: "synthetic-only", noOp: false };
+const mergeDialog = render(<LocalProjectMergeDialog request={{ label: "Synthetic target", preview: projectPreview }} onAnswer={empty} />);
+check("Projects: review modal shows project, linked, ungrouped, and retained target counts", mergeDialog.includes('role="dialog"') && [24, 81, 4, 3].every((n) => mergeDialog.includes(`>${n}<`)) && mergeDialog.includes("Synthetic target") && mergeDialog.includes(MESSAGES["zh-CN"].localProjects.cancel));
+const recoveryDialog = render(<LocalProjectRecoveryDialog open onAnswer={empty} />);
+check("Projects: recovery confirmation explains closing Codex and offers cancellation", recoveryDialog.includes('role="dialog"') && recoveryDialog.includes(MESSAGES["zh-CN"].localProjects.recoveryConfirm) && recoveryDialog.includes(MESSAGES["zh-CN"].localProjects.cancel));
+const recoveryView = render(<LocalProjectRecoveryView recovering={false} onRecover={empty} />);
+check("Projects: recovery remains available without an account list", recoveryView.includes(MESSAGES["zh-CN"].localProjects.recoveryButton));
+const recoveryDialogs = render(<LocalProjectRecoveryGate blocked confirmationOpen={false} onAnswer={empty}><div className="quotaOnboarding addAuthDialog" /></LocalProjectRecoveryGate>);
+check("Projects: recovery blocks quota onboarding and all ordinary dialogs", !recoveryDialogs.includes("quotaOnboarding") && !recoveryDialogs.includes("addAuthDialog"));
+
 sectionChecks(settings, "Settings");
 check(
   "Settings: language and appearance are in General",
@@ -282,6 +301,16 @@ check(
   emptyAnalysis.includes("—") && !emptyAnalysis.includes("NaN"),
 );
 const proxy = render(<ApiProxyPanel {...proxyProps()} />);
+const initializeRecoveredProxy = createDeferredInitialization();
+const recoveredProxyProps = proxyProps({ apiProxySupportedModels: [], apiProxyKeysLoading: true });
+const recoveredProxyTasks = [
+  async () => { recoveredProxyProps.apiProxySupportedModels = ["synthetic-model-a", "synthetic-model-b"]; },
+  async () => { recoveredProxyProps.apiProxyKeys = []; recoveredProxyProps.apiProxyKeysLoading = false; },
+];
+await initializeRecoveredProxy({ settingsLoaded: false, recoveryRequired: true }, recoveredProxyTasks);
+await initializeRecoveredProxy({ settingsLoaded: true, recoveryRequired: false }, recoveredProxyTasks);
+const recoveredProxyHtml = render(<ApiProxyPanel {...recoveredProxyProps} />);
+check("Proxy: recovery initializes model controls and finishes key loading", recoveredProxyHtml.includes("2/2") && recoveredProxyHtml.includes(MESSAGES["zh-CN"].apiProxy.keyEmpty) && !recoveredProxyHtml.includes(MESSAGES["zh-CN"].apiProxy.keyLoading));
 sectionChecks(proxy, "API proxy");
 check(
   "Proxy: service controls and port input remain",

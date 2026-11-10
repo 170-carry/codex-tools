@@ -1517,6 +1517,52 @@ fn setup_windows_tray(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn ensure_tray_if_missing(
+    exists: impl FnOnce() -> bool,
+    initialize: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if exists() {
+        Ok(())
+    } else {
+        initialize()
+    }
+}
+
+/// Pending recovery can skip startup tray setup. Ensure the entry exists
+/// without rebuilding an already initialized tray or enabling hidden surfaces.
+pub(crate) fn ensure_system_tray(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let app = app.clone();
+        let main_app = app.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.run_on_main_thread(move || {
+            // Serialize the existence check and construction on the UI thread.
+            let result = ensure_tray_if_missing(
+                || main_app.tray_by_id(TRAY_ID).is_some(),
+                || setup_windows_tray(&main_app),
+            );
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("调度 Windows 托盘恢复失败: {error}"))?;
+        receiver
+            .recv()
+            .map_err(|error| format!("接收 Windows 托盘恢复结果失败: {error}"))?
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // This update reuses existing native items, creates only missing visible
+        // items, and respects user-disabled text/quota surfaces.
+        refresh_macos_tray_snapshot(app)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 pub(crate) fn setup_system_tray(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {

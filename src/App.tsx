@@ -7,6 +7,7 @@ import { useThemeMode } from "./hooks/useThemeMode";
 import { useAppNavigation } from "./hooks/useAppNavigation";
 import type { AppTab } from "./types/workspace";
 import { ClassicTopBar } from "./components/classic/ClassicTopBar";
+import { LocalProjectRecoveryView } from "./components/LocalProjectDialogs";
 import { AnalyticsView, ProxyView, SettingsView } from "./components/workspace/viewModules";
 
 function AppWorkspace() {
@@ -27,6 +28,16 @@ function AppWorkspace() {
     : isMacos
       ? "macos"
       : null;
+  if (c.recoveryRequired) {
+    return <div className="shell classicApp"><main className="panel">
+      <LocalProjectRecoveryView
+        recovering={c.recoveringLocalProjects}
+        onRecover={() => void c.onRecoverLocalProjects()}
+        notice={c.notice}
+      />
+      <AppDialogs c={c} themeMode={themeMode} quotaOnboardingPlatform={quotaOnboardingPlatform} />
+    </main></div>;
+  }
   const refresh = () => {
     if (activeTab === "analytics") {
       void c.refreshCostAnalytics(false);

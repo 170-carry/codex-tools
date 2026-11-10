@@ -11,6 +11,7 @@ import { version } from "../../package.json";
 
 export function installPreviewBackend() {
   const params = new URLSearchParams(location.search);
+  let pendingRecovery = params.get("pendingRecovery") === "1";
   let accounts = structuredClone(fixtures);
   const accountCount = Number(params.get("accounts"));
   if (accountCount > 0 && accountCount <= 1000) {
@@ -36,8 +37,10 @@ export function installPreviewBackend() {
   let settings: AppSettings = {
     ...DEFAULT_SETTINGS,
     codexAnalyticsWeeklyBudgetUsd: 50,
+    preserveLocalProjects: params.get("preserve") !== "0",
   };
   const commands: string[] = [];
+  const calls: { command: string; payload: unknown }[] = [];
   const proxyStatus = params.get("proxy") === "bound"
     ? {
         ...DEFAULT_API_PROXY_STATUS,
@@ -50,11 +53,30 @@ export function installPreviewBackend() {
         codexProxyBaseUrl: "http://127.0.0.1:8787/v1",
       }
     : DEFAULT_API_PROXY_STATUS;
-  Object.assign(window, { __previewCommands: commands });
+  Object.assign(window, { __previewCommands: commands, __previewCalls: calls });
   mockWindows("main");
   mockIPC(
     async (command, payload) => {
       commands.push(command);
+      calls.push({ command, payload: structuredClone(payload) });
+      if (command === "recover_local_project_switch") {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        if (params.get("recoveryError") === "externalChange") throw new Error("PROJECT_SHARING_EXTERNAL_CHANGE /synthetic/private-state");
+        const recovered = pendingRecovery;
+        pendingRecovery = false;
+        return recovered;
+      }
+      if (pendingRecovery && !command.startsWith("plugin:")) throw new Error("PROJECT_SHARING_RECOVERY_REQUIRED /synthetic/private-state");
+      if (command === "preview_local_project_switch") {
+        if (params.get("previewError")) throw new Error(`PROJECT_SHARING_${params.get("previewError")} /synthetic/private-state`);
+        if (accounts.find((a) => a.id === payload?.id)?.sourceKind === "relay") throw new Error("PROJECT_SHARING_UNSUPPORTED_ROUTE");
+        return {
+          projectCount: 24, threadLinkCount: 81, unassignedThreadCount: 4,
+          retainedTargetProjectCount: params.get("emptyTarget") === "1" ? 0 : 3,
+          requiresMergeConfirmation: params.get("emptyTarget") !== "1",
+          previewFingerprint: "synthetic-project-preview-v1", noOp: false,
+        };
+      }
       if (command === "list_accounts" || command === "refresh_all_usage")
         return structuredClone(accounts);
       if (command === "use_reset_credit") {
@@ -139,11 +161,22 @@ export function installPreviewBackend() {
         return payload?.enabled;
       }
       if (command === "switch_account_and_launch") {
+        if (settings.preserveLocalProjects) {
+          if (params.get("switchError")) throw new Error(`PROJECT_SHARING_${params.get("switchError")} /synthetic/private-state`);
+          if (payload?.localProjectPreviewFingerprint !== "synthetic-project-preview-v1") throw new Error("PROJECT_SHARING_PREVIEW_CHANGED");
+          if (params.get("emptyTarget") !== "1" && payload?.acceptLocalProjectMerge !== true) throw new Error("PROJECT_SHARING_CONFIRMATION_REQUIRED");
+        }
         await new Promise((resolve) => setTimeout(resolve, 200));
         accounts.forEach((a) => {
           a.isCurrent = a.id === payload?.id;
         });
+        const preservationStatus = params.get("preservationStatus") ?? (payload?.launchCodex ? "verified" : "prepared");
         return {
+          localProjectPreservation: settings.preserveLocalProjects ? {
+            status: preservationStatus,
+            projectCount: 24, threadLinkCount: 81, unassignedThreadCount: 4,
+            warning: preservationStatus === "pending" ? "PROJECT_SHARING_RESTORE_PENDING /synthetic/private-state" : null,
+          } : null,
           accountId: payload?.id,
           launchedAppPath: null,
           usedFallbackCli: false,

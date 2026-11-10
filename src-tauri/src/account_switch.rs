@@ -14,6 +14,7 @@ pub(crate) async fn apply_target_profile(
     let _guard = state.store_lock.lock().await;
     let mut latest_store = store::load_store(app)?;
     let store_path = store::account_store_path_from_data_dir(&app_paths::app_data_dir(app)?);
+    let store_write_guard = store::begin_store_write(&store_path, &latest_store)?;
     let previous_active_id = latest_store
         .settings
         .active_account_id
@@ -56,9 +57,11 @@ pub(crate) async fn apply_target_profile(
 
     latest_store.settings.active_account_id = Some(target_account.id.clone());
     let account = target_account;
-    if let Err(save_error) = store::save_store(app, &latest_store) {
+    if let Err(save_error) =
+        store::save_store_with_guard(&store_path, &latest_store, &store_write_guard)
+    {
         if previous_active_id.is_none() {
-            match store::save_store(app, &latest_store) {
+            match store::save_store_with_guard(&store_path, &latest_store, &store_write_guard) {
                 Ok(()) => {
                     log::warn!("保存首次活动账号记录第一次失败，重试已成功: {save_error}");
                 }
@@ -72,7 +75,8 @@ pub(crate) async fn apply_target_profile(
             let profile_rollback =
                 rollback_previous_account_profile(&latest_store, previous_active_id.as_deref());
             latest_store.settings.active_account_id = previous_active_id.clone();
-            let store_rollback = store::save_store(app, &latest_store);
+            let store_rollback =
+                store::save_store_with_guard(&store_path, &latest_store, &store_write_guard);
 
             let rollback_detail = match (profile_rollback, store_rollback) {
                 (Ok(true), Ok(())) => "已恢复原账号配置和活动账号记录".to_string(),
@@ -118,5 +122,137 @@ fn describe_switch_store_rollback_result(result: Result<(), String>) -> String {
     match result {
         Ok(()) => "已恢复".to_string(),
         Err(error) => format!("失败（{error}）"),
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct CompanionResult {
+    pub opencode_synced: bool,
+    pub opencode_sync_error: Option<String>,
+    pub opencode_desktop_restarted: bool,
+    pub opencode_desktop_restart_error: Option<String>,
+    pub restarted_editor_apps: Vec<crate::models::EditorAppId>,
+    pub editor_restart_error: Option<String>,
+}
+pub(crate) trait CompanionActions {
+    fn sync_opencode(&mut self, auth: &serde_json::Value) -> Result<(), String>;
+    fn restart_opencode(&mut self) -> Result<(), String>;
+    fn restart_editors(
+        &mut self,
+        targets: &[crate::models::EditorAppId],
+    ) -> (Vec<crate::models::EditorAppId>, Option<String>);
+}
+pub(crate) struct NativeCompanionActions;
+impl CompanionActions for NativeCompanionActions {
+    fn sync_opencode(&mut self, auth: &serde_json::Value) -> Result<(), String> {
+        crate::opencode::sync_openai_auth_from_codex_auth(auth)
+    }
+    fn restart_opencode(&mut self) -> Result<(), String> {
+        crate::opencode::restart_opencode_desktop_app()
+    }
+    fn restart_editors(
+        &mut self,
+        targets: &[crate::models::EditorAppId],
+    ) -> (Vec<crate::models::EditorAppId>, Option<String>) {
+        crate::editor_apps::restart_selected_editor_apps(targets)
+    }
+}
+pub(crate) fn run_companions(
+    account: &StoredAccount,
+    sync: bool,
+    restart_opencode: bool,
+    restart_editors: bool,
+    targets: &[crate::models::EditorAppId],
+    actions: &mut impl CompanionActions,
+) -> CompanionResult {
+    let mut result = CompanionResult::default();
+    if sync {
+        let synced = if matches!(
+            account.source_kind,
+            crate::models::AccountSourceKind::Chatgpt
+        ) {
+            actions.sync_opencode(&account.auth_json)
+        } else {
+            Err("当前条目为 API 中转站配置，无法同步为 opencode 的 OAuth 登录态。".to_string())
+        };
+        match synced {
+            Ok(()) => {
+                result.opencode_synced = true;
+                if restart_opencode {
+                    match actions.restart_opencode() {
+                        Ok(()) => result.opencode_desktop_restarted = true,
+                        Err(error) => {
+                            log::warn!("重启 opencode 桌面端失败: {error}");
+                            result.opencode_desktop_restart_error = Some(error);
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                log::warn!("同步 opencode OpenAI 认证失败: {error}");
+                result.opencode_sync_error = Some(error);
+            }
+        }
+    }
+    if restart_editors {
+        (result.restarted_editor_apps, result.editor_restart_error) =
+            actions.restart_editors(targets);
+    }
+    result
+}
+#[cfg(test)]
+mod companion_tests {
+    use super::*;
+    #[derive(Default)]
+    struct Fake {
+        calls: Vec<&'static str>,
+        fail_sync: bool,
+    }
+    impl CompanionActions for Fake {
+        fn sync_opencode(&mut self, _: &serde_json::Value) -> Result<(), String> {
+            self.calls.push("sync");
+            if self.fail_sync {
+                Err("synthetic failure".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn restart_opencode(&mut self) -> Result<(), String> {
+            self.calls.push("opencode");
+            Ok(())
+        }
+        fn restart_editors(
+            &mut self,
+            targets: &[crate::models::EditorAppId],
+        ) -> (Vec<crate::models::EditorAppId>, Option<String>) {
+            self.calls.push("editors");
+            (targets.to_vec(), None)
+        }
+    }
+    fn account() -> StoredAccount {
+        serde_json::from_value(serde_json::json!({"id":"synthetic","label":"Synthetic","accountId":"synthetic","authJson":{},"addedAt":1,"updatedAt":1})).unwrap()
+    }
+    #[test]
+    fn configured_companions_run_in_existing_order() {
+        let mut fake = Fake::default();
+        let out = run_companions(&account(), true, true, true, &[], &mut fake);
+        assert_eq!(fake.calls, vec!["sync", "opencode", "editors"]);
+        assert!(out.opencode_synced && out.opencode_desktop_restarted);
+    }
+    #[test]
+    fn failed_sync_never_restarts_opencode_but_editor_request_survives() {
+        let mut fake = Fake {
+            fail_sync: true,
+            ..Default::default()
+        };
+        let out = run_companions(&account(), true, true, true, &[], &mut fake);
+        assert_eq!(fake.calls, vec!["sync", "editors"]);
+        assert!(out.opencode_sync_error.is_some());
+    }
+    #[test]
+    fn disabled_companions_have_no_side_effects() {
+        let mut fake = Fake::default();
+        run_companions(&account(), false, true, false, &[], &mut fake);
+        assert!(fake.calls.is_empty());
     }
 }
