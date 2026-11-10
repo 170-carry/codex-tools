@@ -1,3 +1,4 @@
+import type { LocalProjectCopy } from "../utils/localProjectSwitch";
 import enUsRaw from "./locales/en-US.json";
 import jaJpRaw from "./locales/ja-JP.json";
 import koKrRaw from "./locales/ko-KR.json";
@@ -51,6 +52,7 @@ export function getNextLocale(current: AppLocale): AppLocale {
 }
 
 export type MessageCatalog = {
+  localProjects: LocalProjectCopy;
   common: {
     close: string;
     clear: string;
@@ -580,6 +582,12 @@ export type MessageCatalog = {
       checkedText: string;
       uncheckedText: string;
     };
+    preserveLocalProjects: {
+      label: string;
+      checkedText: string;
+      uncheckedText: string;
+      description: string;
+    };
     smartSwitchIncludeApi: {
       label: string;
       checkedText: string;
@@ -841,6 +849,7 @@ function fillTemplate(
 
 function compileLocale(raw: RawMessageCatalog): MessageCatalog {
   return {
+    localProjects: raw.localProjects,
     common: raw.common,
     topBar: {
       ...raw.topBar,

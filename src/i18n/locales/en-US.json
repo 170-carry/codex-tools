@@ -141,7 +141,7 @@
     "currentStamp": "Current",
     "currentBadge": "Current account",
     "launch": "Switch and launch",
-    "launching": "Launching",
+    "launching": "Processing…",
     "apiBadge": "API",
     "profileIncomplete": "Profile incomplete",
     "validationFailed": "Validation failed",
@@ -662,6 +662,12 @@
     "proxyPoolDisplay": {
       "label": "Show proxy pool in menu bar",
       "description": "Show average quota and sample counts for eligible ChatGPT accounts, not total tokens. Excludes API accounts, duplicates and snapshots older than 10 minutes."
+    },
+    "preserveLocalProjects": {
+      "label": "Preserve local projects when switching",
+      "checkedText": "Enabled",
+      "uncheckedText": "Disabled",
+      "description": "On by default; local ChatGPT accounts only. Switching closes Codex first. An existing target project collection requires merge confirmation."
     }
   },
   "editorPicker": {
@@ -815,5 +821,53 @@
     "alreadyRedeemed": "This card was already used; check the latest quota",
     "unknown": "Outcome unknown; refresh usage to verify",
     "refreshFailed": "Request completed, but usage refresh failed; refresh manually"
+  },
+  "localProjects": {
+    "title": "Review local project merge",
+    "description": "Preserve local projects for account “{{label}}”.",
+    "mergeDetails": "The target already has local projects. Confirmation closes Codex before merging and retains existing target projects. Approval applies only to this preview; cancelling does not switch accounts.",
+    "projectCount": "Projects to preserve",
+    "threadLinkCount": "Conversation links in projects",
+    "unassignedThreadCount": "Conversations kept ungrouped",
+    "retainedTargetProjectCount": "Existing target projects retained",
+    "cancel": "Cancel",
+    "confirm": "Merge and switch",
+    "recoveryTitle": "An unfinished local project switch needs recovery",
+    "recoveryDescription": "Account operations and settings saves are paused to protect recovery data. Recovery closes Codex first. Afterwards, you can reopen Codex or retry the switch yourself.",
+    "recoveryButton": "Recover unfinished switch",
+    "recoveryConfirm": "Close Codex and recover",
+    "recovering": "Recovering…",
+    "recovered": "The unfinished switch was recovered and settings and accounts were reloaded. You can reopen Codex or retry switching.",
+    "noRecovery": "No unfinished switch remains. Settings and accounts were reloaded. You can reopen Codex or retry switching.",
+    "statuses": {
+      "prepared": "Prepared {{projectCount}} projects, {{threadLinkCount}} project conversation links and {{unassignedThreadCount}} ungrouped conversations; state after launch has not been verified.",
+      "verified": "Restored state verified: {{projectCount}} projects, {{threadLinkCount}} project conversation links and {{unassignedThreadCount}} ungrouped conversations.",
+      "pending": "Project state is prepared: {{projectCount}} projects, {{threadLinkCount}} project conversation links and {{unassignedThreadCount}} ungrouped conversations. Codex loading has not yet been confirmed. After the app finishes starting, check the project list or preview again.",
+      "noOp": "The account is already current; no local projects were migrated."
+    },
+    "errors": {
+      "generic": "Local project preservation did not complete. Check the state before retrying.",
+      "authRefreshFailed": "Authorization refresh failed; the preserving switch did not continue.",
+      "busy": "Another local project operation is running. Try again later.",
+      "confirmationRequired": "The target has projects. Preview and explicitly confirm the merge.",
+      "databaseBusy": "The local database is busy. Close Codex and retry.",
+      "databaseMismatch": "The local database does not match the preview. The operation was refused.",
+      "desktopRunning": "Codex has not fully exited. Close it and retry.",
+      "desktopUnavailable": "The Codex desktop process could not be controlled. The operation stopped.",
+      "disabled": "Local project preservation is disabled.",
+      "externalChange": "External changes were detected. Overwrite was refused. Keep the existing files and inspect the conflict.",
+      "identityChanged": "Account identity changed. Create a new preview.",
+      "invalidState": "The local state format or contents are unsupported. Modification was refused.",
+      "io": "Local project read or write failed. Check permissions and disk state.",
+      "launchFailed": "Codex could not be launched. Check the state before retrying manually.",
+      "previewChanged": "Local state changed after the preview. Preview and confirm again.",
+      "recoveryRequired": "An unfinished switch must be recovered first.",
+      "restorePending": "Project state is prepared. Codex loading has not yet been confirmed. After the app finishes starting, check the project list or preview again.",
+      "staleStore": "The account store changed. Reload and preview again.",
+      "unsupportedHome": "This Codex data directory is unsupported.",
+      "unsupportedIdentity": "The local ChatGPT identity could not be verified. Modification was refused.",
+      "unsupportedPlatform": "Local project preservation is unsupported on this platform.",
+      "unsupportedRoute": "Local project preservation supports ChatGPT accounts only, not API/relay accounts."
+    }
   }
 }

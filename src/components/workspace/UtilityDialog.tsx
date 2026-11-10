@@ -31,7 +31,7 @@ export function UtilityDialog({
   const id = useId();
   const root = useRef<HTMLElement>(null);
   useModalFocus(root);
-  return createPortal(
+  const content = (
     <div
       className="settingsOverlay utilityOverlay"
       onMouseDown={(event) => {
@@ -79,7 +79,7 @@ export function UtilityDialog({
         ) : null}
         <footer className="utilityDialogActions">{actions}</footer>
       </section>
-    </div>,
-    document.body,
+    </div>
   );
+  return typeof document === "undefined" ? content : createPortal(content, document.body);
 }

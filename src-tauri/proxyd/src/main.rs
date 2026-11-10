@@ -14,6 +14,8 @@ mod proxy_service;
 mod state;
 #[path = "../../src/store.rs"]
 mod store;
+#[path = "../../src/store_lock.rs"]
+mod store_lock;
 #[cfg(windows)]
 #[path = "../../src/switch_timing.rs"]
 mod switch_timing;

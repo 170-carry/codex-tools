@@ -25,6 +25,7 @@ use crate::models::AuthJsonImportInput;
 use crate::models::ImportAccountsResult;
 use crate::models::StoredAccount;
 use crate::profile_files;
+use crate::project_switch;
 use crate::provider_sync;
 use crate::store;
 use crate::token_usage;
@@ -33,7 +34,7 @@ use crate::utils;
 
 const CLI_COMMANDS: &[&str] = &[
     "list", "switch", "login", "import", "export", "delete", "usage", "provider", "doctor",
-    "report", "tui",
+    "report", "tui", "projects",
 ];
 
 #[derive(Debug, Parser)]
@@ -69,6 +70,14 @@ enum CliCommand {
         launch: bool,
         #[arg(long, value_name = "DIR")]
         workspace: Option<PathBuf>,
+        #[arg(long)]
+        preserve_local_projects: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, requires = "preview_fingerprint")]
+        accept_project_merge: bool,
+        #[arg(long)]
+        preview_fingerprint: Option<String>,
     },
     /// Run official `codex login`, then import the resulting auth.json.
     Login {
@@ -112,6 +121,11 @@ enum CliCommand {
         #[command(subcommand)]
         command: ProviderCommand,
     },
+    /// Recover an interrupted local-project switch while the desktop is stopped.
+    Projects {
+        #[command(subcommand)]
+        command: ProjectCommand,
+    },
     /// Check local paths, Codex CLI, auth files, and account store.
     Doctor,
     /// Print a fuller machine-readable diagnostic report.
@@ -121,6 +135,11 @@ enum CliCommand {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum ProjectCommand {
+    Recover,
 }
 
 #[derive(Debug, Subcommand)]
@@ -151,6 +170,7 @@ struct CliSwitchResult {
     active_config_path: String,
     launched_codex: bool,
     provider_sync_error: Option<String>,
+    local_project_preservation: Option<crate::models::PreservationResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -287,15 +307,49 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
             best,
             launch,
             workspace,
+            preserve_local_projects,
+            dry_run,
+            accept_project_merge,
+            preview_fingerprint,
         } => {
-            let result = switch_account(
-                &store_path,
-                account.as_deref(),
-                best,
-                launch,
-                workspace.as_deref(),
-            )
-            .await?;
+            let preserve =
+                preserve_local_projects || dry_run || project_switch::enabled_at_path(&store_path)?;
+            if !preserve && (accept_project_merge || preview_fingerprint.is_some()) {
+                return Err("PROJECT_SHARING_DISABLED".into());
+            }
+            if preserve && dry_run {
+                let paths = project_paths(&store_path, args.codex_home.as_deref())?;
+                let (id, _) = resolve_preserve_target(&paths, account.as_deref(), best)?;
+                return print_json(&project_switch::preview(&paths, &id)?);
+            }
+            let result = if preserve {
+                switch_account_preserving_cli(
+                    &store_path,
+                    args.codex_home.as_deref(),
+                    account.as_deref(),
+                    best,
+                    launch,
+                    workspace.as_deref(),
+                    accept_project_merge,
+                    preview_fingerprint,
+                )
+                .await?
+            } else {
+                if args.codex_home.is_some() {
+                    return Err(
+                        "--codex-home for account switching requires --preserve-local-projects"
+                            .into(),
+                    );
+                }
+                switch_account(
+                    &store_path,
+                    account.as_deref(),
+                    best,
+                    launch,
+                    workspace.as_deref(),
+                )
+                .await?
+            };
             if args.json {
                 print_json(&result)
             } else {
@@ -306,6 +360,18 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
                 );
                 if result.launched_codex {
                     println!("launched codex app");
+                }
+                if let Some(preservation) = result.local_project_preservation.as_ref() {
+                    println!(
+                        "local projects: {} projects={} links={} unassigned={}",
+                        preservation.status,
+                        preservation.project_count,
+                        preservation.thread_link_count,
+                        preservation.unassigned_thread_count
+                    );
+                    if let Some(warning) = &preservation.warning {
+                        eprintln!("warning: {warning}");
+                    }
                 }
                 if let Some(error) = result.provider_sync_error.as_deref() {
                     eprintln!("warning: {error}");
@@ -387,6 +453,20 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
         CliCommand::Provider { command } => {
             run_provider_command(command, args.codex_home.as_deref(), args.json)
         }
+        CliCommand::Projects {
+            command: ProjectCommand::Recover,
+        } => {
+            let paths = project_paths(&store_path, args.codex_home.as_deref())?;
+            let settings = project_switch::strict_store(&paths.store_path)?.settings;
+            let mut lifecycle = project_switch::NativeLifecycle::new(
+                &paths,
+                settings.codex_launch_path.as_deref(),
+                settings.launch_codex_as_admin,
+                false,
+            )?;
+            let recovered = project_switch::recover(&paths, &mut lifecycle)?;
+            print_json(&serde_json::json!({"recovered":recovered}))
+        }
         CliCommand::Doctor => {
             let report = build_doctor_report(&store_path)?;
             if args.json {
@@ -419,7 +499,9 @@ async fn run_cli(args: CliArgs) -> Result<(), String> {
                 Ok(())
             }
         }
-        CliCommand::Tui { refresh } => run_tui(&store_path, refresh).await,
+        CliCommand::Tui { refresh } => {
+            run_tui(&store_path, refresh, args.codex_home.as_deref()).await
+        }
     }
 }
 
@@ -434,24 +516,56 @@ fn resolve_store_path(data_dir: Option<&Path>) -> Result<PathBuf, String> {
 fn account_summaries(store: &AccountsStore) -> Vec<AccountSummary> {
     let current_account_key = auth::current_auth_account_key();
     let current_variant_key = auth::current_auth_variant_key();
+    account_summaries_for_keys(
+        store,
+        current_account_key.as_deref(),
+        current_variant_key.as_deref(),
+    )
+}
+fn account_summaries_for_keys(
+    store: &AccountsStore,
+    current_account_key: Option<&str>,
+    current_variant_key: Option<&str>,
+) -> Vec<AccountSummary> {
     let mut summaries = store
         .accounts
         .iter()
-        .map(|account| {
-            account.to_summary(
-                current_account_key.as_deref(),
-                current_variant_key.as_deref(),
-            )
-        })
+        .map(|account| account.to_summary(current_account_key, current_variant_key))
         .collect::<Vec<_>>();
 
     mark_current_account_summary(
         &mut summaries,
-        current_account_key.as_deref(),
+        current_account_key,
         store.settings.active_account_id.as_deref(),
     );
 
     summaries
+}
+
+fn account_summaries_in_home(
+    store: &AccountsStore,
+    home: &Path,
+) -> Result<Vec<AccountSummary>, String> {
+    let bytes = crate::store_lock::read_optional(&home.join("auth.json"))?
+        .ok_or("PROJECT_SHARING_INVALID_STATE")?;
+    let auth_json: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
+    let key = auth::auth_account_key(&auth_json).ok_or("PROJECT_SHARING_UNSUPPORTED_IDENTITY")?;
+    let variant = auth::auth_variant_key(&auth_json);
+    Ok(account_summaries_for_keys(
+        store,
+        Some(&key),
+        variant.as_deref(),
+    ))
+}
+fn validate_tui_home(preserve: bool, refresh: bool, home: Option<&Path>) -> Result<(), String> {
+    if home.is_some() && !preserve {
+        return Err("--codex-home for TUI switching requires preserveLocalProjects".into());
+    }
+    if preserve && refresh && home.is_some() {
+        return Err("--refresh with --codex-home is not supported in preserve TUI; refresh account usage separately".into());
+    }
+    Ok(())
 }
 
 fn selected_summaries_from_store(
@@ -556,6 +670,109 @@ async fn refresh_one_account_usage(
     account.updated_at = now;
 }
 
+fn absolute_path(path: &Path) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(env::current_dir()
+            .map_err(|_| "PROJECT_SHARING_IO")?
+            .join(path))
+    }
+}
+fn project_paths(
+    store_path: &Path,
+    codex_home: Option<&Path>,
+) -> Result<project_switch::SwitchPaths, String> {
+    let home = match codex_home {
+        Some(path) => absolute_path(path)?,
+        None => app_paths::codex_dir()?,
+    };
+    project_switch::SwitchPaths::new(home, absolute_path(store_path)?)
+}
+fn resolve_preserve_target(
+    paths: &project_switch::SwitchPaths,
+    account_ref: Option<&str>,
+    best: bool,
+) -> Result<(String, AccountsStore), String> {
+    let store = project_switch::strict_store(&paths.store_path)?;
+    let summaries = account_summaries_in_home(&store, &paths.codex_home)?;
+    let index = resolve_single_account_index(&store, &summaries, account_ref, best)?;
+    Ok((
+        store
+            .accounts
+            .get(index)
+            .ok_or("PROJECT_SHARING_INVALID_STATE")?
+            .id
+            .clone(),
+        store,
+    ))
+}
+#[allow(clippy::too_many_arguments)]
+async fn switch_account_preserving_cli(
+    store_path: &Path,
+    codex_home: Option<&Path>,
+    account_ref: Option<&str>,
+    best: bool,
+    launch: bool,
+    workspace: Option<&Path>,
+    accept: bool,
+    fingerprint: Option<String>,
+) -> Result<CliSwitchResult, String> {
+    let paths = project_paths(store_path, codex_home)?;
+    let (id, store) = resolve_preserve_target(&paths, account_ref, best)?;
+    let mut lifecycle = project_switch::NativeLifecycle::new(
+        &paths,
+        store.settings.codex_launch_path.as_deref(),
+        store.settings.launch_codex_as_admin,
+        launch,
+    )?;
+    let mut prepared = project_switch::execute_with_refresh(
+        &paths,
+        &id,
+        project_switch::SwitchOptions {
+            accept_merge: accept,
+            preview_fingerprint: fingerprint,
+            target_auth: None,
+        },
+        &mut lifecycle,
+    )
+    .await?;
+    let mut launched = false;
+    if launch && prepared.result.status != "noOp" {
+        match lifecycle.launch(&paths, workspace.and_then(Path::to_str)) {
+            Ok(_) => {
+                launched = true;
+                project_switch::verify_after_launch(&paths, &mut prepared).await;
+            }
+            Err(_) => {
+                prepared.result.status = "pending".into();
+                prepared.result.warning = Some("PROJECT_SHARING_LAUNCH_FAILED".into());
+            }
+        }
+    }
+    let updated = project_switch::strict_store(&paths.store_path)?;
+    let account = account_summaries_in_home(&updated, &paths.codex_home)?
+        .into_iter()
+        .find(|a| a.id == id)
+        .ok_or("PROJECT_SHARING_INVALID_STATE")?;
+    Ok(CliSwitchResult {
+        account,
+        active_auth_path: paths
+            .codex_home
+            .join("auth.json")
+            .to_string_lossy()
+            .into_owned(),
+        active_config_path: paths
+            .codex_home
+            .join("config.toml")
+            .to_string_lossy()
+            .into_owned(),
+        launched_codex: launched,
+        provider_sync_error: None,
+        local_project_preservation: Some(prepared.result),
+    })
+}
+
 async fn switch_account(
     store_path: &Path,
     account_ref: Option<&str>,
@@ -563,7 +780,10 @@ async fn switch_account(
     launch: bool,
     workspace: Option<&Path>,
 ) -> Result<CliSwitchResult, String> {
+    let paths = project_paths(store_path, None)?;
+    let _desktop_switch_lock = project_switch::legacy_switch_lock(&paths)?;
     let mut store = store::load_store_from_path(store_path)?;
+    let store_write_guard = store::begin_store_write(store_path, &store)?;
     let summaries = account_summaries(&store);
     let selected_index = resolve_single_account_index(&store, &summaries, account_ref, best)?;
     let refresh_lock = Arc::new(Mutex::new(()));
@@ -611,7 +831,7 @@ async fn switch_account(
     }
 
     let configured_codex_launch_path = store.settings.codex_launch_path.clone();
-    store::save_store_to_path(store_path, &store)?;
+    store::save_store_with_guard(store_path, &store, &store_write_guard)?;
     let provider_sync_error = provider_sync::sync_current_provider(None)
         .err()
         .map(|error| format!("同步 Codex 历史 provider 元数据失败: {error}"));
@@ -632,6 +852,7 @@ async fn switch_account(
             .to_string(),
         launched_codex: launch,
         provider_sync_error,
+        local_project_preservation: None,
     })
 }
 
@@ -1133,11 +1354,28 @@ fn run_provider_command(
     }
 }
 
-async fn run_tui(store_path: &Path, refresh: bool) -> Result<(), String> {
+async fn run_tui(
+    store_path: &Path,
+    refresh: bool,
+    codex_home: Option<&Path>,
+) -> Result<(), String> {
     if !io::stdin().is_terminal() {
         return Err("TUI 需要在交互式终端中运行".to_string());
     }
-    let accounts = if refresh {
+    let preserve = project_switch::enabled_at_path(store_path)?;
+    validate_tui_home(preserve, refresh, codex_home)?;
+    let accounts = if preserve {
+        let paths = project_paths(store_path, codex_home)?;
+        if refresh {
+            // No explicit home is permitted here: this is the existing,
+            // explicitly requested refresh against the selected default home.
+            refresh_usage(store_path, None).await?;
+        }
+        account_summaries_in_home(
+            &project_switch::strict_store(store_path)?,
+            &paths.codex_home,
+        )?
+    } else if refresh {
         refresh_usage(store_path, None).await?
     } else {
         account_summaries(&store::load_store_from_path(store_path)?)
@@ -1155,7 +1393,42 @@ async fn run_tui(store_path: &Path, refresh: bool) -> Result<(), String> {
     if selected.is_empty() {
         return Err("未选择账号".to_string());
     }
-    let result = switch_account(store_path, Some(selected), false, false, None).await?;
+    let result = if project_switch::enabled_at_path(store_path)? {
+        let paths = project_paths(store_path, codex_home)?;
+        let (id, _) = resolve_preserve_target(&paths, Some(selected), false)?;
+        let preview = project_switch::preview(&paths, &id)?;
+        print_json(&preview)?;
+        let accept = if preview.requires_merge_confirmation {
+            print!("Merge the target's local projects? [y/N]: ");
+            io::stdout().flush().map_err(|_| "PROJECT_SHARING_IO")?;
+            let mut answer = String::new();
+            io::stdin()
+                .read_line(&mut answer)
+                .map_err(|_| "PROJECT_SHARING_IO")?;
+            if !matches!(answer.trim(), "y" | "Y" | "yes") {
+                return Err("PROJECT_SHARING_CONFIRMATION_REQUIRED".into());
+            }
+            true
+        } else {
+            false
+        };
+        switch_account_preserving_cli(
+            store_path,
+            codex_home,
+            Some(selected),
+            false,
+            false,
+            None,
+            accept,
+            Some(preview.preview_fingerprint),
+        )
+        .await?
+    } else {
+        if codex_home.is_some() {
+            return Err("--codex-home for TUI switching requires preserveLocalProjects".into());
+        }
+        switch_account(store_path, Some(selected), false, false, None).await?
+    };
     println!(
         "switched to {} ({})",
         result.account.label,
@@ -1437,6 +1710,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn project_sharing_cli_accepts_preview_and_recovery_flags() {
+        use clap::Parser;
+        assert!(super::CliArgs::try_parse_from([
+            "codex-tools",
+            "--codex-home",
+            "/synthetic/codex",
+            "switch",
+            "b",
+            "--preserve-local-projects",
+            "--dry-run"
+        ])
+        .is_ok());
+        assert!(super::CliArgs::try_parse_from([
+            "codex-tools",
+            "switch",
+            "b",
+            "--preserve-local-projects",
+            "--accept-project-merge",
+            "--preview-fingerprint",
+            "synthetic"
+        ])
+        .is_ok());
+        assert!(super::CliArgs::try_parse_from(["codex-tools", "projects", "recover"]).is_ok());
+    }
+
     fn sample_account(id: &str, label: &str, account_id: &str) -> StoredAccount {
         StoredAccount {
             id: id.to_string(),
@@ -1570,5 +1869,83 @@ mod tests {
         let error = confirm_account_deletion("alpha", "acct-alpha-0001", false)
             .expect_err("non-interactive delete should require --yes");
         assert!(error.contains("--yes"));
+    }
+    fn explicit_home_test_auth(id: &str) -> serde_json::Value {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let claims = json!({"exp":4102444800u64,"https://api.openai.com/auth":{"chatgpt_user_id":format!("synthetic-user-{id}"),"chatgpt_account_id":format!("synthetic-account-{id}")}});
+        let token = format!(
+            "synthetic.{}.signature",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+        );
+        json!({"tokens":{"access_token":token,"id_token":token,"account_id":format!("synthetic-account-{id}")}})
+    }
+    #[test]
+    fn preserve_summaries_read_only_the_explicit_auth_home() {
+        let path = temp_store_path();
+        let root = path.parent().unwrap();
+        let first = root.join("synthetic-home-a");
+        let second = root.join("synthetic-home-b");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        let mut accounts = Vec::new();
+        for (id, home) in [("a", &first), ("b", &second)] {
+            let auth = explicit_home_test_auth(id);
+            fs::write(home.join("auth.json"), serde_json::to_vec(&auth).unwrap()).unwrap();
+            let extracted = crate::auth::extract_auth(&auth).unwrap();
+            let mut account = sample_account(id, id, &extracted.account_id);
+            account.principal_id = Some(extracted.principal_id);
+            account.auth_json = auth;
+            accounts.push(account);
+        }
+        let store = store_with_accounts(accounts, Some("b"));
+        let a = super::account_summaries_in_home(&store, &first).unwrap();
+        let b = super::account_summaries_in_home(&store, &second).unwrap();
+        assert!(a[0].is_current && !a[1].is_current);
+        assert!(!b[0].is_current && b[1].is_current);
+        fs::remove_file(first.join("auth.json")).unwrap();
+        assert!(
+            super::account_summaries_in_home(&store, &first).is_err(),
+            "missing explicit auth cannot fall back to default home"
+        );
+        cleanup_store(&path);
+    }
+    #[test]
+    fn preserve_tui_rejects_only_unisolated_refresh_home_combinations() {
+        let home = Path::new("/synthetic-explicit-home");
+        assert!(super::validate_tui_home(true, true, Some(home)).is_err());
+        assert!(super::validate_tui_home(true, true, None).is_ok());
+        assert!(super::validate_tui_home(true, false, Some(home)).is_ok());
+        assert!(super::validate_tui_home(false, false, Some(home)).is_err());
+    }
+    #[tokio::test]
+    async fn ordinary_switch_with_explicit_home_is_rejected_before_active_writes() {
+        use clap::Parser;
+        let path = temp_store_path();
+        let root = path.parent().unwrap();
+        let home = root.join("synthetic-explicit-home");
+        fs::create_dir(&home).unwrap();
+        fs::write(home.join("auth.json"), b"synthetic unchanged auth").unwrap();
+        let mut ordinary_store = AccountsStore::default();
+        ordinary_store.settings.preserve_local_projects = false;
+        store::save_store_to_path(&path, &ordinary_store).unwrap();
+        let before = fs::read(&path).unwrap();
+        let args = super::CliArgs::try_parse_from([
+            "codex-tools",
+            "--data-dir",
+            root.to_str().unwrap(),
+            "--codex-home",
+            home.to_str().unwrap(),
+            "switch",
+            "synthetic",
+        ])
+        .unwrap();
+        let error = super::run_cli(args).await.unwrap_err();
+        assert!(error.contains("--codex-home"));
+        assert_eq!(before, fs::read(&path).unwrap());
+        assert_eq!(
+            fs::read(home.join("auth.json")).unwrap(),
+            b"synthetic unchanged auth"
+        );
+        cleanup_store(&path);
     }
 }

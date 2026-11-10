@@ -38,6 +38,8 @@ pub(crate) fn normalize_api_proxy_sequential_five_hour_limit_percent(value: f64)
 pub(crate) struct AccountsStore {
     #[serde(default = "default_store_version")]
     pub(crate) version: u8,
+    #[serde(skip)]
+    pub(crate) loaded_revision: crate::store_lock::StoreRevision,
     #[serde(default)]
     pub(crate) accounts: Vec<StoredAccount>,
     #[serde(default)]
@@ -52,6 +54,7 @@ impl Default for AccountsStore {
     fn default() -> Self {
         Self {
             version: default_store_version(),
+            loaded_revision: Default::default(),
             accounts: Vec::new(),
             settings: AppSettings::default(),
         }
@@ -272,6 +275,16 @@ pub(crate) struct ResetCredit {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct PreservationResult {
+    pub status: String,
+    pub project_count: usize,
+    pub thread_link_count: usize,
+    pub unassigned_thread_count: usize,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SwitchAccountResult {
     pub(crate) account_id: String,
     #[serde(default)]
@@ -285,6 +298,7 @@ pub(crate) struct SwitchAccountResult {
     pub(crate) restarted_editor_apps: Vec<EditorAppId>,
     pub(crate) editor_restart_error: Option<String>,
     pub(crate) provider_sync_error: Option<String>,
+    pub(crate) local_project_preservation: Option<PreservationResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -709,6 +723,7 @@ pub(crate) struct AppSettings {
     #[serde(default)]
     pub(crate) macos_quota_onboarding_completed: bool,
     pub(crate) launch_codex_after_switch: bool,
+    pub(crate) preserve_local_projects: bool,
     #[serde(default)]
     pub(crate) smart_switch_include_api: bool,
     #[serde(default)]
@@ -765,6 +780,7 @@ impl Default for AppSettings {
             windows_quota_onboarding_completed: false,
             macos_quota_onboarding_completed: false,
             launch_codex_after_switch: true,
+            preserve_local_projects: true,
             smart_switch_include_api: false,
             launch_codex_as_admin: false,
             codex_launch_path: None,
@@ -813,6 +829,7 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) windows_quota_onboarding_completed: Option<bool>,
     pub(crate) macos_quota_onboarding_completed: Option<bool>,
     pub(crate) launch_codex_after_switch: Option<bool>,
+    pub(crate) preserve_local_projects: Option<bool>,
     pub(crate) smart_switch_include_api: Option<bool>,
     pub(crate) launch_codex_as_admin: Option<bool>,
     pub(crate) codex_launch_path: Option<Option<String>>,

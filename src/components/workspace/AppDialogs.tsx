@@ -5,6 +5,7 @@ import { NoticeBanner } from "../NoticeBanner";
 import { QuotaDisplayOnboardingDialog } from "../QuotaDisplayOnboardingDialog";
 import { RemoteDeployProgressToast } from "../RemoteDeployProgressToast";
 import { UpdateBanner } from "../UpdateBanner";
+import { LocalProjectMergeDialog, LocalProjectRecoveryGate } from "../LocalProjectDialogs";
 import {
   shouldOpenQuotaOnboarding,
   type QuotaOnboardingPlatform,
@@ -22,7 +23,12 @@ export function AppDialogs({
   quotaOnboardingPlatform: QuotaOnboardingPlatform;
 }) {
   return (
-    <>
+    <LocalProjectRecoveryGate
+      blocked={c.recoveryRequired}
+      confirmationOpen={c.localProjectRecoveryConfirmation !== null}
+      onAnswer={c.answerLocalProjectRecovery}
+    >
+      <LocalProjectMergeDialog request={c.localProjectMergeRequest} onAnswer={c.answerLocalProjectMerge} />
       {c.apiAccountEditor.account ? (
         <EditApiAccountDialog
           account={c.apiAccountEditor.account}
@@ -88,6 +94,6 @@ export function AppDialogs({
           c.updateSettings(patch, { silent: true, throwOnError: true })
         }
       />
-    </>
+    </LocalProjectRecoveryGate>
   );
 }
