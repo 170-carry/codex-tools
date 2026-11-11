@@ -21,6 +21,7 @@ const errorKeys = {
   PROJECT_SHARING_RECOVERY_REQUIRED: "recoveryRequired",
   PROJECT_SHARING_RESTORE_PENDING: "restorePending",
   PROJECT_SHARING_STALE_STORE: "staleStore",
+  PROJECT_SHARING_SYNC_FAILED: "syncFailed",
   PROJECT_SHARING_UNSUPPORTED_HOME: "unsupportedHome",
   PROJECT_SHARING_UNSUPPORTED_IDENTITY: "unsupportedIdentity",
   PROJECT_SHARING_UNSUPPORTED_PLATFORM: "unsupportedPlatform",
@@ -110,12 +111,21 @@ export function createLocalProjectSwitchFlow() {
     busy = true;
     try {
       const args: PreservationArguments = {};
-      if (options.preserve) {
-        if (options.sourceKind !== "chatgpt") throw new Error("PROJECT_SHARING_UNSUPPORTED_ROUTE");
-        const preview = await options.preview();
-        if (preview.requiresMergeConfirmation && !await options.confirm(preview)) return null;
-        args.acceptLocalProjectMerge = preview.requiresMergeConfirmation;
-        args.localProjectPreviewFingerprint = preview.previewFingerprint;
+      if (options.preserve && options.sourceKind === "chatgpt") {
+        let preview: LocalProjectSwitchPreview | undefined;
+        try {
+          preview = await options.preview();
+        } catch (error) {
+          const code = projectSharingErrorCode(String(error));
+          if (code !== "PROJECT_SHARING_SYNC_FAILED" &&
+              code !== "PROJECT_SHARING_UNSUPPORTED_IDENTITY" &&
+              code !== "PROJECT_SHARING_UNSUPPORTED_ROUTE") throw error;
+        }
+        if (preview) {
+          if (preview.requiresMergeConfirmation && !await options.confirm(preview)) return null;
+          args.acceptLocalProjectMerge = preview.requiresMergeConfirmation;
+          args.localProjectPreviewFingerprint = preview.previewFingerprint;
+        }
       }
       return await options.switchAccount(args);
     } finally {

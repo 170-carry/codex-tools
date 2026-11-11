@@ -819,6 +819,7 @@
       "prepared": "프로젝트 {{projectCount}}개, 프로젝트 대화 연결 {{threadLinkCount}}개, 미분류 대화 {{unassignedThreadCount}}개를 유지할 준비를 마쳤습니다. 실행 후 상태는 아직 확인하지 않았습니다.",
       "verified": "복원 상태를 확인했습니다: 프로젝트 {{projectCount}}개, 프로젝트 대화 연결 {{threadLinkCount}}개, 미분류 대화 {{unassignedThreadCount}}개.",
       "pending": "프로젝트 상태가 준비되었습니다: 프로젝트 {{projectCount}}개, 프로젝트 대화 연결 {{threadLinkCount}}개, 미분류 대화 {{unassignedThreadCount}}개. Codex에 로드되었는지는 아직 확인되지 않았습니다. 앱 시작이 완료되면 프로젝트 목록을 확인하거나 다시 미리보세요.",
+      "skipped": "로컬 세션이 동기화되지 않았습니다.",
       "noOp": "이미 현재 계정입니다. 로컬 프로젝트를 이전하지 않았습니다."
     },
     "errors": {
@@ -839,6 +840,7 @@
       "previewChanged": "미리보기 후 로컬 상태가 변경되었습니다. 다시 미리보고 확인하세요.",
       "recoveryRequired": "미완료 전환을 먼저 복구해야 합니다.",
       "restorePending": "프로젝트 상태가 준비되었습니다. Codex에 로드되었는지는 아직 확인되지 않았습니다. 앱 시작이 완료되면 프로젝트 목록을 확인하거나 다시 미리보세요.",
+      "syncFailed": "세션 동기화에 실패했습니다. 자세한 내용은 로그를 확인하세요.",
       "staleStore": "계정 저장소가 변경되었습니다. 다시 불러온 뒤 미리보세요.",
       "unsupportedHome": "이 Codex 데이터 디렉터리는 지원하지 않습니다.",
       "unsupportedIdentity": "로컬 ChatGPT 식별 정보를 확인할 수 없어 변경을 거부했습니다.",

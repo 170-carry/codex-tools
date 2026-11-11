@@ -28,15 +28,24 @@ pub(crate) fn digest(bytes: &[u8]) -> String {
 pub(crate) fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
     match fs::symlink_metadata(path) {
         Ok(meta) if !meta.file_type().is_file() => {
-            return Err("PROJECT_SHARING_INVALID_STATE".into())
+            log::warn!("PROJECT_SHARING_INVALID_STATE stage=read-file path={} reason=not-a-regular-file type={:?}", path.display(), meta.file_type());
+            return Err("PROJECT_SHARING_INVALID_STATE".into());
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("PROJECT_SHARING_IO".into()),
+        Err(error) => return Err(io_error("file-metadata", path, error)),
         _ => {}
     }
     fs::read(path)
         .map(Some)
-        .map_err(|_| "PROJECT_SHARING_IO".into())
+        .map_err(|error| io_error("read-file", path, error))
+}
+
+fn io_error(stage: &str, path: &Path, error: impl std::fmt::Display) -> String {
+    log::warn!(
+        "PROJECT_SHARING_IO stage={stage} path={} reason={error}",
+        path.display()
+    );
+    "PROJECT_SHARING_IO".into()
 }
 pub(crate) fn fingerprint(path: &Path) -> Result<Option<String>, String> {
     Ok(read_optional(path)?.map(|b| digest(&b)))
@@ -64,6 +73,10 @@ pub(crate) struct FileLock {
 impl FileLock {
     pub(crate) fn acquire(path: &Path) -> Result<Self, String> {
         if fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_file()) {
+            log::warn!(
+                "PROJECT_SHARING_INVALID_STATE stage=lock-file path={} reason=not-a-regular-file",
+                path.display()
+            );
             return Err("PROJECT_SHARING_INVALID_STATE".into());
         }
         let mut options = OpenOptions::new();
@@ -78,9 +91,13 @@ impl FileLock {
             use std::os::windows::fs::OpenOptionsExt;
             options.share_mode(0);
         }
-        let file = options
-            .open(path)
-            .map_err(|_| "PROJECT_SHARING_BUSY".to_string())?;
+        let file = options.open(path).map_err(|error| {
+            log::warn!(
+                "PROJECT_SHARING_BUSY stage=lock-file path={} reason={error}",
+                path.display()
+            );
+            "PROJECT_SHARING_BUSY".to_string()
+        })?;
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
@@ -109,8 +126,8 @@ fn private_dir_with_permissions(
     path: &Path,
     protect: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|_| "PROJECT_SHARING_IO".to_string())?;
-    protect(path).map_err(|_| "PROJECT_SHARING_IO".to_string())
+    fs::create_dir_all(path).map_err(|error| io_error("create-directory", path, error))?;
+    protect(path).map_err(|error| io_error("protect-directory", path, error))
 }
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     atomic_write_with_permissions(path, bytes, crate::utils::try_set_private_permissions)
@@ -128,13 +145,13 @@ fn atomic_write_with_permissions(
     let result = (|| {
         let mut f = crate::utils::private_create_new_options()
             .open(&temp)
-            .map_err(|_| "PROJECT_SHARING_IO".to_string())?;
+            .map_err(|error| io_error("create-temp-file", path, error))?;
         // On Windows creation mode alone does not restrict inherited ACLs.
         // Establish private permissions before the first sensitive byte.
-        protect(&temp).map_err(|_| "PROJECT_SHARING_IO".to_string())?;
+        protect(&temp).map_err(|error| io_error("protect-temp-file", path, error))?;
         f.write_all(bytes)
             .and_then(|_| f.sync_all())
-            .map_err(|_| "PROJECT_SHARING_IO".to_string())?;
+            .map_err(|error| io_error("write-temp-file", path, error))?;
         drop(f);
         #[cfg(windows)]
         {
@@ -146,11 +163,15 @@ fn atomic_write_with_permissions(
             let from: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
             let to: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 1 | 8) } == 0 {
-                return Err("PROJECT_SHARING_IO".into());
+                return Err(io_error(
+                    "replace-file",
+                    path,
+                    std::io::Error::last_os_error(),
+                ));
             }
         }
         #[cfg(not(windows))]
-        fs::rename(&temp, path).map_err(|_| "PROJECT_SHARING_IO".to_string())?;
+        fs::rename(&temp, path).map_err(|error| io_error("replace-file", path, error))?;
         sync_dir(parent)
     })();
     if result.is_err() {
@@ -162,7 +183,7 @@ pub(crate) fn sync_dir(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     File::open(path)
         .and_then(|f| f.sync_all())
-        .map_err(|_| "PROJECT_SHARING_IO".to_string())?;
+        .map_err(|error| io_error("sync-directory", path, error))?;
     #[cfg(not(unix))]
     let _ = path;
     Ok(())

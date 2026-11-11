@@ -819,6 +819,7 @@
       "prepared": "Prepared {{projectCount}} projects, {{threadLinkCount}} project conversation links and {{unassignedThreadCount}} ungrouped conversations; state after launch has not been verified.",
       "verified": "Restored state verified: {{projectCount}} projects, {{threadLinkCount}} project conversation links and {{unassignedThreadCount}} ungrouped conversations.",
       "pending": "Project state is prepared: {{projectCount}} projects, {{threadLinkCount}} project conversation links and {{unassignedThreadCount}} ungrouped conversations. Codex loading has not yet been confirmed. After the app finishes starting, check the project list or preview again.",
+      "skipped": "Local session state was not synced.",
       "noOp": "The account is already current; no local projects were migrated."
     },
     "errors": {
@@ -839,6 +840,7 @@
       "previewChanged": "Local state changed after the preview. Preview and confirm again.",
       "recoveryRequired": "An unfinished switch must be recovered first.",
       "restorePending": "Project state is prepared. Codex loading has not yet been confirmed. After the app finishes starting, check the project list or preview again.",
+      "syncFailed": "Session sync failed. See the logs for details.",
       "staleStore": "The account store changed. Reload and preview again.",
       "unsupportedHome": "This Codex data directory is unsupported.",
       "unsupportedIdentity": "The local ChatGPT identity could not be verified. Modification was refused.",

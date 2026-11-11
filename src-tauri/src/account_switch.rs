@@ -1,4 +1,5 @@
 //! Persist account switches with profile/store rollback.
+pub(crate) mod preservation;
 use crate::models::{AccountsStore, StoredAccount};
 use crate::state::AppState;
 use crate::{app_paths, capture_current_auth_for_active_profile, profile_files, store};

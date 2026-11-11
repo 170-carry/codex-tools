@@ -76,10 +76,29 @@ test("a repeated click cannot start a second preview or switch while approval is
   assert.equal(calls.length, 2);
 });
 
-test("relay routes and preview failures cannot switch; failed flows release their lock", async () => {
+test("unsupported session routes still switch without preview", async () => {
   const { calls, options } = setup();
   const flow = sharing.createLocalProjectSwitchFlow();
-  await assert.rejects(flow({ ...options, sourceKind: "relay" }), /PROJECT_SHARING_UNSUPPORTED_ROUTE/);
+  assert.equal(await flow({ ...options, sourceKind: "relay" }), result);
+  assert.deepEqual(calls, [{}]);
+});
+
+test("session preview failures still reach the account switch command", async () => {
+  for (const code of ["PROJECT_SHARING_SYNC_FAILED", "PROJECT_SHARING_UNSUPPORTED_ROUTE", "PROJECT_SHARING_UNSUPPORTED_IDENTITY"]) {
+    const { calls, options } = setup();
+    assert.equal(await sharing.createLocalProjectSwitchFlow()({
+      ...options, preview: async () => { throw new Error(code); },
+    }), result);
+    assert.deepEqual(calls, [{}]);
+  }
+});
+
+test("credential, recovery and changed-preview errors still abort; failed flows release their lock", async () => {
+  const { calls, options } = setup();
+  const flow = sharing.createLocalProjectSwitchFlow();
+  for (const code of ["PROJECT_SHARING_AUTH_REFRESH_FAILED", "PROJECT_SHARING_RECOVERY_REQUIRED", "PROJECT_SHARING_INVALID_STATE"]) {
+    await assert.rejects(flow({ ...options, preview: async () => { throw new Error(code); } }), new RegExp(code));
+  }
   await assert.rejects(flow({ ...options, preview: async () => { throw new Error("PROJECT_SHARING_PREVIEW_CHANGED"); } }), /PREVIEW_CHANGED/);
   assert.deepEqual(calls, []);
   assert.equal(await flow({ ...options, preserve: false }), result);
@@ -172,6 +191,22 @@ test("all five locales format accurate statuses and hide raw preservation warnin
     const warning = sharing.appendLocalProjectNotice(base, { ...preview, status: "pending", warning: "/private/secret token" }, copy);
     assert.ok(!warning.message.includes("secret") && !warning.message.includes("token"));
     assert.equal(sharing.projectSharingErrorCode("wrapped PROJECT_SHARING_RECOVERY_REQUIRED: secret"), "PROJECT_SHARING_RECOVERY_REQUIRED");
+  }
+});
+
+test("skipped sync keeps account-switch success and reports a warning in all locales", async () => {
+  for (const locale of ["zh-CN", "en-US", "ja-JP", "ko-KR", "ru-RU"]) {
+    const raw = JSON.parse(await readFile(new URL(`../src/i18n/locales/${locale}.json`, import.meta.url), "utf8"));
+    const base = { type: "ok" as const, message: raw.notices.switchedOnly };
+    const notice = sharing.appendLocalProjectNotice(base, {
+      status: "skipped", projectCount: 0, threadLinkCount: 0, unassignedThreadCount: 0,
+      warning: "PROJECT_SHARING_SYNC_FAILED /private/synthetic auth=token",
+    }, raw.localProjects);
+    assert.equal(notice.type, "info");
+    assert.ok(notice.message.includes(base.message));
+    assert.ok(notice.message.includes(raw.localProjects.statuses.skipped));
+    assert.ok(notice.message.includes(raw.localProjects.errors.syncFailed));
+    assert.doesNotMatch(notice.message, /PROJECT_SHARING_|auth=token|\/private/);
   }
 });
 

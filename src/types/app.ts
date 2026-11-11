@@ -206,7 +206,7 @@ export type LocalProjectSwitchPreview = {
 };
 
 export type LocalProjectPreservation = {
-  status: "prepared" | "verified" | "pending" | "noOp";
+  status: "prepared" | "verified" | "pending" | "noOp" | "skipped";
   projectCount: number;
   threadLinkCount: number;
   unassignedThreadCount: number;

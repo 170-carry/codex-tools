@@ -2,6 +2,20 @@
 
 ### Released
 
+- v3.2.1
+
+#### English
+
+1. Continue desktop account switching when local session sync fails, and show that the session was not synced. Interrupted transactions still require recovery.
+2. Log the failing file, operation, JSON position and filesystem error without including credential contents.
+3. Desktop release for macOS and Windows. npm CLI packages are not published in this release.
+
+#### 中文
+
+1. 本地会话同步失败时继续切换桌面账号，并提示会话未同步；中断的事务仍需先恢复。
+2. 补充失败文件、操作阶段、JSON 解析位置和文件系统错误日志，不记录凭证内容。
+3. 本次发布 macOS 与 Windows 桌面安装包，不发布 npm CLI 包。
+
 - v3.2.0
 
 #### English

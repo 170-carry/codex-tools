@@ -3,6 +3,8 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::json;
 use std::{collections::BTreeMap, fs};
 
+#[path = "best_effort_tests.rs"]
+mod best_effort_tests;
 #[path = "force_tests.rs"]
 mod force_tests;
 #[path = "input_tests.rs"]

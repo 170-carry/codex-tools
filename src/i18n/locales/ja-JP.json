@@ -819,6 +819,7 @@
       "prepared": "{{projectCount}} 件のプロジェクト、{{threadLinkCount}} 件のプロジェクト会話リンク、{{unassignedThreadCount}} 件の未分類会話を保持する準備ができました。起動後の状態は未確認です。",
       "verified": "復元状態を確認しました：プロジェクト {{projectCount}} 件、プロジェクト会話リンク {{threadLinkCount}} 件、未分類会話 {{unassignedThreadCount}} 件。",
       "pending": "プロジェクトの状態を準備しました：プロジェクト {{projectCount}} 件、プロジェクト会話リンク {{threadLinkCount}} 件、未分類会話 {{unassignedThreadCount}} 件。Codex への読み込みはまだ確認できていません。アプリの起動完了後にプロジェクト一覧を確認するか、再度プレビューしてください。",
+      "skipped": "ローカルセッションは同期されていません。",
       "noOp": "現在のアカウントのため切り替え不要です。ローカルプロジェクトは移行していません。"
     },
     "errors": {
@@ -839,6 +840,7 @@
       "previewChanged": "プレビュー後にローカル状態が変わりました。再度プレビューして確認してください。",
       "recoveryRequired": "先に未完了の切り替えを復旧してください。",
       "restorePending": "プロジェクトの状態を準備しました。Codex への読み込みはまだ確認できていません。アプリの起動完了後にプロジェクト一覧を確認するか、再度プレビューしてください。",
+      "syncFailed": "セッションの同期に失敗しました。詳細はログを確認してください。",
       "staleStore": "アカウントストアが変わりました。再読み込みしてプレビューしてください。",
       "unsupportedHome": "この Codex データディレクトリは未対応です。",
       "unsupportedIdentity": "ローカルの ChatGPT 識別情報を確認できないため、変更を拒否しました。",

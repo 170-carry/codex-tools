@@ -37,11 +37,14 @@ struct PendingMarker {
     phase: PendingPhase,
 }
 fn read_pending(paths: &SwitchPaths) -> Result<Option<PendingMarker>, String> {
-    let Some(bytes) = read_optional(&store_lock::pending_marker_path(&paths.store_path)?)? else {
+    let path = store_lock::pending_marker_path(&paths.store_path)?;
+    let Some(bytes) = read_optional(&path)? else {
         return Ok(None);
     };
-    let marker: PendingMarker =
-        serde_json::from_slice(&bytes).map_err(|_| "PROJECT_SHARING_RECOVERY_REQUIRED")?;
+    let marker: PendingMarker = serde_json::from_slice(&bytes).map_err(|error| {
+        diagnostics::invalid_json(&path, error);
+        "PROJECT_SHARING_RECOVERY_REQUIRED"
+    })?;
     if marker.version != 1
         || marker.home != paths.codex_home
         || marker.store != paths.store_path
@@ -150,9 +153,16 @@ pub(super) fn target(paths: &SwitchPaths, key: &str) -> Result<PathBuf, String> 
         .take_while(|p| *p != root)
     {
         match fs::symlink_metadata(parent) {
-            Ok(m) if !m.file_type().is_dir() => return Err("PROJECT_SHARING_INVALID_STATE".into()),
+            Ok(m) if !m.file_type().is_dir() => {
+                log::warn!("PROJECT_SHARING_INVALID_STATE stage=resolve-profile path={} reason=not-a-directory type={:?}", parent.display(), m.file_type());
+                return Err("PROJECT_SHARING_INVALID_STATE".into());
+            }
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                return Err("PROJECT_SHARING_IO".into())
+                log::warn!(
+                    "PROJECT_SHARING_IO stage=resolve-profile path={} reason={e}",
+                    parent.display()
+                );
+                return Err("PROJECT_SHARING_IO".into());
             }
             _ => {}
         }
@@ -173,17 +183,37 @@ pub(super) fn change(
 ) -> Result<Change, String> {
     let key = key.into();
     let path = target(paths, &key)?;
-    Ok(Change {
-        key,
-        before: read_optional(&path)?,
-        after,
-    })
+    let before = read_optional(&path)
+        .map_err(|error| session_files::file_error("prepare-write", &key, &path, error))?;
+    Ok(Change { key, before, after })
 }
 fn consistent(paths: &SwitchPaths, changes: &[Change], allow_after: bool) -> Result<(), String> {
     for c in changes {
-        let current = read_optional(&target(paths, &c.key)?)?;
+        let path = target(paths, &c.key)?;
+        let current = read_optional(&path)?;
         if current != c.before && !(allow_after && current.as_deref() == Some(c.after.as_slice())) {
+            log::warn!(
+                "PROJECT_SHARING_EXTERNAL_CHANGE stage=verify-write path={}",
+                path.display()
+            );
             return Err("PROJECT_SHARING_EXTERNAL_CHANGE".into());
+        }
+    }
+    Ok(())
+}
+fn consistent_for_switch(
+    paths: &SwitchPaths,
+    changes: &[Change],
+    allow_after: bool,
+) -> Result<(), String> {
+    for change in changes {
+        if let Err(error) = consistent(paths, std::slice::from_ref(change), allow_after) {
+            return Err(session_files::file_error(
+                "verify-session-write",
+                &change.key,
+                &target(paths, &change.key)?,
+                error,
+            ));
         }
     }
     Ok(())
@@ -296,14 +326,32 @@ pub(super) fn apply_with_manifest_writer(
     changes: Vec<Change>,
     lifecycle: &mut impl DesktopLifecycle,
     complete_on_recovery: bool,
+    write_manifest: impl FnMut(&Path, &[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    apply_with_writers(
+        paths,
+        changes,
+        lifecycle,
+        complete_on_recovery,
+        write_manifest,
+        atomic_write,
+    )
+}
+
+pub(super) fn apply_with_writers(
+    paths: &SwitchPaths,
+    changes: Vec<Change>,
+    lifecycle: &mut impl DesktopLifecycle,
+    complete_on_recovery: bool,
     mut write_manifest: impl FnMut(&Path, &[u8]) -> Result<(), String>,
+    mut write_file: impl FnMut(&Path, &[u8]) -> Result<(), String>,
 ) -> Result<(), String> {
     store_lock::ensure_store_available(&paths.store_path)?;
     if paths.journal().exists() {
         return Err("PROJECT_SHARING_RECOVERY_REQUIRED".into());
     }
     if !complete_on_recovery {
-        consistent(paths, &changes, false)?;
+        consistent_for_switch(paths, &changes, false)?;
         lifecycle.assert_stopped()?;
     }
     // Rotated OAuth credentials must become durable even if an unrelated
@@ -327,15 +375,38 @@ pub(super) fn apply_with_manifest_writer(
     let outcome = (|| {
         for c in &journal.changes {
             lifecycle.assert_stopped()?;
-            consistent(paths, &journal.changes, true)?;
-            if read_optional(&target(paths, &c.key)?)? != c.before {
-                return Err("PROJECT_SHARING_EXTERNAL_CHANGE".into());
+            consistent_for_switch(paths, &journal.changes, true)?;
+            let path = target(paths, &c.key)?;
+            if read_optional(&path).map_err(|error| {
+                session_files::file_error("read-before-write", &c.key, &path, error)
+            })? != c.before
+            {
+                return Err(session_files::file_error(
+                    "read-before-write",
+                    &c.key,
+                    &path,
+                    "PROJECT_SHARING_EXTERNAL_CHANGE".into(),
+                ));
             }
-            atomic_write(&target(paths, &c.key)?, &c.after)?;
+            write_file(&path, &c.after).map_err(|error| {
+                session_files::file_error("write-session", &c.key, &path, error)
+            })?;
         }
         for c in &journal.changes {
-            if read_optional(&target(paths, &c.key)?)?.as_deref() != Some(c.after.as_slice()) {
-                return Err("PROJECT_SHARING_EXTERNAL_CHANGE".into());
+            let path = target(paths, &c.key)?;
+            if read_optional(&path)
+                .map_err(|error| {
+                    session_files::file_error("read-after-write", &c.key, &path, error)
+                })?
+                .as_deref()
+                != Some(c.after.as_slice())
+            {
+                return Err(session_files::file_error(
+                    "read-after-write",
+                    &c.key,
+                    &path,
+                    "PROJECT_SHARING_EXTERNAL_CHANGE".into(),
+                ));
             }
         }
         Ok(())
@@ -349,7 +420,10 @@ pub(super) fn apply_with_manifest_writer(
                 clear(paths)?;
                 Err(error)
             }
-            Err(_) => Err("PROJECT_SHARING_RECOVERY_REQUIRED".into()),
+            Err(rollback_error) => {
+                log::warn!("PROJECT_SHARING_RECOVERY_REQUIRED stage=rollback reason={rollback_error} original={error}");
+                Err("PROJECT_SHARING_RECOVERY_REQUIRED".into())
+            }
         };
     }
     journal.committed = true;
@@ -377,7 +451,8 @@ fn validate_journal(paths: &SwitchPaths, j: &Journal) -> Result<(), String> {
     Ok(())
 }
 fn parse_journal(paths: &SwitchPaths, bytes: &[u8]) -> Result<Journal, String> {
-    let j: Journal = serde_json::from_slice(bytes).map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
+    let j: Journal = serde_json::from_slice(bytes)
+        .map_err(|error| diagnostics::invalid_json(&paths.journal().join("journal.json"), error))?;
     validate_journal(paths, &j)?;
     Ok(j)
 }

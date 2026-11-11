@@ -66,12 +66,20 @@ pub(crate) struct PreparedSwitch {
     _locks: Option<persistence::Locks>,
 }
 pub(crate) fn strict_store(path: &Path) -> Result<AccountsStore, String> {
-    let bytes = store_lock::read_optional(path)?.ok_or("PROJECT_SHARING_INVALID_STATE")?;
+    let bytes = store_lock::read_optional(path)?.ok_or_else(|| {
+        log::warn!(
+            "PROJECT_SHARING_INVALID_STATE stage=read-store path={} reason=required-file-missing",
+            path.display()
+        );
+        "PROJECT_SHARING_INVALID_STATE"
+    })?;
     let store: AccountsStore =
-        serde_json::from_slice(&bytes).map_err(|_| "PROJECT_SHARING_INVALID_STATE".to_string())?;
+        serde_json::from_slice(&bytes).map_err(|error| diagnostics::invalid_json(path, error))?;
     store.loaded_revision.set(Some(store_lock::digest(&bytes)));
     Ok(store)
 }
+pub(crate) mod best_effort;
+mod diagnostics;
 mod inputs;
 mod lifecycle;
 mod persistence;
@@ -98,13 +106,25 @@ fn json_file(path: &Path) -> Result<Value, String> {
     serde_json::from_slice(
         &store_lock::read_optional(path)?.ok_or("PROJECT_SHARING_INVALID_STATE")?,
     )
-    .map_err(|_| "PROJECT_SHARING_INVALID_STATE".into())
+    .map_err(|error| diagnostics::invalid_json(path, error))
 }
-fn config(bytes: &[u8]) -> Result<String, String> {
-    let text = std::str::from_utf8(bytes).map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
-    let mut doc = text
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|_| "PROJECT_SHARING_INVALID_STATE")?;
+fn config(path: &Path, bytes: &[u8]) -> Result<String, String> {
+    let text = std::str::from_utf8(bytes).map_err(|error| {
+        log::warn!(
+            "PROJECT_SHARING_INVALID_STATE stage=decode-config path={} reason={error}",
+            path.display()
+        );
+        "PROJECT_SHARING_INVALID_STATE"
+    })?;
+    let mut doc = text.parse::<toml_edit::DocumentMut>().map_err(|error| {
+        log::warn!(
+            "PROJECT_SHARING_INVALID_STATE stage=parse-config path={} span={:?} reason={}",
+            path.display(),
+            error.span(),
+            error.message()
+        );
+        "PROJECT_SHARING_INVALID_STATE"
+    })?;
     if doc
         .get("model_provider")
         .is_some_and(|v| v.as_str() != Some("openai"))
@@ -144,10 +164,12 @@ fn make_plan_with_reader(
             paths.store_path.clone(),
             paths.codex_home.join("auth.json"),
             paths.codex_home.join("config.toml"),
-            paths.global(),
         ],
         read,
     )?;
+    inputs
+        .track(paths.global(), read)
+        .map_err(|error| diagnostics::sync_failed("read-session", &paths.global(), error))?;
     let store = inputs.store(&paths.store_path)?;
     let mut account = store
         .accounts
@@ -200,17 +222,20 @@ fn make_plan_with_reader(
         persistence::target(paths, &format!("profile/{id}/auth.json"))?;
     }
     let config = config(
+        &paths.codex_home.join("config.toml"),
         inputs
             .optional(&paths.codex_home.join("config.toml"))
             .unwrap_or_default(),
     )?;
     let document = if inputs.optional(&paths.global()).is_some() {
-        inputs.json(&paths.global())?
+        inputs
+            .json(&paths.global())
+            .map_err(|error| diagnostics::sync_failed("parse-session", &paths.global(), error))?
     } else {
         serde_json::json!({})
     };
     let sharing = engine::plan_session_overwrite(&document, &source_owner, &target_owner)
-        .map_err(state_error)?;
+        .map_err(|error| diagnostics::sync_failed("plan-session", &paths.global(), error))?;
     let (project_count, thread_link_count, unassigned_thread_count) = sharing.source.counts();
     let fingerprint = store_lock::digest(
         &serde_json::to_vec(&serde_json::json!([source_owner, target_owner, config]))
@@ -232,7 +257,9 @@ fn make_plan_with_reader(
         format!("profile/{target}/desktop-state.previous.json"),
     ] {
         let path = persistence::target(paths, &key)?;
-        inputs.track(path, read)?;
+        inputs
+            .track(path.clone(), read)
+            .map_err(|error| session_files::file_error("read-checkpoint", &key, &path, error))?;
     }
     // The desktop keeps updating globals while a read-only preview is built.
     // Replan after it exits, then compare the captured bytes before writing.

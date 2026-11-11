@@ -819,6 +819,7 @@
       "prepared": "已保存并复制本地会话状态：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话；等待 Codex 加载。",
       "verified": "已核对恢复状态：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话。",
       "pending": "本地会话状态已复制：{{projectCount}} 个项目、{{threadLinkCount}} 条项目会话关联、{{unassignedThreadCount}} 条未分组会话；尚未确认 Codex 已加载，请待应用启动后检查。",
+      "skipped": "本地会话未同步。",
       "noOp": "当前账号无需切换，本地项目未迁移。"
     },
     "errors": {
@@ -839,6 +840,7 @@
       "previewChanged": "账号或路由配置已变化，请重新选择目标账号。",
       "recoveryRequired": "存在未完成的切换，请先恢复。",
       "restorePending": "项目状态已准备，尚未确认 Codex 已加载。请待应用启动完成后检查项目列表，或重新预览。",
+      "syncFailed": "会话同步失败，具体原因请查看日志。",
       "staleStore": "账号存储已变化，请重新载入后预览。",
       "unsupportedHome": "此 Codex 数据目录不受支持。",
       "unsupportedIdentity": "无法确认本地 ChatGPT 身份，已拒绝修改。",

@@ -29,7 +29,7 @@ fn preview_uses_one_snapshot_while_desktop_updates_globals() {
     assert_eq!(json_file(&f.paths.global()).unwrap(), updated);
     assert_eq!(
         plan.inputs.ensure_unchanged().unwrap_err(),
-        "PROJECT_SHARING_EXTERNAL_CHANGE"
+        "PROJECT_SHARING_SYNC_FAILED"
     );
     assert_eq!(
         preview(&f.paths, "b").unwrap().preview_fingerprint,
