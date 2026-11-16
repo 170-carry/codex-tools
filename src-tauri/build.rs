@@ -16,7 +16,11 @@ fn main() {
     }
 
     sync_remote_build_resources().expect("failed to prepare remote build resources");
-    tauri_build::build()
+    println!("cargo:rerun-if-changed=windows.manifest");
+    let windows =
+        tauri_build::WindowsAttributes::new().app_manifest(include_str!("windows.manifest"));
+    tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+        .expect("failed to build application resources");
 }
 
 fn sync_remote_build_resources() -> io::Result<()> {

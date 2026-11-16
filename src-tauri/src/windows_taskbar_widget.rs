@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::mem::size_of;
-use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -21,36 +21,52 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::Controls::{
     TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW, TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP,
     TTS_NOPREFIX, TTTOOLINFOW,
 };
-use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::HiDpi::{
+    GetDpiForWindow, GetWindowDpiAwarenessContext, SetThreadDpiAwarenessContext,
+};
 use windows::Win32::UI::Shell::{
     SHAppBarMessage, SHQueryUserNotificationState, ABE_BOTTOM, ABE_LEFT, ABE_RIGHT, ABE_TOP,
-    ABM_GETAUTOHIDEBAREX, APPBARDATA, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+    ABM_GETAUTOHIDEBAREX, APPBARDATA, QUERY_USER_NOTIFICATION_STATE, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowExW, FindWindowW, GetClientRect,
-    GetForegroundWindow, GetMessageW, GetWindowLongPtrW, GetWindowRect, IsIconic, LoadCursorW,
-    PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, SendMessageW,
-    SetCursor, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-    UpdateLayeredWindow, CREATESTRUCTW, GWLP_USERDATA, GWL_STYLE, HTCLIENT, HWND_TOPMOST,
-    IDC_ARROW, IDC_HAND, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
-    SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE, WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
-    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR,
-    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZE, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowExW, FindWindowW, GetClassNameW,
+    GetClientRect, GetDesktopWindow, GetForegroundWindow, GetMessageW, GetWindow,
+    GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindowVisible, LoadCursorW, PostMessageW,
+    PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, SendMessageW, SetCursor, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
+    CREATESTRUCTW, EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_REORDER, EVENT_SYSTEM_FOREGROUND,
+    GWLP_USERDATA, GWL_STYLE, GW_HWNDPREV, GW_OWNER, HTCLIENT, HWND_TOPMOST, IDC_ARROW, IDC_HAND,
+    MSG, OBJID_CLIENT, OBJID_WINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_STYLE, WINEVENT_OUTOFCONTEXT,
+    WINEVENT_SKIPOWNPROCESS, WM_APP, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONUP,
+    WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE,
+    WM_THEMECHANGED, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_MAXIMIZE, WS_POPUP,
 };
 
 use crate::models::WindowsTaskbarWidgetPlacement;
 use crate::windows_tray_icon::codex_tools_icon_rgba;
+use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetParent, SetParent, GWL_EXSTYLE, HWND_TOP, MA_NOACTIVATE, STYLESTRUCT, SWP_HIDEWINDOW,
+    SWP_NOZORDER, WINDOWPOS, WM_MOUSEACTIVATE, WM_STYLECHANGING, WM_WINDOWPOSCHANGING, WS_CHILD,
+    WS_CLIPSIBLINGS, WS_EX_NOPARENTNOTIFY,
+};
 
 const WINDOW_CLASS_NAME: PCWSTR = w!("CodexToolsTaskbarQuotaWidget");
 const UPDATE_MESSAGE: u32 = WM_APP + 0x41;
+const LAYOUT_MESSAGE: u32 = WM_APP + 0x42;
+static LAYOUT_PENDING: AtomicBool = AtomicBool::new(false);
 const LAYOUT_TIMER_ID: usize = 1;
 const LAYOUT_TIMER_MS: u32 = 5_000;
+const Z_ORDER_TIMER_ID: usize = 2;
+const Z_ORDER_TIMER_MS: u32 = 100;
 const TASKBAR_RECREATE_READY_TIMEOUT: Duration = Duration::from_secs(15);
 const TASKBAR_RECREATE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const WIDGETS_SCAN_INTERVAL: Duration = Duration::from_secs(30);
@@ -83,6 +99,7 @@ pub(crate) enum WindowsWidgetStatus {
 pub(crate) struct WindowsTaskbarWidgetSnapshot {
     pub(crate) visible: bool,
     pub(crate) placement: WindowsTaskbarWidgetPlacement,
+    pub(crate) offset: (i32, i32),
     pub(crate) text: String,
     pub(crate) tooltip: String,
     pub(crate) status: WindowsWidgetStatus,
@@ -106,6 +123,7 @@ struct WindowContext {
     cached_widgets_enabled: Option<bool>,
     last_widgets_scan: Option<Instant>,
     surface_needs_refresh: bool,
+    taskbar: Option<TaskbarPlacement>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -116,6 +134,7 @@ enum TaskbarEdge {
     Bottom,
 }
 
+#[derive(Clone, Copy)]
 struct TaskbarPlacement {
     hwnd: HWND,
     rect: RECT,
@@ -243,6 +262,11 @@ fn wait_for_recreated_taskbar() {
 
 fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
     unsafe {
+        // Match Explorer on this dedicated native thread only. Cross-process
+        // parenting with different DPI awareness can reset the child's process.
+        if let Ok(taskbar) = FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()) {
+            let _ = SetThreadDpiAwarenessContext(GetWindowDpiAwarenessContext(taskbar));
+        }
         let module = GetModuleHandleW(None)
             .map_err(|error| format!("Failed to resolve widget module handle: {error}"))?;
         let hinstance = HINSTANCE(module.0);
@@ -292,11 +316,16 @@ fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
             cached_widgets_enabled: None,
             last_widgets_scan: None,
             surface_needs_refresh: true,
+            taskbar: None,
         });
         let context_ptr = Box::into_raw(context);
 
         let hwnd = match CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_LAYERED
+                | WS_EX_NOACTIVATE
+                | WS_EX_TOOLWINDOW
+                | WS_EX_TOPMOST
+                | WS_EX_NOPARENTNOTIFY,
             WINDOW_CLASS_NAME,
             w!("Codex Tools quota"),
             WS_POPUP,
@@ -322,6 +351,7 @@ fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
             .hwnd
             .store(hwnd.0 as isize, Ordering::Release);
         SetTimer(Some(hwnd), LAYOUT_TIMER_ID, LAYOUT_TIMER_MS, None);
+        SetTimer(Some(hwnd), Z_ORDER_TIMER_ID, Z_ORDER_TIMER_MS, None);
         PostMessageW(Some(hwnd), UPDATE_MESSAGE, WPARAM(0), LPARAM(0))
             .map_err(|error| format!("Failed to initialize Windows quota widget: {error}"))?;
         Ok(hwnd)
@@ -330,6 +360,25 @@ fn create_widget_window(app: AppHandle) -> Result<HWND, String> {
 
 fn run_message_loop(hwnd: HWND) {
     unsafe {
+        // Out-of-context hooks run on this message-loop thread, never inside Explorer.
+        let hooks = [
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_OBJECT_REORDER,
+            EVENT_OBJECT_LOCATIONCHANGE,
+        ]
+        .map(|event| {
+            let flags = WINEVENT_OUTOFCONTEXT
+                | if event == EVENT_SYSTEM_FOREGROUND {
+                    0
+                } else {
+                    WINEVENT_SKIPOWNPROCESS
+                };
+            let hook = SetWinEventHook(event, event, None, Some(layout_event_proc), 0, 0, flags);
+            if hook.0.is_null() {
+                log::warn!("Windows quota widget event hook failed: event={event}");
+            }
+            hook
+        });
         let mut message = MSG::default();
         loop {
             let result = GetMessageW(&mut message, None, 0, 0).0;
@@ -344,6 +393,65 @@ fn run_message_loop(hwnd: HWND) {
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        for hook in hooks {
+            if !hook.0.is_null() {
+                let _ = UnhookWinEvent(hook);
+            }
+        }
+        LAYOUT_PENDING.store(false, Ordering::Release);
+    }
+}
+
+fn event_needs_layout(
+    event: u32,
+    object_id: i32,
+    is_taskbar: bool,
+    is_desktop: bool,
+    is_foreground: bool,
+) -> bool {
+    event == EVENT_SYSTEM_FOREGROUND
+        || (matches!(object_id, id if id == OBJID_WINDOW.0 || id == OBJID_CLIENT.0)
+            && event == EVENT_OBJECT_REORDER
+            && (is_taskbar || is_desktop))
+        || (object_id == OBJID_WINDOW.0
+            && event == EVENT_OBJECT_LOCATIONCHANGE
+            && (is_taskbar || is_foreground))
+}
+
+unsafe extern "system" fn layout_event_proc(
+    _hook: HWINEVENTHOOK,
+    event: u32,
+    event_hwnd: HWND,
+    object_id: i32,
+    _child_id: i32,
+    _thread_id: u32,
+    _event_time: u32,
+) {
+    let is_taskbar = event != EVENT_SYSTEM_FOREGROUND
+        && FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()).ok() == Some(event_hwnd);
+    if !event_needs_layout(
+        event,
+        object_id,
+        is_taskbar,
+        event_hwnd == GetDesktopWindow(),
+        event_hwnd == GetForegroundWindow(),
+    ) {
+        return;
+    }
+    if let Some(runtime) = RUNTIME.get() {
+        let raw_hwnd = runtime.hwnd.load(Ordering::Acquire);
+        if raw_hwnd != 0 && !LAYOUT_PENDING.swap(true, Ordering::AcqRel) {
+            if PostMessageW(
+                Some(HWND(raw_hwnd as *mut c_void)),
+                LAYOUT_MESSAGE,
+                WPARAM(0),
+                LPARAM(0),
+            )
+            .is_err()
+            {
+                LAYOUT_PENDING.store(false, Ordering::Release);
+            }
+        }
     }
 }
 
@@ -353,6 +461,9 @@ unsafe extern "system" fn window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    if preserve_widget_window_state(hwnd, message, wparam, lparam) {
+        return LRESULT(0);
+    }
     let taskbar_created = TASKBAR_CREATED_MESSAGE.load(Ordering::Acquire);
     if taskbar_created != 0 && message == taskbar_created {
         log::info!("WINDOWS_QUOTA_WIDGET action=taskbar-created");
@@ -374,11 +485,22 @@ unsafe extern "system" fn window_proc(
             if let Some(context) = context_mut(hwnd) {
                 context.tooltip = create_tooltip(hwnd, context);
             }
-            apply_snapshot_and_layout(hwnd);
+            // Attach after creation has completed, outside CreateWindowEx's callbacks.
             LRESULT(0)
         }
         UPDATE_MESSAGE => {
             apply_snapshot_and_layout(hwnd);
+            LRESULT(0)
+        }
+        LAYOUT_MESSAGE => {
+            LAYOUT_PENDING.store(false, Ordering::Release);
+            if position_widget(hwnd) {
+                refresh_widget_surface(hwnd);
+            }
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == Z_ORDER_TIMER_ID => {
+            maintain_widget_visibility(hwnd);
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == LAYOUT_TIMER_ID => {
@@ -424,10 +546,14 @@ unsafe extern "system" fn window_proc(
             DefWindowProcW(hwnd, message, wparam, lparam)
         }
         WM_NCHITTEST => LRESULT(HTCLIENT as isize),
+        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         WM_LBUTTONUP => {
             if let Some(context) = context_mut(hwnd) {
                 log::info!("WINDOWS_QUOTA_WIDGET action=click-restore");
-                crate::restore_main_window(&context.app);
+                let app = context.app.clone();
+                let _ = context
+                    .app
+                    .run_on_main_thread(move || crate::restore_main_window(&app));
             }
             LRESULT(0)
         }
@@ -444,6 +570,37 @@ unsafe extern "system" fn window_proc(
             DefWindowProcW(hwnd, message, wparam, lparam)
         }
         _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+// Maintain the native widget contract while User32 applies a change, rather than
+// waiting for the next timer tick. Topmost ordering is handled through WINDOWPOS,
+// not by writing WS_EX_TOPMOST into the extended style.
+unsafe fn preserve_widget_window_state(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> bool {
+    match message {
+        WM_WINDOWPOSCHANGING => {
+            let position = &mut *(lparam.0 as *mut WINDOWPOS);
+            if !position.flags.contains(SWP_NOZORDER) && !position.flags.contains(SWP_HIDEWINDOW) {
+                position.hwndInsertAfter = if is_taskbar_child(hwnd) {
+                    HWND_TOP
+                } else {
+                    HWND_TOPMOST
+                };
+            }
+            true
+        }
+        WM_STYLECHANGING if wparam.0 as i32 == GWL_EXSTYLE.0 => {
+            let style = &mut *(lparam.0 as *mut STYLESTRUCT);
+            style.styleNew |=
+                (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_NOPARENTNOTIFY).0;
+            true
+        }
+        _ => false,
     }
 }
 
@@ -1001,6 +1158,126 @@ fn base_height_for_text(text: &str) -> i32 {
     }
 }
 
+fn rects_overlap(a: RECT, b: RECT) -> bool {
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
+
+unsafe fn is_taskbar_child(hwnd: HWND) -> bool {
+    GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_CHILD.0 != 0
+}
+
+// TrafficMonitor's Win11TaskbarDlg attaches to Shell_TrayWnd. A native child
+// moves through the desktop Z order with its parent, so activating the taskbar
+// cannot insert the taskbar between the quota and its own background.
+unsafe fn set_widget_parent(hwnd: HWND, parent: Option<HWND>) -> bool {
+    let old_style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+    let current_parent = if is_taskbar_child(hwnd) {
+        GetParent(hwnd).ok()
+    } else {
+        None
+    };
+    if current_parent == parent {
+        return true;
+    }
+    let _ = ShowWindow(hwnd, SW_HIDE);
+    if parent.is_some() {
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_STYLE,
+            ((old_style & !WS_POPUP.0) | WS_CHILD.0 | WS_CLIPSIBLINGS.0) as isize,
+        );
+    }
+    // A successful attach from the desktop also returns NULL (previous parent).
+    // Verify the relationship instead of treating the return handle as a bool.
+    let result = SetParent(hwnd, parent);
+    if parent.is_none() {
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_STYLE,
+            ((old_style & !(WS_CHILD.0 | WS_CLIPSIBLINGS.0)) | WS_POPUP.0) as isize,
+        );
+    }
+    if GetParent(hwnd).ok() != parent {
+        SetWindowLongPtrW(hwnd, GWL_STYLE, old_style as isize);
+        log::warn!("WINDOWS_QUOTA_WIDGET action=parent-change-failed error={result:?}");
+        return false;
+    }
+    true
+}
+
+unsafe fn covering_window_above(hwnd: HWND) -> bool {
+    let mut widget_rect = RECT::default();
+    if GetWindowRect(hwnd, &mut widget_rect).is_err() {
+        return false;
+    }
+    let mut above = GetWindow(hwnd, GW_HWNDPREV).ok();
+    while let Some(window) = above {
+        // Keep our tooltip above its owner; only repair actual visible occlusion.
+        if IsWindowVisible(window).as_bool()
+            && !IsIconic(window).as_bool()
+            && GetWindow(window, GW_OWNER).ok() != Some(hwnd)
+        {
+            let mut rect = RECT::default();
+            if GetWindowRect(window, &mut rect).is_ok() && rects_overlap(widget_rect, rect) {
+                return true;
+            }
+        }
+        above = GetWindow(window, GW_HWNDPREV).ok();
+    }
+    false
+}
+
+unsafe fn restore_widget_z_order(hwnd: HWND) -> bool {
+    let topmost = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0;
+    if topmost && !covering_window_above(hwnd) {
+        return false;
+    }
+    // Never activate the widget, resize it, or redraw the quota just to fix Z order.
+    SetWindowPos(
+        hwnd,
+        Some(HWND_TOPMOST),
+        0,
+        0,
+        0,
+        0,
+        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+    )
+    .is_ok()
+}
+
+unsafe fn maintain_widget_visibility(hwnd: HWND) {
+    let Some(context) = context_mut(hwnd) else {
+        return;
+    };
+    if !context.snapshot.visible
+        || context.snapshot.placement == WindowsTaskbarWidgetPlacement::Hidden
+    {
+        return;
+    }
+    let Some(taskbar) = context.taskbar else {
+        return;
+    };
+    let mut rect = RECT::default();
+    if GetWindowRect(taskbar.hwnd, &mut rect).is_err() {
+        return;
+    }
+    let hidden_taskbar = taskbar.auto_hide
+        && visible_taskbar_thickness(rect, taskbar.monitor.rcMonitor, taskbar.edge) <= 2;
+    let visible = IsWindowVisible(hwnd).as_bool();
+    if hidden_taskbar || foreground_window_covers_monitor(taskbar.monitor.rcMonitor) {
+        if visible {
+            context.surface_needs_refresh = true;
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    } else if !visible {
+        if position_widget(hwnd) {
+            refresh_widget_surface(hwnd);
+        }
+    } else if !is_taskbar_child(hwnd) {
+        restore_widget_z_order(hwnd);
+    }
+}
+
 unsafe fn position_widget(hwnd: HWND) -> bool {
     let Some(context) = context_mut(hwnd) else {
         return false;
@@ -1018,6 +1295,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
         last_scan.elapsed() >= WIDGETS_SCAN_INTERVAL
     });
     let Some(mut taskbar) = locate_taskbar(scan_widgets) else {
+        context.taskbar = None;
         context.surface_needs_refresh = true;
         log_layout_change(
             context,
@@ -1032,6 +1310,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
     } else {
         taskbar.widgets_enabled = context.cached_widgets_enabled;
     }
+    context.taskbar = Some(taskbar);
     if taskbar.auto_hide && !taskbar.revealed {
         context.surface_needs_refresh = true;
         log_layout_change(
@@ -1080,10 +1359,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
             _ => unreachable!("filtered to taskbar-owned placements"),
         };
         if let Some((screen_x, screen_y)) = screen_position {
-            // Keep the quota surface as an independent no-activate popup. A child
-            // window parented into explorer.exe can create cross-process input and
-            // composition waits that hang the entire Windows shell.
-            position_taskbar_overlay_widget(
+            position_taskbar_child_widget(
                 hwnd,
                 context,
                 &taskbar,
@@ -1114,7 +1390,7 @@ unsafe fn position_widget(hwnd: HWND) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn position_taskbar_overlay_widget(
+unsafe fn position_taskbar_child_widget(
     hwnd: HWND,
     context: &mut WindowContext,
     taskbar: &TaskbarPlacement,
@@ -1125,12 +1401,25 @@ unsafe fn position_taskbar_overlay_widget(
     height: i32,
     dpi: u32,
 ) {
+    let (screen_x, screen_y) =
+        offset_screen_position((screen_x, screen_y), context.snapshot.offset, dpi);
+    if !set_widget_parent(hwnd, Some(taskbar.hwnd)) {
+        context.surface_needs_refresh = true;
+        return;
+    }
+    let mut position = POINT {
+        x: screen_x,
+        y: screen_y,
+    };
+    if !ScreenToClient(taskbar.hwnd, &mut position).as_bool() {
+        return;
+    }
     apply_widget_region(hwnd, width, height, dpi);
     let _ = SetWindowPos(
         hwnd,
-        Some(HWND_TOPMOST),
-        screen_x,
-        screen_y,
+        Some(HWND_TOP),
+        position.x,
+        position.y,
         width,
         height,
         SWP_NOACTIVATE | SWP_SHOWWINDOW,
@@ -1139,7 +1428,7 @@ unsafe fn position_taskbar_overlay_widget(
     log_layout_change(
         context,
         format!(
-            "visible=true placement={} surface=top-level-overlay background=per-pixel-transparent edge={:?} dpi={} taskbar=({},{},{},{}) bounds=({},{},{},{})",
+            "visible=true placement={} surface=taskbar-child background=per-pixel-transparent edge={:?} dpi={} taskbar=({},{},{},{}) bounds=({},{},{},{})",
             placement_name,
             taskbar.edge,
             dpi,
@@ -1163,6 +1452,10 @@ unsafe fn position_floating_widget(
     height: i32,
     dpi: u32,
 ) {
+    if !set_widget_parent(hwnd, None) {
+        context.surface_needs_refresh = true;
+        return;
+    }
     let gap = scale(BASE_FLOATING_GAP, dpi);
     let edge_margin = scale(BASE_EDGE_MARGIN, dpi);
     let monitor = taskbar.monitor.rcMonitor;
@@ -1184,6 +1477,7 @@ unsafe fn position_floating_widget(
             monitor.bottom - height - edge_margin,
         ),
     };
+    let (x, y) = offset_screen_position((x, y), context.snapshot.offset, dpi);
 
     apply_widget_region(hwnd, width, height, dpi);
     let _ = SetWindowPos(
@@ -1226,6 +1520,12 @@ unsafe fn apply_widget_region(hwnd: HWND, width: i32, height: i32, dpi: u32) {
     if SetWindowRgn(hwnd, Some(region), true) == 0 {
         let _ = DeleteObject(HGDIOBJ(region.0));
     }
+}
+
+// Offsets use logical pixels and screen axes, regardless of the taskbar edge.
+fn offset_screen_position(position: (i32, i32), offset: (i32, i32), dpi: u32) -> (i32, i32) {
+    let scaled = |value: i32| (value as f64 * dpi as f64 / 96.0).round() as i32;
+    (position.0 + scaled(offset.0), position.1 + scaled(offset.1))
 }
 
 fn embedded_screen_position(
@@ -1299,14 +1599,20 @@ fn rect_covers_monitor(window: RECT, monitor: RECT, tolerance: i32) -> bool {
 }
 
 fn should_hide_for_fullscreen(
-    shell_reports_fullscreen: bool,
+    notification_state: Option<QUERY_USER_NOTIFICATION_STATE>,
     foreground_style: u32,
     foreground_rect: RECT,
     monitor: RECT,
 ) -> bool {
-    shell_reports_fullscreen
-        || (foreground_style & WS_MAXIMIZE.0 == 0
-            && rect_covers_monitor(foreground_rect, monitor, 2))
+    // BUSY also occurs during Start menu animations; it is not proof of fullscreen.
+    matches!(
+        notification_state,
+        Some(QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_PRESENTATION_MODE)
+    ) || (foreground_style & WS_MAXIMIZE.0 == 0 && rect_covers_monitor(foreground_rect, monitor, 2))
+}
+
+fn is_desktop_surface(class: &str) -> bool {
+    matches!(class, "Progman" | "WorkerW" | "Shell_TrayWnd")
 }
 
 unsafe fn foreground_window_covers_monitor(monitor: RECT) -> bool {
@@ -1314,19 +1620,17 @@ unsafe fn foreground_window_covers_monitor(monitor: RECT) -> bool {
     if foreground.0.is_null() || IsIconic(foreground).as_bool() {
         return false;
     }
+    let mut class = [0u16; 64];
+    let len = GetClassNameW(foreground, &mut class);
+    if is_desktop_surface(&String::from_utf16_lossy(&class[..len as usize])) {
+        return false;
+    }
     let mut rect = RECT::default();
     if GetWindowRect(foreground, &mut rect).is_err() {
         return false;
     }
     let style = GetWindowLongPtrW(foreground, GWL_STYLE) as u32;
-    let shell_reports_fullscreen = matches!(
-        SHQueryUserNotificationState(),
-        Ok(state)
-            if state == QUNS_BUSY
-                || state == QUNS_RUNNING_D3D_FULL_SCREEN
-                || state == QUNS_PRESENTATION_MODE
-    );
-    should_hide_for_fullscreen(shell_reports_fullscreen, style, rect, monitor)
+    should_hide_for_fullscreen(SHQueryUserNotificationState().ok(), style, rect, monitor)
 }
 
 fn log_layout_change(context: &mut WindowContext, detail: String) {
@@ -1500,10 +1804,10 @@ fn to_wide(value: &str) -> Vec<u16> {
 mod tests {
     use super::{
         base_height_for_text, blend_text_mask, desired_size, embedded_screen_position,
-        left_screen_position, measure_system_title_text, pixels_are_premultiplied_bgra,
-        rasterize_system_title_text_mask, rect_covers_monitor, render_widget_pixels,
-        resolved_system_title_font_face, scale, should_hide_for_fullscreen, taskbar_edge,
-        visible_taskbar_thickness, widget_foreground, widget_text_lines, TaskbarEdge,
+        left_screen_position, measure_system_title_text, offset_screen_position,
+        pixels_are_premultiplied_bgra, rasterize_system_title_text_mask, rect_covers_monitor,
+        render_widget_pixels, resolved_system_title_font_face, scale, should_hide_for_fullscreen,
+        taskbar_edge, visible_taskbar_thickness, widget_foreground, widget_text_lines, TaskbarEdge,
         TaskbarPlacement, WindowsWidgetStatus, BASE_ICON_GAP, BASE_ICON_SIZE, BASE_PADDING,
         BASE_SINGLE_LINE_HEIGHT, SYSTEM_TITLE_FONT_FALLBACK, SYSTEM_TITLE_FONT_PRIMARY,
     };
@@ -1512,12 +1816,433 @@ mod tests {
     use windows::Win32::UI::WindowsAndMessaging::WS_MAXIMIZE;
 
     #[test]
-    fn quota_widget_never_parents_itself_into_explorer() {
-        let source = include_str!("windows_taskbar_widget.rs");
-        let cross_process_parent_call = ["Set", "Parent("].concat();
-        let descendant_automation_scope = ["TreeScope", "_Descendants"].concat();
-        assert!(!source.contains(&cross_process_parent_call));
-        assert!(!source.contains(&descendant_automation_scope));
+    fn native_state_policy_keeps_hide_and_geometry_requests_intact() {
+        use super::*;
+        use windows::Win32::UI::WindowsAndMessaging::HWND_BOTTOM;
+        for flags in [SWP_HIDEWINDOW, SWP_NOZORDER] {
+            let mut position = WINDOWPOS {
+                hwndInsertAfter: HWND_BOTTOM,
+                flags,
+                x: 15,
+                y: -4,
+                cx: 80,
+                cy: 24,
+                ..Default::default()
+            };
+            unsafe {
+                preserve_widget_window_state(
+                    HWND::default(),
+                    WM_WINDOWPOSCHANGING,
+                    WPARAM(0),
+                    LPARAM((&mut position as *mut WINDOWPOS) as isize),
+                );
+            }
+            assert_eq!(position.hwndInsertAfter, HWND_BOTTOM);
+            assert_eq!(position.flags, flags);
+            assert_eq!(
+                (position.x, position.y, position.cx, position.cy),
+                (15, -4, 80, 24)
+            );
+        }
+    }
+
+    #[test]
+    fn native_state_policy_blocks_demotion_before_it_takes_effect() {
+        use super::*;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DestroyWindow, UnregisterClassW, HWND_BOTTOM, HWND_NOTOPMOST,
+        };
+        unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+            if preserve_widget_window_state(hwnd, msg, wp, lp) {
+                LRESULT(0)
+            } else {
+                DefWindowProcW(hwnd, msg, wp, lp)
+            }
+        }
+        struct TestWindow(HWND, HINSTANCE);
+        impl Drop for TestWindow {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyWindow(self.0);
+                    let _ = UnregisterClassW(w!("CodexTaskbarStateTest"), Some(self.1));
+                }
+            }
+        }
+        unsafe {
+            let instance = HINSTANCE(GetModuleHandleW(None).unwrap().0);
+            let class = WNDCLASSEXW {
+                cbSize: size_of::<WNDCLASSEXW>() as u32,
+                lpfnWndProc: Some(proc),
+                hInstance: instance,
+                lpszClassName: w!("CodexTaskbarStateTest"),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassExW(&class), 0);
+            let window = TestWindow(
+                CreateWindowExW(
+                    WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+                    w!("CodexTaskbarStateTest"),
+                    w!("Quota state test"),
+                    WS_POPUP,
+                    -31000,
+                    -31000,
+                    80,
+                    24,
+                    None,
+                    None,
+                    Some(instance),
+                    None,
+                )
+                .unwrap(),
+                instance,
+            );
+            let foreground = GetForegroundWindow();
+            let _ = ShowWindow(window.0, SW_SHOWNOACTIVATE);
+            for after in [HWND_NOTOPMOST, HWND_BOTTOM] {
+                SetWindowPos(
+                    window.0,
+                    Some(after),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+                )
+                .unwrap();
+                assert_ne!(
+                    GetWindowLongPtrW(window.0, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0,
+                    0
+                );
+                assert_eq!(GetForegroundWindow(), foreground);
+            }
+            SetWindowLongPtrW(window.0, GWL_EXSTYLE, 0);
+            let style = GetWindowLongPtrW(window.0, GWL_EXSTYLE) as u32;
+            let required = (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED).0;
+            assert_eq!(style & required, required);
+            restore_widget_z_order(window.0);
+            assert_ne!(
+                GetWindowLongPtrW(window.0, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0,
+                0
+            );
+            let _ = ShowWindow(window.0, SW_HIDE);
+            assert!(!IsWindowVisible(window.0).as_bool());
+            let _ = ShowWindow(window.0, SW_SHOWNOACTIVATE);
+            assert!(IsWindowVisible(window.0).as_bool());
+            assert_eq!(GetForegroundWindow(), foreground);
+            let mut rect = RECT::default();
+            GetWindowRect(window.0, &mut rect).unwrap();
+            assert_eq!(
+                (rect.left, rect.top, rect.right, rect.bottom),
+                (-31000, -31000, -30920, -30976)
+            );
+        }
+    }
+
+    #[test]
+    fn z_order_guard_repairs_repeated_occlusion_without_activation_or_movement() {
+        use super::*;
+        use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+
+        struct TestWindow(HWND);
+        impl Drop for TestWindow {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyWindow(self.0);
+                }
+            }
+        }
+        unsafe fn create(owner: Option<HWND>) -> TestWindow {
+            TestWindow(
+                CreateWindowExW(
+                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+                    w!("STATIC"),
+                    w!("Quota Z-order test"),
+                    WS_POPUP,
+                    -30000,
+                    -30000,
+                    80,
+                    24,
+                    owner,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        }
+        unsafe {
+            // Off-screen windows exercise User32 without covering the user's desktop.
+            let widget = create(None);
+            let blocker = create(None);
+            let foreground = GetForegroundWindow();
+            let _ = ShowWindow(widget.0, SW_SHOWNOACTIVATE);
+            for _ in 0..12 {
+                SetWindowPos(
+                    blocker.0,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                )
+                .unwrap();
+                assert!(covering_window_above(widget.0));
+                assert!(restore_widget_z_order(widget.0));
+                assert!(!covering_window_above(widget.0));
+                assert!(!restore_widget_z_order(widget.0));
+                assert_eq!(GetForegroundWindow(), foreground);
+                let mut rect = RECT::default();
+                GetWindowRect(widget.0, &mut rect).unwrap();
+                assert_eq!(
+                    (rect.left, rect.top, rect.right, rect.bottom),
+                    (-30000, -30000, -29920, -29976)
+                );
+            }
+            let _ = ShowWindow(blocker.0, SW_HIDE);
+            let tooltip = create(Some(widget.0));
+            let _ = ShowWindow(tooltip.0, SW_SHOWNOACTIVATE);
+            assert!(
+                !restore_widget_z_order(widget.0),
+                "owned tooltips stay above the widget"
+            );
+        }
+    }
+
+    #[test]
+    fn z_order_guard_ignores_nonoverlapping_windows() {
+        let widget = RECT {
+            left: 10,
+            top: 10,
+            right: 90,
+            bottom: 34,
+        };
+        assert!(super::rects_overlap(
+            widget,
+            RECT {
+                left: 20,
+                top: 20,
+                right: 100,
+                bottom: 40
+            }
+        ));
+        assert!(!super::rects_overlap(
+            widget,
+            RECT {
+                left: 90,
+                top: 10,
+                right: 170,
+                bottom: 34
+            }
+        ));
+        assert!(!super::rects_overlap(
+            widget,
+            RECT {
+                left: 10,
+                top: 34,
+                right: 90,
+                bottom: 58
+            }
+        ));
+    }
+
+    #[test]
+    fn shell_events_refresh_layout_without_following_unrelated_controls() {
+        use super::*;
+        assert!(event_needs_layout(
+            EVENT_SYSTEM_FOREGROUND,
+            0,
+            false,
+            false,
+            false
+        ));
+        assert!(event_needs_layout(
+            EVENT_OBJECT_REORDER,
+            OBJID_WINDOW.0,
+            true,
+            false,
+            false
+        ));
+        assert!(event_needs_layout(
+            EVENT_OBJECT_REORDER,
+            OBJID_CLIENT.0,
+            false,
+            true,
+            false
+        ));
+        assert!(event_needs_layout(
+            EVENT_OBJECT_LOCATIONCHANGE,
+            OBJID_WINDOW.0,
+            true,
+            false,
+            false
+        ));
+        assert!(event_needs_layout(
+            EVENT_OBJECT_LOCATIONCHANGE,
+            OBJID_WINDOW.0,
+            false,
+            false,
+            true
+        ));
+        assert!(!event_needs_layout(
+            EVENT_OBJECT_REORDER,
+            OBJID_WINDOW.0,
+            false,
+            false,
+            true
+        ));
+        assert!(!event_needs_layout(
+            EVENT_OBJECT_LOCATIONCHANGE,
+            OBJID_CLIENT.0,
+            false,
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn desktop_surfaces_are_not_fullscreen_apps() {
+        for class in ["Progman", "WorkerW", "Shell_TrayWnd"] {
+            assert!(super::is_desktop_surface(class));
+        }
+        assert!(!super::is_desktop_surface("Chrome_WidgetWin_1"));
+        assert!(!super::is_desktop_surface("Windows.UI.Core.CoreWindow"));
+    }
+
+    #[test]
+    fn offsets_follow_screen_axes_and_display_scaling() {
+        assert_eq!(offset_screen_position((100, 800), (0, 0), 144), (100, 800));
+        assert_eq!(offset_screen_position((100, 800), (24, -6), 96), (124, 794));
+        assert_eq!(
+            offset_screen_position((100, 800), (24, -6), 144),
+            (136, 791)
+        );
+        assert_eq!(
+            offset_screen_position((-1920, -40), (-24, 6), 192),
+            (-1968, -28)
+        );
+        // Negative values must round symmetrically, including one-pixel adjustments.
+        assert_eq!(offset_screen_position((100, 800), (-1, 1), 96), (99, 801));
+        assert_eq!(offset_screen_position((100, 800), (-1, 1), 144), (98, 802));
+    }
+
+    #[test]
+    fn embedded_window_follows_its_parent_without_z_order_repair() {
+        use super::*;
+        use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, IsWindow, UnregisterClassW};
+        unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+            if preserve_widget_window_state(hwnd, msg, wp, lp) {
+                LRESULT(0)
+            } else {
+                DefWindowProcW(hwnd, msg, wp, lp)
+            }
+        }
+        struct Window(HWND);
+        impl Drop for Window {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyWindow(self.0);
+                }
+            }
+        }
+        unsafe {
+            let instance = HINSTANCE(GetModuleHandleW(None).unwrap().0);
+            let class = WNDCLASSEXW {
+                cbSize: size_of::<WNDCLASSEXW>() as u32,
+                lpfnWndProc: Some(proc),
+                hInstance: instance,
+                lpszClassName: w!("CodexEmbeddedQuotaTest"),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassExW(&class), 0);
+            let parent = Window(
+                CreateWindowExW(
+                    WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+                    w!("STATIC"),
+                    w!("Test taskbar"),
+                    WS_POPUP,
+                    -28000,
+                    -28000,
+                    400,
+                    48,
+                    None,
+                    None,
+                    Some(instance),
+                    None,
+                )
+                .unwrap(),
+            );
+            let child = Window(
+                CreateWindowExW(
+                    WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+                    w!("CodexEmbeddedQuotaTest"),
+                    w!("Test quota"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    80,
+                    24,
+                    None,
+                    None,
+                    Some(instance),
+                    None,
+                )
+                .unwrap(),
+            );
+            let foreground = GetForegroundWindow();
+            assert!(set_widget_parent(child.0, Some(parent.0)));
+            assert_eq!(GetParent(child.0).unwrap(), parent.0);
+            assert!(is_taskbar_child(child.0));
+            assert_eq!(GetWindowLongPtrW(child.0, GWL_STYLE) as u32 & WS_POPUP.0, 0);
+            SetWindowPos(
+                child.0,
+                Some(HWND_TOP),
+                20,
+                4,
+                80,
+                24,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+            .unwrap();
+            for i in 0..12 {
+                // No layout/event callback or timer runs between the parent's raise
+                // and these checks: the child follows as part of the window tree.
+                SetWindowPos(
+                    parent.0,
+                    Some(HWND_TOPMOST),
+                    -28000 + i,
+                    -28000,
+                    400,
+                    48,
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                )
+                .unwrap();
+                assert_eq!(GetParent(child.0).unwrap(), parent.0);
+                assert!(IsWindowVisible(child.0).as_bool());
+                let mut rect = RECT::default();
+                GetWindowRect(child.0, &mut rect).unwrap();
+                assert_eq!((rect.left, rect.top), (-27980 + i, -27996));
+                let mut local = POINT {
+                    x: rect.left,
+                    y: rect.top,
+                };
+                assert!(ScreenToClient(parent.0, &mut local).as_bool());
+                assert_eq!((local.x, local.y), (20, 4));
+                assert_eq!(GetForegroundWindow(), foreground);
+            }
+            let _ = ShowWindow(child.0, SW_HIDE);
+            assert!(!IsWindowVisible(child.0).as_bool());
+            let _ = ShowWindow(child.0, SW_SHOWNOACTIVATE);
+            assert!(IsWindowVisible(child.0).as_bool());
+            assert!(set_widget_parent(child.0, None));
+            assert!(!is_taskbar_child(child.0));
+            assert!(GetParent(child.0).is_err());
+            assert!(set_widget_parent(child.0, Some(parent.0)));
+            DestroyWindow(parent.0).unwrap();
+            assert!(!IsWindow(Some(child.0)).as_bool());
+            drop(child);
+            UnregisterClassW(w!("CodexEmbeddedQuotaTest"), Some(instance)).unwrap();
+        }
     }
 
     #[test]
@@ -1561,15 +2286,15 @@ mod tests {
             monitor,
             2,
         ));
-        assert!(should_hide_for_fullscreen(false, 0, monitor, monitor));
+        assert!(should_hide_for_fullscreen(None, 0, monitor, monitor));
         assert!(!should_hide_for_fullscreen(
-            false,
+            None,
             WS_MAXIMIZE.0,
             monitor,
             monitor,
         ));
         assert!(should_hide_for_fullscreen(
-            true,
+            Some(super::QUNS_RUNNING_D3D_FULL_SCREEN),
             WS_MAXIMIZE.0,
             RECT {
                 left: 100,
@@ -1578,6 +2303,45 @@ mod tests {
                 bottom: 700,
             },
             monitor,
+        ));
+    }
+
+    #[test]
+    fn start_menu_busy_transition_does_not_hide_the_widget() {
+        use windows::Win32::UI::Shell::{QUNS_ACCEPTS_NOTIFICATIONS, QUNS_APP, QUNS_BUSY};
+        let monitor = RECT {
+            left: 0,
+            top: 0,
+            right: 2560,
+            bottom: 1440,
+        };
+        // Geometry captured while opening Start on Windows 11.
+        let start_menu = RECT {
+            left: 851,
+            top: 502,
+            right: 1709,
+            bottom: 1392,
+        };
+        for state in [QUNS_BUSY, QUNS_APP, QUNS_ACCEPTS_NOTIFICATIONS] {
+            assert!(!should_hide_for_fullscreen(
+                Some(state),
+                0,
+                start_menu,
+                monitor
+            ));
+        }
+        // A real borderless fullscreen app still hides the widget, including BUSY.
+        assert!(should_hide_for_fullscreen(
+            Some(QUNS_BUSY),
+            0,
+            monitor,
+            monitor
+        ));
+        assert!(should_hide_for_fullscreen(
+            Some(super::QUNS_PRESENTATION_MODE),
+            0,
+            start_menu,
+            monitor
         ));
     }
 
