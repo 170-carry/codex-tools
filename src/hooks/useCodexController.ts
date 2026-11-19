@@ -639,6 +639,12 @@ export function useCodexController(
     }
   }, []);
 
+  useEffect(() => {
+    if (!settingsLoaded || recoveryRequired) return;
+    const timer = window.setInterval(() => void loadApiProxySupportedModels(), 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [loadApiProxySupportedModels, settingsLoaded, recoveryRequired]);
+
   const loadApiProxyUsageStats = useCallback(
     async (range: ApiProxyUsageRange, options?: { silent?: boolean }) => {
       const isSilent = options?.silent === true;

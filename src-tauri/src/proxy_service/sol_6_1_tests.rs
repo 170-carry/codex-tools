@@ -97,7 +97,7 @@ fn chat_anthropic_and_websocket_use_sol_6_1_lite_transport() {
     headers.insert("user-agent", HeaderValue::from_static("old-client"));
     assert_eq!(
         upstream_codex_client_identity(&headers, true),
-        ("0.159.0", "codex_cli_rs/0.159.0")
+        ("0.169.0", "codex_cli_rs/0.169.0")
     );
 }
 

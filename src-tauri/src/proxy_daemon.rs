@@ -67,7 +67,16 @@ pub async fn run_proxy_daemon(options: ProxyDaemonOptions) -> Result<(), String>
     }
     println!("upstream=codex");
 
-    wait_for_shutdown_signal().await?;
+    let refresh_catalog = async {
+        loop {
+            crate::proxy_service::refresh_proxy_model_catalog(&storage).await;
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        }
+    };
+    tokio::select! {
+        result = wait_for_shutdown_signal() => result?,
+        _ = refresh_catalog => unreachable!(),
+    }
 
     let _ = stop_api_proxy_with_runtime(&storage, &runtime_slot).await?;
     println!("codex-tools-proxyd stopped");

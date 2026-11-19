@@ -31,8 +31,12 @@ use request_policy::api_proxy_service_tier_for_upstream;
 mod codex_binding;
 #[path = "proxy_service/codex_catalog.rs"]
 mod codex_catalog;
+#[path = "proxy_service/discovery.rs"]
+mod discovery;
 #[path = "proxy_service/model_catalog.rs"]
 mod model_catalog;
+#[path = "proxy_service/upstream_http.rs"]
+mod upstream_http;
 #[cfg(feature = "desktop")]
 pub(crate) use codex_binding::{
     bind_codex_to_api_proxy_internal, sync_bound_codex_catalog_internal,
@@ -42,9 +46,11 @@ mod image_transport;
 #[path = "proxy_service/responses_lite.rs"]
 mod responses_lite;
 use image_transport::{native_image_payload, validate_native_image_response};
+#[cfg(test)]
+use model_catalog::MODELS;
 use model_catalog::{
     is_responses_lite_model, map_client_model_to_upstream, normalize_model_for_client,
-    upstream_codex_client_identity, CODEX_CLIENT_VERSION, CODEX_USER_AGENT, MODELS,
+    upstream_codex_client_identity, CODEX_CLIENT_VERSION, CODEX_USER_AGENT,
 };
 use responses_lite::normalize_responses_lite_payload;
 #[cfg(test)]
@@ -469,7 +475,7 @@ struct ProxyContext {
     storage: ProxyStorageContext,
     api_keys: Arc<RwLock<Vec<ApiProxyKey>>>,
     upstream_base_url: String,
-    client: reqwest::Client,
+    client: upstream_http::UpstreamHttp,
     shared: Arc<tokio::sync::Mutex<ApiProxyRuntimeSnapshot>>,
     request_body_limit_bytes: usize,
 }
@@ -1078,6 +1084,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
         return Ok(status_from_handle_state(existing_handle).await);
     }
 
+    discovery::load_cache(&storage.data_dir);
     let available_accounts = load_proxy_candidates(storage).await?;
     if available_accounts.is_empty() {
         return Err("暂无可用于代理的账号，请先添加并授权账号。".to_string());
@@ -1099,13 +1106,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
     let api_keys = ensure_persisted_api_proxy_keys(storage).await?;
     let shared_api_keys = Arc::new(RwLock::new(api_keys));
 
-    let client = reqwest::Client::builder()
-        .user_agent("codex-tools-proxy/0.1")
-        .timeout(std::time::Duration::from_secs(
-            DEFAULT_PROXY_UPSTREAM_TIMEOUT_SECS,
-        ))
-        .build()
-        .map_err(|error| format!("创建代理 HTTP 客户端失败: {error}"))?;
+    let client = upstream_http::UpstreamHttp::new()?;
 
     let shared = Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default()));
     let request_body_limit = resolve_proxy_request_body_limit_bytes();
@@ -1244,22 +1245,31 @@ async fn health_handler() -> impl IntoResponse {
     Json(json!({ "ok": true }))
 }
 
+pub(crate) async fn refresh_proxy_model_catalog(storage: &ProxyStorageContext) {
+    if let Err(error) = discovery::refresh(&storage.data_dir).await {
+        log::warn!("Codex model catalog refresh failed: {error}");
+    }
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) async fn refresh_desktop_proxy_models(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<Vec<String>, String> {
+    let storage = app_proxy_storage_context(app, state)?;
+    refresh_proxy_model_catalog(&storage).await;
+    if let Err(error) = codex_binding::sync_bound_codex_catalog(&storage).await {
+        log::warn!("Bound Codex model catalog sync failed: {error}");
+    }
+    Ok(get_api_proxy_supported_models_internal())
+}
+
 pub(crate) fn get_api_proxy_supported_models_internal() -> Vec<String> {
-    MODELS.iter().map(|model| (*model).to_string()).collect()
+    discovery::snapshot().names.clone()
 }
 
 pub(crate) fn sanitize_api_proxy_disabled_models_for_settings(models: Vec<String>) -> Vec<String> {
-    let disabled = models
-        .into_iter()
-        .filter_map(|model| normalize_api_proxy_config_model_name(&model))
-        .filter(|model| MODELS.contains(&model.as_str()))
-        .collect::<HashSet<_>>();
-
-    MODELS
-        .iter()
-        .filter(|model| disabled.contains(**model))
-        .map(|model| (*model).to_string())
-        .collect()
+    sanitize_api_proxy_allowed_models(models)
 }
 
 async fn models_handler(
@@ -4822,6 +4832,7 @@ async fn forward_codex_request_with_candidate(
 
     let mut request = context
         .client
+        .client()
         .post(&upstream_url)
         .header(
             "Authorization",
@@ -4860,12 +4871,16 @@ async fn forward_codex_request_with_candidate(
         request
     };
 
-    request
+    let request = request
         .body(serialized)
-        .send()
+        .build()
+        .map_err(|error| error.without_url().to_string())?;
+    context
+        .client
+        .send(request)
         .await
         .map(CodexUpstreamResponse::Http)
-        .map_err(|error| format!("请求上游失败 {upstream_url}: {error}"))
+        .map_err(|error| format!("请求上游失败: {error}"))
 }
 
 async fn forward_codex_websocket_request_with_candidate(
@@ -5034,23 +5049,18 @@ fn api_proxy_disabled_model_set(settings: &AppSettings) -> HashSet<String> {
         .api_proxy_disabled_models
         .iter()
         .filter_map(|model| normalize_api_proxy_config_model_name(model))
-        .filter(|model| MODELS.contains(&model.as_str()))
         .collect()
 }
 
-fn api_proxy_visible_models(settings: &AppSettings) -> Vec<&'static str> {
+fn api_proxy_visible_models(settings: &AppSettings) -> Vec<String> {
     let disabled = api_proxy_disabled_model_set(settings);
-    MODELS
-        .iter()
-        .copied()
-        .filter(|model| !disabled.contains(*model))
+    get_api_proxy_supported_models_internal()
+        .into_iter()
+        .filter(|model| !disabled.contains(model))
         .collect()
 }
 
-fn api_proxy_visible_models_for_key(
-    settings: &AppSettings,
-    key: &ApiProxyKey,
-) -> Vec<&'static str> {
+fn api_proxy_visible_models_for_key(settings: &AppSettings, key: &ApiProxyKey) -> Vec<String> {
     let visible = api_proxy_visible_models(settings);
     if key.allowed_models.is_empty() {
         return visible;
@@ -5063,7 +5073,7 @@ fn api_proxy_visible_models_for_key(
         .collect::<HashSet<_>>();
     visible
         .into_iter()
-        .filter(|model| allowed.contains(*model))
+        .filter(|model| allowed.contains(model))
         .collect()
 }
 
@@ -6141,7 +6151,7 @@ fn normalize_api_proxy_key_store(store: &mut ApiProxyKeyStore) {
         if key.updated_at <= 0 {
             key.updated_at = key.created_at;
         }
-        key.allowed_models = sanitize_api_proxy_allowed_models(key.allowed_models);
+        // Persisted restrictions may refer to a discovered model currently offline.
         key.allowed_reasoning_efforts =
             sanitize_api_proxy_reasoning_efforts(key.allowed_reasoning_efforts);
         key.allowed_service_tiers = sanitize_api_proxy_service_tiers(key.allowed_service_tiers);
@@ -6235,13 +6245,11 @@ fn sanitize_api_proxy_allowed_models(models: Vec<String>) -> Vec<String> {
     let selected = models
         .into_iter()
         .filter_map(|model| normalize_api_proxy_config_model_name(&model))
-        .filter(|model| MODELS.contains(&model.as_str()))
         .collect::<HashSet<_>>();
 
-    MODELS
-        .iter()
-        .filter(|model| selected.contains(**model))
-        .map(|model| (*model).to_string())
+    get_api_proxy_supported_models_internal()
+        .into_iter()
+        .filter(|model| selected.contains(model))
         .collect()
 }
 
@@ -9627,7 +9635,7 @@ mod tests {
             },
             api_keys: Arc::new(RwLock::new(Vec::new())),
             upstream_base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::new().into(),
             shared: Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default())),
             request_body_limit_bytes: DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
         };
@@ -9888,6 +9896,8 @@ mod tests {
         assert_eq!(
             models,
             vec![
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
                 "gpt-6-astra",
                 "gpt-6.1-sol",
                 "gpt-6.1-terra",
@@ -9943,9 +9953,9 @@ mod tests {
 
         assert!(disabled.contains("gpt-5.4"));
         assert!(disabled.contains("gpt-image-2"));
-        assert!(!visible.contains(&"gpt-5.4"));
-        assert!(!visible.contains(&"gpt-image-2"));
-        assert!(visible.contains(&"gpt-5.5"));
+        assert!(!visible.contains(&"gpt-5.4".into()));
+        assert!(!visible.contains(&"gpt-image-2".into()));
+        assert!(visible.contains(&"gpt-5.5".into()));
     }
 
     #[test]
@@ -11089,7 +11099,7 @@ mod tests {
 
         assert_eq!(
             super::upstream_codex_client_identity(&headers, true),
-            ("0.159.0", "codex_cli_rs/0.159.0")
+            ("0.169.0", "codex_cli_rs/0.169.0")
         );
         assert_eq!(
             super::upstream_codex_client_identity(&headers, false),

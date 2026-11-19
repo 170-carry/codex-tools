@@ -109,6 +109,7 @@ jobs:
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
+          tauriScript: ${{ runner.os == 'macOS' && 'bash scripts/build-verified-macos.sh' || '' }}
           args: ${{ matrix.args }}
 
   publish-npm-native:

@@ -1,11 +1,13 @@
 use axum::http::HeaderMap;
 
-// Use the client identity verified with the GPT-6.1 Sol Codex model catalog.
+// Match the Codex client version supporting the bundled catalog.
 // Keep the HTTP and WebSocket version/user-agent headers aligned.
-pub(super) const CODEX_CLIENT_VERSION: &str = "0.159.0";
-pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.159.0";
+pub(super) const CODEX_CLIENT_VERSION: &str = "0.169.0";
+pub(super) const CODEX_USER_AGENT: &str = "codex_cli_rs/0.169.0";
 
 pub(super) const MODELS: &[&str] = &[
+    "gpt-6.2-sol",
+    "gpt-6.2-astra",
     "gpt-6-astra",
     "gpt-6.1-sol",
     "gpt-6.1-terra",
@@ -21,6 +23,10 @@ pub(super) const MODELS: &[&str] = &[
     "gpt-image-2.5-flare",
 ];
 const MODEL_MAPPINGS: &[(&str, &str)] = &[
+    ("gpt6.2-sol", "gpt-6.2-sol"),
+    ("gpt-6-2-sol", "gpt-6.2-sol"),
+    ("gpt6.2-astra", "gpt-6.2-astra"),
+    ("gpt-6-2-astra", "gpt-6.2-astra"),
     ("gpt-6.1-terra", "gpt-6.1-terra"),
     ("gpt6.1-terra", "gpt-6.1-terra"),
     ("gpt-6-1-terra", "gpt-6.1-terra"),
@@ -57,10 +63,16 @@ const MODEL_MAPPINGS: &[(&str, &str)] = &[
 ];
 
 pub(super) fn map_client_model_to_upstream(model: &str) -> Result<String, String> {
-    Ok(remap_model_name(model, MODEL_MAPPINGS).unwrap_or_else(|| model.to_string()))
+    Ok(normalize_model_for_client(model))
 }
 
 pub(super) fn normalize_model_for_client(model: &str) -> String {
+    if super::discovery::snapshot()
+        .metadata(snapshot_family(model))
+        .is_some()
+    {
+        return model.to_owned();
+    }
     remap_model_name(model, MODEL_MAPPINGS).unwrap_or_else(|| model.to_string())
 }
 
@@ -68,16 +80,7 @@ pub(super) fn normalize_model_for_permissions(model: &str) -> String {
     let normalized = normalize_model_for_client(model);
     // Controls select catalog families. Resolve aliases and dated variants to
     // that family only for permission checks; preserve the wire model elsewhere.
-    MODELS
-        .iter()
-        .find(|base| {
-            normalized == **base
-                || normalized
-                    .strip_prefix(**base)
-                    .is_some_and(is_dated_snapshot_suffix)
-        })
-        .map(|base| (*base).to_string())
-        .unwrap_or(normalized)
+    snapshot_family(&normalized).to_owned()
 }
 
 pub(super) fn is_supported_image_model(model: &str) -> bool {
@@ -86,6 +89,13 @@ pub(super) fn is_supported_image_model(model: &str) -> bool {
         family.as_str(),
         "gpt-image-2" | "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare"
     )
+}
+
+fn snapshot_family(model: &str) -> &str {
+    model
+        .get(model.len().saturating_sub(11)..)
+        .filter(|suffix| is_dated_snapshot_suffix(suffix))
+        .map_or(model, |suffix| &model[..model.len() - suffix.len()])
 }
 
 fn is_dated_snapshot_suffix(suffix: &str) -> bool {
@@ -116,6 +126,9 @@ fn remap_model_name(model: &str, mappings: &[(&str, &str)]) -> Option<String> {
 }
 
 pub(super) fn is_responses_lite_model(model: &str) -> bool {
+    if let Some(metadata) = super::discovery::snapshot().metadata(snapshot_family(model)) {
+        return metadata["use_responses_lite"].as_bool().unwrap_or(false);
+    }
     [
         "gpt-6-astra",
         "gpt-6.1-sol",
@@ -185,6 +198,20 @@ pub(super) fn validate_reasoning(model: &str, effort: Option<&str>) -> Result<()
         return Err(
             "GPT-6 Sol/Luna 的 Codex 模型目录支持 low、medium、high、xhigh、max 推理强度；ultra 映射为 max".to_string(),
         );
+    }
+    if let (Some(effort), Some(metadata)) = (
+        effort,
+        super::discovery::snapshot().metadata(snapshot_family(model)),
+    ) {
+        let family = snapshot_family(model);
+        let newly_supported = family.starts_with("gpt-6.2-") || !MODELS.contains(&family);
+        if newly_supported
+            && metadata["supported_reasoning_levels"]
+                .as_array()
+                .is_some_and(|levels| !levels.iter().any(|level| level["effort"] == effort))
+        {
+            return Err(format!("{model} 不支持推理强度 {effort}"));
+        }
     }
     if is_responses_lite_model(model) && effort == Some("minimal") {
         return Err(

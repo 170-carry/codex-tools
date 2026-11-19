@@ -25,3 +25,7 @@ the upstream account's model entitlements.
 GPT-6.1 Terra metadata was added from the same upstream path, Git blob
 `489ebe3f2483348641a16160ce8491dd077eabca`, retrieved on 2026-11-07.
 Existing models retain their previously verified metadata.
+
+GPT-6.2 Sol and Astra are bundled from upstream blob
+`56e0f43cb66259e3b8d5a59d8ff12f41e1c8be06`. The proxy refreshes the public
+OpenAI Codex catalog at startup and hourly, retaining the last successful copy offline.

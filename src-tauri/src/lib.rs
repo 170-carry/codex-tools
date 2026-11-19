@@ -2806,8 +2806,11 @@ async fn clear_api_proxy_usage_stats(
 }
 
 #[tauri::command]
-fn get_api_proxy_supported_models() -> Result<Vec<String>, String> {
-    Ok(proxy_service::get_api_proxy_supported_models_internal())
+async fn get_api_proxy_supported_models(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    proxy_service::refresh_desktop_proxy_models(&app, state.inner()).await
 }
 
 #[tauri::command]

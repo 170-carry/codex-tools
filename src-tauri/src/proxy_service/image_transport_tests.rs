@@ -94,7 +94,8 @@ impl ImageMock {
                 .no_proxy()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
-                .expect("local-only test client"),
+                .expect("local-only test client")
+                .into(),
             shared: Arc::new(tokio::sync::Mutex::new(ApiProxyRuntimeSnapshot::default())),
             request_body_limit_bytes: DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES,
         }
@@ -292,6 +293,36 @@ async fn image_transport_changes_leave_normal_responses_unchanged() {
     assert_eq!(request.headers[RESPONSES_LITE_HEADER], "true");
     assert!(!request.headers.contains_key("x-codex-image-turn-id"));
     assert_eq!(request.body, payload);
+}
+
+#[tokio::test]
+async fn gpt_6_2_models_reach_the_responses_endpoint_with_lite_metadata() {
+    let mut mock = ImageMock::start("{}").await;
+    for model in ["gpt-6.2-sol", "gpt-6.2-astra"] {
+        let (payload, _) = normalize_openai_responses_request(json!({
+            "model": model, "input": "test", "reasoning": {"effort": "high"}
+        }))
+        .unwrap();
+        forward_codex_request_with_candidate(
+            &mock.context(),
+            &image_chatgpt_candidate(),
+            &image_test_headers(),
+            &payload,
+            CodexUpstreamEndpoint::Responses,
+        )
+        .await
+        .unwrap();
+        let request = mock.request().await;
+        assert_eq!(request.path, "/backend-api/codex/responses");
+        assert_eq!(request.headers[RESPONSES_LITE_HEADER], "true");
+        assert_eq!(request.headers["version"], CODEX_CLIENT_VERSION);
+        assert_eq!(request.body["model"], model);
+        assert_eq!(request.body["input"][0]["type"], "additional_tools");
+        assert!(normalize_openai_responses_request(
+            json!({"model":model, "input":"test", "reasoning":{"effort":"none"}})
+        )
+        .is_err());
+    }
 }
 
 #[tokio::test]

@@ -1,30 +1,18 @@
 //! Native Codex metadata, separate from the lightweight OpenAI /v1/models list.
 use super::{api_proxy_visible_models_for_key, ApiProxyKey, AppSettings};
 use serde_json::{json, Value};
-use std::sync::OnceLock;
 
 pub(super) fn catalog_for_key(settings: &AppSettings, key: &ApiProxyKey) -> Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
-    let catalog = CATALOG.get_or_init(|| {
-        let mut catalog: Value = serde_json::from_str(include_str!("catalog/codex-models.json"))
-            .expect("bundled Codex catalog must be valid JSON");
-        // Older clients still require the legacy field. Generate it once
-        // instead of embedding a second copy of every model's instructions.
-        for model in catalog["models"].as_array_mut().expect("bundled models") {
-            model["base_instructions"] = model["model_messages"]["instructions_template"].clone();
-        }
-        catalog
-    });
+    let catalog = super::discovery::snapshot();
     let visible = api_proxy_visible_models_for_key(settings, key);
-    let mut models: Vec<_> = catalog["models"]
-        .as_array()
-        .expect("bundled Codex catalog must contain models")
+    let mut models: Vec<_> = catalog
+        .entries
         .iter()
         .filter(|model| {
             key.enabled
                 && model["slug"]
                     .as_str()
-                    .is_some_and(|slug| visible.contains(&slug))
+                    .is_some_and(|slug| visible.iter().any(|name| name == slug))
         })
         .cloned()
         .collect();
@@ -32,7 +20,7 @@ pub(super) fn catalog_for_key(settings: &AppSettings, key: &ApiProxyKey) -> Valu
         // Codex 0.159 treats an empty explicit catalog as absent and exposes
         // bundled models again. Keep a non-selectable entry to prevent that
         // fallback when every text model (or the bound key) is disabled.
-        let mut hidden = catalog["models"][0].clone();
+        let mut hidden = catalog.entries[0].clone();
         hidden["visibility"] = json!("hide");
         hidden["supported_in_api"] = json!(false);
         models.push(hidden);

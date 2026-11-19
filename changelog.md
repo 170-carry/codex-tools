@@ -2,6 +2,22 @@
 
 ### Released
 
+- v3.2.2
+
+#### English
+
+1. Add GPT-6.2 Sol and Astra to the proxy and the Codex model picker. Refresh the official OpenAI Codex catalog at startup and hourly, with an offline cache and existing key restrictions.
+2. Reconnect once after an upstream HTTP connection fails before submission and show the underlying transport error if it persists.
+3. Sign the complete macOS application bundle and verify the app inside both the DMG and the updater archive on Apple Silicon and Intel.
+4. Embed the Windows quota widget in the taskbar. Fall back to a floating widget when Windows cannot attach it.
+
+#### 中文
+
+1. 反代和 Codex 模型选择器支持 GPT-6.2 Sol、Astra。启动时及每小时从 OpenAI Codex 官方目录同步可见模型，离线使用缓存，并保留平台 Key 的模型限制。
+2. 上游 HTTP 建连失败时重建连接并重试一次，持续失败时显示底层网络错误。
+3. 为完整的 macOS 应用包签名，并检查 Apple Silicon 和 Intel 的 DMG 与自动更新归档中的应用签名。
+4. Windows 额度小组件嵌入任务栏，Windows 无法挂载时回退到悬浮显示。
+
 - v3.2.1
 
 #### English
